@@ -5,4 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+clanky-core = { path = "../clanky-core" }
+clanky-render = { path = "../clanky-render" }
+clanky-api = { path = "../clanky-api" }
+serde_json = "=1.0.154"
 winit = "=0.30.13"

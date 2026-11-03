@@ -54,7 +54,9 @@ Raw command output is the exact PTY byte stream, with stdout/stderr merged. It
 includes escape sequences and terminal line endings; it is not screen scraping.
 Text API output decodes UTF-8 with replacement for invalid sequences; base64
 output preserves all bytes. Retain at most 8 MiB per command and report retained
-range and truncation explicitly. Commands remain queryable until tab closure.
+range and truncation explicitly. Commands remain queryable until tab closure;
+a tab rejects new runs after retaining 1,024 commands. PTY read failures return
+`internal` rather than reporting incomplete bytes as successful output.
 
 OSC 133 handling follows A (prompt), B (input), C (output begins), D;status
 (output ends). Assign a block at C; seal it at D. A/B/prompt/input text never
@@ -198,6 +200,8 @@ Errors use codes `invalid_request`, `unsupported_version`, `unknown_operation`,
 
 An unparseable request uses `id:null`; an oversized line gets `invalid_request`
 and the connection closes. Cap concurrent connections at 32 and tabs at 64.
+A connection closes after 4,096 request IDs or 30 seconds without a complete
+request. Input queues are bounded to 1 MiB per PTY; overflow is `resource_limit`.
 
 ## M1 text rendering
 

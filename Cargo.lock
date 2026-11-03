@@ -288,34 +288,44 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clanky"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
+ "clanky-api",
+ "clanky-core",
+ "clanky-render",
+ "serde_json",
  "winit",
 ]
 
 [[package]]
 name = "clanky-api"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "base64 0.23.1",
+ "clanky-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "clanky-core"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "alacritty_terminal",
+ "base64 0.23.1",
  "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "clanky-render"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
+ "clanky-core",
  "cosmic-text",
  "wgpu",
+ "winit",
 ]
 
 [[package]]
