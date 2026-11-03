@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/clanky-core", "crates/clanky-render", "crates/clanky-api", "crates/clanky"]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.7"
+edition = "2024"
+license = "MIT"

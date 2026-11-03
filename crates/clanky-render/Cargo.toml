@@ -1,0 +1,11 @@
+[package]
+name = "clanky-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "=0.23.1"
+cosmic-text = "=0.19.0"
+png = "=0.18.1"
+wgpu = "=30.0.1"
