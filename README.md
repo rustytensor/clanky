@@ -1,4 +1,4 @@
-# FTL
+# Clanky
 
 A GPU-rendered terminal for Linux, written in Rust, built for people who work alongside coding agents.
 
@@ -20,9 +20,9 @@ A GPU-rendered terminal for Linux, written in Rust, built for people who work al
 - [cosmic-text](https://crates.io/crates/cosmic-text) for fonts and shaping
 - [winit](https://crates.io/crates/winit) for windows and input
 
-## Why "FTL"
+## Why "Clanky"
 
-Faster than light. Stargate fans know.
+A clanker is a robot. This is where they work.
 
 ## Licence
 

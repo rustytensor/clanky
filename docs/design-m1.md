@@ -9,10 +9,10 @@ Tab bars, splits, config files and the graphical command-block UI come later.
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
-| `ftl-core` | PTY lifecycle, terminal state, tabs, process results, OSC 133 blocks, decoded terminal events | No window or GPU code |
-| `ftl-render` | wgpu device, cosmic-text shaping, glyph atlas, Kitty image decoding/storage, shared window/offscreen drawing | `ftl-core` snapshot types |
-| `ftl-api` | Unix listener, JSON-lines validation, permission checks, request dispatch | `ftl-core` |
-| `ftl` | CLI, headless service, winit window, keyboard/resize, renderer integration, shutdown | All three libraries |
+| `clanky-core` | PTY lifecycle, terminal state, tabs, process results, OSC 133 blocks, decoded terminal events | No window or GPU code |
+| `clanky-render` | wgpu device, cosmic-text shaping, glyph atlas, Kitty image decoding/storage, shared window/offscreen drawing | `clanky-core` snapshot types |
+| `clanky-api` | Unix listener, JSON-lines validation, permission checks, request dispatch | `clanky-core` |
+| `clanky` | CLI, headless service, winit window, keyboard/resize, renderer integration, shutdown | All three libraries |
 
 Core exposes typed operations corresponding to the API below, plus immutable
 `TerminalSnapshot` values (cells, colors, cursor, dimensions, image placements).
@@ -72,8 +72,8 @@ to reconstruct arbitrary full-screen applications. Cap retained block text at
 
 ## Socket protocol v1
 
-Start with `ftl --headless --socket <path>`; GUI mode can use the same option.
-Default: `$XDG_RUNTIME_DIR/ftl/<instance>.sock`, in an owner-only directory.
+Start with `clanky --headless --socket <path>`; GUI mode can use the same option.
+Default: `$XDG_RUNTIME_DIR/clanky/<instance>.sock`, in an owner-only directory.
 Require a private directory, bind with mode 0600, never unlink an existing socket
 blindly, and check peer UID on Linux. No TCP listener. Remove only the socket
 this process created. Socket access permits command execution as the app user.
@@ -267,7 +267,7 @@ constants below; the renderer never supplies its own expected values.
    pixels (40,80), (56,80), (40,112), (56,112): respectively (255,0,0),
    (0,255,0), (0,0,255), (255,255,255), alpha 255, RGB tolerance 8.
 
-5. **Planted fault.** Run `FTL_GATE_FAULT=exitcode scripts/gate-m1.sh`. The Python
+5. **Planted fault.** Run `CLANKY_GATE_FAULT=exitcode scripts/gate-m1.sh`. The Python
    harness changes the observed exit-code value from 3 to 0 immediately before
    the normal comparison. It must reach and fail that assertion, reporting
    expected 3 / observed 0 and printing `FAIL`; an unrelated crash does not
