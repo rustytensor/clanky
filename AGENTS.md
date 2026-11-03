@@ -50,17 +50,17 @@ Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
 3. **Text rendering:** render offscreen (a software adapter is fine) an 80x24 grid holding a red full-block
    character `█` (U+2588) at row 0, column 0 on a black background. Expected: the pixel at that cell's centre is
    red (255,0,0 within 8 per channel); the pixel at the centre of row 0, column 1 is black.
-4. **Images:** send a 2x2 PNG (red, green / blue, white) by the Kitty graphics protocol at cell (2,2), scaled to
-   2x2 cells. Expected: each quadrant's centre pixel has that colour, within 8 per channel.
-5. **Tabs:** open two tabs through the API and run `printf A` in the first and `printf B` in the second.
+4. **Tabs:** open two tabs through the API and run `printf A` in the first and `printf B` in the second.
    Expected: the first command's output is exactly `A`, the second's exactly `B`, and the tab list holds both.
-6. **Planted fault:** `CLANKY_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
+5. **Planted fault:** `CLANKY_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
 
-By hand, by the owner: open a real window, run `vttest` (menu 1 and 2) and `kitten icat` on a picture.
+By hand, by the owner: open a real window and run `vttest` (menu 1 and 2), and two commands in fish (two blocks).
 
 ### Later milestones (gates written when each starts)
 
-- **M2: splits (several terminals side by side in one window), config, Wayland polish.**
+- **M2: splits (several terminals side by side in one window), images (Kitty graphics protocol), config, Wayland
+  polish.** Images moved here from M1: the parser in alacritty_terminal (vte 0.15) discards APC strings, so the
+  Kitty protocol needs a parser change first.
 - **M3: the graphical layer.** What sets Clanky apart: command blocks you can click (copy, rerun, send to an agent,
   collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
   everything a person can click, an agent can call.
