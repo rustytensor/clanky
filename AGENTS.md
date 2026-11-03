@@ -14,6 +14,22 @@ FTL is a GPU-rendered terminal in Rust, built for people who work alongside codi
 - New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib or ISC only.
 - Never weaken an expected value to make a test pass.
 
+## Versions and tags
+
+Every commit is tagged `vMAJOR.MINOR.PATCH`, annotated (`git tag -a vX.Y.Z -m vX.Y.Z`), and pushed with its tag.
+
+- PATCH (last number): bug fixes and small changes, documents included.
+- MINOR (middle): a new feature. Resets PATCH.
+- MAJOR (first): a major release (1.0.0, 2.0.0); after 1.0.0, also any change that breaks the socket API or
+  config. Resets MINOR and PATCH.
+- Before 1.0.0 the API may still change between minor versions.
+- `Cargo.toml` versions match the tag.
+
+## Platforms
+
+Linux first; Windows and macOS later. Keep platform code (PTY, process groups, socket permissions) in one
+module per platform behind a small interface, so the rest of the code never calls a platform API directly.
+
 ## Layout (planned)
 
 - `crates/ftl-core`: terminal state, PTY, tabs, command blocks (OSC 133). No GPU code.
