@@ -302,23 +302,24 @@ implementation is authorized yet.
 
 ## Exact direct dependency request
 
-These are proposed exact pins, not claims of a resolved or tested dependency
-set. Version availability, compatibility and published licence metadata have not
-been checked against the registry in this no-download step. The licences below
-are the expected upstream declarations and must be confirmed before use. Do not
-silently substitute versions if verification finds a mismatch.
+These exact pins use the newest stable releases reported in the design review
+from a crates.io check on 2026-11-03. They are not a resolved or tested dependency
+set. Compatibility and published licence metadata remain unverified in this
+no-download step. The licences below are the expected upstream declarations and
+must be confirmed before use. Do not silently substitute versions if verification
+finds a mismatch.
 
 | Crate | Exact version | Expected licence | Why |
 | --- | --- | --- | --- |
-| `alacritty_terminal` | `=0.25.0` | Apache-2.0 | Terminal state, upstream VT handling and `tty` PTY/spawn lifecycle |
-| `wgpu` | `=24.0.1` | MIT OR Apache-2.0 | Shared GPU window/offscreen renderer and readback |
-| `cosmic-text` | `=0.12.1` | MIT OR Apache-2.0 | Font loading, shaping and glyph rasterization |
-| `winit` | `=0.30.9` | Apache-2.0 | Linux window, keyboard input and resize events |
-| `serde` | `=1.0.219` | MIT OR Apache-2.0 | Typed protocol serialization; enable `derive` |
-| `serde_json` | `=1.0.140` | MIT OR Apache-2.0 | JSON-lines encoding and decoding |
-| `libc` | `=0.2.172` | MIT OR Apache-2.0 | Process-group operations absent from `tty`, and Unix peer credentials |
-| `png` | `=0.17.16` | MIT OR Apache-2.0 | Decode Kitty PNG payloads |
-| `base64` | `=0.22.1` | MIT OR Apache-2.0 | Kitty transfers and lossless API byte output |
+| `alacritty_terminal` | `=0.26.0` | Apache-2.0 | Terminal state, upstream VT handling and `tty` PTY/spawn lifecycle |
+| `wgpu` | `=30.0.1` | MIT OR Apache-2.0 | Shared GPU window/offscreen renderer and readback |
+| `cosmic-text` | `=0.19.0` | MIT OR Apache-2.0 | Font loading, shaping and glyph rasterization |
+| `winit` | `=0.30.13` | Apache-2.0 | Linux window, keyboard input and resize events |
+| `serde` | `=1.0.229` | MIT OR Apache-2.0 | Typed protocol serialization; enable `derive` |
+| `serde_json` | `=1.0.154` | MIT OR Apache-2.0 | JSON-lines encoding and decoding |
+| `libc` | `=0.2.191` | MIT OR Apache-2.0 | Process-group operations absent from `tty`, and Unix peer credentials |
+| `png` | `=0.18.1` | MIT OR Apache-2.0 | Decode Kitty PNG payloads |
+| `base64` | `=0.23.1` | MIT OR Apache-2.0 | Kitty transfers and lossless API byte output |
 
 Use alacritty_terminal's re-exported parser interfaces rather than requesting a
 separate direct `vte` dependency. If those interfaces are insufficient, stop and
