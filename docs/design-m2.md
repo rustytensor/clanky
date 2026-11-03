@@ -145,7 +145,8 @@ app integration and manifests shared across tasks, reads every changed line,
 and runs whole builds at -j8. Workers check only their crate at -j2, serialized
 with the shared build lock. No worker commits. No extra third-party dependency
 other than the approved png restoration. Licence policy includes Unicode-3.0
-and Unlicense in addition to MIT, Apache-2.0, BSD, Zlib and ISC.
+and Unlicense (only where MIT is also offered) in addition to MIT, Apache-2.0,
+BSD, Zlib and ISC.
 
 Every commit is annotated and pushed after the secret scan. Patch tags precede
 the gate; v0.2.0 records the passing gate. Stop on the first real failed check,

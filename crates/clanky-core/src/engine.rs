@@ -268,8 +268,14 @@ impl Engine {
         let t = self.tab(tab_id, true)?;
         let _guard = t.lifecycle.lock().unwrap();
         if let Some(p) = &*t.process.lock().unwrap() {
-            p.tx.try_send(Control::Resize(rows, cols))
-                .map_err(|_| error("resource_limit", "PTY control queue unavailable"))?;
+            match p.tx.try_send(Control::Resize(rows, cols)) {
+                // An exited PTY has no reader, but its retained screen must
+                // still resize when a split collapses or the window changes.
+                Ok(()) | Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {}
+                Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                    return Err(error("resource_limit", "PTY control queue unavailable"));
+                }
+            }
         }
         t.terminal.lock().unwrap().resize(rows, cols);
         Ok(())

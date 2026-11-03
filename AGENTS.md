@@ -11,7 +11,7 @@ Clanky is a GPU-rendered terminal in Rust, built for people who work alongside c
 - Run the one check that exercises your change, once. The full gate runs at the end of a milestone.
 - Builds: at most 8 jobs (`cargo build -j 8`). Keep `target/` where `CARGO_TARGET_DIR` points.
 - Commits: plain English, what changed and why. No AI tool names in commits or code.
-- New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib or ISC only.
+- New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0, or Unlicense (Unlicense only where MIT is also offered).
 - Never weaken an expected value to make a test pass.
 
 ## Versions and tags

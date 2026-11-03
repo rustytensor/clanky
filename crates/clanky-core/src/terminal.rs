@@ -55,6 +55,10 @@ struct Observer {
     evicted: u64,
     command_id: String,
     cr: bool,
+    kitty: crate::kitty::Kitty,
+    cursor: (usize, usize),
+    viewport: (usize, usize),
+    responses: Option<SyncSender<Vec<u8>>>,
 }
 impl Observer {
     fn seal(&mut self, code: Option<i32>, complete: bool) {
@@ -83,6 +87,13 @@ impl Observer {
     }
 }
 impl vte::Perform for Observer {
+    fn apc_dispatch(&mut self, bytes: &[u8]) {
+        if let Some(reply) = self.kitty.dispatch(bytes, self.cursor, self.viewport) {
+            if let Some(tx) = &self.responses {
+                let _ = tx.try_send(reply);
+            }
+        }
+    }
     fn print(&mut self, ch: char) {
         self.cr = false;
         self.push(ch);
@@ -154,18 +165,29 @@ impl Terminal {
     pub fn new(rows: usize, cols: usize) -> Self {
         let (tx, responses) = mpsc::sync_channel(64);
         Self {
-            term: Term::new(Config::default(), &Size(rows, cols), Listener(tx)),
+            term: Term::new(Config::default(), &Size(rows, cols), Listener(tx.clone())),
             processor: ansi::Processor::new(),
             parser: vte::Parser::new(),
-            observer: Observer::default(),
+            observer: Observer {
+                responses: Some(tx),
+                viewport: (rows, cols),
+                ..Observer::default()
+            },
             size: Size(rows, cols),
             responses,
         }
     }
     pub fn feed(&mut self, command: &str, bytes: &[u8]) -> Vec<Vec<u8>> {
-        self.processor.advance(&mut self.term, bytes);
         self.observer.command_id = command.into();
-        self.parser.advance(&mut self.observer, bytes);
+        // Keep the upstream ANSI processor and observer in lockstep. The APC
+        // callback sees the cursor at its event, even with later text in this chunk.
+        for byte in bytes {
+            let byte = std::slice::from_ref(byte);
+            self.processor.advance(&mut self.term, byte);
+            let point = self.term.grid().cursor.point;
+            self.observer.cursor = (point.line.0.max(0) as usize, point.column.0);
+            self.parser.advance(&mut self.observer, byte);
+        }
         self.responses.try_iter().collect()
     }
     pub fn eof(&mut self) {
@@ -174,6 +196,7 @@ impl Terminal {
     pub fn resize(&mut self, rows: usize, cols: usize) {
         self.size = Size(rows, cols);
         self.term.resize(self.size);
+        self.observer.viewport = (rows, cols);
     }
     pub fn blocks(&self) -> (Vec<Block>, u64) {
         let mut b: Vec<_> = self.observer.blocks.iter().cloned().collect();
@@ -217,6 +240,7 @@ impl Terminal {
             cols: self.size.1,
             cells,
             cursor,
+            images: self.observer.kitty.snapshot(self.size.0, self.size.1),
         }
     }
 }
