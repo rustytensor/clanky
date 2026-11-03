@@ -65,6 +65,21 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
 
 ### Later milestones (gates written when each starts)
 
-- **M3: the graphical layer.** What sets Clanky apart: command blocks you can click (copy, rerun, send to an agent,
-  collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
-  everything a person can click, an agent can call.
+- **M2: splits, images (Kitty graphics protocol), config, font size and zoom, Wayland polish.** Done: v0.2.0.
+- **M3: the graphical layer.** Command blocks you can click (copy, rerun, send to an agent, collapse), a side panel
+  listing agent tasks and their state, a command palette. Everything a person can click, an agent can call.
+- **M4: persistent sessions.** A background server owns the shells; windows and agents are clients. Close the window
+  and reattach later, locally or over SSH (`clanky attach host`).
+- **M5: the rest of the agent API.** Know when a program waits for input, read the screen as text, send keys,
+  events instead of polling, an MCP server.
+- **M6: safety.** Secrets masked before an agent reads output, a per-tab log of what each agent typed, one key that
+  stops every agent.
+- **M7: GUI editor.** Open files fast (click `path:line` anywhere), edit beside the agent, see its changes live and
+  accept or reject each one.
+- **M8: compose box.** A multi-line editor with spell-check for long prompts, pasted into the tab.
+- **M9: TUI editor.** The same editing core in a text-mode editor for machines without a display.
+- **M10: Windows and macOS, then 1.0.**
+
+Smaller items (scrollback search, clickable links and paths, notifications for long commands, new tab in the same
+folder, OSC 52 clipboard, drop-down terminal, session restore, Kitty keyboard protocol, accessibility) are folded
+into the milestones above as they fit.
