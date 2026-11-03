@@ -1,18 +1,19 @@
 # M1 dependency inventory
 
-Cargo selected the current stable direct releases on 2026-11-03; all nine are
-now pinned with `=` in the workspace member manifests. Cargo.lock is the exact
+Cargo selected the current stable direct releases on 2026-11-03; the eight
+remaining direct crates are pinned with `=` in the member manifests. The direct
+png dependency was removed when images moved to M2; base64 remains for API output. Cargo.lock is the exact
 resolved inventory, including platform-specific dependencies for later targets.
 No crate has been compiled in this step.
 
 Downloaded crate archives: **58,875,968 bytes (56.15 MiB)** across
-306 archives. Of these, the final lockfile uses 58,875,968 bytes.
+306 archives. Of these, the final lockfile uses 58,202,658 bytes.
 This measures compressed crate payloads in the dedicated fetch cache, not HTTP
 headers, registry index traffic or extracted disk usage. It is not a measurement
 of total network transfer. Sequential dependency resolution may cache archives
 not retained in the final lockfile.
 
-Inventory: 310 packages, including four MIT workspace packages.
+Inventory: 301 packages, including four MIT workspace packages.
 Licences come from fetched package manifests via Cargo metadata. For OR choices,
 the final column selects an allowed licence; a disallowed alternative does not
 force its use. AND obligations are retained. Legacy slash declarations are
@@ -28,7 +29,6 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | --- | --- | --- | --- |
 | ab_glyph | 0.2.32 | Apache-2.0 | Apache-2.0 |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | Apache-2.0 |
-| adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | MIT |
 | ahash | 0.8.12 | MIT OR Apache-2.0 | MIT |
 | aho-corasick | 1.1.5 | Unlicense OR MIT | Unlicense |
 | alacritty_terminal | 0.26.0 | Apache-2.0 | Apache-2.0 |
@@ -59,10 +59,10 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | cc | 1.11.0 | MIT OR Apache-2.0 | MIT |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | MIT |
 | cfg_aliases | 0.2.2 | MIT | MIT |
-| clanky | 0.0.7 | MIT | MIT |
-| clanky-api | 0.0.7 | MIT | MIT |
-| clanky-core | 0.0.7 | MIT | MIT |
-| clanky-render | 0.0.7 | MIT | MIT |
+| clanky | 0.0.9 | MIT | MIT |
+| clanky-api | 0.0.9 | MIT | MIT |
+| clanky-core | 0.0.9 | MIT | MIT |
+| clanky-render | 0.0.9 | MIT | MIT |
 | codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 |
 | combine | 4.6.9 | MIT | MIT |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Apache-2.0 |
@@ -72,7 +72,6 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | core-graphics-types | 0.1.3 | MIT OR Apache-2.0 | MIT |
 | core_maths | 0.1.1 | MIT | MIT |
 | cosmic-text | 0.19.0 | MIT OR Apache-2.0 | MIT |
-| crc32fast | 1.5.4 | MIT OR Apache-2.0 | MIT |
 | crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 | MIT |
 | crunchy | 0.2.4 | MIT | MIT |
 | cursor-icon | 1.2.0 | MIT OR Apache-2.0 OR Zlib | MIT |
@@ -85,9 +84,7 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | equivalent | 1.0.3 | Apache-2.0 OR MIT | Apache-2.0 |
 | errno | 0.3.14 | MIT OR Apache-2.0 | MIT |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT | Apache-2.0 |
-| fdeflate | 0.3.7 | MIT OR Apache-2.0 | MIT |
 | find-msvc-tools | 0.1.15 | MIT OR Apache-2.0 | MIT |
-| flate2 | 1.1.10 | MIT OR Apache-2.0 | MIT |
 | foldhash | 0.2.0 | Zlib | Zlib |
 | font-types | 0.11.3 | MIT OR Apache-2.0 | MIT |
 | font-types | 0.12.7 | MIT OR Apache-2.0 | MIT |
@@ -136,8 +133,6 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | log | 0.4.35 | MIT OR Apache-2.0 | MIT |
 | memchr | 2.8.3 | Unlicense OR MIT | Unlicense |
 | memmap2 | 0.9.12 | MIT OR Apache-2.0 | MIT |
-| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | MIT |
-| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | MIT |
 | miow | 0.6.1 | MIT OR Apache-2.0 | MIT |
 | naga | 30.0.1 | MIT OR Apache-2.0 | MIT |
 | naga-types | 30.0.1 | MIT OR Apache-2.0 | MIT |
@@ -184,7 +179,6 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | piper | 0.2.5 | MIT OR Apache-2.0 | MIT |
 | pkg-config | 0.3.34 | MIT OR Apache-2.0 | MIT |
 | plain | 0.2.3 | MIT/Apache-2.0 | MIT |
-| png | 0.18.1 | MIT OR Apache-2.0 | MIT |
 | polling | 3.11.0 | Apache-2.0 OR MIT | Apache-2.0 |
 | portable-atomic | 1.15.0 | Apache-2.0 OR MIT | Apache-2.0 |
 | portable-atomic-util | 0.2.8 | Apache-2.0 OR MIT | Apache-2.0 |
@@ -229,7 +223,6 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | shlex | 2.0.1 | MIT OR Apache-2.0 | MIT |
 | signal-hook | 0.4.6 | MIT OR Apache-2.0 | MIT |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | MIT |
-| simd-adler32 | 0.3.10 | MIT | MIT |
 | simd_cesu8 | 1.2.0 | Apache-2.0 OR MIT | Apache-2.0 |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 | MIT |
 | skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT |
@@ -334,5 +327,4 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | zeno | 0.3.3 | Apache-2.0 OR MIT | Apache-2.0 |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT | BSD-2-Clause |
 | zerocopy-derive | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT | BSD-2-Clause |
-| zlib-rs | 0.6.8 | Zlib | Zlib |
 | zmij | 1.0.23 | MIT | MIT |

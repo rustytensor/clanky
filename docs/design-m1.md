@@ -1,23 +1,23 @@
-# M1 design: one window, one tab, an agent can drive it
+# M1 design: one window with tabs, an agent can drive it
 
-Status: design approved with the revisions below. Dependency downloads and
-implementation require separate approval. This document adds neither.
-M1 covers Linux, a single visible terminal, and independently addressable API tabs.
-Tab bars, splits, config files and the graphical command-block UI come later.
+Status: implementation approved. M1 covers Linux, a window with a tab bar,
+independently addressable terminals, command blocks and offscreen text rendering.
+Splits, images, config files and the graphical command-block UI come later.
+Images moved to M2 because vte 0.15.0 discards APC strings. Do not modify vte
+or add APC scanning in M1.
 
 ## Crate boundaries
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
 | `clanky-core` | PTY lifecycle, terminal state, tabs, process results, OSC 133 blocks, decoded terminal events | No window or GPU code |
-| `clanky-render` | wgpu device, cosmic-text shaping, glyph atlas, Kitty image decoding/storage, shared window/offscreen drawing | `clanky-core` snapshot types |
+| `clanky-render` | wgpu device, cosmic-text shaping, glyph atlas, shared window/offscreen drawing | `clanky-core` snapshot types |
 | `clanky-api` | Unix listener, JSON-lines validation, permission checks, request dispatch | `clanky-core` |
 | `clanky` | CLI, headless service, winit window, keyboard/resize, renderer integration, shutdown | All three libraries |
 
 Core exposes typed operations corresponding to the API below, plus immutable
-`TerminalSnapshot` values (cells, colors, cursor, dimensions, image placements).
-The API does not touch renderer state. The app routes bounded Kitty events from
-core to render and returns protocol replies to the PTY. Headless mode creates no
+`TerminalSnapshot` values (cells, colors, cursor, dimensions).
+The API does not touch renderer state. Headless mode creates no
 window or graphics device; the separate offscreen gate harness creates a device.
 
 One core owner serializes tab mutations. PTY readers, child reapers and socket
@@ -45,10 +45,10 @@ cleanup, including on gate failures. No detached service remains after the gate.
 ## Terminal and command output
 
 Use alacritty_terminal for terminal state and its upstream parser interfaces for
-VT decoding. Observe OSC 133 and Kitty APC through the upstream parser's handler
-hooks while forwarding normal terminal handling. Do not implement a second VT
-parser. Before coding, verify the selected upstream version exposes those hooks;
-a missing hook is a design blocker, not permission to add a private parser.
+VT decoding. Observe OSC 133 using the re-exported vte `Perform::osc_dispatch`
+hook alongside normal terminal processing; this observes decoded events, not
+hand-written escape scanning. Do not implement a VT parser or any APC handling.
+Kitty APC support is deferred to M2; the current parser does not expose it.
 
 Raw command output is the exact PTY byte stream, with stdout/stderr merged. It
 includes escape sequences and terminal line endings; it is not screen scraping.
@@ -168,6 +168,16 @@ removed from this tab. Incomplete blocks have `complete:false,exit_code:null`.
 Apply a 256 KiB aggregate text budget per page. A single larger block returns
 its text prefix with `truncated:true`; pagination advances by block, not text.
 
+**`list_tabs`** — list agent-authorized tabs and their current command IDs.
+
+```json
+{"v":1,"id":"tabs","op":"list_tabs"}
+{"id":"tabs","ok":true,"result":{"tabs":[{"tab_id":"t1","allow_agent":true,"command_id":"c1"}]}}
+```
+
+The GUI can list all tabs through the internal core interface; the socket lists
+only authorized tabs. IDs remain stable until closure.
+
 **`close_tab`** — terminate any active process group and release retained state.
 Respond only after cleanup; closing an unknown tab returns `not_found`.
 
@@ -189,34 +199,38 @@ Errors use codes `invalid_request`, `unsupported_version`, `unknown_operation`,
 An unparseable request uses `id:null`; an oversized line gets `invalid_request`
 and the connection closes. Cap concurrent connections at 32 and tabs at 64.
 
-## Rendering and Kitty images
+## M1 text rendering
 
 Window and offscreen rendering use the same snapshot-to-draw path. cosmic-text
-shapes glyphs into a cached atlas; wgpu draws backgrounds, glyphs, images and
-cursor. Offscreen uses an RGBA8Unorm target, opaque black clear, no sRGB conversion,
-nearest image sampling, cell-sized image scaling, and no image antialiasing. Request a
+shapes glyphs into a cached atlas; wgpu draws backgrounds, glyphs and cursor.
+Offscreen uses an RGBA8Unorm target, opaque black clear, no sRGB conversion. Request a
 normal adapter first, then a fallback/software adapter. No adapter is FAIL, not
 SKIP. Readback respects wgpu row alignment and removes padding before sampling.
 
 The text fixture uses fixed 16x32-pixel cells, an 80x24 grid, cursor hidden and a
-bundled DejaVu Sans Mono. After the separate dependency/download go, copy
+bundled DejaVu Sans Mono. The approved dependency step copied
 `/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf` to
 `assets/fonts/DejaVuSansMono.ttf` and
 `/usr/share/licenses/dejavu-sans-mono-fonts/LICENSE` to `assets/fonts/LICENSE`.
 Preserve the complete licence file. This is the approved font-specific exception
 to the crate licence list: Bitstream Vera terms, public-domain DejaVu changes,
-and the accompanying notices, not OFL. Do not copy either file in this step.
+and the accompanying notices, not OFL.
 Load the bundled font rather than depending on runtime host fonts; verify its
 U+2588 glyph during implementation. Use the real glyph path, not a special red
 rectangle for the gate.
 
-M1 Kitty scope: direct base64 transmission of RGB, RGBA or PNG, chunk assembly,
+## M2: Kitty images (deferred; no M1 implementation)
+
+A parser decision is required before this work starts. Do not patch vte or add
+APC scanning in M1. The following is a retained proposal, not an M1 gate.
+
+Proposed Kitty scope: direct base64 transmission of RGB, RGBA or PNG, chunk assembly,
 transmit-and-display, explicit image/placement IDs, cell-sized placement and
 deletion. Honor reply suppression and send protocol success/error replies.
 Reject unsupported filesystem/shared-memory transport without opening paths.
 Limit encoded payload to 16 MiB, dimensions to 4096 per axis and decoded image
 storage to 64 MiB across the app; reject before oversized allocation. Kitty
-parsing/decoding must handle arbitrary PTY chunk boundaries. The gate uses a
+parsing/decoding must handle arbitrary PTY chunk boundaries. A future gate uses a
 single PNG transfer; manual `kitten icat` checks establish actual compatibility,
 not a claim that every Kitty extension works.
 
@@ -232,7 +246,7 @@ inside the gate. Run against the built app; missing binaries are failures.
 Use a private temporary directory, bounded readiness/wait deadlines (5 seconds
 for socket readiness, 10 seconds per PTY case, 30 seconds for rendering), and
 trap cleanup by saved process IDs. A timeout is FAIL. The offscreen harness
-accepts `--case text` and `--case image`, returns sampled RGBA values, and exits
+accepts `--case text`, returns sampled RGBA values, and exits
 nonzero on device/render/readback errors. Python compares these against the
 constants below; the renderer never supplies its own expected values.
 
@@ -259,13 +273,11 @@ constants below; the renderer never supplies its own expected values.
    Draw through the shared renderer. Sample pixel (8,16), expected (255,0,0),
    and (24,16), expected (0,0,0); alpha must be 255. Each RGB channel may differ
    by at most 8. Coordinates are zero-based with a top-left origin.
-4. **Image pixels.** Generate a 2x2 PNG with opaque red/green on the top row and
-   blue/white below, using Python's struct/zlib/base64 modules. Feed cursor move
-   `ESC[3;3H` then `ESC_Ga=T,f=100,t=d,i=1,c=2,r=2,q=2;<base64>ESC\` through
-   the same core/parser and Kitty event path used by PTY input. The placement
-   begins at zero-based cell (2,2), covers two columns and two rows. Sample
-   pixels (40,80), (56,80), (40,112), (56,112): respectively (255,0,0),
-   (0,255,0), (0,0,255), (255,255,255), alpha 255, RGB tolerance 8.
+4. **Tabs.** Open two authorized tabs through the socket. Run `printf A` in
+   the first and `printf B` in the second; wait for both to drain. Require raw
+   output exactly `A` and `B` respectively, with no truncation, and require
+   `list_tabs` to contain both distinct IDs. The GUI tab bar selects which
+   terminal snapshot is displayed and receives keyboard input.
 
 5. **Planted fault.** Run `CLANKY_GATE_FAULT=exitcode scripts/gate-m1.sh`. The Python
    harness changes the observed exit-code value from 3 to 0 immediately before
@@ -276,38 +288,36 @@ constants below; the renderer never supplies its own expected values.
    variable and require `PASS` for checks 1–4.
 
 The automated gate does not establish window/input correctness. Manual acceptance
-also requires opening a window, running `vttest` menus 1 and 2, and displaying a
-picture with `kitten icat`. Report these separately if not performed.
+also requires opening a window, running `vttest` menus 1 and 2, and two commands
+in fish producing two blocks. Report these separately if not performed.
 
 ## Dependencies and implementation handoff
 
 Use std threads/channels and wgpu's own polling rather than adding an async
 runtime. Keep fresh PTYs, limits, error codes and the permission model as specified
-above. No dependency resolution is part of this documentation step. Verify the
-selected upstream parser/tty hooks and version compatibility after download
-approval; missing hooks remain a design blocker. Check direct and transitive
-crate licences against MIT, Apache-2.0, BSD, Zlib or ISC before acceptance; the
+above. Dependencies have been fetched and their declared licences recorded in
+`docs/deps-m1.md`. Check further direct and transitive crate licences against
+MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0 or Unlicense before acceptance; the
 approved DejaVu font exception is separate from crate licensing.
 
 After approval, three bounded tasks implement core, render, and API/gate against
 these contracts. Core supplies shared snapshot/event types; render owns the
-Kitty image consumer and offscreen harness; API owns transport and gate script.
+text renderer and offscreen harness; API owns transport and gate script.
 The integration lead owns the app, manifests, window/headless wiring and review
 of every changed line. Workers check only their own crate with two build jobs;
 whole-tree builds are serialized and use at most eight jobs. No worker commits.
 
-This step ends with the revised document committed and pushed. No build,
-executable gate, worker launch, font copy, dependency addition, download or
-implementation is authorized yet.
+The scope revision is committed as v0.0.9, followed by three workers and app
+integration without an approval pause. Platform calls stay in one module per
+platform behind a shared interface. The final gate is run once with the planted
+fault, then once clean. Stop at the first real failed check.
 
 ## Exact direct dependency request
 
-These exact pins use the newest stable releases reported in the design review
-from a crates.io check on 2026-11-03. They are not a resolved or tested dependency
-set. Compatibility and published licence metadata remain unverified in this
-no-download step. The licences below are the expected upstream declarations and
-must be confirmed before use. Do not silently substitute versions if verification
-finds a mismatch.
+Cargo selected these current releases in the approved dependency step and they
+are pinned exactly. Declared licences and the resolved dependency closure are
+in `docs/deps-m1.md` and Cargo.lock. Compilation compatibility is not yet proven.
+The direct png dependency is deferred to M2.
 
 | Crate | Exact version | Expected licence | Why |
 | --- | --- | --- | --- |
@@ -318,8 +328,7 @@ finds a mismatch.
 | `serde` | `=1.0.229` | MIT OR Apache-2.0 | Typed protocol serialization; enable `derive` |
 | `serde_json` | `=1.0.154` | MIT OR Apache-2.0 | JSON-lines encoding and decoding |
 | `libc` | `=0.2.191` | MIT OR Apache-2.0 | Process-group operations absent from `tty`, and Unix peer credentials |
-| `png` | `=0.18.1` | MIT OR Apache-2.0 | Decode Kitty PNG payloads |
-| `base64` | `=0.23.1` | MIT OR Apache-2.0 | Kitty transfers and lossless API byte output |
+| `base64` | `=0.23.1` | MIT OR Apache-2.0 | Lossless API byte output |
 
 Use alacritty_terminal's re-exported parser interfaces rather than requesting a
 separate direct `vte` dependency. If those interfaces are insufficient, stop and
@@ -328,7 +337,6 @@ report instead of adding a parser dependency or writing a replacement.
 This is the complete requested **direct** crate set, not the complete download
 inventory: Cargo will also resolve transitive dependencies (including derive
 macros, platform support and rasterization libraries). Their exact versions and
-licences cannot be represented as verified without resolution. After permission,
-record the resolved closure in Cargo.lock and review it before building; any
+licences are recorded after resolution in Cargo.lock and the inventory; any
 additional direct dependency or disallowed licence needs separate approval.
 No async runtime, PTY wrapper crate or downloaded font is requested.
