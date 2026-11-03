@@ -4,7 +4,8 @@ Cargo selected the current stable direct releases on 2026-11-03; the eight
 remaining direct crates are pinned with `=` in the member manifests. The direct
 png dependency was removed when images moved to M2; base64 remains for API output. Cargo.lock is the exact
 resolved inventory, including platform-specific dependencies for later targets.
-No crate has been compiled in this step.
+The M1 workspace builds with these dependencies. Functional gate results are
+reported separately.
 
 Downloaded crate archives: **58,875,968 bytes (56.15 MiB)** across
 306 archives. Of these, the final lockfile uses 58,202,658 bytes.
@@ -59,10 +60,10 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | cc | 1.11.0 | MIT OR Apache-2.0 | MIT |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | MIT |
 | cfg_aliases | 0.2.2 | MIT | MIT |
-| clanky | 0.0.9 | MIT | MIT |
-| clanky-api | 0.0.9 | MIT | MIT |
-| clanky-core | 0.0.9 | MIT | MIT |
-| clanky-render | 0.0.9 | MIT | MIT |
+| clanky | 0.0.10 | MIT | MIT |
+| clanky-api | 0.0.10 | MIT | MIT |
+| clanky-core | 0.0.10 | MIT | MIT |
+| clanky-render | 0.0.10 | MIT | MIT |
 | codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 |
 | combine | 4.6.9 | MIT | MIT |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Apache-2.0 |
