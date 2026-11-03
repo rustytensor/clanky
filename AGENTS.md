@@ -39,3 +39,10 @@ Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
 5. **Planted fault:** `FTL_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
 
 By hand, by the owner: open a real window, run `vttest` (menu 1 and 2) and `kitten icat` on a picture.
+
+### Later milestones (gates written when each starts)
+
+- **M2: tabs, splits, config, Wayland polish.**
+- **M3: the graphical layer.** What sets FTL apart: command blocks you can click (copy, rerun, send to an agent,
+  collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
+  everything a person can click, an agent can call.
