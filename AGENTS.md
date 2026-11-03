@@ -39,7 +39,7 @@ module per platform behind a small interface, so the rest of the code never call
 
 ## Milestones
 
-### M1: one window, one tab, an agent can drive it
+### M1: one window with tabs, an agent can drive it
 
 Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
 
@@ -52,13 +52,15 @@ Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
    red (255,0,0 within 8 per channel); the pixel at the centre of row 0, column 1 is black.
 4. **Images:** send a 2x2 PNG (red, green / blue, white) by the Kitty graphics protocol at cell (2,2), scaled to
    2x2 cells. Expected: each quadrant's centre pixel has that colour, within 8 per channel.
-5. **Planted fault:** `FTL_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
+5. **Tabs:** open two tabs through the API and run `printf A` in the first and `printf B` in the second.
+   Expected: the first command's output is exactly `A`, the second's exactly `B`, and the tab list holds both.
+6. **Planted fault:** `FTL_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
 
 By hand, by the owner: open a real window, run `vttest` (menu 1 and 2) and `kitten icat` on a picture.
 
 ### Later milestones (gates written when each starts)
 
-- **M2: tabs, splits, config, Wayland polish.**
+- **M2: splits (several terminals side by side in one window), config, Wayland polish.**
 - **M3: the graphical layer.** What sets FTL apart: command blocks you can click (copy, rerun, send to an agent,
   collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
   everything a person can click, an agent can call.
