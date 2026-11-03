@@ -60,10 +60,10 @@ font exception, with accompanying notices. The font was copied, not downloaded.
 | cc | 1.11.0 | MIT OR Apache-2.0 | MIT |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | MIT |
 | cfg_aliases | 0.2.2 | MIT | MIT |
-| clanky | 0.1.0 | MIT | MIT |
-| clanky-api | 0.1.0 | MIT | MIT |
-| clanky-core | 0.1.0 | MIT | MIT |
-| clanky-render | 0.1.0 | MIT | MIT |
+| clanky | 0.1.1 | MIT | MIT |
+| clanky-api | 0.1.1 | MIT | MIT |
+| clanky-core | 0.1.1 | MIT | MIT |
+| clanky-render | 0.1.1 | MIT | MIT |
 | codespan-reporting | 0.13.1 | Apache-2.0 | Apache-2.0 |
 | combine | 4.6.9 | MIT | MIT |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Apache-2.0 |
