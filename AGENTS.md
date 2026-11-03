@@ -56,11 +56,15 @@ Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
 
 By hand, by the owner: open a real window and run `vttest` (menu 1 and 2), and two commands in fish (two blocks).
 
+### M2: splits, images, config and Wayland polish
+
+Automated gate passed: `scripts/gate-m2.sh`, after its planted image fault failed.
+The gate and fixed expectations are in `docs/design-m2.md`; results and remaining
+manual checks are in `docs/m2-results.md`. The vendored vte APC patch replaces no
+VT parser, and the socket's terminal IDs and command routing stay unchanged.
+
 ### Later milestones (gates written when each starts)
 
-- **M2: splits (several terminals side by side in one window), images (Kitty graphics protocol), config, Wayland
-  polish.** Images moved here from M1: the parser in alacritty_terminal (vte 0.15) discards APC strings, so the
-  Kitty protocol needs a parser change first.
 - **M3: the graphical layer.** What sets Clanky apart: command blocks you can click (copy, rerun, send to an agent,
   collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
   everything a person can click, an agent can call.
