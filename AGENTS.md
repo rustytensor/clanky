@@ -1,6 +1,6 @@
-# Working on FTL
+# Working on Clanky
 
-FTL is a GPU-rendered terminal in Rust, built for people who work alongside coding agents. Read README.md first.
+Clanky is a GPU-rendered terminal in Rust, built for people who work alongside coding agents. Read README.md first.
 
 ## Rules
 
@@ -32,10 +32,10 @@ module per platform behind a small interface, so the rest of the code never call
 
 ## Layout (planned)
 
-- `crates/ftl-core`: terminal state, PTY, tabs, command blocks (OSC 133). No GPU code.
-- `crates/ftl-render`: wgpu renderer, glyph atlas, image layer. Can render offscreen for tests.
-- `crates/ftl-api`: the local socket API for agents (JSON lines over a Unix socket).
-- `crates/ftl`: the app: window, input, config.
+- `crates/clanky-core`: terminal state, PTY, tabs, command blocks (OSC 133). No GPU code.
+- `crates/clanky-render`: wgpu renderer, glyph atlas, image layer. Can render offscreen for tests.
+- `crates/clanky-api`: the local socket API for agents (JSON lines over a Unix socket).
+- `crates/clanky`: the app: window, input, config.
 
 ## Milestones
 
@@ -43,7 +43,7 @@ module per platform behind a small interface, so the rest of the code never call
 
 Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
 
-1. **Agent socket:** start `ftl --headless`, connect to its socket, run `sh -c 'printf hello; exit 3'` in a new tab.
+1. **Agent socket:** start `clanky --headless`, connect to its socket, run `sh -c 'printf hello; exit 3'` in a new tab.
    Expected: exit code 3, output exactly `hello`.
 2. **Command blocks:** with a shell that emits OSC 133 markers, run `echo one` then `echo two`. Expected: the API
    lists two blocks, outputs `one` and `two`.
@@ -54,13 +54,13 @@ Done when `scripts/gate-m1.sh` prints PASS. The gate checks, without a display:
    2x2 cells. Expected: each quadrant's centre pixel has that colour, within 8 per channel.
 5. **Tabs:** open two tabs through the API and run `printf A` in the first and `printf B` in the second.
    Expected: the first command's output is exactly `A`, the second's exactly `B`, and the tab list holds both.
-6. **Planted fault:** `FTL_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
+6. **Planted fault:** `CLANKY_GATE_FAULT=exitcode scripts/gate-m1.sh` must print FAIL.
 
 By hand, by the owner: open a real window, run `vttest` (menu 1 and 2) and `kitten icat` on a picture.
 
 ### Later milestones (gates written when each starts)
 
 - **M2: splits (several terminals side by side in one window), config, Wayland polish.**
-- **M3: the graphical layer.** What sets FTL apart: command blocks you can click (copy, rerun, send to an agent,
+- **M3: the graphical layer.** What sets Clanky apart: command blocks you can click (copy, rerun, send to an agent,
   collapse), a side panel listing agent tasks and their state, a command palette. Built on the M1 socket API, so
   everything a person can click, an agent can call.
