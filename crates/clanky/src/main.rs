@@ -1,4 +1,5 @@
 mod studio;
+mod settings_window;
 mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
@@ -94,7 +95,7 @@ fn run() -> Result<(), String> {
     if let Some(host) = host {
         let config = Config::load(config_path.as_deref())?;
         let client = Client::connect_ssh(&host).map_err(|e| e.to_string())?;
-        return run_window(client, config, false, None);
+        return run_window(client, config, false, None, config_path.or_else(clanky::platform::settings_path));
     }
     let socket = match socket {
         Some(path) => path,
@@ -113,9 +114,9 @@ fn run() -> Result<(), String> {
         return clanky::mcp::serve(&socket);
     }
     let config = Config::load(config_path.as_deref())?;
-    let persistence = if config.restore_layout { layout_store::default_path().map(|path| (path, socket.clone())) } else { None };
-    let client = clanky::session::prepare_window(&socket, persistence.as_ref().map(|(path, _)| path.as_path()))?;
-    run_window(client, config, true, persistence)
+    let persistence = layout_store::default_path().map(|path| (path, socket.clone()));
+    let client = clanky::session::prepare_window(&socket, persistence.as_ref().filter(|_|config.restore_layout).map(|(path, _)| path.as_path()))?;
+    run_window(client, config, true, persistence, config_path.or_else(clanky::platform::settings_path))
 }
 
 struct App {
@@ -154,9 +155,17 @@ struct App {
     next_polish: Instant,
     persistence: Option<(PathBuf, PathBuf)>,
     studio: studio::Studio,
+    settings: Option<clanky::settings_panel::SettingsPanel>,
+    settings_error: Option<String>,
+    next_settings: Instant,
 }
 
-fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>) -> Result<(), String> {
+fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>) -> Result<(), String> {
+    let (settings,settings_error)=match settings_path.map(clanky::settings::Settings::open) {
+        Some(Ok(store))=>(Some(clanky::settings_panel::SettingsPanel::new(store)),None),
+        Some(Err(error))=>(None,Some(error)),
+        None=>(None,Some("No settings path is available".into())),
+    };
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
@@ -198,6 +207,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
+        settings,settings_error,next_settings:Instant::now(),
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -322,6 +332,7 @@ impl App {
         }
     }
     fn persist_layout(&self) -> Result<(), String> {
+        if !self.config.restore_layout {return Ok(());}
         if let Some((path, socket)) = &self.persistence {
             let _guard = platform::StartupLock::acquire(socket).map_err(|e| e.to_string())?;
             layout_store::save(&self.engine, path)?;
@@ -503,6 +514,23 @@ impl App {
             self.status = Some("Agent access revoked; pending waits cancelled".into());
             return Ok(());
         }
+        if self.modifiers.control_key() && matches!(key,Key::Character(ch) if ch==",") {return self.toggle_settings();}
+        if self.settings_open() {
+            if self.modifiers.control_key() {
+                if matches!(key,Key::Character(ch) if ch.eq_ignore_ascii_case("a")) {self.settings.as_mut().unwrap().select_all();return Ok(());}
+                if matches!(key,Key::Character(ch) if ch.eq_ignore_ascii_case("v")) {
+                    match platform::clipboard_read() {
+                        Ok(bytes)=>{if let Ok(text)=std::str::from_utf8(&bytes){self.settings.as_mut().unwrap().insert(text);}},
+                        Err(error)=>self.settings.as_mut().unwrap().error=Some(error.to_string()),
+                    }
+                    return Ok(());
+                }
+            }
+            let composing=self.input.composing();
+            let effect=self.settings.as_mut().unwrap().key(key,text,composing);
+            return self.settings_effect(effect);
+        }
+        if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
             && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
         {
@@ -649,9 +677,19 @@ impl App {
             self.input.composing(),
         ))
     }
-    fn click(&mut self) -> Result<(), String> { self.click_studio() }
-    fn drag(&mut self) -> Result<(), String> { self.drag_studio() }
-    fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> { self.scroll_studio(delta) }
+    fn click(&mut self) -> Result<(), String> {
+        if self.settings_open() && self.settings_button_hit(){return self.toggle_settings();}
+        if self.settings_open() {let effect=self.settings.as_mut().unwrap().click(self.mouse.0,self.mouse.1);self.settings_effect(effect)} else {self.click_studio()}
+    }
+    fn drag(&mut self) -> Result<(), String> {
+        if self.settings_open() {let effect=self.settings.as_mut().unwrap().drag(self.mouse.0);self.settings_effect(effect)} else {self.drag_studio()}
+    }
+    fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> {
+        if self.settings_open() {
+            let lines=match delta {MouseScrollDelta::LineDelta(_,y)=>y.round() as i32,MouseScrollDelta::PixelDelta(p)=>(p.y/20.0).round() as i32};
+            self.settings.as_mut().unwrap().wheel(lines);Ok(())
+        } else {self.scroll_studio(delta)}
+    }
     fn draw(&mut self) -> Result<(), String> { self.draw_studio() }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
         if self.has_local_work() { self.status = Some(error); return; }
@@ -719,6 +757,7 @@ impl ApplicationHandler for App {
                 self.modifiers = m.state();
                 Ok(())
             }
+            WindowEvent::CursorLeft { .. } => { self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if let Err(e) = self.drag() { self.status = Some(e); }
@@ -735,6 +774,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                if let Some(panel)=&mut self.settings {panel.release();}
                 self.files.dragging = None;
                 self.compose_dragging = false;
                 self.studio.drag = None;
@@ -750,6 +790,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if event.repeat && self.card_focused() { return; }
                 // Hold the consumed chord until release: releasing Ctrl first must
                 // not turn an auto-repeat after Send into ordinary PTY Enter.
                 if event.repeat && self.compose_enter_held { return; }
@@ -770,6 +811,16 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::Ime(event) => {
+                if self.settings_open() {
+                    match &event {
+                        Ime::Commit(text)=>self.settings.as_mut().unwrap().insert(text),
+                        Ime::Preedit(text,_)=>self.settings.as_mut().unwrap().preedit(text),
+                        _=>(),
+                    }
+                    let _=self.input.on_ime(&event);
+                    return;
+                }
+                if self.card_focused() { return; }
                 if self.compose.active_target().is_some() {
                     match &event {
                         Ime::Commit(text) => {
@@ -882,6 +933,10 @@ impl ApplicationHandler for App {
             }
             event_loop.exit();
             return;
+        }
+        if Instant::now() >= self.next_settings {
+            self.poll_settings();
+            self.next_settings=Instant::now()+Duration::from_millis(500);
         }
         if Instant::now() >= self.next_polish {
             if let Err(e) = self.poll_session() { self.status = Some(e); }

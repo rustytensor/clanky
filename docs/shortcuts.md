@@ -10,6 +10,7 @@ agent access and cancels waits, but does not kill running commands.
 | --- | --- |
 | `Ctrl+Shift+Escape` | Revoke all agents, including while a panel, search or compose prompt is open |
 | `Ctrl+Shift+P` | Toggle palette |
+| `Ctrl+,` | Open/close Settings; top-bar Settings button does the same |
 | `Ctrl+Shift+B` | Toggle sidebar |
 | `Ctrl+Shift+T` | New terminal tab in the focused terminal folder, or server home when unknown |
 | `Ctrl+Shift+D` | Split right; with editor focus, prompt for another file |
@@ -24,6 +25,28 @@ agent access and cancels waits, but does not kill running commands.
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Reset zoom |
 | `Ctrl+Tab` | Next terminal tab group |
+| `F6` | Focus/cycle visible command cards; reveal block actions |
+| `Card:ArrowLeft` | Choose the previous card action |
+| `Card:ArrowRight` | Choose the next card action |
+| `Card:Tab` | Choose the next card action |
+| `Card:Enter` | Activate the chosen block action |
+| `Card:Escape` | Return keyboard input to the pane |
+
+Block actions appear only while the card is hovered or keyboard-focused. They
+fade in over 120 ms; animations off makes them immediate. Card focus consumes
+ordinary typing and IME input rather than sending it to the shell underneath.
+
+## Settings
+
+| Key | Action |
+| --- | --- |
+| `Settings:Enter` | Apply the edited value or chosen import/export path |
+| `Settings:Escape` | Cancel the current editor/picker, or close Settings |
+| `Settings:Backspace` | Delete the final character, or selected field text |
+| `Settings:Ctrl+A` | Select the whole field |
+| `Settings:Ctrl+V` | Paste clipboard text into the field |
+| `Settings:ArrowUp` | Scroll the section up when not editing |
+| `Settings:ArrowDown` | Scroll the section down when not editing |
 
 ## Palette and file prompts
 
