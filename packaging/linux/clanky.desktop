@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Clanky
+Comment=GPU-rendered terminal for working with coding agents
+Exec=clanky
+Icon=io.github.rustytensor.Clanky
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;command;
