@@ -69,6 +69,10 @@ pub(crate) struct Block {
     pub block_id: String,
     pub command_id: String,
     pub command: Option<String>,
+    /// Absolute retained-grid lines; null means absent, evicted or invalidated.
+    pub prompt_line: Option<u64>,
+    pub command_line: Option<u64>,
+    pub end_line: Option<u64>,
     pub output: String,
     pub complete: bool,
     pub exit_code: Option<i32>,
@@ -98,6 +102,9 @@ struct Observer {
     command_id: String,
     cr: bool,
     prompt_waiting: bool,
+    marker: Option<u8>,
+    prompt_start: Option<u64>,
+    command_start: Option<(u64, usize)>,
     kitty: crate::kitty::Kitty,
     cursor: (usize, usize),
     viewport: (usize, usize),
@@ -182,6 +189,11 @@ impl vte::Perform for Observer {
         if params.first() != Some(&b"133".as_slice()) {
             return;
         }
+        self.marker = match params.get(1).copied() {
+            Some(b"A") => Some(b'A'), Some(b"B") => Some(b'B'),
+            Some(b"C") => Some(b'C'),
+            Some(b"D") if self.active.is_some() => Some(b'D'), _ => None,
+        };
         match params.get(1).copied() {
             Some(b"C") => {
                 self.prompt_waiting = false;
@@ -195,6 +207,9 @@ impl vte::Perform for Observer {
                     block_id: format!("b{}", self.next),
                     command_id: self.command_id.clone(),
                     command: None,
+                    prompt_line: None,
+                    command_line: None,
+                    end_line: None,
                     output: String::new(),
                     complete: false,
                     exit_code: None,
@@ -287,6 +302,12 @@ impl Terminal {
         Ok(formatter(text).into_bytes())
     }
     pub fn feed(&mut self, command: &str, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.feed_masked(command, bytes, &|_, _, _| false)
+    }
+    pub(crate) fn feed_masked(
+        &mut self, command: &str, bytes: &[u8],
+        mask: &dyn Fn(&mut [String], &[bool], Option<(usize, usize)>) -> bool,
+    ) -> Vec<Vec<u8>> {
         if !bytes.is_empty() {
             self.generation += 1;
         }
@@ -295,6 +316,8 @@ impl Terminal {
             let mut state = self.clipboard.lock().unwrap();
             if state.command != command {
                 // Do not complete a previous process's partial escape sequence.
+                self.observer.command_start = None;
+                self.observer.prompt_start = None;
                 self.processor = ansi::Processor::new();
                 self.parser = vte::Parser::new();
                 state.queue.clear();
@@ -306,12 +329,84 @@ impl Terminal {
         // callback sees the cursor at its event, even with later text in this chunk.
         for byte in bytes {
             let byte = std::slice::from_ref(byte);
+            let revision = self.term.grid().anchor_revision();
+            let alternate = self.term.mode().contains(TermMode::ALT_SCREEN);
             self.processor.advance(&mut self.term, byte);
+            if revision != self.term.grid().anchor_revision()
+                || alternate != self.term.mode().contains(TermMode::ALT_SCREEN) {
+                self.invalidate_anchors();
+            }
             let point = self.term.grid().cursor.point;
             self.observer.cursor = (point.line.0.max(0) as usize, point.column.0);
             self.parser.advance(&mut self.observer, byte);
+            if let Some(marker) = self.observer.marker.take() {
+                self.record_marker(marker, mask);
+            }
         }
         self.responses.try_iter().collect()
+    }
+    fn invalidate_anchors(&mut self) {
+        self.observer.prompt_start = None;
+        self.observer.command_start = None;
+        for block in self.observer.blocks.iter_mut().chain(self.observer.active.iter_mut()) {
+            block.prompt_line = None;
+            block.command_line = None;
+            block.end_line = None;
+        }
+    }
+    fn record_marker(&mut self, marker: u8,
+        mask: &dyn Fn(&mut [String], &[bool], Option<(usize, usize)>) -> bool,
+    ) {
+        if self.term.mode().contains(TermMode::ALT_SCREEN) { return; }
+        let Some((row, byte)) = self.text_cursor() else { return; };
+        let base = self.term.grid().evicted_lines();
+        let line = base + row as u64;
+        match marker {
+            b'A' => { self.observer.prompt_start = Some(line); self.observer.command_start = None; }
+            b'B' => {
+                self.observer.prompt_start.get_or_insert(line);
+                self.observer.command_start = Some((line, byte));
+            }
+            b'C' => {
+                let command = self.observer.command_start.and_then(|(start, column)| {
+                    let start = usize::try_from(start.checked_sub(base)?).ok()?;
+                    if start > row { return None; }
+                    let (_, _, mut lines, wraps, truncated) = self.text_context();
+                    // The same logical context and undecided-prefix masking as `screen`.
+                    if !mask(&mut lines, &wraps, Some((row, byte))) { return None; }
+                    if truncated {
+                        for (i, text) in lines.iter_mut().enumerate() {
+                            *text = "*".repeat(text.len());
+                            if !wraps[i] { break; }
+                        }
+                    }
+                    let mut command = String::new();
+                    for i in start..=row {
+                        let first = if i == start { column } else { 0 };
+                        let last = if i == row { byte } else { lines.get(i)?.len() };
+                        let part = lines.get(i)?.get(first..last)?;
+                        if command.len().saturating_add(part.len()) > 65536 { return None; }
+                        command.push_str(if wraps[i] { part } else { part.trim_end_matches(' ') });
+                        if i < row && !wraps[i] { command.push('\n'); }
+                    }
+                    Some(command.trim_end_matches([' ', '\n']).to_owned())
+                });
+                if let Some(block) = &mut self.observer.active {
+                    block.command = command;
+                    block.prompt_line = self.observer.prompt_start;
+                    // No A/B means no card, even if a shell emits C alone.
+                    block.command_line = self.observer.prompt_start.map(|_| line);
+                }
+                self.observer.command_start = None;
+                self.observer.prompt_start = None;
+            }
+            b'D' => {
+                if let Some(block) = self.observer.blocks.back_mut().filter(|b| b.complete) {
+                    block.end_line = block.command_line.map(|_| line);
+                }
+            }
+            _ => (),
+        }
     }
     pub fn eof(&mut self) {
         self.observer.prompt_waiting = false;
@@ -489,6 +584,8 @@ impl Terminal {
             return;
         }
         self.generation += 1;
+        // Reflow and height changes can relocate rows: never approximate anchors.
+        self.invalidate_anchors();
         self.size = Size(rows, cols);
         self.term.resize(self.size);
         self.observer.viewport = (rows, cols);
@@ -510,7 +607,32 @@ impl Terminal {
         if let Some(active) = &self.observer.active {
             b.push(active.clone());
         }
+        let oldest = self.term.grid().evicted_lines();
+        for block in &mut b {
+            for anchor in [&mut block.prompt_line, &mut block.command_line, &mut block.end_line] {
+                if anchor.is_some_and(|line| line < oldest) { *anchor = None; }
+            }
+        }
         (b, self.observer.evicted)
+    }
+    /// Presentation metadata captured under the same lock as the snapshot.
+    pub(crate) fn card_metadata(&self) -> serde_json::Value {
+        let top = self.viewport_line();
+        let oldest = self.term.grid().evicted_lines();
+        let blocks: Vec<_> = self.observer.blocks.iter().chain(self.observer.active.iter())
+            .filter(|b| b.prompt_line.is_some_and(|p| p >= oldest)
+                && b.command_line.is_some_and(|c| c >= top && c < top + self.size.0 as u64))
+            .take(64).map(|b| serde_json::json!({
+                "block_id":b.block_id,"command":b.command,"prompt_line":b.prompt_line,
+                "command_line":b.command_line,"end_line":b.end_line,
+                "complete":b.complete,"exit_code":b.exit_code,"duration_ms":b.duration_ms
+            })).collect();
+        serde_json::json!({"viewport_line":top,"blocks":blocks})
+    }
+    /// Absolute line at the top of the displayed viewport.
+    pub(crate) fn viewport_line(&self) -> u64 {
+        self.term.grid().evicted_lines()
+            + (self.term.grid().history_size() - self.term.grid().display_offset()) as u64
     }
     pub fn scroll(&mut self, delta: i32) -> usize {
         let before = self.term.grid().display_offset();

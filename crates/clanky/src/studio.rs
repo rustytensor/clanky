@@ -417,7 +417,9 @@ impl App {
                 }
                 widget(&mut snapshot,&state.theme);
             } else {
-                snapshot = match self.engine.snapshot(&pane.id) { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
+                let (current, anchors) = match self.engine.snapshot_with_blocks(&pane.id) { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
+                snapshot = current;
+                self.studio.blocks.insert(pane.id.clone(), anchors);
             }
             if self.search.active_target() == Some(pane.id.as_str()) {
                 let mut search = cells(pane.rows+1,pane.cols,&state.theme);
@@ -634,27 +636,21 @@ fn modal_rect(layout: &look::Layout, lines: usize) -> PixelRect {
     PixelRect { x:(layout.window_px[0] as f32-w)/2.0,y:(m.top_bar+m.outer_gap) as f32,w,h }
 }
 
-/// Only plain, complete, uniquely matching command+output sequences get live cards.
-/// Raw controls, wrapping, truncation and ambiguous matches require stable server row metadata.
+/// Only server anchors from this snapshot's generation place cards; never text matching.
 fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
     let mut cards = Vec::new();
     if !snapshot.images.is_empty() || snapshot.cols == 0 { return cards; }
-    let rows: Vec<_> = (0..snapshot.rows).map(|r|row_text(snapshot,r)).collect();
+    let Some(top) = view["viewport_line"].as_u64() else { return cards; };
     let Some(blocks) = view["blocks"].as_array() else { return cards; };
     for block in blocks {
-        if block["complete"] != true || block["truncated"] == true { continue; }
-        let (Some(id),Some(command),Some(output)) = (block["block_id"].as_str(),block["command"].as_str(),block["output"].as_str()) else { continue; };
-        if command.is_empty() || command.chars().count() > snapshot.cols.saturating_sub(52) || output.is_empty() || command.chars().any(char::is_control)
-            || output.chars().any(|c| c.is_control() && c!='\n') { continue; }
-        let mut expected = vec![command];
-        expected.extend(output.trim_end_matches('\n').split('\n'));
-        if expected.iter().any(|s|s.is_empty() || s.chars().count()>snapshot.cols) || expected.len()>rows.len() { continue; }
-        let matches: Vec<_> = rows.windows(expected.len()).enumerate().filter(|(_,r)|r.iter().map(String::as_str).eq(expected.iter().copied())).map(|(i,_)|i).collect();
-        if let [first] = matches.as_slice() {
-            let last = first+expected.len()-1;
-            if cards.iter().any(|c: &look::BlockCard|*first<=c.last_row && last>=c.first_row) { continue; }
-            cards.push(look::BlockCard { id:id.into(),first_row:*first,last_row:last,command:command.into(),exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()),duration_ms:block["duration_ms"].as_u64(),running:false });
-        }
+        let (Some(id), Some(command), Some(line)) = (block["block_id"].as_str(), block["command"].as_str(), block["command_line"].as_u64()) else { continue; };
+        if block["prompt_line"].as_u64().is_none() { continue; }
+        let Some(first) = line.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
+        let last = block["end_line"].as_u64().unwrap_or(line).saturating_sub(top)
+            .min(snapshot.rows.saturating_sub(1) as u64) as usize;
+        if last < first || cards.iter().any(|c: &look::BlockCard| first <= c.last_row && last >= c.first_row) { continue; }
+        cards.push(look::BlockCard { id:id.into(), first_row:first, last_row:last, command:command.into(),
+            exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()), duration_ms:block["duration_ms"].as_u64(), running:block["complete"] != true });
     }
     cards
 }
