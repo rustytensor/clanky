@@ -18,7 +18,8 @@ Expected results, fixed before implementation:
    - `ghp_` + 36 alphanumeric bytes: GITHUB.
    - `github_pat_` + 82 alphanumeric/underscore bytes: GITHUB.
    - `AKIA` + 16 uppercase alphanumeric bytes: AWS.
-   - `xoxb-`, `xoxp-`, `xoxa-`, `xoxr-`, `xoxs-` + 32 allowed bytes: SLACK.
+   - `xoxb-`, `xoxp-`, `xoxa-`, `xoxr-`, `xoxs-`, `xoxc-`, `xoxe-`
+     + 32 allowed bytes: SLACK.
    - `hf_` + 34 alphanumeric bytes: HUGGINGFACE.
    - `rpa_` + 48 alphanumeric bytes: RUNPOD.
    - `Authorization: Bearer ` + 40 URL-token bytes: BEARER. The entire
@@ -49,7 +50,9 @@ Expected results, fixed before implementation:
    select the longer complete match; a failed continuation exposes only safe text.
 6. An unterminated recognized private-key block masks through EOF. A long token
    body and a long private-key body are discarded as they arrive: buffered bytes
-   never exceed `hold_limit()`. A standalone ordinary byte is returned immediately.
+   never exceed `hold_limit()`. For the default gate configuration the longest
+   trigger is the 37-byte ENCRYPTED PRIVATE KEY header, so the limit is exactly
+   36 bytes. A standalone ordinary byte is returned immediately.
    Finish releases only nonmatching trailing prefixes; pushing after finish fails.
 7. Search every concatenated result, formatted error and captured child stdout/
    stderr for the generated secrets (and generated private-key body text).
@@ -86,7 +89,8 @@ Duplicate exact literals use the first configured name (env before extras).
 
 The recognizer uses conservative shapes, not issuer validation. `sk-` requires
 at least 6 following ASCII alphanumeric/underscore/hyphen bytes. The GitHub,
-Hugging Face, RunPod and Slack prefixes above require at least 12 such bytes.
+Hugging Face and RunPod prefixes above require at least 12 such bytes. Slack
+matches `xox` + any ASCII letter + `-`, then at least 12 such bytes.
 AWS is exactly AKIA plus 16 uppercase letters/digits. Bearer matches the ASCII
 case-insensitive prefix `Authorization: Bearer ` plus at least one byte from
 ASCII alphanumeric or `-._~+/=`. No surrounding word boundary is required.
@@ -124,7 +128,7 @@ longest literal/recognition-trigger length minus one; private-key bodies and
 long token tails use state, not storage. End-marker matching stores only a
 public delimiter position. At EOF incomplete nonmatches are returned unchanged;
 recognized secrets remain masked. This gives bounded memory independent of
-command output size, with matching CPU proportional to configured patterns.
+command output size; matching work grows with the number and length of patterns.
 
 ## Delivery
 

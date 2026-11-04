@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/clanky-core", "crates/clanky-render", "crates/clanky-api", "crates/clanky", "crates/clanky-vt", "crates/clanky-vte", "crates/clanky-edit"]
+members = ["crates/clanky-core", "crates/clanky-render", "crates/clanky-api", "crates/clanky", "crates/clanky-vt", "crates/clanky-vte", "crates/clanky-edit", "crates/clanky-mask"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.1-mask.1"
+version = "0.3.1-mask.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
