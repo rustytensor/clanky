@@ -27,9 +27,19 @@ colour samples and geometry passed. App binaries compile.
 Renderer f3b7a23 is integrated: measured advances, ascent/descent centring, 0.1 em
 heading tracking, measured ellipsis and adjacent title/driver placement. Live windows
 measure using their configured font families; offscreen scenes use bundled fonts.
-The command prompt mark is not inserted over terminal cells: that
-would overwrite or shift real command/output text. Coordinate its fixture content
-with the lead and gate team rather than guessing positions. Existing real command
+Round 2 adds optional hello client_name/model metadata and owner-only display
+labels (`LookState.agent_labels`, keyed by connection ID). Without a name the label
+is `agent <pid>`. Gate fixtures may populate this map directly.
+
+Actions now rest hidden, fading in over 120 ms on hover or keyboard card focus.
+F6 cycles visible cards; Left/Right/Tab selects an action; Enter activates it;
+Escape exits card focus. The agent-stop shortcut stays first. Live mouse/keyboard
+acceptance remains manual.
+
+The separate 16 px accent prompt mark measures 9.633 px wide. It fits in the 11 px
+between the pane's inner border and grid origin; neither cells nor the grid move.
+Both themes' protected colour samples, including (230,451), pass with the mark.
+Socket identity/lifecycle checks and app compilation pass. Existing real command
 text keeps the terminal's 16 px sizing; no invented durations or shell names.
 
 Ask clanky-pkg to rerun only the picture step with this app commit, retaining all

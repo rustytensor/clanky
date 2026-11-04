@@ -54,6 +54,12 @@ fn look_state_tracks_real_connections() {
     assert_eq!(state["agents"].as_array().unwrap().len(), 1);
     assert_eq!(state["agents"][0]["peer_pid"], std::process::id());
     assert_eq!(state["agents"][0]["running"], false);
+    let hello=agent.exchange(1,"hello",&json!({"client_name":"pi","model":"astra"})).unwrap();
+    assert_eq!(hello,json!({"version":1,"capabilities":["tabs","commands","blocks"]}));
+    let state=owner.exchange(3,"look_state",&json!({})).unwrap();
+    assert_eq!(state["agents"][0]["client_name"],"pi");
+    assert_eq!(state["agents"][0]["model"],"astra");
+    assert_eq!(agent.exchange(1,"hello",&json!({"client_name":"bad\nname"})).unwrap_err().code,"invalid_request");
     let denied = agent.exchange(3, "look_state", &json!({})).unwrap_err();
     assert_eq!(denied.code, "permission_denied");
 

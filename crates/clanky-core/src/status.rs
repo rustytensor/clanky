@@ -1,4 +1,4 @@
-//! Owner presentation metadata. No request arguments or terminal text are retained.
+//! Owner presentation metadata and masked hello display labels. No terminal text is retained.
 use super::*;
 
 #[derive(Clone)]
@@ -6,6 +6,8 @@ struct Connection {
     peer_pid: u32,
     tab_id: Option<String>,
     busy: bool,
+    client_name: Option<String>,
+    model: Option<String>,
 }
 
 pub(super) struct Driver {
@@ -84,7 +86,17 @@ impl Engine {
         let _lifecycle = tab.map(|t| t.lifecycle.lock().unwrap());
         let tab_id = tab_id.filter(|_| tab.is_some_and(|t| !t.closed.load(Ordering::Acquire)));
         self.0.1.status.connections.lock().unwrap().insert(connection_id,
-            Connection { peer_pid: peer.pid, tab_id, busy: false });
+            Connection { peer_pid: peer.pid, tab_id, busy: false, client_name: None, model: None });
+    }
+
+    /// Untrusted display labels only; never an authentication or permission input.
+    pub fn agent_connection_identity(&self, connection_id: u64, name: Option<&str>, model: Option<&str>) {
+        let name=name.map(|value| self.mask_message(value));
+        let model=model.map(|value| self.mask_message(value));
+        if let Some(peer)=self.0.1.status.connections.lock().unwrap().get_mut(&connection_id) {
+            peer.client_name=name;
+            peer.model=model;
+        }
     }
 
     pub fn agent_connection_closed(&self, connection_id: u64) {
@@ -127,7 +139,8 @@ impl Engine {
         let connections = self.0.1.status.connections.lock().unwrap().clone();
         let agents: Vec<_> = connections.iter().map(|(id, peer)| {
             json!({"connection_id":id,"peer_pid":peer.peer_pid,
-                "tab_id":peer.tab_id,"running":peer.busy})
+                "tab_id":peer.tab_id,"running":peer.busy,
+                "client_name":peer.client_name,"model":peer.model})
         }).collect();
         let tabs: Vec<_> = self.0.0.lock().unwrap().tabs.values().cloned().collect();
         let mut drivers = Vec::new();
