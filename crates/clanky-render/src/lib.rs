@@ -1,7 +1,9 @@
 //! Shared window and offscreen text and image rendering.
 mod scene;
 mod scene_gpu;
-pub use scene::{Fill, GridLayer, Layer, Scene, Shadow, Shape, TextRun, offscreen_scene};
+pub use scene::{
+    Fill, GridLayer, Layer, Scene, Shadow, Shape, TextMetrics, TextRun, measure_text, offscreen_scene,
+};
 use clanky_core::TerminalSnapshot;
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent};
 use std::{

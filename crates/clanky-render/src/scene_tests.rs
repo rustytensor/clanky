@@ -85,6 +85,7 @@ fn fixture() -> Scene {
                 color: [219, 228, 243, 255],
                 weight: 600,
                 mono: false,
+                letter_spacing: 0.0,
             }),
         ],
     };
@@ -129,6 +130,60 @@ fn near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, label: &str) {
     );
 }
 
+/// Independent oracle: cosmic-text advances without tracking, then five gaps
+/// for the six characters in Clanky. No measurement helper builds the oracle.
+#[test]
+fn text_metrics() {
+    use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
+    let mut db = cosmic_text::fontdb::Database::new();
+    db.load_font_data(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec());
+    let mut fonts = FontSystem::new_with_locale_and_db("en-US".into(), db);
+    let mut run = TextRun {
+        text: "Clanky".into(),
+        px: 20.0,
+        mono: true,
+        letter_spacing: 1.5,
+        ..TextRun::default()
+    };
+    let mut reference = Buffer::new(&mut fonts, Metrics::new(20.0, 25.0));
+    reference.set_size(None, None);
+    reference.set_wrap(Wrap::None);
+    reference.set_text(
+        &run.text,
+        &Attrs::new()
+            .family(Family::Name("JetBrains Mono"))
+            .weight(Weight(400)),
+        Shaping::Advanced,
+        None,
+    );
+    reference.shape_until_scroll(&mut fonts, false);
+    let advances: f32 = reference
+        .layout_runs()
+        .flat_map(|line| line.glyphs)
+        .map(|g| g.w)
+        .sum();
+    let expected = advances + 1.5 * (run.text.chars().count() - 1) as f32;
+    let layout = &reference.lines[0].layout_opt().unwrap()[0];
+    let expected_vertical = (layout.max_ascent, layout.max_descent, 25.0);
+    if std::env::var_os("CLANKY_TEXT_METRICS_FAULT").is_some() {
+        run.letter_spacing = 0.0;
+    }
+    let metrics = measure_text(&run);
+    assert!(
+        (metrics.width - expected).abs() < 0.001,
+        "width: expected {expected} (advances {advances} + 7.5), got {}",
+        metrics.width
+    );
+    assert_eq!(
+        (metrics.ascent, metrics.descent, metrics.line_height),
+        expected_vertical
+    );
+    println!(
+        "PASS: Clanky width {} = advances {} + 7.5; ascent {}, descent {}, line height {}",
+        metrics.width, advances, metrics.ascent, metrics.descent, metrics.line_height
+    );
+}
+
 /// On transparent clear, half opacity halves premultiplied RGB and alpha.
 #[test]
 fn scene_opacity() {
@@ -166,6 +221,7 @@ fn scene_opacity() {
             color: [200, 100, 50, 128],
             weight: 400,
             mono: true,
+            letter_spacing: 0.0,
         }));
         // The following shape must not inherit the preceding layer's fade.
         scene

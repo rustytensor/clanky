@@ -216,7 +216,7 @@ impl SettingsPanel {
 fn label(out:&mut Vec<Layer>,r:[f32;4],text:&str,px:f32,color:[u8;4]){
     let count=(r[2]/px.max(1.0)).max(0.0) as usize;
     let mut used=0;let text:String=text.chars().map(|c|if c.is_control(){' '}else{c}).take_while(|c|{used+=if c.is_ascii(){1}else{2};used<=count}).collect();
-    out.push(Layer::Text(TextRun{origin:[r[0],r[1]],text,px,color,weight:400,mono:false,opacity:1.0}));
+    out.push(Layer::Text(TextRun{origin:[r[0],r[1]],text,px,color,weight:400,mono:false,opacity:1.0,letter_spacing:0.0}));
 }
 fn value(c:&Config,key:&str)->Option<Value>{Some(match key{
     "opacity"=>json!(c.opacity),"font_size"=>json!(c.font_size),"font_family"=>json!(c.font_family),"ui_font_family"=>json!(c.ui_font_family),

@@ -1,5 +1,5 @@
 //! GPU implementation isolated from the legacy grid/fixture pipeline.
-use crate::{Fill, GridLayer, Layer, Scene, Shape, TextRun, extent, texture};
+use crate::{Fill, GridLayer, Layer, Scene, Shape, TextMetrics, TextRun, extent, texture};
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent,
     Weight, Wrap,
@@ -72,6 +72,7 @@ struct TextKey {
     text: String,
     px: u32,
     height: u32,
+    letter_spacing: u32,
     weight: u16,
     mono: bool,
 }
@@ -187,6 +188,118 @@ fn floats(out: &mut Vec<u8>, values: &[f32]) {
     }
 }
 
+fn scene_fonts(system_fonts: bool) -> FontSystem {
+    let mut db = cosmic_text::fontdb::Database::new();
+    for font in FONTS {
+        db.load_font_data(font.to_vec());
+    }
+    if system_fonts {
+        let bundled: HashSet<_> = db.faces().map(|face| face.id).collect();
+        db.load_system_fonts();
+        // Keep the shipped faces when a host also installs these families.
+        let duplicates: Vec<_> = db
+            .faces()
+            .filter(|face| {
+                !bundled.contains(&face.id)
+                    && face.families.iter().any(|(name, _)| {
+                        name.eq_ignore_ascii_case("Inter")
+                            || name.eq_ignore_ascii_case("JetBrains Mono")
+                    })
+            })
+            .map(|face| face.id)
+            .collect();
+        for id in duplicates {
+            db.remove_face(id);
+        }
+    } else {
+        db.set_monospace_family("JetBrains Mono");
+        db.set_sans_serif_family("Inter");
+        db.set_serif_family("DejaVu Sans Mono");
+    }
+    FontSystem::new_with_locale_and_db("en-US".into(), db)
+}
+
+fn valid_text(text: &TextRun) -> bool {
+    text.px.is_finite()
+        && (1.0..=512.0).contains(&text.px)
+        && (1..=1000).contains(&text.weight)
+        && text.text.len() <= 16384
+        && text.letter_spacing.is_finite()
+        && text.letter_spacing.abs() <= 512.0
+}
+
+// Both measurement and painting use this exact cosmic-text layout. Tracking is
+// converted from physical pixels to EM only at the cosmic-text boundary.
+fn shape_buffer(
+    fonts: &mut FontSystem,
+    text: &str,
+    px: f32,
+    height: f32,
+    weight: u16,
+    name: &str,
+    letter_spacing: f32,
+) -> Buffer {
+    let mut buffer = Buffer::new(fonts, Metrics::new(px, height));
+    buffer.set_size(None, None);
+    buffer.set_wrap(Wrap::None);
+    let mut attrs = Attrs::new().family(family(name)).weight(Weight(weight));
+    if letter_spacing != 0.0 {
+        attrs = attrs.letter_spacing(letter_spacing / px);
+    }
+    buffer.set_text(text, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(fonts, false);
+    buffer
+}
+
+fn measure_with_fonts(fonts: &mut FontSystem, text: &TextRun, name: &str) -> TextMetrics {
+    if !valid_text(text) || text.text.is_empty() {
+        return TextMetrics::default();
+    }
+    let buffer = shape_buffer(
+        fonts,
+        &text.text,
+        text.px,
+        text.px * 1.25,
+        text.weight,
+        name,
+        text.letter_spacing,
+    );
+    let mut metrics = TextMetrics {
+        line_height: text.px * 1.25,
+        ..TextMetrics::default()
+    };
+    for line in &buffer.lines {
+        for layout in line.layout_opt().into_iter().flatten() {
+            // Cosmic-text adds tracking to each glyph advance, including the
+            // final glyph. The reported width excludes that trailing gap.
+            let trailing = if layout.glyphs.is_empty() {
+                0.0
+            } else {
+                text.letter_spacing
+            };
+            metrics.width = metrics.width.max((layout.w - trailing).max(0.0));
+            metrics.ascent = metrics.ascent.max(layout.max_ascent);
+            metrics.descent = metrics.descent.max(layout.max_descent);
+        }
+    }
+    metrics
+}
+
+pub(super) fn measure_text(text: &TextRun) -> TextMetrics {
+    thread_local! {
+        // Reuse only deterministic font/shaping caches; no system font lookup,
+        // GPU, window state or observable mutation enters the free function.
+        static FONTS: std::cell::RefCell<FontSystem> = std::cell::RefCell::new(scene_fonts(false));
+    }
+    FONTS.with(|fonts| {
+        measure_with_fonts(
+            &mut fonts.borrow_mut(),
+            text,
+            if text.mono { "JetBrains Mono" } else { "Inter" },
+        )
+    })
+}
+
 pub(super) struct Painter {
     shape_pipeline: wgpu::RenderPipeline,
     glyph_pipeline: wgpu::RenderPipeline,
@@ -256,37 +369,6 @@ impl Painter {
             wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         );
         let atlas_binding = atlas_binding(device, &glyph_pipeline, &atlas, &sampler);
-        let mut db = cosmic_text::fontdb::Database::new();
-        // Prefer the shipped faces when the system also has a family of the
-        // same name. Installed families remain available for configuration.
-        for font in FONTS {
-            db.load_font_data(font.to_vec());
-        }
-        if system_fonts {
-            let bundled: HashSet<_> = db.faces().map(|face| face.id).collect();
-            db.load_system_fonts();
-            // Keep default families deterministic even when a host installation
-            // offers additional weights or a different version of those faces.
-            let duplicates: Vec<_> = db
-                .faces()
-                .filter(|face| {
-                    !bundled.contains(&face.id)
-                        && face.families.iter().any(|(name, _)| {
-                            name.eq_ignore_ascii_case("Inter")
-                                || name.eq_ignore_ascii_case("JetBrains Mono")
-                        })
-                })
-                .map(|face| face.id)
-                .collect();
-            for id in duplicates {
-                db.remove_face(id);
-            }
-        }
-        if !system_fonts {
-            db.set_monospace_family("JetBrains Mono");
-            db.set_sans_serif_family("Inter");
-            db.set_serif_family("DejaVu Sans Mono");
-        }
         Self {
             shape_pipeline,
             glyph_pipeline,
@@ -294,7 +376,7 @@ impl Painter {
             atlas,
             atlas_binding,
             sampler,
-            fonts: FontSystem::new_with_locale_and_db("en-US".into(), db),
+            fonts: scene_fonts(system_fonts),
             swash: SwashCache::new(),
             glyphs: HashMap::new(),
             shaped: HashMap::new(),
@@ -348,6 +430,14 @@ impl Painter {
             self.reset_atlas(device);
         }
         Ok(())
+    }
+    pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
+        let name = if text.mono {
+            &self.terminal_family
+        } else {
+            &self.ui_family
+        };
+        measure_with_fonts(&mut self.fonts, text, name)
     }
     fn bitmap(&mut self, queue: &wgpu::Queue, key: CacheKey) -> Result<Bitmap, String> {
         if let Some(bitmap) = self.glyphs.get(&key) {
@@ -417,32 +507,33 @@ impl Painter {
         height: f32,
         weight: u16,
         mono: bool,
+        letter_spacing: f32,
     ) -> Vec<Placed> {
         let key = TextKey {
             text: text.into(),
             px: px.to_bits(),
             height: height.to_bits(),
+            letter_spacing: letter_spacing.to_bits(),
             weight,
             mono,
         };
         if let Some(placed) = self.shaped.get(&key) {
             return placed.clone();
         }
-        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(px, height));
-        buffer.set_size(None, None);
-        buffer.set_wrap(Wrap::None);
         let name = if mono {
             &self.terminal_family
         } else {
             &self.ui_family
         };
-        buffer.set_text(
+        let buffer = shape_buffer(
+            &mut self.fonts,
             text,
-            &Attrs::new().family(family(name)).weight(Weight(weight)),
-            Shaping::Advanced,
-            None,
+            px,
+            height,
+            weight,
+            name,
+            letter_spacing,
         );
-        buffer.shape_until_scroll(&mut self.fonts, false);
         let mut placed = Vec::new();
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
@@ -468,18 +559,20 @@ impl Painter {
         clip: [f32; 4],
         height: f32,
     ) -> Result<(), String> {
-        if !text.origin.iter().all(|v| v.is_finite())
-            || !text.px.is_finite()
-            || !(1.0..=512.0).contains(&text.px)
-            || !(1..=1000).contains(&text.weight)
-            || text.text.len() > 16384
-        {
+        if !text.origin.iter().all(|v| v.is_finite()) || !valid_text(text) {
             return Err("Invalid scene text run".into());
         }
         if text.color[3] == 0 || text.text.is_empty() {
             return Ok(());
         }
-        let placed = self.shape_text(&text.text, text.px, height, text.weight, text.mono);
+        let placed = self.shape_text(
+            &text.text,
+            text.px,
+            height,
+            text.weight,
+            text.mono,
+            text.letter_spacing,
+        );
         for p in placed {
             // Avoid rasterizing long runs outside the target. The generous
             // margin retains overhangs and combining marks near the edge.
@@ -660,6 +753,7 @@ impl Painter {
                     color: [cell.fg[0], cell.fg[1], cell.fg[2], 255],
                     weight: 400,
                     mono: true,
+                    letter_spacing: 0.0,
                 },
                 clip,
                 ch,
