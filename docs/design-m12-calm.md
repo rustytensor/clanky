@@ -97,23 +97,23 @@ tabs and splits. No agents, no AI features. For coding and AI purists." Config `
 
 ## Clanky the robot (start-up animation)
 
-Marc approved the robot on 2026-11-04 ("I love it"), at half the speed of the first draft. The reference animation is
-/srv/devops/build/clanky/mockups/robot5.html: its shapes, timings and easings are the spec. Use its "Slow motion"
-button, or `?t=<ms>` to freeze a frame.
+Marc approved the robot on 2026-11-04 ("I love it"), at about 7 s with mixed pacing: the drama is slow, the
+reactions are snappy. The reference animation is /srv/devops/build/clanky/mockups/robot6.html: its shapes, timings
+and easings are the spec. Use its "Slow motion" button, or `?t=<ms>` to freeze a frame.
 
-- **The first meeting, about 8 s:**
+- **The first meeting, about 7 s:**
 
   | time (s) | what happens |
   |---|---|
-  | 0.0–1.9 | He rolls in side-on, looking where he is going (lens barrel forward). Wheels and belt turn; he bobs slightly. |
-  | 1.8–2.4 | He brakes with a forward rock, and dust puffs from under the treads. |
-  | 2.3–2.8 | A beat of stillness, then the head twitches: he has noticed you. |
-  | 2.7–4.3 | The torso turns 90° to you in 3D, with a slight overshoot. The head follows 200 ms later with more overshoot. The camera pushes in from 1.0 to 1.07. |
-  | 4.1–4.8 | The frown: lids at 0.72, angled 19° inwards, eyes dark, head tilted 5°. |
-  | 4.8–5.6 | He lights up. The lids snap open, the eyes flash on and focus, the antenna pings, the charge bars fill one by one, a warm glow blooms behind him, and his head tilts happily (−7°). |
-  | 5.5–6.7 | The tread base turns 90° to you in 3D, the view dipping 20° to show the tread tops. Then he is flat 2D, facing you. |
-  | 6.0 | A blink. |
-  | 6.8–8.0 | The wave, with an elbow bend and a double claw snap. "Clanky" fades in with a blinking cursor in the agent colour. |
+  | 0.0–1.6 | He rolls in side-on, looking where he is going (lens barrel forward). Wheels and belt turn; he bobs slightly. |
+  | 1.55–1.85 | He brakes snappily with a forward rock, and dust puffs from under the treads. |
+  | 1.85–2.45 | Stillness. At 2.15 a quick head twitch: he has noticed you. |
+  | 2.45–3.95 | The torso turns 90° to you in 3D, with a slight overshoot (1.2 s). The head follows 200 ms later (1.3 s) with more overshoot. The camera pushes in from 1.0 to 1.07 between 2.4 and 6.0 s. |
+  | 3.95–4.9 | The frown settles in over 0.5 s, then holds: lids at 0.72, angled 19°, eyes dark, head tilted 5°. |
+  | 4.9–5.3 | He lights up, fast. The lids snap open (220 ms), the eyes flash on (380 ms) and focus, the antenna pings, the charge bars fill 70 ms apart, the glow blooms (900 ms), and his head tilts happily (−7°). |
+  | 5.45–6.25 | The tread base turns 90° to you in 3D, the view dipping 20° to show the tread tops. Then he is flat 2D, facing you. |
+  | 6.15 | A quick blink (170 ms). |
+  | 6.3–7.0 | The wave (560 ms) with an elbow bend and a double claw snap. "Clanky" fades in at 6.5 s, with a blinking cursor in the agent colour. |
 
 - **When it plays:**
   - the full scene, the first time Clanky starts on a machine (a marker file in the state directory);
@@ -132,13 +132,13 @@ button, or `?t=<ms>` to freeze a frame.
   message). Three 3D boxes (base, torso, head) are flat panels through one 4 × 4 perspective matrix (perspective
   700 px); the rest are 2D layers. No 3D engine.
 - **Gate (check 15),** with the clock driven by the harness:
-  - Full scene: frames only from 0 to 8000 ms, then 0 frames over the next 2 s. The short greeting: frames only
+  - Full scene: frames only from 0 to 7000 ms, then 0 frames over the next 2 s. The short greeting: frames only
     from 0 to 1200 ms.
   - A key at 300 ms ends the animation within one frame, and the shell receives that key's bytes.
-  - At 8000 ms, the antenna light's centre pixel in Stone dark is the agent colour (210, 164, 118, 255),
+  - At 7000 ms, the antenna light's centre pixel in Stone dark is the agent colour (210, 164, 118, 255),
     tolerance 3.
-  - At 6100 ms, the tread base is mid-turn: the pixel at the base's centre-left differs from both the 5500 ms and
-    the 6700 ms frames. At 3500 ms, the same holds for the torso against 2700 ms and 4300 ms.
+  - At 5850 ms, the tread base is mid-turn: the pixel at the base's centre-left differs from both the 5400 ms and
+    the 6300 ms frames. At 3200 ms, the same holds for the torso against 2400 ms and 4000 ms.
   - The full scene plays once per machine: a second start shows the short greeting.
   - Planted fault `robot` (never stops) must fail the zero-frame check.
 
