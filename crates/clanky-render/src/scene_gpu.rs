@@ -11,11 +11,34 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 
+#[cfg(test)]
+#[test]
+fn geist_measurements() {
+    // Independent HarfBuzz hb-shape on v1.9.1: Geist U+0030 advances
+    // are 663/673/683 plus 10 units kerning for each of the first nine
+    // zeros; Geist Mono is 600 throughout. All use 1000 units/em.
+    let text = "0000000000";
+    for (weight, advance) in [(400, 663.0), (500, 673.0), (600, 683.0)] {
+        let ui = TextRun { text: text.into(), px: 14.0, weight, ..Default::default() };
+        let mono = TextRun { px: 13.0, mono: true, ..ui.clone() };
+        let expected = if std::env::var_os("CLANKY_FONT_FAULT").is_some() { 1.0 } else { (advance * 10.0 + 90.0) * 0.014 };
+        assert!((measure_text(&ui).width - expected).abs() < 0.02, "Geist weight {weight}: {:?}, expected {expected}", measure_text(&ui));
+        assert!((measure_text(&mono).width - 78.0).abs() < 0.02, "Geist Mono weight {weight}");
+    }
+    println!("PASS: Geist and Geist Mono 400/500/600 advances match v1.9.1 font tables");
+}
+
 const ATLAS: u32 = 2048;
 const MAX_VERTICES: usize = 64 * 1024 * 1024;
 const MAX_IMAGES: usize = 128 * 1024 * 1024;
 const ATLAS_FULL: &str = "scene glyph atlas capacity exceeded";
 const FONTS: &[&[u8]] = &[
+    include_bytes!("../../../assets/fonts/Geist-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/Geist-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/Geist-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
@@ -206,6 +229,8 @@ fn scene_fonts(system_fonts: bool) -> FontSystem {
                     && face.families.iter().any(|(name, _)| {
                         name.eq_ignore_ascii_case("Inter")
                             || name.eq_ignore_ascii_case("JetBrains Mono")
+                            || name.eq_ignore_ascii_case("Geist")
+                            || name.eq_ignore_ascii_case("Geist Mono")
                     })
             })
             .map(|face| face.id)
@@ -214,8 +239,8 @@ fn scene_fonts(system_fonts: bool) -> FontSystem {
             db.remove_face(id);
         }
     } else {
-        db.set_monospace_family("JetBrains Mono");
-        db.set_sans_serif_family("Inter");
+        db.set_monospace_family("Geist Mono");
+        db.set_sans_serif_family("Geist");
         db.set_serif_family("DejaVu Sans Mono");
     }
     FontSystem::new_with_locale_and_db("en-US".into(), db)
@@ -297,7 +322,7 @@ pub(super) fn measure_text(text: &TextRun) -> TextMetrics {
         measure_with_fonts(
             &mut fonts.borrow_mut(),
             text,
-            if text.mono { "JetBrains Mono" } else { "Inter" },
+            if text.mono { "Geist Mono" } else { "Geist" },
         )
     })
 }
@@ -419,9 +444,9 @@ impl Painter {
             images: HashMap::new(),
             next: [1, 1],
             shelf: 0,
-            terminal_family: "JetBrains Mono".into(),
-            ui_family: "Inter".into(),
-            metrics: (16.0, 10, 20),
+            terminal_family: "Geist Mono".into(),
+            ui_family: "Geist".into(),
+            metrics: (13.0, 8, 20),
         }
     }
     fn reset_atlas(&mut self, device: &wgpu::Device) {
