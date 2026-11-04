@@ -16,7 +16,7 @@ A GPU-rendered terminal for Linux, written in Rust, built for people who work al
 
 ## Built on
 
-- [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for the terminal core
+- a fork of Alacritty's terminal core ([alacritty_terminal](https://crates.io/crates/alacritty_terminal)), in `crates/clanky-vt`
 - [wgpu](https://crates.io/crates/wgpu) for rendering
 - [cosmic-text](https://crates.io/crates/cosmic-text) for fonts and shaping
 - [winit](https://crates.io/crates/winit) for windows and input
@@ -93,4 +93,14 @@ A clanker is a robot. This is where they work.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+Clanky is licensed under either of
+
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+
+at your option.
+
+## Thanks
+
+Clanky's terminal engine (`crates/clanky-vt`) and escape-sequence parser (`crates/clanky-vte`) are forks of
+[Alacritty](https://github.com/alacritty/alacritty)'s `alacritty_terminal` and `vte`. See [NOTICE](NOTICE).
