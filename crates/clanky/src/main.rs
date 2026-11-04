@@ -1,3 +1,4 @@
+mod studio;
 mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
@@ -142,7 +143,6 @@ struct App {
     palette_editor: Option<String>,
     // Drafts live only in this window; closing it can lose retained drafts.
     compose: Compose,
-    compose_rect: Option<Rect>,
     compose_dragging: bool,
     compose_enter_held: bool,
     search: Search,
@@ -153,6 +153,7 @@ struct App {
     published_focus: Option<Option<String>>,
     next_polish: Instant,
     persistence: Option<(PathBuf, PathBuf)>,
+    studio: studio::Studio,
 }
 
 fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>) -> Result<(), String> {
@@ -160,6 +161,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
+    let rails = config.rails;
     let mut app = App {
         engine,
         search: Search::default(),
@@ -170,7 +172,6 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         zoom: Zoom::new(config.font_size_pt),
         compose: Compose::new(&config.compose_dictionary_dir, &config.compose_dictionary,
             config.compose_words.clone(), config.compose_send_enter),
-        compose_rect: None,
         compose_dragging: false,
         compose_enter_held: false,
         config,
@@ -187,7 +188,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         error: None,
         status: None,
         next_frame: Instant::now(),
-        panels: panels::Panels::default(),
+        panels: panels::Panels::new(rails),
         files: EditorWorkspace::default(),
         local_files,
         palette_editor: None,
@@ -196,6 +197,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         published_focus: None,
         next_polish: Instant::now(),
         persistence,
+        studio: studio::Studio::default(),
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -222,9 +224,7 @@ impl App {
         })
     }
     fn rect(&self) -> Result<Rect, String> {
-        let mut r = self.full_rect()?;
-        r.cols -= self.panels.width(r.cols);
-        Ok(r)
+        self.full_rect()
     }
     fn terminal_rect(&self) -> Result<Rect, String> {
         Ok(self.files.terminal_rect(self.rect()?))
@@ -255,33 +255,15 @@ impl App {
         Ok(())
     }
     fn open_compose(&mut self, target: Option<&str>) -> Result<(), String> {
-        if self.files.focus != TERMINALS {
-            return Err("Focus a terminal to open Compose; a file editor is focused".into());
-        }
+        if self.files.focus != TERMINALS { return Err("Focus a terminal to open Compose; a file editor is focused".into()); }
         let target = target.ok_or("No focused terminal for Compose")?;
-        let root = self.terminal_rect()?;
-        let rect = self.groups.iter()
-            .find(|group| group.layout.contains(target))
-            .and_then(|group| group.layout.rectangles(root).into_iter().find(|(id, _)| id == target))
-            .map(|(_, rect)| rect).ok_or("Compose target was closed")?;
+        let layout = self.pixel_layout()?;
+        let pane = layout.pane(target).ok_or("Compose target is not visible")?;
+        if pane.rows < 3 || pane.cols < 8 || pane.grid_clip.h < layout.metrics.compose_min_height as f32 + 3.0*layout.cell_px[1] as f32 { return Err("Compose needs room for its dock and at least 3 terminal rows".into()); }
         self.compose.open(target)?;
-        self.compose_rect = Some(rect);
         self.compose_dragging = false;
         self.reset_ime();
-        Ok(())
-    }
-    fn compose_bounds(&self) -> Option<Rect> {
-        let target = self.compose.active_target()?;
-        let full = self.full_rect().ok()?;
-        let root = self.terminal_rect().ok()?;
-        // Follow geometry changes, not focus changes; a closed target never retargets Send.
-        let mut rect = self.groups.iter().find(|g| g.layout.contains(target))
-            .and_then(|g| g.layout.rectangles(root).into_iter().find(|(id, _)| id == target))
-            .map(|(_, rect)| rect).or_else(|| self.compose_rect.clone())?;
-        rect.cols = rect.cols.min(full.cols.saturating_sub(rect.col));
-        rect.rows = rect.rows.min((full.row + full.rows).saturating_sub(rect.row));
-        if rect.cols == 0 || rect.rows == 0 { rect = full; }
-        Some(rect)
+        self.resize_panes()
     }
     fn has_local_work(&self) -> bool {
         !self.files.panes.is_empty() || self.compose.active_target().is_some()
@@ -300,6 +282,7 @@ impl App {
     }
     fn load_workspace(&mut self, workspace: Workspace) {
         let previous = self.focused().map(str::to_owned);
+        if self.revision != workspace.revision { self.studio.drag = None; }
         self.revision = workspace.revision;
         self.groups = workspace.groups;
         self.active = workspace.active;
@@ -369,21 +352,20 @@ impl App {
             })
     }
     fn resize_panes(&mut self) -> Result<(), String> {
-        // Minimizing must not shrink retained terminal screens to one cell.
-        if self.is_suspended() || self.engine.is_closed() {
-            return Ok(());
-        }
+        if self.is_suspended() || self.engine.is_closed() { return Ok(()); }
         self.sync_groups()?;
-        let root = self.terminal_rect()?;
-        for group in &self.groups {
-            for (id, r) in group.layout.rectangles(root.clone()) {
-                if r.rows == 0 || r.cols == 0 || self.sizes.get(&id) == Some(&(r.rows, r.cols)) {
-                    continue;
-                }
-                match self.engine.resize(&id, r.rows, r.cols) {
-                    Ok(()) => {
-                        self.sizes.insert(id, (r.rows, r.cols));
-                    }
+        let layout = self.pixel_layout()?;
+        self.files.viewport = Some(layout.clone());
+        if let Some(window) = &self.window {
+            window.set_min_inner_size(Some(PhysicalSize::new(layout.minimum_window_px[0], layout.minimum_window_px[1])));
+        }
+        let layouts=self.groups.iter().map(|g|self.pixel_layout_for(&g.layout)).collect::<Result<Vec<_>,_>>()?;
+        for layout in layouts {
+            for pane in &layout.panes {
+                if self.files.panes.contains_key(&pane.id) { continue; }
+                if pane.rows == 0 || pane.cols == 0 || self.sizes.get(&pane.id) == Some(&(pane.rows, pane.cols)) { continue; }
+                match self.engine.resize(&pane.id, pane.rows, pane.cols) {
+                    Ok(()) => { self.sizes.insert(pane.id.clone(), (pane.rows, pane.cols)); }
                     Err(e) if e.code == "not_found" => {}
                     Err(e) => return Err(e.message),
                 }
@@ -403,7 +385,9 @@ impl App {
         window_tools::new_terminal(&self.engine, focused, rows, cols)
     }
     fn new_tab(&mut self) -> Result<(), String> {
-        let r = self.terminal_rect()?;
+        let layout=self.layout_with(&clanky_core::layout::Layout::leaf("__new__"))?;
+        let r=layout.pane("__new__").ok_or("No room for a terminal pane")?;
+        if r.rows<3 || r.cols<8 { return Err("New terminal needs at least 3 rows and 8 columns".into()); }
         // Capture the displayed source before open_tab changes workspace focus.
         let source = if self.files.focus == TERMINALS { self.focused() } else { None };
         let id = self.spawn_terminal(source, r.rows.max(1), r.cols.max(1))?;
@@ -434,12 +418,11 @@ impl App {
         let root = self.terminal_rect()?;
         let mut candidate = group.layout.clone();
         candidate.split(&target, "__new__".into(), axis.clone(), root.clone())?;
-        let r = candidate
-            .rectangles(root.clone())
-            .into_iter()
-            .find(|(id, _)| id == "__new__")
-            .ok_or("new pane is not visible")?
-            .1;
+        let proposed = self.layout_with(&candidate)?;
+        if !proposed.fits_minimum || proposed.panes.iter().any(|p| p.rows < 3 || p.cols < 8) {
+            return Err("Split needs at least 3 rows and 8 columns in every pane".into());
+        }
+        let r = proposed.pane("__new__").ok_or("new pane is not visible")?;
         let id = self.spawn_terminal(Some(&target), r.rows, r.cols)?;
         // open_tab already added an independent group. Work against its fresh
         // revision; on conflict that terminal must remain open independently.
@@ -458,6 +441,10 @@ impl App {
         }
         let mut layout = self.groups[target_group].layout.clone();
         layout.split(&target, id.clone(), axis, root)?;
+        let proposed=self.layout_with(&layout)?;
+        if !proposed.fits_minimum || proposed.panes.iter().any(|p|p.rows<3 || p.cols<8) {
+            return Err("Workspace changed: split no longer fits; new terminal remains independent".into());
+        }
         self.groups.retain(|g| !g.layout.contains(&id));
         let target_group = self
             .groups
@@ -516,6 +503,13 @@ impl App {
             self.status = Some("Agent access revoked; pending waits cancelled".into());
             return Ok(());
         }
+        if self.modifiers.control_key() && self.modifiers.shift_key()
+            && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
+        {
+            self.panels.visible = !self.panels.visible;
+            self.studio.drag = None;
+            return self.resize_panes();
+        }
         if self.compose.active_target().is_some() {
             // The opening chord is never an editing/send chord, even while open.
             if self.modifiers.control_key() && self.modifiers.shift_key()
@@ -534,9 +528,9 @@ impl App {
                 })
             } else { Ok(()) };
             if self.compose.active_target().is_none() {
-                self.compose_rect = None;
                 self.compose_dragging = false;
                 self.reset_ime();
+                self.resize_panes()?;
             }
             return result;
         }
@@ -593,13 +587,6 @@ impl App {
         }
         if ctrl && self.modifiers.shift_key() && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("o")) {
             return self.open_prompt(Axis::Columns, false, self.focused().map(str::to_owned), self.files.focus.clone());
-        }
-        if ctrl
-            && self.modifiers.shift_key()
-            && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
-        {
-            self.panels.visible = !self.panels.visible;
-            return self.resize_panes();
         }
         if ctrl {
             if let Key::Character(ch) = key {
@@ -662,281 +649,10 @@ impl App {
             self.input.composing(),
         ))
     }
-    fn mouse_cell(&self) -> Result<(usize, usize), String> {
-        let m = self.metrics()?;
-        Ok(((self.mouse.0 / m.cell_width as f64) as usize, (self.mouse.1 / m.cell_height as f64) as usize))
-    }
-    fn click(&mut self) -> Result<(), String> {
-        let (col, row) = self.mouse_cell()?;
-        self.files.dragging = None;
-        if self.compose.active_target().is_some() {
-            self.compose_dragging = false;
-            if let Some(rect) = self.compose_bounds() {
-                if col >= rect.col && col < rect.col + rect.cols && row >= rect.row && row < rect.row + rect.rows {
-                    self.compose.click(&rect, col, row, self.modifiers.shift_key())?;
-                    self.compose_dragging = true;
-                }
-            }
-            return Ok(());
-        }
-        if self.panels.open || self.files.modal() || self.search.active_target().is_some() { return Ok(()); }
-        if row > 0 && col >= self.rect()?.cols {
-            if row < self.full_rect()?.rows {
-                self.palette_editor = Some(self.files.focus.clone());
-                self.panels.click(&self.engine, row);
-                if self.panels.open { self.reset_ime(); }
-                self.local_request()?;
-            }
-            return Ok(());
-        }
-        if row == 0 {
-            let index = col / 16;
-            if index < self.groups.len() {
-                self.active = index;
-                self.files.focus_on(TERMINALS.into());
-                self.reset_ime();
-                self.save_workspace()?;
-            }
-            return Ok(());
-        }
-        let root = self.rect()?;
-        let Some(local) = self.files.layout.hit_test(root.clone(), col, row) else { return Ok(()); };
-        self.files.focus_on(local.clone());
-        self.reset_ime();
-        if local != TERMINALS {
-            let rect = self.files.layout.rectangles(root).into_iter().find(|(id, _)| *id == local).unwrap().1;
-            if let Some(pane) = self.files.panes.get_mut(&local) {
-                pane.click(&rect, col, row, self.modifiers.shift_key())?;
-                self.files.dragging = Some(local);
-            }
-            return Ok(());
-        }
-        let terminal_root = self.terminal_rect()?;
-        let Some(group) = self.groups.get(self.active) else { return Ok(()); };
-        let Some(id) = group.layout.hit_test(terminal_root.clone(), col, row) else { return Ok(()); };
-        let rect = group.layout.rectangles(terminal_root).into_iter().find(|(leaf, _)| *leaf == id).unwrap().1;
-        self.groups[self.active].focus = id.clone();
-        self.save_workspace()?;
-        let snapshot = self.engine.snapshot(&id).map_err(|e| e.message)?;
-        let (y, x) = (row - rect.row, col - rect.col);
-        let hit = window_tools::url_at(&snapshot, y, x);
-        if window_tools::url_click(hit.as_ref(), self.modifiers.control_key(), |url| {
-            self.url_opener.open(url).map_err(|_| "Could not open URL".to_owned())
-        })? { return Ok(()); }
-        if location_at(&snapshot, y, x).is_some() {
-            if !self.local_files { return Err("Remote terminal file clicks are not supported".into()); }
-            let cwd = self.cwd(Some(&id)).unwrap_or(None);
-            let pane = EditorPane::from_click(&snapshot, y, x, cwd.as_deref())?;
-            self.files.add(TERMINALS, pane, Axis::Columns, root)?;
-            self.reset_ime();
-            self.resize_panes()?;
-        }
-        Ok(())
-    }
-    fn drag(&mut self) -> Result<(), String> {
-        if self.compose.active_target().is_some() {
-            if self.compose_dragging {
-                if let Some(rect) = self.compose_bounds() {
-                    let (col, row) = self.mouse_cell()?;
-                    self.compose.drag(&rect, col.clamp(rect.col, rect.col + rect.cols - 1),
-                        row.clamp(rect.row, rect.row + rect.rows - 1))?;
-                }
-            }
-            return Ok(());
-        }
-        if self.files.modal() || self.panels.open || self.search.active_target().is_some() { return Ok(()); }
-        let Some(id) = self.files.dragging.clone() else { return Ok(()); };
-        let (col, row) = self.mouse_cell()?;
-        if let Some((_, rect)) = self.files.layout.rectangles(self.rect()?).into_iter().find(|(leaf, _)| *leaf == id) {
-            // Keep captured selection in its own pane; gutters never activate controls.
-            let col = col.clamp(rect.col, rect.col + rect.cols - 1);
-            let row = row.clamp(rect.row, rect.row + rect.rows - 1);
-            if let Some(pane) = self.files.panes.get_mut(&id) { pane.drag(&rect, col, row)?; }
-        }
-        Ok(())
-    }
-    fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> {
-        if self.files.modal() || self.panels.open || self.search.active_target().is_some() { return Ok(()); }
-        let m = self.metrics()?;
-        let (col, row) = self.mouse_cell()?;
-        let (columns, lines) = match delta {
-            MouseScrollDelta::LineDelta(x, y) => (-x * 3.0, -y * 3.0),
-            MouseScrollDelta::PixelDelta(p) => (-p.x as f32 / m.cell_width as f32, -p.y as f32 / m.cell_height as f32),
-        };
-        if self.compose.active_target().is_some() {
-            if let Some(rect) = self.compose_bounds() {
-                if col >= rect.col && col < rect.col + rect.cols && row >= rect.row && row < rect.row + rect.rows {
-                    self.compose.scroll(lines.round() as i64, columns.round() as i64)?;
-                }
-            }
-            return Ok(());
-        }
-        if col >= self.rect()?.cols { self.panels.scroll(lines.round() as i32); return Ok(()); }
-        let Some(local) = self.files.layout.hit_test(self.rect()?, col, row) else { return Ok(()); };
-        if self.files.panes.contains_key(&local) {
-            self.files.scroll(&local, row, lines.round() as i32, columns.round() as i32)?;
-        } else if let Some(id) = self.groups.get(self.active).and_then(|g| g.layout.hit_test(self.terminal_rect().ok()?, col, row)) {
-            self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?;
-        }
-        Ok(())
-    }
-    fn draw(&mut self) -> Result<(), String> {
-        if self.stop || self.is_suspended() {
-            return Ok(());
-        }
-        self.resize_panes()?;
-        let r = self.rect()?;
-        let full = self.full_rect()?;
-        let focused = self.focused().map(str::to_owned);
-        if !self.engine.is_closed() { self.panels.refresh(&self.engine, focused.as_deref()); }
-        let terminal_root = self.terminal_rect()?;
-        let mut frame = TerminalSnapshot {
-            rows: r.rows + 1,
-            cols: full.cols,
-            cells: vec![
-                Cell {
-                    ch: ' ',
-                    fg: [220, 220, 220],
-                    bg: [32, 32, 32]
-                };
-                (r.rows + 1) * full.cols
-            ],
-            cursor: None,
-            images: Vec::new(),
-        };
-        for (index, group) in self.groups.iter().enumerate() {
-            let label = format!(" {} {} ", index + 1, group.focus);
-            for (offset, ch) in label.chars().take(16).enumerate() {
-                if let Some(cell) = frame
-                    .cells
-                    .get_mut(index * 16 + offset)
-                    .filter(|_| index * 16 + offset < r.cols)
-                {
-                    cell.ch = ch;
-                    if index == self.active {
-                        cell.bg = [50, 80, 120];
-                        cell.fg = [255, 255, 255];
-                    }
-                }
-            }
-        }
-        let mut underlines = Vec::new();
-        let hover_enabled = self.compose.active_target().is_none() && self.search.active_target().is_none()
-            && !self.panels.open && !self.files.modal();
-        let (mouse_col, mouse_row) = self.mouse_cell()?;
-        let mut search_rect = None;
-        if let Some(group) = self.groups.get(self.active).filter(|_| !self.engine.is_closed()) {
-            for (id, pane) in group.layout.rectangles(terminal_root) {
-                if self.search.active_target() == Some(id.as_str()) {
-                    search_rect = Some(pane);
-                    continue;
-                }
-                let snapshot = match self.engine.snapshot(&id) {
-                    Ok(s) => s,
-                    Err(e) if e.code == "not_found" => continue,
-                    Err(e) => return Err(e.message),
-                };
-                if hover_enabled && mouse_col >= pane.col && mouse_col < pane.col + pane.cols
-                    && mouse_row >= pane.row && mouse_row < pane.row + pane.rows
-                {
-                    if let Some(hit) = window_tools::url_at(&snapshot, mouse_row - pane.row, mouse_col - pane.col) {
-                        let start_col = pane.col + hit.start_col;
-                        let end_col = pane.col + hit.end_col.min(pane.cols);
-                        if start_col < end_col {
-                            underlines.push(Underline { row: pane.row + hit.row, start_col, end_col,
-                                color: [80, 160, 255] });
-                        }
-                    }
-                }
-                for row in 0..pane.rows.min(snapshot.rows) {
-                    for col in 0..pane.cols.min(snapshot.cols) {
-                        frame.cells[(pane.row + row) * frame.cols + pane.col + col] =
-                            snapshot.cells[row * snapshot.cols + col].clone();
-                    }
-                }
-                if id == group.focus && self.files.focus == TERMINALS {
-                    frame.cursor = snapshot
-                        .cursor
-                        .filter(|(row, col)| *row < pane.rows && *col < pane.cols)
-                        .map(|(row, col)| (pane.row + row, pane.col + col));
-                }
-                for mut image in snapshot.images {
-                    image.x += pane.col;
-                    image.y += pane.row;
-                    image.clip_x = pane.col;
-                    image.clip_y = pane.row;
-                    image.clip_cols = pane.cols;
-                    image.clip_rows = pane.rows;
-                    frame.images.push(image);
-                }
-            }
-        }
-        self.files.draw(&mut frame, r.clone());
-        self.panels.draw(&mut frame, self.panels.width(full.cols));
-        if let Some(status) = &self.status {
-            let row = frame.rows.saturating_sub(1);
-            editor_workspace::paint(&mut frame, row, status);
-        }
-        // Search paints only its captured visible pane, never the newly focused pane.
-        if self.search.active_target().is_some() {
-            frame.cursor = None;
-            if let Some(rect) = search_rect {
-                frame.images.retain(|image| {
-                    image.clip_x >= rect.col + rect.cols || image.clip_y >= rect.row + rect.rows
-                        || image.clip_x.saturating_add(image.clip_cols) <= rect.col
-                        || image.clip_y.saturating_add(image.clip_rows) <= rect.row
-                });
-                self.search.draw(&mut frame, &rect);
-            } else {
-                editor_workspace::paint(&mut frame, 0, "Search target is not visible; Escape to close");
-            }
-        }
-        // Images render after cells; no placement may obscure a URL decoration.
-        frame.images.retain(|image| {
-            let left = image.x.max(image.clip_x);
-            let right = image.x.saturating_add(image.cols).min(image.clip_x.saturating_add(image.clip_cols));
-            let top = image.y.max(image.clip_y);
-            let bottom = image.y.saturating_add(image.rows).min(image.clip_y.saturating_add(image.clip_rows));
-            !underlines.iter().any(|line| left < right && top < bottom
-                && left < line.end_col && right > line.start_col
-                && top <= line.row && bottom > line.row)
-        });
-        // Paint compose last. Images render after cells, so discard overlapping placements.
-        if let Some(target) = self.compose.active_target().map(str::to_owned) {
-            if !self.groups.iter().any(|g| g.layout.contains(&target)) {
-                self.status = Some("Compose target was closed; draft retained (Escape to close)".into());
-            }
-            if let Some(rect) = self.compose_bounds() {
-                frame.images.retain(|image| {
-                    image.clip_x >= rect.col + rect.cols || image.clip_y >= rect.row + rect.rows
-                        || image.clip_x.saturating_add(image.clip_cols) <= rect.col
-                        || image.clip_y.saturating_add(image.clip_rows) <= rect.row
-                });
-                underlines = self.compose.draw(&mut frame, &rect);
-                if let Some(status) = &self.status {
-                    editor_workspace::paint(&mut frame, full.row + full.rows - 1, status);
-                }
-            }
-        }
-        if let Some(window) = &self.window {
-            let id = if self.files.focus == TERMINALS { self.focused().unwrap_or("no pane") } else { &self.files.focus };
-            let allowed = self.files.focus == TERMINALS && !self.engine.is_closed() && self.engine.agent_permission(id).unwrap_or(false);
-            let suffix = self.status.as_deref().unwrap_or("");
-            window.set_title(&format!(
-                "Clanky — {id} — {:.0} pt — agent {} {suffix}",
-                self.zoom.points(),
-                if allowed { "enabled" } else { "disabled" }
-            ));
-            if let Some((row, col)) = frame.cursor {
-                let m = self.metrics()?;
-                window.set_ime_cursor_area(
-                    PhysicalPosition::new(col as u32 * m.cell_width, row as u32 * m.cell_height),
-                    PhysicalSize::new(m.cell_width, m.cell_height),
-                );
-            }
-        }
-        self.renderer.as_mut().unwrap().draw_with_underlines(&frame, &underlines)
-    }
+    fn click(&mut self) -> Result<(), String> { self.click_studio() }
+    fn drag(&mut self) -> Result<(), String> { self.drag_studio() }
+    fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> { self.scroll_studio(delta) }
+    fn draw(&mut self) -> Result<(), String> { self.draw_studio() }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
         if self.has_local_work() { self.status = Some(error); return; }
         self.error = Some(error);
@@ -956,6 +672,7 @@ impl ApplicationHandler for App {
                     .create_window(
                         Window::default_attributes()
                             .with_title("Clanky")
+                            .with_transparent(true)
                             .with_inner_size(LogicalSize::new(
                                 self.config.columns as f64 * base.cell_width as f64,
                                 (self.config.rows + 1) as f64 * base.cell_height as f64,
@@ -965,7 +682,13 @@ impl ApplicationHandler for App {
             );
             self.scale = window.scale_factor();
             window.set_ime_allowed(true);
-            self.renderer = Some(block_on(Renderer::new(window.clone()))?);
+            let mut renderer = block_on(Renderer::new(window.clone()))?;
+            renderer.set_font_families(&self.config.font_family, &self.config.ui_font_family)
+                .map_err(|error| format!("Configuration: {error}"))?;
+            if !renderer.supports_transparency() {
+                self.status = Some("Compositor transparency unavailable; using opaque background".into());
+            }
+            self.renderer = Some(renderer);
             self.window = Some(window);
             self.metrics_changed()?;
             if self.groups.is_empty() {
@@ -1008,6 +731,7 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.files.dragging = None;
                 self.compose_dragging = false;
+                self.studio.drag = None;
                 Ok(())
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -1099,6 +823,7 @@ impl ApplicationHandler for App {
                     self.compose_dragging = false;
                     self.compose_enter_held = false;
                     self.files.dragging = None;
+                    self.studio.drag = None;
                     self.modifiers = ModifiersState::empty();
                 }
                 Ok(())

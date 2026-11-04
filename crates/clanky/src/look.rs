@@ -1,15 +1,21 @@
 //! Studio pixel geometry and deterministic motion, independent of a renderer.
 use clanky_core::layout::{Axis, Layout as WorkspaceLayout, MIN_COLUMNS, MIN_ROWS, stable_floor};
 
-pub const TOP_BAR: f64 = 40.0;
-pub const LEFT_RAIL: f64 = 210.0;
-pub const RIGHT_RAIL: f64 = 270.0;
-pub const GAP: f64 = 10.0;
-pub const PADDING: f64 = 12.0;
-pub const HEADER: f64 = 24.0;
-pub const PANE_RADIUS: f64 = 11.0;
-pub const BLOCK_RADIUS: f64 = 8.0;
-pub const CARD_INSET: f64 = 4.0;
+mod theme;
+pub use theme::{Color, Metrics, Theme};
+mod scene_builder;
+pub use scene_builder::*;
+
+// Compatibility names refer to the single metrics definition, never repeat values.
+pub const TOP_BAR: f64 = Metrics::DEFAULT.top_bar;
+pub const LEFT_RAIL: f64 = Metrics::DEFAULT.left_rail;
+pub const RIGHT_RAIL: f64 = Metrics::DEFAULT.right_rail;
+pub const GAP: f64 = Metrics::DEFAULT.pane_gap;
+pub const PADDING: f64 = Metrics::DEFAULT.pane_padding;
+pub const HEADER: f64 = Metrics::DEFAULT.pane_header;
+pub const PANE_RADIUS: f64 = Metrics::DEFAULT.pane_radius;
+pub const BLOCK_RADIUS: f64 = Metrics::DEFAULT.block_radius;
+pub const CARD_INSET: f64 = Metrics::DEFAULT.card_inset;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PixelRect {
@@ -63,6 +69,9 @@ pub struct Layout {
     pub scale: f64,
     pub rails_shown: bool,
     pub cell_px: [u32; 2],
+    /// Physical metrics used by both layout and scene generation.
+    pub metrics: Metrics,
+    pub logical_metrics: Metrics,
     pub top_bar: PixelRect,
     pub left_rail: Option<PixelRect>,
     pub right_rail: Option<PixelRect>,
@@ -89,12 +98,12 @@ impl Layout {
     }
 }
 
-fn minimum(tree: &WorkspaceLayout, scale: f64, cell: [u32; 2]) -> [f64; 2] {
+fn minimum(tree: &WorkspaceLayout, metrics: &Metrics, cell: [u32; 2]) -> [f64; 2] {
     match tree {
         WorkspaceLayout::Leaf(id) if id.is_empty() => [0.0, 0.0],
         WorkspaceLayout::Leaf(_) => [
-            2.0 * PADDING * scale + MIN_COLUMNS as f64 * cell[0] as f64,
-            (2.0 * PADDING + HEADER) * scale + MIN_ROWS as f64 * cell[1] as f64,
+            2.0 * metrics.pane_padding + MIN_COLUMNS as f64 * cell[0] as f64,
+            (2.0 * metrics.pane_padding + metrics.pane_header) + MIN_ROWS as f64 * cell[1] as f64,
         ],
         WorkspaceLayout::Split {
             axis,
@@ -102,11 +111,11 @@ fn minimum(tree: &WorkspaceLayout, scale: f64, cell: [u32; 2]) -> [f64; 2] {
             second,
             ..
         } => {
-            let a = minimum(first, scale, cell);
-            let b = minimum(second, scale, cell);
+            let a = minimum(first, metrics, cell);
+            let b = minimum(second, metrics, cell);
             match axis {
-                Axis::Columns => [a[0] + b[0] + GAP * scale, a[1].max(b[1])],
-                Axis::Rows => [a[0].max(b[0]), a[1] + b[1] + GAP * scale],
+                Axis::Columns => [a[0] + b[0] + metrics.pane_gap, a[1].max(b[1])],
+                Axis::Rows => [a[0].max(b[0]), a[1] + b[1] + metrics.pane_gap],
             }
         }
     }
@@ -145,45 +154,56 @@ pub fn layout(
     workspace_layout: &WorkspaceLayout,
     cell_px: [u32; 2],
 ) -> Layout {
+    layout_with_metrics(window_px, scale, rails_shown, workspace_layout, cell_px, &Metrics::default())
+}
+
+/// Configurable logical metrics enter here; the compatibility layout uses defaults.
+pub fn layout_with_metrics(
+    window_px: [u32; 2], scale: f64, rails_shown: bool,
+    workspace_layout: &WorkspaceLayout, cell_px: [u32; 2], logical_metrics: &Metrics,
+) -> Layout {
     let valid = scale.is_finite()
         && scale > 0.0
-        && scale * RIGHT_RAIL <= f32::MAX as f64
+        && logical_metrics.scaled(scale).is_valid()
         && cell_px[0] > 0
         && cell_px[1] > 0
         && valid_tree(workspace_layout);
     let scale = if valid { scale } else { 1.0 };
     let [w, h] = window_px.map(f64::from);
-    let gap = GAP * scale;
-    let top = (TOP_BAR * scale).min(h);
+    let metrics = if valid { logical_metrics.scaled(scale) } else { Metrics::default() };
+    let gap = metrics.outer_gap;
+    let top = metrics.top_bar.min(h);
     let left = if rails_shown {
-        (LEFT_RAIL * scale).min(w)
+        metrics.left_rail.min(w)
     } else {
         0.0
     };
     let right = if rails_shown {
-        (RIGHT_RAIL * scale).min(w)
+        metrics.right_rail.min(w)
     } else {
         0.0
     };
     let x = (left + gap).min(w);
     let y = (top + gap).min(h);
     let content = rect(x, y, (w - right - gap - x).max(0.0), (h - gap - y).max(0.0));
-    let minimum = minimum(workspace_layout, scale, cell_px);
+    let minimum = minimum(workspace_layout, &metrics, cell_px);
     let min_window = [
         minimum[0]
             + 2.0 * gap
             + if rails_shown {
-                (LEFT_RAIL + RIGHT_RAIL) * scale
+                metrics.left_rail + metrics.right_rail
             } else {
                 0.0
             },
-        minimum[1] + 2.0 * gap + TOP_BAR * scale,
+        minimum[1] + 2.0 * gap + metrics.top_bar,
     ];
     let mut out = Layout {
         window_px,
         scale,
         rails_shown,
         cell_px,
+        metrics,
+        logical_metrics: *logical_metrics,
         top_bar: rect(0.0, 0.0, w, top),
         left_rail: rails_shown.then(|| rect(0.0, top, left, h - top)),
         right_rail: rails_shown.then(|| rect(w - right, top, right, h - top)),
@@ -204,21 +224,21 @@ fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bool>, out: &
     if area.w <= 0.0 || area.h <= 0.0 {
         return;
     }
-    let s = out.scale;
+    let metrics = out.metrics;
     match tree {
         WorkspaceLayout::Leaf(id) => {
             if id.is_empty() {
                 return;
             }
             let cols =
-                stable_floor((area.w as f64 - 2.0 * PADDING * s).max(0.0) / out.cell_px[0] as f64)
+                stable_floor((area.w as f64 - 2.0 * metrics.pane_padding).max(0.0) / out.cell_px[0] as f64)
                     as usize;
             let rows = stable_floor(
-                (area.h as f64 - (2.0 * PADDING + HEADER) * s).max(0.0) / out.cell_px[1] as f64,
+                (area.h as f64 - (2.0 * metrics.pane_padding + metrics.pane_header)).max(0.0) / out.cell_px[1] as f64,
             ) as usize;
             let origin = [
-                area.x as f64 + PADDING * s,
-                area.y as f64 + (PADDING + HEADER) * s,
+                area.x as f64 + metrics.pane_padding,
+                area.y as f64 + metrics.pane_padding + metrics.pane_header,
             ];
             out.panes.push(PaneLayout {
                 id: id.clone(),
@@ -240,15 +260,15 @@ fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bool>, out: &
             first,
             second,
         } => {
-            let a_min = minimum(first, s, out.cell_px);
-            let b_min = minimum(second, s, out.cell_px);
+            let a_min = minimum(first, &metrics, out.cell_px);
+            let b_min = minimum(second, &metrics, out.cell_px);
             let dimension = if *axis == Axis::Columns { 0 } else { 1 };
             let extent = if *axis == Axis::Columns {
                 area.w
             } else {
                 area.h
             } as f64;
-            let gap = (GAP * s).min(extent);
+            let gap = metrics.pane_gap.min(extent);
             let available = (extent - gap).max(0.0);
             let first_extent = allocation(available, *ratio, a_min[dimension], b_min[dimension]);
             let second_extent = available - first_extent;
@@ -320,12 +340,13 @@ pub fn drag_divider(
     let ratio = first / available;
     let mut tree = before.workspace_layout.clone();
     tree.set_ratio(&divider.path, ratio)?;
-    let next = layout(
+    let next = layout_with_metrics(
         before.window_px,
         before.scale,
         before.rails_shown,
         &tree,
         before.cell_px,
+        &before.logical_metrics,
     );
     Ok(DragResult {
         ratio,

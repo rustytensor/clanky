@@ -63,5 +63,6 @@ Focused check (no GPU or full milestone gate):
 `cargo test --offline -p clanky --lib look::tests::studio_geometry_drag_motion_config -j 8`
 under the shared build lock. It uses the design's literal geometry/easing/config
 values, JSON round-trip and the actual layout-store ID-remapping helper.
+[Scene and owner-metadata types](m11-scene-contract.md) define the next delivery.
 Scene construction and live window integration follow this interface delivery;
 renderer API stubs are not pixel-tested or treated as a working renderer.

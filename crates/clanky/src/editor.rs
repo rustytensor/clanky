@@ -129,6 +129,9 @@ impl EditorPane {
     pub fn text(&self) -> &str { self.document.text() }
     pub fn path(&self) -> &Path { &self.path }
     pub fn dirty(&self) -> bool { self.dirty }
+    pub fn pending_count(&self) -> usize {
+        self.document.hunks().iter().filter(|h| h.state == HunkState::Pending).count()
+    }
     pub fn selection(&self) -> Selection { self.document.selection() }
     pub fn find_active(&self) -> bool { self.find.is_some() }
 
