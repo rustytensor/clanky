@@ -5,7 +5,7 @@ Name:           clanky
 Version:        0.6.1
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
-# Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
+# Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
 License:        (MIT OR Apache-2.0) AND OFL-1.1 AND Bitstream-Vera
 URL:            https://github.com/rustytensor/clanky
 Source0:        https://github.com/rustytensor/clanky/archive/v%{version}/clanky-%{version}.tar.gz
@@ -48,6 +48,7 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %files
 %license LICENSE-MIT LICENSE-APACHE NOTICE
 %license assets/fonts/OFL-JetBrainsMono.txt assets/fonts/OFL-Inter.txt assets/fonts/LICENSE-DejaVu.txt
+%license assets/fonts/OFL-Geist.txt
 %{_bindir}/clanky
 %{_datadir}/applications/clanky.desktop
 %{_metainfodir}/io.github.rustytensor.Clanky.metainfo.xml
