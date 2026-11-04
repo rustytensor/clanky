@@ -41,7 +41,8 @@ An exited command still has a session until its tab is closed. State survives
 client loss, **not server loss or reboot**.
 
 `clanky --server --socket PATH` runs the server in the foreground; `--headless`
-is also supported. New shells use the server's shell and directory defaults.
+is also supported. New tabs and terminal splits use the server's shell and the
+focused terminal's directory, falling back to the server's home only when unknown.
 `clanky attach HOST` uses key-based SSH and the remote `clanky --stdio` bridge;
 Clanky opens no TCP listener. The remote program must be installed and SSH login
 must already work. `clanky --stdio --socket PATH` exposes the same local pipe path.
@@ -108,6 +109,24 @@ New socket operations use `v:2`; v1 `run` and routing stay unchanged. See
 checks socket and palette actions, then M2 (which includes M1), once each.
 `scripts/gate-m4.sh` adds real client-loss/reattachment and permission checks,
 then invokes M3 once. It uses a local stdio pipe, not a live SSH connection.
+
+## Search, links and clipboard
+
+Ctrl+Shift+F searches the focused terminal's retained text, including soft-wrapped
+lines. Enter/Shift+Enter selects next/previous; Escape closes. The displayed
+search view stays stable until the query or navigation changes.
+
+Hover over a complete http/https URL to underline it; Ctrl+click opens it with
+`xdg-open`. Plain URL clicks are inert. URLs must fit one visible physical row;
+ordinary file-path clicks still open the editor.
+
+Programs may write up to 1 MiB of UTF-8 clipboard text using OSC 52. Set
+`osc52_write: false` in config to disable this. Clipboard reads default off;
+`osc52_read: true` explicitly enables reads of at most 64 KiB. Only the clipboard
+selection is supported. An owner window handles events using `wl-copy`/`wl-paste`
+or `xclip`; headless servers never touch a desktop clipboard. With multiple
+windows, the first owner to drain an event applies that window's policy.
+See [polish design](docs/design-polish-window.md) and [gate results](docs/polish-window-results.md).
 
 ## Editor panes
 

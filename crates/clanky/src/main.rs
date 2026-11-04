@@ -6,6 +6,9 @@ use clanky::editor::{EditorPane, location_at};
 use clanky::{
     config::{Config, Metrics, Zoom},
     compose::{Compose, ComposeEvent},
+    clipboard::ClipboardBridge,
+    scrollback_search::Search,
+    window_tools,
     input::{InputState, key_bytes},
 };
 use clanky_api::Client;
@@ -14,7 +17,7 @@ use clanky_core::{
     layout::{Axis, Rect},
     platform,
 };
-use clanky_render::{Renderer, block_on};
+use clanky_render::{Renderer, Underline, block_on};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -117,13 +120,21 @@ struct App {
     compose_rect: Option<Rect>,
     compose_dragging: bool,
     compose_enter_held: bool,
+    search: Search,
+    url_opener: platform::UrlOpener,
+    clipboard_bridge: ClipboardBridge,
 }
 
 fn run_window(engine: Client, config: Config, local_files: bool) -> Result<(), String> {
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
+    clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
     let mut app = App {
         engine,
+        search: Search::default(),
+        url_opener: platform::UrlOpener::default(),
+        clipboard_bridge,
         stop: false,
         revision: workspace.revision,
         zoom: Zoom::new(config.font_size_pt),
@@ -259,6 +270,7 @@ impl App {
         self.active = workspace.active;
         let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         self.sizes.retain(|id, _| ids.contains(id));
+        self.clipboard_bridge.set_tabs(ids);
         if previous.as_deref() != self.focused() {
             self.reset_ime();
         }
@@ -329,26 +341,14 @@ impl App {
         self.sizes.clear();
         self.resize_panes()
     }
-    fn spawn_terminal(&self, rows: usize, cols: usize) -> Result<String, String> {
-        // A remote server must choose its own shell and directory, not ours.
-        let defaults = self.call("v3.shell_defaults", json!({}))?;
-        let tab = self.call(
-            "open_tab",
-            json!({"rows":rows,"cols":cols,"allow_agent":false}),
-        )?;
-        let id = tab["tab_id"].as_str().ok_or("missing tab ID")?.to_owned();
-        if let Err(e) = self.call(
-            "run",
-            json!({"tab_id":id,"argv":defaults["argv"],"cwd":defaults["cwd"]}),
-        ) {
-            let _ = self.call("close_tab", json!({"tab_id":id}));
-            return Err(e);
-        }
-        Ok(id)
+    fn spawn_terminal(&self, focused: Option<&str>, rows: usize, cols: usize) -> Result<String, String> {
+        window_tools::new_terminal(&self.engine, focused, rows, cols)
     }
     fn new_tab(&mut self) -> Result<(), String> {
         let r = self.terminal_rect()?;
-        let id = self.spawn_terminal(r.rows.max(1), r.cols.max(1))?;
+        // Capture the displayed source before open_tab changes workspace focus.
+        let source = if self.files.focus == TERMINALS { self.focused() } else { None };
+        let id = self.spawn_terminal(source, r.rows.max(1), r.cols.max(1))?;
         self.sync_groups()?;
         self.active = self
             .groups
@@ -382,7 +382,7 @@ impl App {
             .find(|(id, _)| id == "__new__")
             .ok_or("new pane is not visible")?
             .1;
-        let id = self.spawn_terminal(r.rows, r.cols)?;
+        let id = self.spawn_terminal(Some(&target), r.rows, r.cols)?;
         // open_tab already added an independent group. Work against its fresh
         // revision; on conflict that terminal must remain open independently.
         self.sync_groups()?;
@@ -430,6 +430,7 @@ impl App {
                 // The final reply is followed by server exit; do not query it.
                 self.groups.clear();
                 self.sizes.clear();
+                self.clipboard_bridge.set_tabs(Vec::new());
                 self.stop = !self.has_local_work();
                 return Ok(());
             }
@@ -439,7 +440,7 @@ impl App {
         self.resize_panes()
     }
     fn send(&self, bytes: &[u8]) -> Result<(), String> {
-        if self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
+        if self.search.active_target().is_some() || self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
         if !bytes.is_empty() {
             if let Some(id) = self.focused() {
                 self.engine.input(id, bytes).map_err(|e| e.message)?;
@@ -469,6 +470,21 @@ impl App {
                 self.reset_ime();
             }
             return result;
+        }
+        if !self.files.modal() && !self.panels.open && self.search.active_target().is_some() {
+            let result = self.search.key(&self.engine, key, text, self.modifiers, self.input.composing());
+            if self.search.active_target().is_none() { self.reset_ime(); }
+            return result;
+        }
+        if !self.files.modal() && !self.panels.open && self.files.focus == TERMINALS
+            && self.modifiers.control_key() && self.modifiers.shift_key()
+            && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("f"))
+        {
+            if let Some(target) = self.focused().map(str::to_owned) {
+                self.search.open(&self.engine, &target)?;
+                self.reset_ime();
+            }
+            return Ok(());
         }
         if !self.files.modal() && !self.panels.open
             && self.modifiers.control_key() && self.modifiers.shift_key()
@@ -594,7 +610,7 @@ impl App {
             }
             return Ok(());
         }
-        if self.panels.open || self.files.modal() { return Ok(()); }
+        if self.panels.open || self.files.modal() || self.search.active_target().is_some() { return Ok(()); }
         if row > 0 && col >= self.rect()?.cols {
             if row < self.full_rect()?.rows {
                 self.palette_editor = Some(self.files.focus.clone());
@@ -634,6 +650,10 @@ impl App {
         self.save_workspace()?;
         let snapshot = self.engine.snapshot(&id).map_err(|e| e.message)?;
         let (y, x) = (row - rect.row, col - rect.col);
+        let hit = window_tools::url_at(&snapshot, y, x);
+        if window_tools::url_click(hit.as_ref(), self.modifiers.control_key(), |url| {
+            self.url_opener.open(url).map_err(|_| "Could not open URL".to_owned())
+        })? { return Ok(()); }
         if location_at(&snapshot, y, x).is_some() {
             if !self.local_files { return Err("Remote terminal file clicks are not supported".into()); }
             let cwd = self.cwd(Some(&id)).unwrap_or(None);
@@ -655,7 +675,7 @@ impl App {
             }
             return Ok(());
         }
-        if self.files.modal() || self.panels.open { return Ok(()); }
+        if self.files.modal() || self.panels.open || self.search.active_target().is_some() { return Ok(()); }
         let Some(id) = self.files.dragging.clone() else { return Ok(()); };
         let (col, row) = self.mouse_cell()?;
         if let Some((_, rect)) = self.files.layout.rectangles(self.rect()?).into_iter().find(|(leaf, _)| *leaf == id) {
@@ -667,7 +687,7 @@ impl App {
         Ok(())
     }
     fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> {
-        if self.files.modal() || self.panels.open { return Ok(()); }
+        if self.files.modal() || self.panels.open || self.search.active_target().is_some() { return Ok(()); }
         let m = self.metrics()?;
         let (col, row) = self.mouse_cell()?;
         let (columns, lines) = match delta {
@@ -731,13 +751,34 @@ impl App {
                 }
             }
         }
+        let mut underlines = Vec::new();
+        let hover_enabled = self.compose.active_target().is_none() && self.search.active_target().is_none()
+            && !self.panels.open && !self.files.modal();
+        let (mouse_col, mouse_row) = self.mouse_cell()?;
+        let mut search_rect = None;
         if let Some(group) = self.groups.get(self.active).filter(|_| !self.engine.is_closed()) {
             for (id, pane) in group.layout.rectangles(terminal_root) {
+                if self.search.active_target() == Some(id.as_str()) {
+                    search_rect = Some(pane);
+                    continue;
+                }
                 let snapshot = match self.engine.snapshot(&id) {
                     Ok(s) => s,
                     Err(e) if e.code == "not_found" => continue,
                     Err(e) => return Err(e.message),
                 };
+                if hover_enabled && mouse_col >= pane.col && mouse_col < pane.col + pane.cols
+                    && mouse_row >= pane.row && mouse_row < pane.row + pane.rows
+                {
+                    if let Some(hit) = window_tools::url_at(&snapshot, mouse_row - pane.row, mouse_col - pane.col) {
+                        let start_col = pane.col + hit.start_col;
+                        let end_col = pane.col + hit.end_col.min(pane.cols);
+                        if start_col < end_col {
+                            underlines.push(Underline { row: pane.row + hit.row, start_col, end_col,
+                                color: [80, 160, 255] });
+                        }
+                    }
+                }
                 for row in 0..pane.rows.min(snapshot.rows) {
                     for col in 0..pane.cols.min(snapshot.cols) {
                         frame.cells[(pane.row + row) * frame.cols + pane.col + col] =
@@ -767,8 +808,31 @@ impl App {
             let row = frame.rows.saturating_sub(1);
             editor_workspace::paint(&mut frame, row, status);
         }
+        // Search paints only its captured visible pane, never the newly focused pane.
+        if self.search.active_target().is_some() {
+            frame.cursor = None;
+            if let Some(rect) = search_rect {
+                frame.images.retain(|image| {
+                    image.clip_x >= rect.col + rect.cols || image.clip_y >= rect.row + rect.rows
+                        || image.clip_x.saturating_add(image.clip_cols) <= rect.col
+                        || image.clip_y.saturating_add(image.clip_rows) <= rect.row
+                });
+                self.search.draw(&mut frame, &rect);
+            } else {
+                editor_workspace::paint(&mut frame, 0, "Search target is not visible; Escape to close");
+            }
+        }
+        // Images render after cells; no placement may obscure a URL decoration.
+        frame.images.retain(|image| {
+            let left = image.x.max(image.clip_x);
+            let right = image.x.saturating_add(image.cols).min(image.clip_x.saturating_add(image.clip_cols));
+            let top = image.y.max(image.clip_y);
+            let bottom = image.y.saturating_add(image.rows).min(image.clip_y.saturating_add(image.clip_rows));
+            !underlines.iter().any(|line| left < right && top < bottom
+                && left < line.end_col && right > line.start_col
+                && top <= line.row && bottom > line.row)
+        });
         // Paint compose last. Images render after cells, so discard overlapping placements.
-        let mut underlines = Vec::new();
         if let Some(target) = self.compose.active_target().map(str::to_owned) {
             if !self.groups.iter().any(|g| g.layout.contains(&target)) {
                 self.status = Some("Compose target was closed; draft retained (Escape to close)".into());
@@ -930,6 +994,12 @@ impl ApplicationHandler for App {
                     }
                     self.input.on_ime(&event);
                     Ok(())
+                } else if !self.files.modal() && self.search.active_target().is_some() {
+                    if let Ime::Commit(text) = &event {
+                        if let Err(error) = self.search.text(&self.engine, text) { self.status = Some(error); }
+                    }
+                    self.input.on_ime(&event);
+                    Ok(())
                 } else if self.files.modal() || self.files.focus != TERMINALS {
                     match &event {
                         Ime::Commit(text) => {
@@ -999,6 +1069,7 @@ impl ApplicationHandler for App {
         if self.engine.is_closed() && self.has_local_work() {
             self.groups.clear();
             self.sizes.clear();
+            self.clipboard_bridge.set_tabs(Vec::new());
             if self.status.is_none() { self.status = Some("Session connection closed; local editors and compose drafts retained".into()); }
         }
         if self.stop || (self.engine.is_closed() && !self.has_local_work()) {
@@ -1010,6 +1081,12 @@ impl ApplicationHandler for App {
             return;
         }
         if Instant::now() >= self.next_frame {
+            if self.url_opener.poll().is_err() {
+                self.status = Some("URL opener failed".into());
+            }
+            while let Some(error) = self.clipboard_bridge.take_error() {
+                self.status = Some(error);
+            }
             if let Some(w) = &self.window {
                 w.request_redraw();
             }

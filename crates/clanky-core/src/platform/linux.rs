@@ -38,13 +38,13 @@ impl Clipboard {
         Self::default()
     }
 
-    /// Copies at most 64 KiB without writing into a potentially blocked pipe.
+    /// Copies at most 1 MiB without writing into a potentially blocked pipe.
     /// Success means the helper was spawned, not that the display accepted it.
     pub fn copy(&mut self, bytes: &[u8]) -> io::Result<()> {
-        if bytes.len() > 64 * 1024 {
+        if bytes.len() > 1024 * 1024 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "clipboard input exceeds 64 KiB",
+                "clipboard input exceeds 1 MiB",
             ));
         }
         let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
@@ -57,38 +57,12 @@ impl Clipboard {
             command
         };
 
-        // Unlink before writing any clipboard bytes. create_new rejects existing
-        // files and symlinks; mode 0600 also protects the brief named lifetime.
-        static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
-        let mut input = None;
-        for _ in 0..32 {
-            let path = std::env::temp_dir().join(format!(
-                ".clanky-clipboard-{}-{}",
-                std::process::id(),
-                NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-            ));
-            match fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)
-            {
-                Ok(file) => {
-                    fs::remove_file(&path)?;
-                    input = Some(file);
-                    break;
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        let mut input = input.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "could not create private clipboard input",
-            )
-        })?;
+        // Anonymous RAM-backed input: no clipboard bytes touch a named disk file.
+        use std::os::fd::FromRawFd;
+        let name = c"clanky-clipboard";
+        let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+        if fd < 0 { return Err(io::Error::other("could not create clipboard memory input")); }
+        let mut input = unsafe { File::from_raw_fd(fd) };
         input.write_all(bytes)?;
         input.rewind()?;
 
@@ -102,7 +76,7 @@ impl Clipboard {
                 .map_err(|error| {
                     io::Error::new(
                         error.kind(),
-                        format!("clipboard helper unavailable: {error}"),
+                        "clipboard helper unavailable",
                     )
                 })?,
         );
@@ -125,6 +99,65 @@ impl Drop for Clipboard {
     fn drop(&mut self) {
         let _ = self.stop();
     }
+}
+
+/// Read only the clipboard selection with a bounded capture and helper lifetime.
+/// Helpers' stderr and clipboard bytes are never used in diagnostics.
+pub fn clipboard_read() -> io::Result<Vec<u8>> {
+    const LIMIT: usize = 64 * 1024;
+    let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        let mut command = HelperCommand::new("wl-paste");
+        command.args(["--no-newline", "--type", "text/plain;charset=utf-8"]);
+        command
+    } else {
+        let mut command = HelperCommand::new("xclip");
+        command.args(["-selection", "clipboard", "-out"]);
+        command
+    };
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped())
+        .stderr(Stdio::null()).spawn().map_err(|_| io::Error::other("clipboard read helper unavailable"))?;
+    let result = (|| {
+        let mut output = child.stdout.take().ok_or_else(|| io::Error::other("clipboard capture unavailable"))?;
+        let fd = output.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::other("clipboard capture unavailable"));
+        }
+        let deadline = Instant::now() + Duration::from_millis(750);
+        let mut bytes = Vec::new();
+        let mut buffer = [0u8; 4096];
+        let mut eof = false;
+        loop {
+            if Instant::now() >= deadline { return Err(io::Error::new(io::ErrorKind::TimedOut, "clipboard read timed out")); }
+            if !eof {
+                // At the bound probe one byte, but never retain an oversized capture.
+                let count = (LIMIT - bytes.len()).clamp(1, buffer.len());
+                match output.read(&mut buffer[..count]) {
+                    Ok(0) => eof = true,
+                    Ok(n) => {
+                        if bytes.len() + n > LIMIT { return Err(io::Error::other("clipboard read exceeds 64 KiB")); }
+                        bytes.extend_from_slice(&buffer[..n]);
+                        continue;
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                    Err(_) => return Err(io::Error::other("clipboard capture failed")),
+                }
+            }
+            if eof {
+                if let Some(status) = child.try_wait().map_err(|_| io::Error::other("clipboard helper status unavailable"))? {
+                    return if status.success() { Ok(bytes) } else { Err(io::Error::other("clipboard read helper failed")) };
+                }
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    })();
+    // Only this owned PID is stopped/reaped, including capture failures/timeouts.
+    if !matches!(child.try_wait(), Ok(Some(_))) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
 }
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
