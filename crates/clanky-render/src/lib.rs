@@ -688,6 +688,22 @@ pub fn offscreen_image_samples(snapshot: &TerminalSnapshot) -> Result<[[u8; 4]; 
     ))
 }
 
+/// Render cell centres with the existing offscreen pipeline (row, column).
+pub fn offscreen_cell_samples<const N: usize>(
+    snapshot: &TerminalSnapshot,
+    coordinates: [(usize, usize); N],
+) -> Result<[[u8; 4]; N], String> {
+    let mut pixels = [(0, 0); N];
+    for (out, (row, col)) in pixels.iter_mut().zip(coordinates) {
+        if row >= snapshot.rows || col >= snapshot.cols {
+            return Err("Offscreen cell outside snapshot".into());
+        }
+        *out = (col * CELL_WIDTH as usize + CELL_WIDTH as usize / 2,
+                row * CELL_HEIGHT as usize + CELL_HEIGHT as usize / 2);
+    }
+    block_on(offscreen_samples(snapshot, pixels))
+}
+
 async fn offscreen_samples<const N: usize>(
     snapshot: &TerminalSnapshot,
     coordinates: [(usize, usize); N],

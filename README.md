@@ -109,13 +109,26 @@ checks socket and palette actions, then M2 (which includes M1), once each.
 `scripts/gate-m4.sh` adds real client-loss/reattachment and permission checks,
 then invokes M3 once. It uses a local stdio pipe, not a live SSH connection.
 
-## Editor core
+## Editor panes
 
-`clanky-edit` provides standalone UTF-8 editing, selections, undo/redo, source
-locations and per-hunk accept/reject review. Accepted edits stay in memory until
-explicit save. Saves detect external changes and atomically replace the resolved
-target, preserving symlinks. There is no editor panel or socket integration yet.
-See [the API and gate](docs/design-m7-core.md) and [results](docs/m7-core-results.md).
+Click a terminal `path:line[:col]`, use Ctrl+Shift+O, or choose **Open file** in
+the palette. Relative paths use that terminal's current directory; an unknown
+directory is an error, never a guess. Editor panes split alongside the terminal
+workspace and use its font/zoom. They are window-local, not persistent sessions.
+Remote terminal file clicks are refused rather than opening a local lookalike.
+
+Type, select with mouse/Shift arrows, Ctrl+Z/Ctrl+Shift+Z undo/redo, Ctrl+S save,
+and Ctrl+F find (Enter next, Escape close). Ctrl+Shift+D/E opens another editor
+split when an editor has focus. Dirty pane/window closure refuses until save or
+undo restores saved contents. Wheel scrolls text or the review preview under it.
+
+**Load changes** imports a chosen proposal JSON into the focused file. Review
+cards show old/new text with accept/reject and all-hunk controls; stale hunks
+cannot apply. Ctrl+Alt+A/R acts on the selected hunk; add Shift for all pending.
+Changes stay in memory until explicit save. The existing `clanky-edit` core
+preserves UTF-8/line endings and symlinks and refuses external-file conflicts.
+See [panel design](docs/design-m7-panel.md), [controller/proposal API](docs/editor-panel-api.md),
+[gate results](docs/m7-panel-results.md), and [editor core](docs/design-m7-core.md).
 
 ## Masking core
 
