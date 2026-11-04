@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+clanky-mask = { path = "../clanky-mask" }
 png = "=0.18.1"
 clanky-vt = { path = "../clanky-vt" }
 libc = "=0.2.191"

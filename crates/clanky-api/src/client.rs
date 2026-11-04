@@ -41,6 +41,7 @@ struct Call {
     version: u64,
     op: String,
     args: Value,
+    deadline: Duration,
     reply: SyncSender<Result<Value, CoreError>>,
 }
 struct Control {
@@ -154,6 +155,11 @@ impl Client {
                     }
                     let mut remote_error = false;
                     let result = (|| {
+                        if let Some(socket) = &worker_control.socket {
+                            socket.set_read_timeout(Some(call.deadline)).map_err(|_| {
+                                fail("transport_error", "Cannot set reply deadline")
+                            })?;
+                        }
                         sequence = sequence
                             .checked_add(1)
                             .ok_or_else(|| fail("transport_error", "Request ids exhausted"))?;
@@ -253,6 +259,17 @@ impl Client {
         if encoded_size.saturating_add(op.len()).saturating_add(128) > super::MAX_LINE {
             return Err(fail("invalid_request", "Request exceeds 1 MiB"));
         }
+        let deadline = if (version == 1 && op == "wait")
+            || (version == 4 && matches!(op, "wait_input" | "events"))
+        {
+            args["timeout_ms"]
+                .as_u64()
+                .filter(|n| *n <= 30_000)
+                .map(|n| DEADLINE.max(Duration::from_millis(n + 2_000)))
+                .unwrap_or(DEADLINE)
+        } else {
+            DEADLINE
+        };
         let (tx, rx) = mpsc::sync_channel(1);
         self.0
             .sender
@@ -262,10 +279,11 @@ impl Client {
                 version,
                 op: op.into(),
                 args: args.clone(),
+                deadline,
                 reply: tx,
             })
             .map_err(|_| fail("transport_error", "Request queue unavailable"))?;
-        match rx.recv_timeout(DEADLINE) {
+        match rx.recv_timeout(deadline) {
             Ok(result) => result,
             Err(_) => {
                 self.0.control.close();
@@ -281,6 +299,8 @@ impl Client {
             (2, op)
         } else if let Some(op) = op.strip_prefix("v3.") {
             (3, op)
+        } else if let Some(op) = op.strip_prefix("v4.") {
+            (4, op)
         } else {
             (1, op)
         };

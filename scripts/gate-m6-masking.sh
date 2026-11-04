@@ -10,8 +10,10 @@ lock="${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}"
 case "$lock" in /*) ;; *) fail ;; esac
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." || fail
 # Source contains no credential values; cargo output is safe, runtime output is not.
-if ! flock "$lock" cargo build --offline --locked -p clanky-mask --bin masking-gate -j8; then
-    printf '%s\n' 'FAIL: masking gate build'
-    exit 1
+if [[ ${CLANKY_GATE_BINARIES_READY:-} != 1 ]]; then
+    if ! flock "$lock" cargo build --offline --locked -p clanky-mask --bin masking-gate -j8; then
+        printf '%s\n' 'FAIL: masking gate build'
+        exit 1
+    fi
 fi
 exec "$CARGO_TARGET_DIR/debug/masking-gate"

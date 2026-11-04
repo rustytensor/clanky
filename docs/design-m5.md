@@ -43,7 +43,9 @@ The gate must not print generated secret values, even on failure.
    both return permission_denied, every current tab is denied, and an agent cannot
    create a fresh allowed tab to evade the stop. Owner reads remain unmasked.
 8. Clean mode runs M4 once, which includes M1–M3, plus the existing masker and
-   Linux-packaging gates once. Do not rebuild or run unrelated full suites.
+   Linux-packaging and editor-core gates once. Reuse explicitly captured test
+   binaries; the packaging gate builds only the release application. Do not run
+   unrelated full suites.
 9. `CLANKY_GATE_FAULT=mask scripts/gate-m5.sh` changes only an observed masked
    fixture field to `unmasked`. The ordinary exact star comparison must FAIL
    there. Run fault once, then clean once and require final PASS.
@@ -73,9 +75,10 @@ never mask each requested page independently. Treat encoded output as bytes:
 decode, mask, then re-encode, never scan only the base64 representation.
 
 **Marker collisions:** star output contains no user-controlled labels and is
-never reinterpreted as a secret marker. Reject a masking policy whose literal
-itself consists solely of stars; fail closed rather than silently emitting that
-literal. Do not claim universal secret discovery: matching covers configured
+never reinterpreted as a secret marker. Reject a fixed-width policy with any
+star-containing literal: replacement stars plus adjacent plaintext must not
+manufacture another configured secret. This is deliberately conservative; an
+invalid policy denies agent reads rather than falling back to plaintext. Do not claim universal secret discovery: matching covers configured
 eligible environment literals and the masker's documented built-ins. No custom
 secret scanner beside clanky-mask. Errors never echo policy values.
 
@@ -83,8 +86,9 @@ secret scanner beside clanky-mask. Errors never echo policy values.
 per record. Mask before truncation. Record sequence, Unix milliseconds, connection
 ID, peer PID plus captured ancestry, operation and result code. Owner-only paging
 reports evicted count and oldest cursor. Closed-terminal records remain in a
-bounded server-level history, at most 64 terminal rings. No disk log or raw-secret
-copy is added. Authentication tokens are omitted, not logged or merely truncated.
+bounded server-level history, at most 64 terminal rings. One additional bounded
+`_connection` ring records unscoped or unknown-target requests; fabricated IDs
+cannot evict live terminal logs. No disk log or raw-secret copy is added. Authentication tokens are omitted, not logged or merely truncated.
 
 **Revocation:** one atomic server epoch change denies all existing tabs, wakes
 all agent waits and latches new agent-created tabs off. An explicit owner resume
@@ -105,7 +109,9 @@ The editor team owns v3 terminal_cwd `{tab_id}->{cwd,source}`; do not duplicate 
 Input state distinguishes running, waiting and exited; reports evidence rather
 than guessing from silence alone. Linux inspects the foreground PTY reader's
 blocked read and activity, with OSC prompt markers as additional evidence.
-Unknown evidence is not waiting. Platform observations stay in the Linux module.
+Unknown evidence is not waiting. Input state also reports the parsed bracketed
+paste mode, so clients can synchronize with mode changes without guessing from a
+fixture file. Platform observations stay in the Linux module.
 Named keys use terminal modes where applicable; paste uses bracket markers only
 when enabled. Input is bounded and never interpreted as shell syntax.
 
@@ -114,15 +120,20 @@ payloads. Subscriptions are bounded long-poll reads by cursor, not unbounded
 per-client queues. Payload bytes come from the safe masked stream for agents;
 permission checks happen again during replay. Report explicit gaps for evicted
 cursors. Owner records may reference unmasked output separately; do not retain
-an extra plaintext event copy. Terminal closure and revocation wake subscribers.
+an extra plaintext event copy. Owner event payloads are read from the raw archive;
+if that source has been closed/evicted, report data_unavailable instead of returning
+masked owner data. Terminal closure and revocation wake subscribers.
 
 ## MCP and delivery
 
 Implement the small MCP stdio tool surface with JSON-RPC initialize, ping,
 tools/list, tools/call and initialization notifications. Use protocol version
 2024-11-05, bounded frames, explicit schemas and ordinary MCP text-content results.
-No resources, sampling or owner capabilities are advertised. Tool calls use an
-agent socket connection even when MCP was launched outside a terminal. No new
+No resources, sampling or owner capabilities are advertised. Each tool call uses
+a fresh on-demand agent connection, avoiding idle expiry without replaying an
+ambiguous operation. No owner capability is loaded, even outside a terminal.
+Register the server's own capability as an additional masking literal at startup;
+authentication arguments are always omitted from audit records. No new
 third-party dependency is planned.
 
 Five bounded workers: masking; input state/screen/keys; events/audit/revocation;

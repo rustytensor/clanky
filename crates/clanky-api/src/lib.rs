@@ -10,7 +10,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -18,6 +18,7 @@ use std::{
 
 const MAX_LINE: usize = 1024 * 1024;
 const MAX_IDS: usize = 4096;
+static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 const MAX_REPLY: usize = 128 * 1024 * 1024;
 mod client;
 pub use client::Client;
@@ -34,6 +35,9 @@ pub fn serve_owned(
     stop: Arc<AtomicBool>,
     owner_token: String,
 ) -> io::Result<()> {
+    engine
+        .add_mask_literal("CLANKY_OWNER_TOKEN", &owner_token)
+        .map_err(|_| io::Error::other("Mask policy initialization failed"))?;
     serve_inner(engine, path, stop, Some(Arc::new(owner_token)))
 }
 
@@ -90,13 +94,22 @@ fn serve_inner(
                 };
                 // Failure to prove ancestry is a permanent agent classification.
                 let eligible = platform::owner_eligible(&stream).unwrap_or(false);
+                let peer = match platform::agent_peer(&stream) {
+                    Ok(peer) => peer,
+                    Err(_) => {
+                        let _ = stream.shutdown();
+                        continue;
+                    }
+                };
+                let connection_id = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
                 let token = token.clone();
                 let engine = engine.clone();
                 let stop = stop.clone();
                 match thread::Builder::new()
                     .name("agent-client".into())
-                    .spawn(move || client(stream, engine, stop, token, eligible))
-                {
+                    .spawn(move || {
+                        client(stream, engine, stop, token, eligible, peer, connection_id)
+                    }) {
                     Ok(handle) => clients.push((control, handle)),
                     Err(err) => break Err(err),
                 }
@@ -142,6 +155,8 @@ fn client(
     stop: Arc<AtomicBool>,
     token: Option<Arc<String>>,
     eligible: bool,
+    peer: platform::AgentPeer,
+    connection_id: u64,
 ) {
     let mut reader = BufReader::new(stream);
     let mut ids = HashSet::new();
@@ -193,16 +208,40 @@ fn client(
             }
         }
         let response = match serde_json::from_slice::<Value>(&line) {
-            Ok(request) => dispatch(
-                &engine,
-                request,
-                &mut ids,
-                &mut owner,
-                &mut eligible,
-                &mut last_id,
-                token.as_deref().map(String::as_str),
-                reader.get_ref(),
-            ),
+            Ok(request) => {
+                let was_owner = owner;
+                let mut response = dispatch(
+                    &engine,
+                    &request,
+                    &mut ids,
+                    &mut owner,
+                    &mut eligible,
+                    &mut last_id,
+                    token.as_deref().map(String::as_str),
+                    reader.get_ref(),
+                );
+                if !was_owner && !owner {
+                    if let Some(message) = response["error"]["message"].as_str() {
+                        let masked = engine.mask_message(message);
+                        response["error"]["message"] = json!(masked);
+                    }
+                    let version = request["v"].as_u64().unwrap_or(0);
+                    let op = request["op"].as_str().unwrap_or("invalid_request");
+                    let code = if response["ok"] == true {
+                        "ok"
+                    } else {
+                        response["error"]["code"].as_str().unwrap_or("error")
+                    };
+                    if op == "open_tab" && response["ok"] == true {
+                        let mut args = request.clone();
+                        args["tab_id"] = response["result"]["tab_id"].clone();
+                        engine.record_agent(&peer, connection_id, version, op, &args, code);
+                    } else {
+                        engine.record_agent(&peer, connection_id, version, op, &request, code);
+                    }
+                }
+                response
+            }
             Err(_) => error(
                 Value::Null,
                 "invalid_request",
@@ -217,7 +256,7 @@ fn client(
 
 fn dispatch(
     engine: &Engine,
-    request: Value,
+    request: &Value,
     ids: &mut HashSet<String>,
     owner: &mut bool,
     eligible: &mut bool,
@@ -260,11 +299,11 @@ fn dispatch(
         return error(id, "invalid_request", "v must be an integer");
     }
     let version = obj["v"].as_u64().unwrap();
-    if !matches!(version, 1 | 2 | 3) {
+    if !matches!(version, 1 | 2 | 3 | 4) {
         return error(
             id,
             "unsupported_version",
-            "Supported protocol versions: 1, 2, 3",
+            "Supported protocol versions: 1, 2, 3, 4",
         );
     }
     let Some(op) = obj.get("op").and_then(Value::as_str) else {
@@ -274,6 +313,9 @@ fn dispatch(
         if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op")) {
             return error(id, "invalid_request", "Unknown hello field");
         }
+        if version == 4 {
+            return json!({"id":id,"ok":true,"result":{"version":4,"capabilities":["agent_control","events","masked_reads","audit","revoke"]}});
+        }
         if version == 3 {
             return json!({"id":id,"ok":true,"result":{"version":3,"server_pid":std::process::id(),"capabilities":["sessions","owner"]}});
         }
@@ -282,8 +324,14 @@ fn dispatch(
         }
         return json!({"id":id,"ok":true,"result":{"version":1,"capabilities":["tabs","commands","blocks"]}});
     }
-    if op.starts_with("v2.") || op.starts_with("v3.") {
+    if op.starts_with("v2.") || op.starts_with("v3.") || op.starts_with("v4.") {
         return error(id, "unknown_operation", "Use an explicit protocol version");
+    }
+    if version == 4 {
+        return match engine.agent_request(op, request, *owner) {
+            Ok(result) => json!({"id":id,"ok":true,"result":result}),
+            Err(err) => error(id, &err.code, &err.message),
+        };
     }
     if version == 3 {
         if op == "auth" {

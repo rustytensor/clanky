@@ -206,6 +206,7 @@ pub struct Masker {
     held: usize,
     tail: Tail,
     finished: bool,
+    fixed_width: bool,
 }
 
 impl Masker {
@@ -213,6 +214,23 @@ impl Masker {
     /// Does not read the process environment. Invalid configuration fails closed;
     /// caller-owned input copies remain the caller's responsibility to protect.
     pub fn new(env: &[(&str, &str)], extra: &[(&str, &str)]) -> Result<Self, Error> {
+        Self::configured(env, extra, false)
+    }
+
+    /// Mask recognized bytes with one ASCII star per raw byte instead of labels.
+    /// Uses the same matching and stream withholding rules as `new`. Literals
+    /// containing stars are rejected: replacement plus adjacent text must not
+    /// manufacture another configured secret across a redaction boundary.
+    /// Errors never include configuration values; callers must fail closed.
+    pub fn new_fixed_width(env: &[(&str, &str)], extra: &[(&str, &str)]) -> Result<Self, Error> {
+        Self::configured(env, extra, true)
+    }
+
+    fn configured(
+        env: &[(&str, &str)],
+        extra: &[(&str, &str)],
+        fixed_width: bool,
+    ) -> Result<Self, Error> {
         let mut literals: Vec<Literal> = Vec::new();
         for &(name, value) in env
             .iter()
@@ -227,6 +245,9 @@ impl Masker {
             }
             if value.len() > 65_536 {
                 return Err(Error::PatternTooLong);
+            }
+            if fixed_width && value.as_bytes().contains(&b'*') {
+                return Err(Error::UnsafeMarker);
             }
             if literals
                 .iter()
@@ -244,38 +265,40 @@ impl Masker {
             });
         }
 
-        // Validate every effective label, including aliases of duplicate values.
-        // Temporary markers use wiped storage until validation establishes that
-        // they do not contain configured secrets or built-in recognition triggers.
-        for &(name, value) in env
-            .iter()
-            .filter(|(name, value)| environment_name(name) && value.chars().count() >= 12)
-            .chain(extra.iter())
-        {
-            let label = name.as_bytes();
-            if unsafe_output(label, &literals) {
-                return Err(Error::UnsafeMarker);
-            }
-            let mut marker = Secret::zeroed(8 + label.len() + 1);
-            marker.bytes_mut()[..8].copy_from_slice(b"[masked:");
-            marker.bytes_mut()[8..8 + label.len()].copy_from_slice(label);
-            marker.bytes_mut()[8 + label.len()] = b']';
-            if unsafe_output(marker.bytes(), &literals) {
-                return Err(Error::UnsafeMarker);
-            }
-            if let Some(literal) = literals
-                .iter_mut()
-                .find(|literal| literal.value.bytes() == value.as_bytes())
+        if !fixed_width {
+            // Validate every effective label, including aliases of duplicate values.
+            // Temporary markers use wiped storage until validation establishes that
+            // they do not contain configured secrets or built-in recognition triggers.
+            for &(name, value) in env
+                .iter()
+                .filter(|(name, value)| environment_name(name) && value.chars().count() >= 12)
+                .chain(extra.iter())
             {
-                if literal.marker.is_empty() {
-                    literal.marker = marker.bytes().to_vec();
+                let label = name.as_bytes();
+                if unsafe_output(label, &literals) {
+                    return Err(Error::UnsafeMarker);
+                }
+                let mut marker = Secret::zeroed(8 + label.len() + 1);
+                marker.bytes_mut()[..8].copy_from_slice(b"[masked:");
+                marker.bytes_mut()[8..8 + label.len()].copy_from_slice(label);
+                marker.bytes_mut()[8 + label.len()] = b']';
+                if unsafe_output(marker.bytes(), &literals) {
+                    return Err(Error::UnsafeMarker);
+                }
+                if let Some(literal) = literals
+                    .iter_mut()
+                    .find(|literal| literal.value.bytes() == value.as_bytes())
+                {
+                    if literal.marker.is_empty() {
+                        literal.marker = marker.bytes().to_vec();
+                    }
                 }
             }
-        }
-        for builtin in BUILTINS {
-            let label = &builtin.marker[8..builtin.marker.len() - 1];
-            if unsafe_output(label, &literals) || unsafe_output(builtin.marker, &literals) {
-                return Err(Error::UnsafeMarker);
+            for builtin in BUILTINS {
+                let label = &builtin.marker[8..builtin.marker.len() - 1];
+                if unsafe_output(label, &literals) || unsafe_output(builtin.marker, &literals) {
+                    return Err(Error::UnsafeMarker);
+                }
             }
         }
         let limit = literals
@@ -290,6 +313,7 @@ impl Masker {
             held: 0,
             tail: Tail::None,
             finished: false,
+            fixed_width,
         })
     }
 
@@ -345,6 +369,9 @@ impl Masker {
             match self.tail {
                 Tail::Run(alphabet) => {
                     if alphabet.contains(byte) {
+                        if self.fixed_width {
+                            output.push(b'*');
+                        }
                         self.consume(1);
                         continue;
                     }
@@ -364,6 +391,9 @@ impl Masker {
                     } else {
                         Tail::Private { end, position }
                     };
+                    if self.fixed_width {
+                        output.push(b'*');
+                    }
                     self.consume(1);
                     continue;
                 }
@@ -402,10 +432,18 @@ impl Masker {
                 return;
             }
             if let Some(i) = best_literal {
-                output.extend_from_slice(&self.literals[i].marker);
+                if self.fixed_width {
+                    output.resize(output.len() + best_len, b'*');
+                } else {
+                    output.extend_from_slice(&self.literals[i].marker);
+                }
                 self.consume(best_len);
             } else if let Some(i) = best_builtin {
-                output.extend_from_slice(BUILTINS[i].marker);
+                if self.fixed_width {
+                    output.resize(output.len() + best_len, b'*');
+                } else {
+                    output.extend_from_slice(BUILTINS[i].marker);
+                }
                 self.tail = BUILTINS[i].tail;
                 self.consume(best_len);
             } else {

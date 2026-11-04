@@ -1,5 +1,6 @@
+%{!?clanky_version:%global clanky_version 0.4.6}
 Name:           clanky
-Version:        0.3.3
+Version:        %{clanky_version}
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 License:        MIT OR Apache-2.0
@@ -20,7 +21,7 @@ API for coding agents.
 %build
 export CARGO_NET_OFFLINE=true
 export CARGO_BUILD_JOBS=8
-cargo build --release --locked --offline -p clanky -j 8
+cargo build --release --locked --offline -p clanky --bin clanky -j 8
 
 %check
 "${CARGO_TARGET_DIR:-target}/release/clanky" --help > /dev/null
@@ -50,5 +51,8 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.4.6-1
+- Package the current source version and build only the application binary.
+
 * Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.3.3-1
 - Add Linux distribution packaging.

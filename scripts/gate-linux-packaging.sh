@@ -2,9 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
-build=/srv/devops/build/clanky-pkg
+build="${CLANKY_PACKAGE_BUILD_DIR:-${CARGO_TARGET_DIR:-$root/target}/packaging}"
+export CLANKY_PACKAGE_BUILD_DIR="$build"
+lock="${CLANKY_BUILD_LOCK:-${CARGO_TARGET_DIR:-$root/target}/.build.lock}"
+export CLANKY_BUILD_LOCK="$lock"
 export CARGO_TARGET_DIR="$build/target"
-export CARGO_HOME=/srv/devops/cache/clanky-cargo
+: "${CARGO_HOME:?set CARGO_HOME}"
+version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
 export CARGO_NET_OFFLINE=true
 export CARGO_BUILD_JOBS=8
 mkdir -p "$build"
@@ -38,9 +42,9 @@ PY
 timeout 30 desktop-file-validate "$work/desktop/clanky.desktop"
 check_desktop "$work/desktop/clanky.desktop"
 timeout 30 appstreamcli validate --no-net packaging/linux/io.github.rustytensor.Clanky.metainfo.xml
-timeout 1800 "$root/scripts/vendor-tarball.sh" "$work/rpmbuild/SOURCES/clanky-0.3.3.tar.gz"
-timeout 1800 flock /srv/devops/build/clanky/.build.lock rpmbuild -bb \
-    --define "_topdir $work/rpmbuild" --define '_smp_mflags -j8' \
+timeout 1800 "$root/scripts/vendor-tarball.sh" "$work/rpmbuild/SOURCES/clanky-$version.tar.gz"
+timeout 1800 flock "$lock" rpmbuild -bb \
+    --define "_topdir $work/rpmbuild" --define '_smp_mflags -j8' --define "clanky_version $version" \
     packaging/fedora/clanky.spec
 mapfile -t rpms < <(find "$work/rpmbuild/RPMS" -type f -name '*.rpm' ! -name '*debuginfo*' ! -name '*debugsource*')
 [[ ${#rpms[@]} == 1 ]] || { echo 'Expected exactly one binary RPM' >&2; exit 1; }

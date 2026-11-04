@@ -55,6 +55,7 @@ struct Observer {
     evicted: u64,
     command_id: String,
     cr: bool,
+    prompt_waiting: bool,
     kitty: crate::kitty::Kitty,
     cursor: (usize, usize),
     viewport: (usize, usize),
@@ -123,6 +124,7 @@ impl vte::Perform for Observer {
         }
         match params.get(1).copied() {
             Some(b"C") => {
+                self.prompt_waiting = false;
                 self.seal(None, false);
                 while self.blocks.len() >= 1024 {
                     self.blocks.pop_front();
@@ -140,6 +142,7 @@ impl vte::Perform for Observer {
                 });
             }
             Some(b"D") => {
+                self.prompt_waiting = false;
                 let code = params
                     .get(2)
                     .and_then(|p| std::str::from_utf8(p).ok())
@@ -147,6 +150,7 @@ impl vte::Perform for Observer {
                 self.seal(code, true);
             }
             Some(b"A" | b"B") => {
+                self.prompt_waiting = true;
                 self.seal(None, false);
             }
             _ => (),
@@ -196,7 +200,175 @@ impl Terminal {
         self.responses.try_iter().collect()
     }
     pub fn eof(&mut self) {
+        self.observer.prompt_waiting = false;
         self.observer.seal(None, false);
+    }
+    pub(crate) fn prompt_waiting(&self) -> bool {
+        self.observer.prompt_waiting
+    }
+    /// Clear stale prompt evidence when input is submitted, before the shell
+    /// has had an opportunity to emit its next OSC marker.
+    pub(crate) fn input_submitted(&mut self) {
+        self.observer.prompt_waiting = false;
+    }
+    pub(crate) fn key_bytes(&self, key: &str) -> Result<Vec<u8>, String> {
+        let application = self.term.mode().contains(TermMode::APP_CURSOR);
+        let bytes: &[u8] = match key {
+            "Enter" => b"\r",
+            "Ctrl-C" => b"\x03",
+            "Escape" => b"\x1b",
+            "Tab" => b"\t",
+            "Backspace" => b"\x7f",
+            "Up" if application => b"\x1bOA",
+            "Down" if application => b"\x1bOB",
+            "Right" if application => b"\x1bOC",
+            "Left" if application => b"\x1bOD",
+            "Home" if application => b"\x1bOH",
+            "End" if application => b"\x1bOF",
+            "Up" => b"\x1b[A",
+            "Down" => b"\x1b[B",
+            "Right" => b"\x1b[C",
+            "Left" => b"\x1b[D",
+            "Home" => b"\x1b[H",
+            "End" => b"\x1b[F",
+            "Delete" => b"\x1b[3~",
+            "PageUp" => b"\x1b[5~",
+            "PageDown" => b"\x1b[6~",
+            _ => return Err("unsupported key".into()),
+        };
+        Ok(bytes.to_vec())
+    }
+    pub(crate) fn bracketed_paste(&self) -> bool {
+        self.term.mode().contains(TermMode::BRACKETED_PASTE)
+    }
+    pub(crate) fn paste_bytes(&self, text: &str) -> Vec<u8> {
+        if self.bracketed_paste() {
+            let mut bytes = Vec::with_capacity(text.len() + 12);
+            bytes.extend_from_slice(b"\x1b[200~");
+            bytes.extend_from_slice(text.as_bytes());
+            bytes.extend_from_slice(b"\x1b[201~");
+            bytes
+        } else {
+            text.as_bytes().to_vec()
+        }
+    }
+    /// Current display viewport, matching snapshot coordinates. Policy and
+    /// masking belong to the caller, before it slices or paginates text.
+    pub(crate) fn screen_text(&self) -> Vec<String> {
+        let offset = self.term.grid().display_offset();
+        (0..self.size.0)
+            .map(|row| {
+                let mut text = String::new();
+                for col in 0..self.size.1 {
+                    let cell = &self.term.grid()
+                        [Point::new(Line(row as i32 - offset as i32), Column(col))];
+                    if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                        continue;
+                    }
+                    if cell.flags.contains(Flags::HIDDEN) {
+                        text.push(' ');
+                    } else {
+                        text.push(cell.c);
+                        if let Some(extra) = cell.zerowidth() {
+                            text.extend(extra.iter().copied());
+                        }
+                    }
+                }
+                text.trim_end_matches(' ').to_owned()
+            })
+            .collect()
+    }
+    /// True means this row continues into the next without a newline.
+    /// Callers masking logical text must join these rows before matching.
+    /// Full raw-grid logical context; keep padding until masking has decided
+    /// whether it belongs to a literal. Never feed replacement bytes to a grid.
+    pub(crate) fn text_context(&self) -> (usize, usize, Vec<String>, Vec<bool>, bool) {
+        let total = self.term.grid().history_size();
+        let mut lines = Vec::new();
+        let mut wraps = Vec::new();
+        for row in -(total as i32)..self.size.0 as i32 {
+            let mut text = String::new();
+            for col in 0..self.size.1 {
+                let cell = &self.term.grid()[Point::new(Line(row), Column(col))];
+                if cell
+                    .flags
+                    .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                {
+                    continue;
+                }
+                if cell.flags.contains(Flags::HIDDEN) {
+                    text.push(' ');
+                } else {
+                    text.push(cell.c);
+                    if let Some(extra) = cell.zerowidth() {
+                        text.extend(extra.iter().copied());
+                    }
+                }
+            }
+            lines.push(text);
+            wraps.push(
+                self.term.grid()[Point::new(Line(row), Column(self.size.1 - 1))]
+                    .flags
+                    .contains(Flags::WRAPLINE),
+            );
+        }
+        (
+            total,
+            self.term.grid().display_offset(),
+            lines,
+            wraps,
+            total >= Config::default().scrolling_history,
+        )
+    }
+    /// Byte position of the live cursor in text_context (not the scrolled view).
+    pub(crate) fn text_cursor(&self) -> Option<(usize, usize)> {
+        let cursor = &self.term.grid().cursor;
+        let row = usize::try_from(cursor.point.line.0).ok()?;
+        if row >= self.size.0 {
+            return None;
+        }
+        let end = (cursor.point.column.0 + usize::from(cursor.input_needs_wrap)).min(self.size.1);
+        let mut bytes = 0;
+        for col in 0..end {
+            let cell = &self.term.grid()[Point::new(Line(row as i32), Column(col))];
+            if cell
+                .flags
+                .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+            {
+                continue;
+            }
+            if cell.flags.contains(Flags::HIDDEN) {
+                bytes += 1;
+            } else {
+                bytes += cell.c.len_utf8();
+                if let Some(extra) = cell.zerowidth() {
+                    bytes += extra.iter().map(|c| c.len_utf8()).sum::<usize>();
+                }
+            }
+        }
+        Some((self.term.grid().history_size() + row, bytes))
+    }
+    pub(crate) fn screen_wraps(&self) -> Vec<bool> {
+        let offset = self.term.grid().display_offset();
+        (0..self.size.0)
+            .map(|row| {
+                self.term.grid()
+                    [Point::new(Line(row as i32 - offset as i32), Column(self.size.1 - 1))]
+                .flags
+                .contains(Flags::WRAPLINE)
+            })
+            .collect()
+    }
+    pub(crate) fn history_wraps(&self) -> Vec<bool> {
+        let total = self.term.grid().history_size();
+        (0..total)
+            .map(|row| {
+                self.term.grid()
+                    [Point::new(Line(row as i32 - total as i32), Column(self.size.1 - 1))]
+                .flags
+                .contains(Flags::WRAPLINE)
+            })
+            .collect()
     }
     pub fn resize(&mut self, rows: usize, cols: usize) {
         if self.size.0 == rows && self.size.1 == cols {
