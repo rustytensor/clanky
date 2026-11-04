@@ -1,6 +1,6 @@
 //! Real app layout and scene observations for the M11 gate.
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use clanky::{config::Config, layout_store, look::{self, BlockCard, LookState, PaneState}, settings::Settings};
+use clanky::{config::Config, layout_store, look::{self, AgentItem, BlockCard, FileItem, LookState, PaneState, SessionItem, TimelineItem}, settings::Settings};
 use clanky_api::Client;
 use clanky_core::{Engine, layout::{Axis, Layout as Tree}, snapshot_from_chunks};
 use clanky_render::{Layer, offscreen_scene};
@@ -99,12 +99,37 @@ fn run() -> Result<(), String> {
     let engine = Session(Engine::new());
     let pty_a = pty_size(&engine.0, shown.pane("A").ok_or("pane A")?)?;
     let pty_b = pty_size(&engine.0, shown.pane("B").ok_or("pane B")?)?;
-    let snap_a = snapshot_from_chunks(14,71,&[]).map_err(|e| e.message)?;
+    let snap_a = snapshot_from_chunks(14,71,&["~/projects/clanky ❯ ".as_bytes()]).map_err(|e| e.message)?;
     let snap_b = snapshot_from_chunks(14,71,&[b"cargo build"]).map_err(|e| e.message)?;
-    let a = PaneState::new("A",snap_a);
+    let mut a = PaneState::new("A",snap_a);
+    a.title = "~/projects/clanky".into(); a.driver = "fish".into();
     let mut b = PaneState::new("B",snap_b);
-    b.blocks.push(BlockCard { id:"fixture".into(),first_row:0,last_row:0,command:"cargo build".into(),exit_code:Some(0),duration_ms:Some(0),running:false });
-    let mut state = LookState { focused:Some("B".into()),panes:vec![a,b], ..Default::default() };
+    b.title = "cargo build".into(); b.driver = "fish".into();
+    b.blocks.push(BlockCard { id:"fixture".into(),first_row:0,last_row:0,command:"cargo build".into(),exit_code:Some(0),duration_ms:Some(41_200),running:false });
+    let mut state = LookState {
+        focused:Some("B".into()), panes:vec![a,b], uptime_seconds:21_600, masking_ready:true,
+        sessions:vec![
+            SessionItem { id:"A".into(),title:"clanky".into(),active:true },
+            SessionItem { id:"session-2".into(),title:"api".into(),active:false },
+            SessionItem { id:"session-3".into(),title:"docs".into(),active:false },
+        ],
+        agents:vec![
+            AgentItem { connection_id:1,peer_pid:1842,tab_id:Some("A".into()),running:false },
+            AgentItem { connection_id:2,peer_pid:1856,tab_id:Some("B".into()),running:true },
+        ],
+        files:vec![
+            FileItem { id:"main.rs".into(),title:"main.rs".into(),pending:2,active:true },
+            FileItem { id:"config.rs".into(),title:"config.rs".into(),pending:0,active:false },
+        ],
+        timeline:vec![
+            TimelineItem { label:"Session opened".into(),detail:"clanky".into() },
+            TimelineItem { label:"Agent connected".into(),detail:"idle".into() },
+            TimelineItem { label:"File changed".into(),detail:"main.rs".into() },
+            TimelineItem { label:"Build finished".into(),detail:"41.2 s".into() },
+        ],
+        activity:vec![0.,1.,0.,2.,1.,3.,2.,1.,4.,2.,3.,1.],
+        ..Default::default()
+    };
     let mut scene = look::scene(&shown,&state);
     if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("look") {
         for layer in &mut scene.layers {
