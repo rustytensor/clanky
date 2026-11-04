@@ -56,6 +56,17 @@ A theme is a JSON file. Built-in themes ship inside the binary; user themes live
     - Violet-to-blue `window_gradient` (#7c3aed to #2563eb), glows on, and violet and cyan accents.
     - A drawn sparkle icon beside the brand, and an "AI-powered" badge in the top bar.
     - Its description in Settings: "Every AI cliché, lovingly assembled. For the rare person who wants it."
+  - **Unicorn Tears** (light): a soft pastel dream.
+    - Pale pink-to-lavender sidebar gradient (#fde2f3 to #e4dcff), with mint, baby-blue and peach accents and
+      gentle rounded glows.
+    - Text in a deep plum (#3b2a4d), so it still reads at 4.5:1.
+    - Settings: "Soft, dreamy, a little sad. Like a unicorn who just watched a sad film."
+  - **Unicorn Vomit** (dark): full-saturation rainbow.
+    - A red-orange-yellow-green-blue-violet window gradient, a different neon colour on each pane border, glows on,
+      and a hot-pink cursor.
+    - Settings: "Every colour at once. You were warned."
+    - Exempt from the contrast check, like AI Bedazzled; the gate lists the exempt tokens.
+  - **Gradients** may have more than two stops: `window_gradient` is a list of 2 to 8 colours, spread evenly.
 - **Settings > Appearance:**
   - a theme picker for dark and one for light (`theme_dark`, `theme_light`; `theme` stays dark, light or system);
   - colour pickers on the active theme;
@@ -166,7 +177,7 @@ column are shown. Every expected value below was worked out from the numbers abo
     - Every built-in theme loads.
     - A theme missing one colour is refused with the loader's message.
     - The Catppuccin colours equal upstream palette.json, version pinned in the gate.
-    - Every text colour of every built-in theme except AI Bedazzled is at least 4.5:1 on its surface.
+    - Every text colour of every built-in theme except AI Bedazzled and Unicorn Vomit is at least 4.5:1 on its surface.
     - Save as new, then export, then import gives an identical file.
 11. **Post-AI mode.**
     - `post_ai: true` lays out with no right column: pane A = (268, 76, 952, 326), 116 columns.
@@ -199,7 +210,7 @@ release v1.9.1), plus OFL-Geist.txt. Marc approved Geist on 2026-11-04.
   - docs;
   - built on m11-idle, the redraw fix.
 - **clanky-build:**
-  - the theme system: format, loader, built-ins (Stone, Paper, Graphite, Catppuccin, AI Bedazzled), user theme
+  - the theme system: format, loader, built-ins (Stone, Paper, Graphite, Catppuccin, AI Bedazzled, Unicorn Tears, Unicorn Vomit), user theme
     folder, and the Settings data for the picker, save, export and import;
   - the Geist fonts in the renderer.
 - **clanky-pkg:** this gate, the click harness, the idle check, the theme checks, the packaging list, and the
