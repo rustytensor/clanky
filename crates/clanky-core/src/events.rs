@@ -36,6 +36,7 @@ pub(super) struct Safety {
     events: Mutex<EventRing>,
     pub changed: Condvar,
     pub window_signal: window_changes::WindowSignal,
+    pub readiness: readiness::ReadinessSchedule,
     audit: Mutex<Audits>,
 }
 impl Safety {
@@ -50,6 +51,7 @@ impl Safety {
             events: Mutex::new(EventRing::default()),
             changed: Condvar::new(),
             window_signal: window_changes::WindowSignal::new(),
+            readiness: readiness::ReadinessSchedule::new(),
             audit: Mutex::new(Audits::default()),
         }
     }
@@ -74,7 +76,8 @@ impl Safety {
     pub fn publish(&self, tab_id: &str, allowed: &Arc<AtomicBool>, mut value: Value) {
         // Raw PTY feed notifies only after the grid is updated; masked output
         // can be buffered and must not be the window's typing wakeup source.
-        let window_change=value["kind"]!="output_appended";
+        let window_change=!matches!(value["kind"].as_str(),Some("output_appended"|"waiting_for_input"));
+        if value["kind"]=="command_finished"{self.readiness.activity(tab_id);}
         let mut ring = self.events.lock().unwrap();
         ring.next += 1;
         let seq = ring.next;
@@ -133,6 +136,15 @@ impl Engine {
         };
         let permission = tab.as_ref().map(|t| t.permission.load(Ordering::Acquire));
         let deadline = Instant::now() + Duration::from_millis(timeout);
+        // An explicit event request (and its timeout) may refresh readiness.
+        // Never run this while holding the ring: observations can publish events.
+        let observe=|| {
+            let tabs=if let Some(tab)=&tab {vec![tab.clone()]} else {
+                self.0.0.lock().unwrap().tabs.values().filter(|tab|trusted || tab.allowed.load(Ordering::Acquire)).cloned().collect()
+            };
+            for tab in tabs{tab.observe_input();}
+        };
+        observe();
         let mut ring = safety.events.lock().unwrap();
         loop {
             if !trusted
@@ -219,16 +231,9 @@ impl Engine {
                     json!({"events":page,"next_cursor":cursor,"oldest_cursor":oldest,"gap":gap}),
                 );
             }
-            let (next, _) = safety
-                .changed
-                .wait_timeout(
-                    ring,
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(100)),
-                )
-                .unwrap();
+            let (next, timed) = safety.changed.wait_timeout(ring,deadline.saturating_duration_since(Instant::now())).unwrap();
             ring = next;
+            if timed.timed_out(){drop(ring);observe();ring=safety.events.lock().unwrap();}
         }
     }
     pub fn record_agent(

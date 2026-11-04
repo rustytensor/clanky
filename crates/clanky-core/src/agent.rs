@@ -47,14 +47,15 @@ impl Tab {
             "waiting":waiting,"bracketed_paste":bracketed_paste,"evidence":if blocked {"pty_read"} else if prompt {"prompt"} else {"none"},
             "command_id":command.as_ref().map(|c| c.id.clone())})
     }
-    fn observe_input(&self) {
+    pub(super) fn observe_input(&self) -> Value {
         let state = self.input_state();
         let waiting = state["waiting"].as_bool().unwrap_or(false);
         if self.was_waiting.swap(waiting, Ordering::AcqRel) != waiting {
-            let mut event = state;
+            let mut event = state.clone();
             event["kind"] = json!("waiting_for_input");
             self.safety.publish(&self.id, &self.allowed, event);
         }
+        state
     }
 }
 impl Engine {
@@ -87,14 +88,14 @@ impl Engine {
         let safety = self.0.1.clone();
         let handle = std::thread::spawn(move || {
             while !safety.stop.load(Ordering::Acquire) {
+                // No Engine reference is held while parked, and there is no
+                // periodic scan after the quiet-period observation completes.
+                let due=safety.readiness.due(&safety.stop);
+                if safety.stop.load(Ordering::Acquire){break;}
                 let Some(inner) = weak.upgrade() else { break };
-                let tabs: Vec<_> = inner.0.lock().unwrap().tabs.values().cloned().collect();
-                // Release the last possible Engine reference before waiting.
+                let tabs:Vec<_>={let state=inner.0.lock().unwrap();due.iter().filter_map(|id|state.tabs.get(id).cloned()).collect()};
                 drop(inner);
-                for tab in tabs {
-                    tab.observe_input();
-                }
-                std::thread::sleep(Duration::from_millis(100));
+                for tab in tabs {tab.observe_input();}
             }
         });
         *self.0.2.lock().unwrap() = Some(handle);
@@ -167,13 +168,13 @@ impl Engine {
         let tab = self.tab(id, trusted)?;
         let lease = self.lease(&tab);
         let result = match op {
-            "input_state" => tab.input_state(),
+            "input_state" => tab.observe_input(),
             "wait_input" => {
                 let timeout = number(args, "timeout_ms", 0, 30000)?;
                 let deadline = Instant::now() + Duration::from_millis(timeout);
                 loop {
                     self.check_lease(&tab, lease, trusted)?;
-                    let mut value = tab.input_state();
+                    let mut value = tab.observe_input();
                     let waiting = value["waiting"] == true;
                     if waiting || Instant::now() >= deadline {
                         value["timed_out"] = json!(!waiting);
@@ -215,6 +216,7 @@ impl Engine {
                 process
                     .input(bytes)
                     .map_err(|_| error("resource_limit", "PTY input unavailable"))?;
+                self.0.1.readiness.activity(id);
                 json!({"sent":sent})
             }
             "screen" => {
