@@ -2,7 +2,7 @@
 mod actions;
 
 use crate::{
-    TerminalSnapshot,
+    TerminalSnapshot, Workspace,
     platform::{self, Control, Process},
     terminal::Terminal,
 };
@@ -197,6 +197,7 @@ struct State {
     next_tab: u64,
     next_command: u64,
     shutdown: bool,
+    workspace: Workspace,
 }
 struct Inner(Mutex<State>);
 impl Drop for Inner {
@@ -221,6 +222,7 @@ impl Engine {
             next_tab: 0,
             next_command: 0,
             shutdown: false,
+            workspace: Workspace::empty(),
         }))))
     }
     fn tab(&self, id: &str, trusted: bool) -> Result<Arc<Tab>, CoreError> {
@@ -289,12 +291,177 @@ impl Engine {
         let tabs = {
             let mut s = self.0.0.lock().unwrap();
             s.shutdown = true;
+            s.workspace = Workspace::empty();
             std::mem::take(&mut s.tabs)
         };
         for t in tabs.values() {
             t.close();
         }
     }
+    /// True only after the final explicitly closed tab, not on client loss.
+    pub fn idle_exit_ready(&self) -> bool {
+        let s = self.0.0.lock().unwrap();
+        s.next_tab > 0 && s.tabs.is_empty()
+    }
+
+    pub fn scroll(&self, tab_id: &str, delta: i32) -> Result<(), CoreError> {
+        self.tab(tab_id, true)?
+            .terminal
+            .lock()
+            .unwrap()
+            .scroll(delta);
+        Ok(())
+    }
+
+    /// Owner-only operations. The transport must authenticate before calling.
+    /// Deliberately separate from the unprivileged v1/v2 dispatcher.
+    pub fn owner_request(&self, op: &str, args: &Value) -> Result<Value, CoreError> {
+        let allowed: &[&str] = match op {
+            "workspace_get" | "shell_defaults" => &[],
+            "workspace_set" => &["revision", "groups", "active"],
+            "snapshot" => &["tab_id", "known_generation", "known_images"],
+            "history" => &["tab_id", "offset", "limit"],
+            "scroll" => &["tab_id", "delta"],
+            "input" => &["tab_id", "data"],
+            "resize" => &["tab_id", "rows", "cols"],
+            "permission_get" => &["tab_id"],
+            "permission_set" => &["tab_id", "allow_agent"],
+            _ => return Err(error("unknown_operation", "unknown operation")),
+        };
+        fields(args, allowed)?;
+        if op == "shell_defaults" {
+            let shell = std::env::var("SHELL")
+                .ok()
+                .filter(|s| Path::new(s).is_absolute() && Path::new(s).is_file())
+                .unwrap_or_else(|| "/bin/sh".into());
+            let cwd = std::env::current_dir().map_err(|e| error("io_error", e.to_string()))?;
+            return Ok(json!({"argv":[shell],"cwd":cwd}));
+        }
+        if op == "workspace_get" {
+            return Ok(json!(self.0.0.lock().unwrap().workspace));
+        }
+        if op == "workspace_set" {
+            let revision = number(args, "revision", 0, u64::MAX)?;
+            let mut s = self.0.0.lock().unwrap();
+            if revision != s.workspace.revision {
+                return Err(error("conflict", "workspace revision changed"));
+            }
+            let mut workspace: Workspace = serde_json::from_value(json!({
+                "revision": revision, "groups": args.get("groups"), "active": args.get("active")
+            }))
+            .map_err(|_| invalid("invalid workspace"))?;
+            if !workspace.valid(s.tabs.keys()) {
+                return Err(invalid("invalid workspace layout, focus or active group"));
+            }
+            workspace.revision = revision
+                .checked_add(1)
+                .ok_or_else(|| error("resource_limit", "workspace revision exhausted"))?;
+            s.workspace = workspace;
+            return Ok(json!(s.workspace));
+        }
+        let tab_id = string(args, "tab_id")?;
+        let tab = self.tab(tab_id, true)?;
+        match op {
+            "snapshot" => {
+                let known_generation = match args.get("known_generation") {
+                    None => None,
+                    Some(v) => Some(
+                        v.as_u64()
+                            .ok_or_else(|| invalid("invalid known_generation"))?,
+                    ),
+                };
+                let mut known = std::collections::BTreeSet::new();
+                if let Some(value) = args.get("known_images") {
+                    let values = value
+                        .as_array()
+                        .filter(|a| a.len() <= 4096)
+                        .ok_or_else(|| invalid("invalid known_images"))?;
+                    for value in values {
+                        known.insert(value.as_u64().ok_or_else(|| invalid("invalid image key"))?);
+                    }
+                }
+                let terminal = tab.terminal.lock().unwrap();
+                let generation = terminal.generation;
+                if known_generation == Some(generation) {
+                    return Ok(json!({"generation":generation,"unchanged":true}));
+                }
+                // Placements clone only Arc headers, never their RGBA buffers.
+                let snapshot = terminal.snapshot();
+                drop(terminal);
+                let mut pixels = Vec::new();
+                for image in &snapshot.images {
+                    if known.insert(image.image_key) {
+                        pixels.push(json!({"image_key":image.image_key,
+                            "data":base64::engine::general_purpose::STANDARD.encode(image.rgba.as_slice())}));
+                    }
+                }
+                Ok(
+                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels}),
+                )
+            }
+            "history" => {
+                let offset = if args.get("offset").is_some() {
+                    number(args, "offset", 0, usize::MAX as u64)? as usize
+                } else {
+                    0
+                };
+                let limit = if args.get("limit").is_some() {
+                    number(args, "limit", 1, 64)? as usize
+                } else {
+                    64
+                };
+                let (total, lines) = tab.terminal.lock().unwrap().history(offset, limit);
+                if offset > total {
+                    return Err(invalid("offset exceeds history"));
+                }
+                Ok(
+                    json!({"total":total,"offset":offset,"next_offset":offset+lines.len(),"lines":lines}),
+                )
+            }
+            "scroll" => {
+                let delta = args
+                    .get("delta")
+                    .and_then(Value::as_i64)
+                    .and_then(|n| i32::try_from(n).ok())
+                    .ok_or_else(|| invalid("invalid scroll delta"))?;
+                let offset = tab.terminal.lock().unwrap().scroll(delta);
+                Ok(json!({"display_offset":offset}))
+            }
+            "input" => {
+                let data = string(args, "data")?;
+                if data.len() > 65536usize.div_ceil(3) * 4 {
+                    return Err(error("resource_limit", "input exceeds 64 KiB"));
+                }
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .map_err(|_| invalid("invalid input base64"))?;
+                if bytes.len() > 65536 {
+                    return Err(error("resource_limit", "input exceeds 64 KiB"));
+                }
+                self.input(tab_id, &bytes)?;
+                Ok(json!({}))
+            }
+            "resize" => {
+                self.resize(
+                    tab_id,
+                    number(args, "rows", 1, 1000)? as usize,
+                    number(args, "cols", 1, 1000)? as usize,
+                )?;
+                Ok(json!({}))
+            }
+            "permission_get" => Ok(json!({"allow_agent":tab.allowed.load(Ordering::Acquire)})),
+            "permission_set" => {
+                let allowed = args
+                    .get("allow_agent")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| invalid("allow_agent must be boolean"))?;
+                tab.allowed.store(allowed, Ordering::Release);
+                Ok(json!({"allow_agent":allowed}))
+            }
+            _ => unreachable!(),
+        }
+    }
+
     pub fn request(&self, op: &str, args: &Value, trusted: bool) -> Result<Value, CoreError> {
         if let Some(action) = op.strip_prefix("v2.") {
             return self.palette_action(action, args, trusted);
@@ -336,6 +503,7 @@ impl Engine {
             let id = format!("t{}", s.next_tab);
             s.tabs
                 .insert(id.clone(), Arc::new(Tab::new(rows, cols, allow)));
+            s.workspace.add(id.clone());
             return Ok(json!({"tab_id": id, "allow_agent": allow}));
         }
         if op == "list_tabs" {
@@ -528,7 +696,10 @@ impl Engine {
             }
             "close_tab" => {
                 tab.close();
-                self.0.0.lock().unwrap().tabs.remove(tab_id);
+                let mut s = self.0.0.lock().unwrap();
+                if s.tabs.remove(tab_id).is_some() {
+                    s.workspace.remove(tab_id);
+                }
                 Ok(json!({"closed": true}))
             }
             _ => unreachable!(),

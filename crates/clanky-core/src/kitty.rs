@@ -14,7 +14,16 @@
 //! is recommended since this GPU-independent layer has no window/DPI metrics.
 use crate::ImagePlacement;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use std::{collections::BTreeMap, io::Cursor, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    io::Cursor,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+
+static NEXT_IMAGE_KEY: AtomicU64 = AtomicU64::new(1);
 
 const TRANSFER_LIMIT: usize = 16 * 1024 * 1024;
 const PIXEL_LIMIT: usize = 64 * 1024 * 1024;
@@ -22,6 +31,7 @@ const OBJECT_LIMIT: usize = 4096;
 type Controls = BTreeMap<u8, String>;
 #[derive(Clone)]
 struct Image {
+    image_key: u64,
     width: u32,
     height: u32,
     rgba: Arc<Vec<u8>>,
@@ -208,6 +218,7 @@ impl Kitty {
                 // Retransmission refreshes existing placements without retaining old buffers.
                 for p in &mut self.placements {
                     if p.image_id == id {
+                        p.image_key = image.image_key;
                         p.rgba = image.rgba.clone();
                         p.width = image.width;
                         p.height = image.height;
@@ -284,6 +295,7 @@ impl Kitty {
             return Err("ENOSPC:too many placements");
         }
         let p = ImagePlacement {
+            image_key: image.image_key,
             image_id: id,
             placement_id: pid,
             x: cursor.1,
@@ -394,7 +406,13 @@ fn decode(c: &Controls, bytes: &[u8]) -> Result<Image, &'static str> {
         };
         (width, height, rgba)
     };
+    let image_key = NEXT_IMAGE_KEY
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |key| {
+            key.checked_add(1)
+        })
+        .map_err(|_| "ENOSPC:image keys exhausted")?;
     Ok(Image {
+        image_key,
         width,
         height,
         rgba: Arc::new(rgba),

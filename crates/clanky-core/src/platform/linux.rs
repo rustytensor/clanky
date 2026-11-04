@@ -3,21 +3,23 @@ use clanky_vt::{
     tty::{self, ChildEvent, EventedPty, EventedReadWrite},
 };
 use std::{
-    fs,
+    ffi::{CString, OsStr, OsString},
+    fs::{self, File},
     io::{self, Read, Seek, Write},
     net::Shutdown,
     os::{
         fd::AsRawFd,
         unix::{
+            ffi::OsStrExt,
             fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
             net::{UnixListener, UnixStream},
-            process::ExitStatusExt,
+            process::{CommandExt, ExitStatusExt},
         },
     },
     path::{Path, PathBuf},
     process::{Child, Command as HelperCommand, Stdio},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, SyncSender},
     },
@@ -154,7 +156,7 @@ pub struct LocalListener {
     dev: u64,
     ino: u64,
 }
-pub struct LocalStream(UnixStream);
+pub struct LocalStream(UnixStream, Option<ProcessIdentity>);
 impl LocalListener {
     pub fn bind(path: &Path) -> io::Result<Self> {
         let parent = path
@@ -206,13 +208,16 @@ impl LocalListener {
         if result < 0 {
             return Err(io::Error::last_os_error());
         }
-        if cred.uid != uid() {
+        if len as usize != std::mem::size_of_val(&cred) || cred.uid != uid() || cred.pid < 1 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "peer UID differs",
             ));
         }
-        Ok(LocalStream(stream))
+        // Pin the kernel peer's lifetime before any authentication. A reused
+        // PID must not turn an inherited connection into an owner connection.
+        let peer = process_identity(cred.pid).ok();
+        Ok(LocalStream(stream, peer))
     }
 }
 impl Drop for LocalListener {
@@ -225,8 +230,45 @@ impl Drop for LocalListener {
     }
 }
 impl LocalStream {
+    pub fn connect(path: &Path) -> io::Result<Self> {
+        use std::os::unix::fs::FileTypeExt;
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| io::Error::other("socket requires private parent directory"))?;
+        private_directory(parent, false)?;
+        let metadata = fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_socket() || metadata.uid() != uid() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "unsafe server socket",
+            ));
+        }
+        let stream = UnixStream::connect(path)?;
+        let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+        let mut len = std::mem::size_of_val(&cred) as libc::socklen_t;
+        if unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                &mut cred as *mut _ as *mut _,
+                &mut len,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if len as usize != std::mem::size_of_val(&cred) || cred.uid != uid() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "server UID differs",
+            ));
+        }
+        Ok(Self(stream, process_identity(cred.pid).ok()))
+    }
     pub fn try_clone(&self) -> io::Result<Self> {
-        self.0.try_clone().map(Self)
+        self.0.try_clone().map(|stream| Self(stream, self.1))
     }
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         self.0.set_read_timeout(timeout)
@@ -323,8 +365,23 @@ pub(crate) fn spawn(
         .into(),
         ..Default::default()
     };
+    // Reserve registry space before creating any child. Never discard roots:
+    // descendants can outlive both their shell and its terminal tab.
+    let mut roots = pty_roots()
+        .lock()
+        .map_err(|_| io::Error::other("PTY registry unavailable"))?;
+    if roots.len() >= MAX_PTY_ROOTS {
+        return Err(io::Error::other("PTY ancestry registry full"));
+    }
     let mut pty = tty::new(&options, size(rows, cols), 0)?;
     let pid = pty.child().id() as i32;
+    // tty::from_fd completes setsid before spawn returns, so PGID and SID
+    // are known even if a very short-lived child already exited.
+    roots.push(PtyRoot {
+        pid,
+        start: process_identity(pid).ok().map(|p| p.start),
+    });
+    drop(roots);
     let (tx, rx) = mpsc::sync_channel(64);
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
@@ -462,4 +519,340 @@ pub(crate) fn spawn(
         stop,
         join: Mutex::new(Some(join)),
     })
+}
+
+const MAX_PTY_ROOTS: usize = 65_536;
+struct PtyRoot {
+    pid: i32,
+    start: Option<u64>,
+}
+fn pty_roots() -> &'static Mutex<Vec<PtyRoot>> {
+    static ROOTS: OnceLock<Mutex<Vec<PtyRoot>>> = OnceLock::new();
+    ROOTS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ProcessIdentity {
+    pid: i32,
+    parent: i32,
+    group: i32,
+    session: i32,
+    start: u64,
+}
+fn process_identity(pid: i32) -> io::Result<ProcessIdentity> {
+    if pid < 1 {
+        return Err(io::Error::other("invalid process identity"));
+    }
+    let text = fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    // comm may contain spaces, parentheses and newlines. Its closing ')' is
+    // the last one; all subsequent stat fields are kernel-formatted numbers.
+    let (head, tail) = text
+        .rsplit_once(')')
+        .ok_or_else(|| io::Error::other("invalid process stat"))?;
+    let actual = head
+        .split_once(' ')
+        .and_then(|(p, _)| p.parse::<i32>().ok());
+    let fields: Vec<_> = tail.split_whitespace().collect();
+    let invalid = || io::Error::other("invalid process stat");
+    let number = |i: usize| {
+        fields
+            .get(i)
+            .ok_or_else(invalid)?
+            .parse::<i32>()
+            .map_err(|_| invalid())
+    };
+    if actual != Some(pid) {
+        return Err(invalid());
+    }
+    let start = fields
+        .get(19)
+        .ok_or_else(invalid)?
+        .parse::<u64>()
+        .map_err(|_| invalid())?;
+    let identity = ProcessIdentity {
+        pid,
+        parent: number(1)?,
+        group: number(2)?,
+        session: number(3)?,
+        start,
+    };
+    if identity.group < 1 || identity.session < 1 {
+        return Err(invalid());
+    }
+    Ok(identity)
+}
+
+/// Kernel-proven owner provenance. A token alone is never owner authority.
+/// Unknown, changing or excessively deep ancestry is deliberately ineligible.
+pub fn owner_eligible(stream: &LocalStream) -> io::Result<bool> {
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of_val(&cred) as libc::socklen_t;
+    if unsafe {
+        libc::getsockopt(
+            stream.0.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            &mut cred as *mut _ as *mut _,
+            &mut len,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if len as usize != std::mem::size_of_val(&cred) || cred.uid != uid() || cred.pid < 1 {
+        return Ok(false);
+    }
+    // Synchronize with spawn registration; the server ancestor check also
+    // denies children during the interval before a root can be recorded.
+    let roots = pty_roots()
+        .lock()
+        .map_err(|_| io::Error::other("PTY registry unavailable"))?;
+    let Some(peer) = stream.1 else {
+        return Ok(false);
+    };
+    if peer.pid != cred.pid || process_identity(cred.pid).ok() != Some(peer) {
+        return Ok(false);
+    }
+    let server = process_identity(std::process::id() as i32)?;
+    let mut chain: Vec<ProcessIdentity> = Vec::new();
+    let mut pid = cred.pid;
+    for _ in 0..256 {
+        let current = match process_identity(pid) {
+            Ok(p) => p,
+            Err(_) => return Ok(false),
+        };
+        if current.pid == server.pid || chain.iter().any(|p| p.pid == pid) {
+            return Ok(false);
+        }
+        if roots.iter().any(|root| {
+            // Group/session numbers remain reserved security roots even after
+            // leader exit. Numeric reuse is ambiguous and must deny, not allow.
+            current.group == root.pid
+                || current.session == root.pid
+                || (current.pid == root.pid && root.start.is_none_or(|s| s == current.start))
+        }) {
+            return Ok(false);
+        }
+        if let Some(child) = chain.last() {
+            if current.start > child.start {
+                return Ok(false);
+            }
+        }
+        chain.push(current);
+        if current.pid == 1 && current.parent == 0 {
+            // Re-read every link to catch PID reuse, reparenting, setsid and
+            // process-group changes during the walk. Never accept a torn chain.
+            for identity in &chain {
+                if process_identity(identity.pid).ok() != Some(*identity) {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        if current.parent < 1 {
+            return Ok(false);
+        }
+        pid = current.parent;
+    }
+    Ok(false)
+}
+
+fn private_directory(path: &Path, create: bool) -> io::Result<File> {
+    if create {
+        match fs::DirBuilder::new().mode(0o700).create(path) {
+            Ok(()) => (),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(e),
+        }
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_dir() || meta.uid() != uid() || meta.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "runtime directory must be owned and private",
+        ));
+    }
+    Ok(file)
+}
+fn sidecar(socket: &Path, suffix: &str, create_parent: bool) -> io::Result<(File, CString)> {
+    let parent = socket
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| io::Error::other("socket requires private parent directory"))?;
+    let directory = private_directory(parent, create_parent)?;
+    let mut name = socket
+        .file_name()
+        .ok_or_else(|| io::Error::other("invalid socket path"))?
+        .to_os_string();
+    name.push(suffix);
+    let name =
+        CString::new(name.as_bytes()).map_err(|_| io::Error::other("invalid socket path"))?;
+    Ok((directory, name))
+}
+fn open_sidecar(directory: &File, name: &CString, flags: i32) -> io::Result<File> {
+    use std::os::fd::FromRawFd;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.uid() != uid() || meta.mode() & 0o7777 != 0o600 || meta.nlink() != 1
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "unsafe runtime file",
+        ));
+    }
+    Ok(file)
+}
+
+/// The lock file is permanent; unlinking it could create two lock domains.
+pub struct ServerLock {
+    _file: File,
+}
+impl ServerLock {
+    pub fn acquire(socket: &Path) -> io::Result<Self> {
+        let (dir, name) = sidecar(socket, ".lock", true)?;
+        let file = open_sidecar(&dir, &name, libc::O_RDWR | libc::O_CREAT)?;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { _file: file })
+    }
+}
+
+/// Read or create the private capability. No error includes capability bytes.
+pub fn owner_token(socket: &Path, create: bool) -> io::Result<String> {
+    let (dir, name) = sidecar(socket, ".owner", create)?;
+    // Serialize creation/read so a concurrent reader never sees a partially
+    // written capability. The short-lived writer lock is independent of the
+    // server instance lock (which remains held for the server's entire life).
+    let (_, guard_name) = sidecar(socket, ".owner.lock", false)?;
+    let guard = open_sidecar(
+        &dir,
+        &guard_name,
+        libc::O_RDWR | if create { libc::O_CREAT } else { 0 },
+    )?;
+    let mode = if create { libc::LOCK_EX } else { libc::LOCK_SH };
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        if unsafe { libc::flock(guard.as_raw_fd(), mode | libc::LOCK_NB) } == 0 {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::WouldBlock {
+            return Err(error);
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "capability lock timed out",
+            ));
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut file = match open_sidecar(&dir, &name, libc::O_RDONLY) {
+        Ok(file) => file,
+        Err(e) if create && e.kind() == io::ErrorKind::NotFound => {
+            let mut random = [0u8; 32];
+            File::open("/dev/urandom")?.read_exact(&mut random)?;
+            let token: String = random.iter().map(|b| format!("{b:02x}")).collect();
+            let mut file =
+                open_sidecar(&dir, &name, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)?;
+            file.write_all(token.as_bytes())?;
+            file.sync_all()?;
+            return Ok(token);
+        }
+        Err(e) => return Err(e),
+    };
+    if file.metadata()?.len() != 64 {
+        return Err(io::Error::other("invalid owner capability file"));
+    }
+    let mut bytes = [0u8; 64];
+    file.read_exact(&mut bytes)?;
+    if !bytes.iter().all(|b| b.is_ascii_hexdigit()) {
+        return Err(io::Error::other("invalid owner capability file"));
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|_| io::Error::other("invalid owner capability file"))
+}
+
+pub fn default_socket() -> io::Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", uid())));
+    private_directory(&runtime, false)?;
+    let directory = runtime.join("clanky");
+    private_directory(&directory, true)?;
+    Ok(directory.join("server.sock"))
+}
+
+/// Create private input/observation files without following an existing link.
+pub fn create_private_file(path: &Path) -> io::Result<File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+}
+
+/// Replace this process while preserving its PID and ancestry.
+pub fn exec_program(program: &Path, args: &[String]) -> io::Error {
+    HelperCommand::new(program).args(args).exec()
+}
+
+pub fn spawn_server(exe: &Path, socket: &Path) -> io::Result<Child> {
+    let mut command = HelperCommand::new(exe);
+    command
+        .arg("--server")
+        .arg("--socket")
+        .arg(socket)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.spawn()
+}
+pub fn spawn_pipe(program: &OsStr, args: &[OsString]) -> io::Result<Child> {
+    HelperCommand::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+}
+pub fn spawn_ssh(host: &str) -> io::Result<Child> {
+    if host.is_empty()
+        || host.starts_with('-')
+        || host.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid SSH host",
+        ));
+    }
+    let args: Vec<OsString> = ["-T", "-oBatchMode=yes", "--", host, "clanky", "--stdio"]
+        .iter()
+        .map(OsString::from)
+        .collect();
+    spawn_pipe(OsStr::new("ssh"), &args)
 }

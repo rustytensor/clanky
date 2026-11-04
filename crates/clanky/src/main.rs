@@ -4,20 +4,18 @@ use clanky::{
     config::{Config, Metrics, Zoom},
     input::{InputState, key_bytes},
 };
+use clanky_api::Client;
 use clanky_core::{
-    Cell, Engine, TerminalSnapshot,
-    layout::{Axis, Layout, Rect},
+    Cell, TerminalSnapshot, Workspace, WorkspaceGroup as Group,
+    layout::{Axis, Rect},
     platform,
 };
 use clanky_render::{Renderer, block_on};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 use winit::{
@@ -38,71 +36,59 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let (mut headless, mut socket, mut config_path) = (false, None, None);
+    let mut stdio = false;
+    let mut host = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--headless" => headless = true,
+            "--headless" | "--server" => headless = true,
+            "--stdio" => stdio = true,
+            "attach" => host = Some(args.next().ok_or("attach needs a host")?),
             "--socket" => socket = Some(PathBuf::from(args.next().ok_or("--socket needs a path")?)),
             "--config" => {
                 config_path = Some(PathBuf::from(args.next().ok_or("--config needs a path")?))
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--headless] [--socket PATH] [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
                 );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
-    // Socket-only operation keeps v1 defaults and does not depend on GUI config.
-    let config = if headless && config_path.is_none() {
-        Config::default()
-    } else {
-        Config::load(config_path.as_deref())?
+    if host.is_some() && (socket.is_some() || headless || stdio) {
+        return Err("attach cannot use --socket, --server, --headless or --stdio".into());
+    }
+    if headless && stdio {
+        return Err("choose either server or stdio mode".into());
+    }
+    if let Some(host) = host {
+        let config = Config::load(config_path.as_deref())?;
+        let client = Client::connect_ssh(&host).map_err(|e| e.to_string())?;
+        return run_window(client, config);
+    }
+    let socket = match socket {
+        Some(path) => path,
+        None => platform::default_socket().map_err(|e| e.to_string())?,
     };
-    let socket = socket
-        .or_else(|| {
-            std::env::var_os("XDG_RUNTIME_DIR").map(|dir| {
-                PathBuf::from(dir)
-                    .join("clanky")
-                    .join(format!("{}.sock", std::process::id()))
-            })
-        })
-        .ok_or("set XDG_RUNTIME_DIR or pass --socket in a private directory")?;
-    platform::install_shutdown_signals().map_err(|e| e.to_string())?;
-    let engine = Engine::new();
-    let stop = Arc::new(AtomicBool::new(false));
-    let (server_engine, server_stop) = (engine.clone(), stop.clone());
-    let server = std::thread::spawn(move || {
-        let result = clanky_api::serve(server_engine, &socket, server_stop.clone());
-        server_stop.store(true, Ordering::Release);
-        result
-    });
-    let result = if headless {
-        while !platform::shutdown_requested() && !server.is_finished() {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        Ok(())
-    } else {
-        run_window(engine.clone(), stop.clone(), config)
-    };
-    stop.store(true, Ordering::Release);
-    engine.shutdown();
-    let server_result = server
-        .join()
-        .map_err(|_| "socket thread panicked".to_string())?
-        .map_err(|e| e.to_string());
-    result.and(server_result)
+    if (headless || stdio) && config_path.is_some() {
+        Config::load(config_path.as_deref())?;
+    }
+    if headless {
+        return clanky::session::run_server(&socket);
+    }
+    if stdio {
+        return clanky::session::stdio(&socket);
+    }
+    let config = Config::load(config_path.as_deref())?;
+    run_window(clanky::session::connect_or_start(&socket)?, config)
 }
 
-struct Group {
-    layout: Layout,
-    focus: String,
-}
 struct App {
-    engine: Engine,
-    stop: Arc<AtomicBool>,
+    engine: Client,
+    revision: u64,
+    stop: bool,
     config: Config,
     zoom: Zoom,
     scale: f64,
@@ -121,18 +107,20 @@ struct App {
     panels: panels::Panels,
 }
 
-fn run_window(engine: Engine, stop: Arc<AtomicBool>, config: Config) -> Result<(), String> {
+fn run_window(engine: Client, config: Config) -> Result<(), String> {
+    let workspace = engine.workspace_get().map_err(|e| e.message)?;
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let mut app = App {
         engine,
-        stop,
+        stop: false,
+        revision: workspace.revision,
         zoom: Zoom::new(config.font_size_pt),
         config,
         scale: 1.0,
         window: None,
         renderer: None,
-        groups: Vec::new(),
-        active: 0,
+        groups: workspace.groups,
+        active: workspace.active,
         sizes: BTreeMap::new(),
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
@@ -182,32 +170,43 @@ impl App {
             w.set_ime_allowed(true);
         }
     }
-    fn sync_groups(&mut self) {
+    fn load_workspace(&mut self, workspace: Workspace) {
         let previous = self.focused().map(str::to_owned);
-        let ids: BTreeSet<_> = self.engine.tab_ids().into_iter().collect();
-        for group in &mut self.groups {
-            for id in group.layout.leaves() {
-                if !ids.contains(&id) {
-                    group.layout.remove(&id);
-                }
-            }
-            if !group.layout.contains(&group.focus) {
-                group.focus = group.layout.leaves().first().cloned().unwrap_or_default();
-            }
-        }
-        self.groups.retain(|g| !g.layout.leaves().is_empty());
-        let known: BTreeSet<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
-        for id in ids.difference(&known) {
-            self.groups.push(Group {
-                layout: Layout::leaf(id.clone()),
-                focus: id.clone(),
-            });
-        }
-        self.active = previous
-            .as_ref()
-            .and_then(|id| self.groups.iter().position(|g| g.layout.contains(id)))
-            .unwrap_or(self.active.min(self.groups.len().saturating_sub(1)));
+        self.revision = workspace.revision;
+        self.groups = workspace.groups;
+        self.active = workspace.active;
+        let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         self.sizes.retain(|id, _| ids.contains(id));
+        if previous.as_deref() != self.focused() {
+            self.reset_ime();
+        }
+    }
+    fn sync_groups(&mut self) -> Result<(), String> {
+        let workspace = self.engine.workspace_get().map_err(|e| e.message)?;
+        if workspace.revision != self.revision {
+            self.load_workspace(workspace);
+        }
+        Ok(())
+    }
+    fn save_workspace(&mut self) -> Result<(), String> {
+        let workspace = Workspace {
+            revision: self.revision,
+            groups: self.groups.clone(),
+            active: self.active,
+        };
+        match self.engine.workspace_set(&workspace) {
+            Ok(workspace) => {
+                self.load_workspace(workspace);
+                Ok(())
+            }
+            Err(error) => {
+                // Never retry a stale layout over another window's changes.
+                if let Ok(workspace) = self.engine.workspace_get() {
+                    self.load_workspace(workspace);
+                }
+                Err(error.message)
+            }
+        }
     }
     fn is_suspended(&self) -> bool {
         self.occluded
@@ -221,7 +220,7 @@ impl App {
         if self.is_suspended() {
             return Ok(());
         }
-        self.sync_groups();
+        self.sync_groups()?;
         let root = self.rect()?;
         for group in &self.groups {
             for (id, r) in group.layout.rectangles(root.clone()) {
@@ -248,14 +247,17 @@ impl App {
         self.resize_panes()
     }
     fn spawn_terminal(&self, rows: usize, cols: usize) -> Result<String, String> {
+        // A remote server must choose its own shell and directory, not ours.
+        let defaults = self.call("v3.shell_defaults", json!({}))?;
         let tab = self.call(
             "open_tab",
             json!({"rows":rows,"cols":cols,"allow_agent":false}),
         )?;
         let id = tab["tab_id"].as_str().ok_or("missing tab ID")?.to_owned();
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-        if let Err(e) = self.call("run", json!({"tab_id":id,"argv":[shell],"cwd":cwd})) {
+        if let Err(e) = self.call(
+            "run",
+            json!({"tab_id":id,"argv":defaults["argv"],"cwd":defaults["cwd"]}),
+        ) {
             let _ = self.call("close_tab", json!({"tab_id":id}));
             return Err(e);
         }
@@ -264,21 +266,27 @@ impl App {
     fn new_tab(&mut self) -> Result<(), String> {
         let r = self.rect()?;
         let id = self.spawn_terminal(r.rows, r.cols)?;
-        self.groups.push(Group {
-            layout: Layout::leaf(id.clone()),
-            focus: id,
-        });
-        self.active = self.groups.len() - 1;
+        self.sync_groups()?;
+        self.active = self
+            .groups
+            .iter()
+            .position(|g| g.layout.contains(&id))
+            .ok_or("new terminal missing from workspace")?;
+        self.save_workspace()?;
         self.reset_ime();
         self.resize_panes()
     }
     fn split(&mut self, axis: Axis) -> Result<(), String> {
-        self.sync_groups();
-        let Some(group) = self.groups.get(self.active) else {
+        let Some(target) = self.focused().map(str::to_owned) else {
             return self.new_tab();
         };
+        self.sync_groups()?;
+        let group = self
+            .groups
+            .iter()
+            .find(|g| g.layout.contains(&target))
+            .ok_or("split target was closed")?;
         let root = self.rect()?;
-        let target = group.focus.clone();
         let mut candidate = group.layout.clone();
         candidate.split(&target, "__new__".into(), axis.clone(), root.clone())?;
         let r = candidate
@@ -288,22 +296,55 @@ impl App {
             .ok_or("new pane is not visible")?
             .1;
         let id = self.spawn_terminal(r.rows, r.cols)?;
-        if let Err(e) = self.groups[self.active]
-            .layout
-            .split(&target, id.clone(), axis, root)
+        // open_tab already added an independent group. Work against its fresh
+        // revision; on conflict that terminal must remain open independently.
+        self.sync_groups()?;
+        let target_group = self
+            .groups
+            .iter()
+            .position(|g| g.layout.contains(&target))
+            .ok_or("split target was closed; new terminal remains independent")?;
+        if !self
+            .groups
+            .iter()
+            .any(|g| g.layout.leaves() == vec![id.clone()])
         {
-            let _ = self.call("close_tab", json!({"tab_id":id}));
-            return Err(e);
+            return Err("new terminal layout changed in another window; split cancelled".into());
         }
-        self.groups[self.active].focus = id;
+        let mut layout = self.groups[target_group].layout.clone();
+        layout.split(&target, id.clone(), axis, root)?;
+        self.groups.retain(|g| !g.layout.contains(&id));
+        let target_group = self
+            .groups
+            .iter()
+            .position(|g| g.layout.contains(&target))
+            .ok_or("split target missing")?;
+        self.groups[target_group].layout = layout;
+        self.groups[target_group].focus = id;
+        self.active = target_group;
+        self.save_workspace()?;
         self.reset_ime();
         self.resize_panes()
     }
     fn close_pane(&mut self) -> Result<(), String> {
-        if let Some(id) = self.focused().map(str::to_owned) {
+        // Use the displayed target, even if another window just changed focus.
+        let target = self.focused().map(str::to_owned);
+        self.sync_groups()?;
+        if let Some(id) = target {
+            let last = self
+                .groups
+                .iter()
+                .map(|g| g.layout.leaves().len())
+                .sum::<usize>()
+                == 1;
             self.call("close_tab", json!({"tab_id":id}))?;
+            if last {
+                // The final reply is followed by server exit; do not query it.
+                self.stop = true;
+                return Ok(());
+            }
         }
-        self.sync_groups();
+        self.sync_groups()?;
         self.reset_ime();
         self.resize_panes()
     }
@@ -385,6 +426,7 @@ impl App {
             if *key == Key::Named(NamedKey::Tab) {
                 if !self.groups.is_empty() {
                     self.active = (self.active + 1) % self.groups.len();
+                    self.save_workspace()?;
                     self.reset_ime();
                 }
                 return Ok(());
@@ -425,10 +467,10 @@ impl App {
                 self.reset_ime();
             }
         }
-        Ok(())
+        self.save_workspace()
     }
     fn draw(&mut self) -> Result<(), String> {
-        if self.is_suspended() {
+        if self.stop || self.is_suspended() {
             return Ok(());
         }
         self.resize_panes()?;
@@ -546,7 +588,11 @@ impl ApplicationHandler for App {
             self.renderer = Some(block_on(Renderer::new(window.clone()))?);
             self.window = Some(window);
             self.metrics_changed()?;
-            self.new_tab()
+            if self.groups.is_empty() {
+                self.new_tab()
+            } else {
+                Ok(())
+            }
         })();
         if let Err(e) = result {
             self.fail(event_loop, e);
@@ -587,6 +633,26 @@ impl ApplicationHandler for App {
                             MouseScrollDelta::PixelDelta(p) => -p.y as f32 / m.cell_height as f32,
                         };
                         self.panels.scroll(rows.round() as i32);
+                    } else if !self.panels.open {
+                        let col = (self.mouse.0 / m.cell_width as f64) as usize;
+                        let row = (self.mouse.1 / m.cell_height as f64) as usize;
+                        let target = self.rect().ok().and_then(|rect| {
+                            self.groups
+                                .get(self.active)?
+                                .layout
+                                .hit_test(rect, col, row)
+                        });
+                        if let Some(id) = target {
+                            let rows = match delta {
+                                MouseScrollDelta::LineDelta(_, y) => y * 3.0,
+                                MouseScrollDelta::PixelDelta(p) => {
+                                    p.y as f32 / m.cell_height as f32
+                                }
+                            };
+                            if let Err(e) = self.engine.scroll(&id, rows.round() as i32) {
+                                self.status = Some(e.message);
+                            }
+                        }
                     }
                 }
                 Ok(())
@@ -663,7 +729,11 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if platform::shutdown_requested() || self.stop.load(Ordering::Acquire) {
+        if self.stop || self.engine.is_closed() {
+            if !self.stop && self.error.is_none() {
+                self.error =
+                    Some("Session connection closed; sessions may still be running".into());
+            }
             event_loop.exit();
             return;
         }

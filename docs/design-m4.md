@@ -134,6 +134,8 @@ New v3 operations:
 
 - hello: version 3, server_pid and owner/session capabilities.
 - auth: token; a generic success/error, never an echoed credential.
+- shell_defaults: server-side shell argv and current directory for new shells;
+  an SSH window must not send its local machine's shell path or cwd as defaults.
 - workspace_get: `{revision,groups:[{layout,focus}],active}`. Layout uses the
   existing leaf/split tree with serde's explicit variant representation.
 - workspace_set: the same groups/active plus expected revision. Validate that

@@ -4,6 +4,8 @@
 //! half of the remaining extent. Resizing never changes leaf IDs. Empty IDs are
 //! reserved for an empty layout after its final leaf is removed.
 
+use serde::{Deserialize, Serialize};
+
 /// A pane's content rectangle in zero-based cell coordinates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rect {
@@ -14,14 +16,15 @@ pub struct Rect {
 }
 
 /// The dimension divided by a split (columns for side-by-side panes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Axis {
     Columns,
     Rows,
 }
 
 /// A binary tree whose nonempty leaves are stable terminal IDs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Layout {
     Leaf(String),
     Split {

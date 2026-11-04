@@ -3,16 +3,19 @@ mod engine;
 mod kitty;
 pub mod layout;
 pub mod platform;
+mod session;
 mod terminal;
 pub(crate) use engine::{Command, Tab};
 pub use engine::{CoreError, Engine};
-#[derive(Clone, Debug)]
+use serde::{Deserialize, Serialize};
+pub use session::{Workspace, WorkspaceGroup};
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cell {
     pub ch: char,
     pub fg: [u8; 3],
     pub bg: [u8; 3],
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerminalSnapshot {
     pub rows: usize,
     pub cols: usize,
@@ -21,7 +24,7 @@ pub struct TerminalSnapshot {
     pub images: Vec<ImagePlacement>,
 }
 /// An immutable image and its terminal-local placement and viewport clip, in cells.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ImagePlacement {
     pub image_id: u32,
     pub placement_id: u32,
@@ -31,6 +34,8 @@ pub struct ImagePlacement {
     pub rows: usize,
     pub width: u32,
     pub height: u32,
+    pub image_key: u64,
+    #[serde(skip)]
     pub rgba: std::sync::Arc<Vec<u8>>,
     pub clip_x: usize,
     pub clip_y: usize,
