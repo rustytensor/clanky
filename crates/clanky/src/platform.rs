@@ -35,9 +35,21 @@ pub fn preference_is_light(theme: Option<Theme>) -> bool {
 pub fn settings_path() -> Option<PathBuf> {
     linux::settings_path()
 }
+/// Per-user state shared by windows on this machine, never an SSH host path.
+#[cfg(target_os = "linux")]
+pub fn robot_marker_path() -> Option<PathBuf> { linux::robot_marker_path() }
+#[cfg(not(target_os = "linux"))]
+pub fn robot_marker_path() -> Option<PathBuf> { None }
+
 #[cfg(target_os = "linux")]
 mod linux {
     use super::PathBuf;
+    pub fn robot_marker_path() -> Option<PathBuf> {
+        std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").filter(|v| !v.is_empty())
+                .map(|home| PathBuf::from(home).join(".local/state")))
+            .map(|base| base.join("clanky/first-meeting"))
+    }
     pub fn settings_path() -> Option<PathBuf> {
         std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").filter(|v| !v.is_empty())

@@ -689,6 +689,9 @@ impl App {
             window.set_title(&format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points()));
             if let Some([x,y]) = ime { window.set_ime_cursor_area(PhysicalPosition::new(x.max(0.0) as u32,y.max(0.0) as u32),PhysicalSize::new(layout.cell_px[0],layout.cell_px[1])); }
         }
+        if let Some(pane) = layout.panes.first() {
+            self.draw_robot(&mut presentation.scene, pane.rect.array())?;
+        }
         self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)
     }
 }
