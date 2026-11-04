@@ -55,7 +55,7 @@ Kitty images support direct data, chunked transfer, stored placement and deletio
 File/shared-memory transport, cropping, compression controls, animation and
 z-order are rejected. Explicit cell dimensions are recommended; natural sizing
 uses 10x20 cells. See [M2 design](docs/design-m2.md) and the
-[parser patch note](vendor/vte/CLANKY-PATCH.md).
+[parser patch note](crates/clanky-vte/CLANKY-PATCH.md).
 
 After building, `scripts/gate-m2.sh` checks image pixels, splits, PTYs, config,
 DPI/zoom and M1 regression. It needs no display; a software GPU adapter is allowed.
