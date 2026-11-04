@@ -176,6 +176,30 @@ def head(a):
     raise GateFailure('event page bound')
 
 
+def block_command_masking(o, a, d, secret, fault=False):
+    # The expected command is fixed before the prompt is opened or input is sent.
+    expected = 'export X=' + '*' * len(secret)
+    shell = ("printf '\\033]133;A\\007$ \\033]133;B\\007'\n"
+             "IFS= read -r line\n"
+             "printf '\\033]133;C\\007'\n"
+             "eval \"$line\"\n"
+             "printf '\\033]133;D;0\\007'\n")
+    t = tab(o)
+    c = run(o, t, ['sh', '-c', shell], d)
+    until(lambda: a.call('input_state', dict(tab_id=t))['waiting'], 'block command prompt ready')
+    a.call('paste', dict(tab_id=t, text='export X=' + secret.decode('ascii')))
+    a.call('send_key', dict(tab_id=t, key='Enter'))
+    done(o, t, c)
+    response = a.call('list_blocks', dict(tab_id=t, limit=64), 1)
+    blocks = response['blocks']
+    require(len(blocks) == 1, 'block command count')
+    observed = blocks[0]['command']
+    if fault:
+        observed = 'unmasked'
+    require(observed == expected, 'block command masked')
+    require(secret not in json.dumps(response).encode(), 'block command response no secret')
+
+
 def suite(bins, d, env, fault):
     socket = d / 'server.sock'
     server = spawn([bins / 'clanky', '--server', '--socket', socket], env=env)
@@ -228,6 +252,7 @@ def suite(bins, d, env, fault):
         require((d / 'keys-bytes').read_bytes() == b'\x1b[A\x03\r\x1b[200~xy\x1b[201~', 'literal key bytes')
 
         secret = env['CLANKY_TEST_SECRET'].encode()
+        block_command_masking(o, a, d, secret, fault == 'block-command')
         token = ('s' + 'k' + '-' + ''.join(secrets.choice('abcdefghijklmnopqrstuvwxyz') for _ in range(20))).encode()
         (d / 'token').write_bytes(token)
         (d / 'token').chmod(0o600)
@@ -250,7 +275,7 @@ def suite(bins, d, env, fault):
         expected = prefix + b'*' * 24 + b'\r\n' + b'*' * 23 + b'\r\n' + suffix
         raw(o, mt, mc, expected_owner)
         observed = raw(a, mt, mc, expected)
-        if fault:
+        if fault == 'mask':
             observed = b'unmasked'
         require(observed == expected, 'fixed star masking')
         blocks = a.call('list_blocks', dict(tab_id=mt, limit=64), 1)['blocks']
@@ -412,7 +437,7 @@ def cleanup_groups(d):
 def main():
     os.umask(0o077)
     fault = os.environ.get('CLANKY_GATE_FAULT', '')
-    require(fault in ('', 'mask'), 'fault selection')
+    require(fault in ('', 'mask', 'block-command'), 'fault selection')
     env = os.environ.copy()
     # Only generated credentials are test inputs; preserve operational paths,
     # but do not import the owner's secret-bearing environment into fixtures.
@@ -438,7 +463,7 @@ def main():
         # fixture-local variable. No owner capability enters this environment.
         env['CLANKY_TEST_SECRET'] = ''.join(secrets.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(24))
         try:
-            suite(bins, d, env, bool(fault))
+            suite(bins, d, env, fault)
         finally:
             cleanup_groups(d)
             for p in reversed(CHILDREN):
