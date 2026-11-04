@@ -343,6 +343,7 @@ impl App {
         state.activity = self.studio.activity.clone();
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(id) = group.layout.leaves().first() {
+                state.session_counts.insert(id.clone(),group.layout.leaves().len());
                 state.sessions.push(look::SessionItem { id: id.clone(), title: format!("Session {} · {}", index+1, group.focus), active: index == self.active });
             }
         }
@@ -356,9 +357,13 @@ impl App {
                     state.agents.push(look::AgentItem { connection_id, peer_pid, tab_id: agent["tab_id"].as_str().map(str::to_owned), running: agent["running"].as_bool().unwrap_or(false) });
                 }
             }
-        } else { state.timeline.push(look::TimelineItem { label: "Metadata unavailable".into(), detail: "Agent peers, uptime and masking are unknown".into() }); }
+        }
         if let Some(events) = self.studio.metadata["events"].as_array() {
-            for event in events.iter().rev().take(20) {
+            for event in events.iter().skip(events.len().saturating_sub(20)) {
+                state.timeline_times.push(event["age_ms"].as_u64().map(|ms| {
+                    let seconds=ms/1000;
+                    if seconds<60 {format!("{seconds}s")} else if seconds<3600 {format!("{}m",seconds/60)} else {format!("{}h",seconds/3600)}
+                }).unwrap_or_default());
                 state.timeline.push(look::TimelineItem { label: event["kind"].as_str().unwrap_or("unknown").into(),
                     detail: format!("{} {}",event["tab_id"].as_str().unwrap_or(""),event["command_id"].as_str().unwrap_or("")) });
             }
@@ -434,7 +439,7 @@ impl App {
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
-            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { "Driver unknown".into() };
+            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { String::new() };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
                 if let Some(driver) = drivers.iter().find(|d| d["tab_id"].as_str() == Some(pane.id.as_str()) && d["running"] == true) {
                     view.agent_running = true;

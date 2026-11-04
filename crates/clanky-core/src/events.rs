@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicU64;
 
 struct Event {
     seq: u64,
+    recorded: Instant,
     tab_id: String,
     allowed: Arc<AtomicBool>,
     value: Value,
@@ -54,7 +55,7 @@ impl Safety {
     pub fn look_events(&self) -> Vec<Value> {
         let ring = self.events.lock().unwrap();
         ring.items.iter().skip(ring.items.len().saturating_sub(20)).map(|event| {
-            json!({"seq":event.seq,"kind":event.value["kind"],
+            json!({"seq":event.seq,"kind":event.value["kind"],"age_ms":event.recorded.elapsed().as_millis().min(u64::MAX as u128) as u64,
                 "tab_id":event.tab_id,"command_id":event.value["command_id"]})
         }).collect()
     }
@@ -77,6 +78,7 @@ impl Safety {
         let encoded_len = serde_json::to_vec(&value).map_or(65536, |v| v.len());
         ring.items.push_back(Event {
             seq,
+            recorded: Instant::now(),
             tab_id: tab_id.into(),
             allowed: allowed.clone(),
             value,
