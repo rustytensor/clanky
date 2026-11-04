@@ -18,14 +18,22 @@ No sshd is started or changed, and no TCP listener is introduced.
    then `h0 CR LF h1 CR LF h2 CR LF h3 CR LF h4 CR LF` (no separating spaces).
    On a 3-row terminal, retained history is exactly `["one","h0","h1","h2"]`.
    Scroll to the oldest row: the visible lines become `["one","h0","h1"]`.
+   Deny agent access to A before starting B's permission probe.
 3. B writes its own shell PID to a private fixture file, emits OSC 133 C and
    `start\n`, then waits for a release file. After release it prints `done\n`,
    emits OSC 133 D with code 7, and exits 7. Before detach, observe the exact
    prefix `ESC]133;C BEL start CR LF` and a still-running command.
+   While B is running, its child starts `clanky --stdio` and presents the REAL
+   owner token. Expected: owner auth returns `permission_denied`; a v1 read of
+   denied A through that bridge also returns `permission_denied`. The bridge
+   remains an agent connection rather than terminating in place of the read.
+   Probe results go to a private fixture file, never into B's transcript; the
+   token and request carrying it are never printed. Require these exact results
+   before killing the first client. B itself remains agent-allowed.
 4. Save a workspace with one side-by-side split containing A then B, focus B,
    active group 0. Both remain distinct v1 tab IDs. Select A's [0,3) block bytes,
-   collapse it and queue a task labelled `Persist` with payload `one`. Deny agent
-   access to A; B stays allowed. These choices are server state, not client files.
+   collapse it and queue a task labelled `Persist` with payload `one`. A remains
+   agent-denied; B stays allowed. These choices are server state, not client files.
 5. Kill the client process by its saved PID (SIGKILL). Require it to be dead
    while the same server PID is alive. Create the release file and wait for B's
    saved shell PID to disappear BEFORE attaching another client. Thus B actually
@@ -91,8 +99,30 @@ A GUI authenticates its connection with a random 256-bit owner capability from a
 0600 sidecar inside the private socket directory. It is never printed or logged.
 No request may gain owner privileges merely by supplying a trusted boolean.
 The credential and instance lock are platform-owned, symlink-safe regular files.
-This prevents accidental privilege elevation by ordinary API calls; it is not a
-sandbox against arbitrary same-UID filesystem access.
+The token is necessary but NOT sufficient: tab processes run under the same UID
+and can read it.
+
+Before granting owner authority, the server takes the kernel peer PID from
+SO_PEERCRED and walks its parent chain. Any match to a terminal process spawned
+by this server, or its process group/session, classifies the connection as AGENT
+regardless of the token. Keep terminal process/session identities beyond shell
+exit while descendants may survive; PID identities include start time to avoid
+mistaking PID reuse for provenance. A peer descending from the server itself is
+also agent-side, covering the spawn-to-registration race. Missing, inconsistent
+or unprovable ancestry fails closed. Check at accept and again at authentication;
+an agent classification is sticky for the connection.
+
+OWNER requires BOTH a client outside all of this server's terminal ancestry and
+a valid capability. Desktop-launched GUI clients and sshd-launched remote bridges
+can satisfy both. `clanky --stdio` launched inside a tab must instead bridge as
+an agent, including when its caller explicitly sends the real token. Do not
+upgrade an agent stream, proxy through an outside privileged helper, or retry a
+denied owner request on a privileged connection.
+
+Honest limit: same-UID processes outside Clanky are not sandboxed. This checks
+current ancestry and process-group/session membership, not arbitrary same-UID
+code execution. An agent with SSH access to a host can attach as owner of that
+host's server through sshd, including a local SSH login if one is available.
 
 The v3 auth reply grants owner authority on THAT connection. Authenticated v1/v2
 calls are the same operations the local UI previously performed as the owner.
@@ -144,9 +174,12 @@ transport authentication/encryption and its normal host-key policy. Clanky opens
 no TCP socket or port. The remote program must be installed and able to find its
 private runtime directory.
 
-`clanky --stdio [--socket PATH]` ensures the local server exists, connects as its
-owner, and bridges bounded JSON-line requests on stdin/stdout. It consumes the
-local owner handshake internally and never exposes the token on stdout. It
+`clanky --stdio [--socket PATH]` ensures the local server exists and bridges
+bounded JSON-line requests on stdin/stdout. Outside terminal ancestry it may
+connect as owner using the capability; inside a terminal it connects as an agent
+and forwards requests without elevation. It consumes any internal handshake
+without exposing the token on stdout. A caller's explicit auth request still
+reaches the server's ancestry check and cannot change an agent classification. It
 translates request IDs when forwarding; EOF detaches without closing sessions.
 GUI SSH clients and the local pipe gate use the same pipe-backed Client transport.
 Read/write failures and timeouts end that client, not the server's sessions.
