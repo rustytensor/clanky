@@ -78,6 +78,7 @@ fn fixture() -> Scene {
             }),
             card([600., 42., 10., 6.], 0., [255, 0, 0, 128]),
             Layer::Text(TextRun {
+                opacity: 1.0,
                 origin: [20., 8.],
                 text: "Clanky Studio".into(),
                 px: 16.,
@@ -91,6 +92,7 @@ fn fixture() -> Scene {
     grid.cells[0].ch = '█';
     grid.cells[0].fg = [255, 0, 0];
     scene.layers.push(Layer::Grid(GridLayer {
+        opacity: 1.0,
         origin: [232., 441.],
         clip: [232., 441., 710., 280.],
         snapshot: grid,
@@ -99,6 +101,7 @@ fn fixture() -> Scene {
     let mut picture = blank(6, 6);
     picture.images.push(image(128));
     scene.layers.push(Layer::Grid(GridLayer {
+        opacity: 1.0,
         origin: [20., 100.],
         clip: [20., 100., 30., 80.],
         snapshot: picture,
@@ -124,6 +127,85 @@ fn near(actual: [u8; 4], expected: [u8; 4], tolerance: u8, label: &str) {
             .all(|(a, b)| a.abs_diff(b) <= tolerance),
         "{label}: expected {expected:?}, observed {actual:?}"
     );
+}
+
+/// On transparent clear, half opacity halves premultiplied RGB and alpha.
+#[test]
+fn scene_opacity() {
+    let mut scene = Scene::default();
+    for (index, opacity) in [0.0, 0.5, 1.0].into_iter().enumerate() {
+        let x = index as f32 * 120.;
+        let mut snapshot = blank(6, 6);
+        snapshot.cells[0].bg = [200, 100, 50];
+        snapshot.cells[1].ch = '█';
+        snapshot.cells[1].fg = [0, 255, 0];
+        snapshot.cursor = Some((0, 2));
+        snapshot.images.push(image(128));
+        let opacity = if index == 1 && std::env::var_os("CLANKY_OPACITY_FAULT").is_some() {
+            1.0
+        } else {
+            opacity
+        };
+        scene.layers.push(Layer::Grid(GridLayer {
+            opacity,
+            origin: [x, 0.],
+            clip: [x, 0., 60., 120.],
+            snapshot,
+            underlines: vec![Underline {
+                row: 1,
+                start_col: 0,
+                end_col: 1,
+                color: [0, 0, 255],
+            }],
+        }));
+        scene.layers.push(Layer::Text(TextRun {
+            opacity,
+            origin: [x + 80., 0.],
+            text: "█".into(),
+            px: 16.,
+            color: [200, 100, 50, 128],
+            weight: 400,
+            mono: true,
+        }));
+        // The following shape must not inherit the preceding layer's fade.
+        scene
+            .layers
+            .push(card([x + 100., 0., 10., 20.], 0., [255; 4]));
+    }
+    let pixels = offscreen_scene(&scene, 1240, 120).unwrap();
+    for (index, factor) in [0.0_f32, 0.5, 1.0].into_iter().enumerate() {
+        for (x, y, rgba, label) in [
+            (5, 10, [200., 100., 50., 255.], "background fade"),
+            (15, 10, [0., 255., 0., 255.], "glyph fade"),
+            (25, 19, [255., 159., 90., 255.], "cursor fade"),
+            (5, 38, [0., 0., 255., 255.], "underline fade"),
+            (25, 50, [128., 0., 0., 128.], "image fade"),
+            (
+                85,
+                10,
+                [
+                    200. * 128. / 255.,
+                    100. * 128. / 255.,
+                    50. * 128. / 255.,
+                    128.,
+                ],
+                "text fade",
+            ),
+        ] {
+            near(
+                pixel(&pixels, index * 120 + x, y),
+                rgba.map(|v| (v * factor).round() as u8),
+                2,
+                label,
+            );
+        }
+        near(
+            pixel(&pixels, index * 120 + 105, 10),
+            [255; 4],
+            0,
+            "fade reset",
+        );
+    }
 }
 
 /// Expected theme samples come from design-m11-look.md, not renderer output.
