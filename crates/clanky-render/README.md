@@ -23,6 +23,21 @@ images. This is a per-primitive fade, not an offscreen group compositing pass.
 `scene::tests::scene_opacity` checks literal pixel values at 0, 0.5 and 1;
 `CLANKY_OPACITY_FAULT=1` plants a full-opacity fault in its half-opacity sample.
 
+`Layer::Vector(VectorLayer)` draws ordered lyon paths with optional fills and
+round-cap/round-join strokes. `vector::lyon` re-exports the approved path library.
+Each path carries a row-major `Matrix4`; `a.then(b)` applies a then b. Matrices
+accumulate in f64 before final pixel coordinates become f32. `perspective(700,
+origin)` supplies the robot's CSS-style projection. Paths crossing the perspective
+plane are refused; callers order visible faces back-to-front.
+
+Vector scenes use 4× MSAA; scenes without vectors retain single-sample output.
+The antialias attachment is cached by size, bounded to 256 MiB. Switching between
+vector/non-vector scenes recreates the painter caches, so keep related vector
+shapes in one scene rather than alternating modes each frame. No legacy draw or
+M1/M2 fixture code changes. The focused `vector::tests::path_pixels` check covers
+literal fill/stroke pixels, half-covered edges and a 700 px projection;
+`CLANKY_PATH_FAULT=1` deliberately changes the fill and must fail.
+
 Scene defaults are bundled JetBrains Mono and Inter. `set_font_families(terminal,
 ui)` accepts bundled or installed families; default-family host duplicates are
 excluded so shipped faces win. Window metrics follow `set_metrics`. Offscreen

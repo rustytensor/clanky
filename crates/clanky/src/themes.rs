@@ -74,7 +74,8 @@ colors!(
     sidebar_accent,
     ok,
     err,
-    agent
+    agent,
+    robot_paint
 );
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -342,6 +343,7 @@ mod tests {
             [147, 184, 154, 255],
             [217, 139, 126, 255],
             [210, 164, 118, 255],
+            [107, 82, 54, 255], // robot6, Stone dark #6b5236
         ];
         let expected_light = [
             [243, 240, 235, 255],
@@ -361,6 +363,7 @@ mod tests {
             [77, 122, 86, 255],
             [176, 80, 61, 255],
             [154, 98, 41, 255],
+            [227, 192, 142, 255], // robot6, Stone light #e3c08e
         ];
         for (theme, expected) in [(&dark, expected_dark), (&light, expected_light)] {
             for (token, rgba) in COLOR_TOKENS.iter().zip(expected) {
@@ -395,7 +398,7 @@ mod tests {
             ])
         );
         println!(
-            "PASS: Stone dark/light match all 17 sheet tokens; missing ring refused; six gradient stops preserved"
+            "PASS: Stone dark/light match all 18 tokens; missing ring refused; six gradient stops preserved"
         );
     }
 }

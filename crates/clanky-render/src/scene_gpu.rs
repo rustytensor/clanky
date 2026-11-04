@@ -83,6 +83,7 @@ struct Image {
 }
 type ImageKey = (usize, u32, u32);
 enum Op {
+    Vector(Range<u32>),
     Shape(Range<u32>),
     Glyph(Range<u32>),
     Image(Range<u32>, wgpu::BindGroup),
@@ -91,6 +92,7 @@ struct Frame {
     opacity: f32,
     shapes: Vec<u8>,
     textures: Vec<u8>,
+    vectors: Vec<u8>,
     ops: Vec<Op>,
     width: u32,
     height: u32,
@@ -100,7 +102,7 @@ impl Frame {
         [0.0, 0.0, self.width as f32, self.height as f32]
     }
     fn capacity(&self, bytes: usize) -> Result<(), String> {
-        if self.shapes.len() + self.textures.len() + bytes > MAX_VERTICES {
+        if self.shapes.len() + self.textures.len() + self.vectors.len() + bytes > MAX_VERTICES {
             Err("Scene vertex budget exceeded".into())
         } else {
             Ok(())
@@ -301,6 +303,11 @@ pub(super) fn measure_text(text: &TextRun) -> TextMetrics {
 }
 
 pub(super) struct Painter {
+    vector_pipeline: wgpu::RenderPipeline,
+    samples: u32,
+    format: wgpu::TextureFormat,
+    system_fonts: bool,
+    multisample_target: Option<(u32, u32, wgpu::Texture)>,
     shape_pipeline: wgpu::RenderPipeline,
     glyph_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
@@ -320,6 +327,27 @@ pub(super) struct Painter {
 }
 impl Painter {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, system_fonts: bool) -> Self {
+        Self::with_samples(device, format, system_fonts, 1)
+    }
+    fn with_samples(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        system_fonts: bool,
+        samples: u32,
+    ) -> Self {
+        let vector_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("scene lyon paths"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("scene-vector.wgsl").into()),
+        });
+        let vector_pipeline = pipeline(
+            device,
+            format,
+            &vector_shader,
+            "fs_main",
+            40,
+            &wgpu::vertex_attr_array![0=>Float32x2,1=>Float32x4,2=>Float32x4],
+            samples,
+        );
         let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene rounded shapes"),
             source: wgpu::ShaderSource::Wgsl(include_str!("scene-shape.wgsl").into()),
@@ -338,6 +366,7 @@ impl Painter {
             "fs_main",
             112,
             &shape_attributes,
+            samples,
         );
         let glyph_pipeline = pipeline(
             device,
@@ -346,6 +375,7 @@ impl Painter {
             "fs_glyph",
             48,
             &texture_attributes,
+            samples,
         );
         let image_pipeline = pipeline(
             device,
@@ -354,6 +384,7 @@ impl Painter {
             "fs_image",
             48,
             &texture_attributes,
+            samples,
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("scene glyph interpolation"),
@@ -370,6 +401,11 @@ impl Painter {
         );
         let atlas_binding = atlas_binding(device, &glyph_pipeline, &atlas, &sampler);
         Self {
+            vector_pipeline,
+            samples,
+            format,
+            system_fonts,
+            multisample_target: None,
             shape_pipeline,
             glyph_pipeline,
             image_pipeline,
@@ -928,6 +964,7 @@ impl Painter {
             opacity: 1.0,
             shapes: Vec::new(),
             textures: Vec::new(),
+            vectors: Vec::new(),
             ops: Vec::new(),
             width,
             height,
@@ -936,7 +973,7 @@ impl Painter {
         let mut text_bytes = 0usize;
         for layer in &scene.layers {
             frame.opacity = match layer {
-                Layer::Shape(_) => 1.0,
+                Layer::Shape(_) | Layer::Vector(_) => 1.0,
                 Layer::Grid(grid) => grid.opacity,
                 Layer::Text(text) => text.opacity,
             };
@@ -945,6 +982,17 @@ impl Painter {
             }
             let clip = frame.viewport();
             match layer {
+                Layer::Vector(layer) => {
+                    let budget = MAX_VERTICES.saturating_sub(
+                        frame.shapes.len() + frame.textures.len() + frame.vectors.len(),
+                    );
+                    let vertices = crate::vector::vertices(layer, [width, height], budget)?;
+                    let start = (frame.vectors.len() / 40) as u32;
+                    frame.vectors.extend(vertices);
+                    frame
+                        .ops
+                        .push(Op::Vector(start..(frame.vectors.len() / 40) as u32));
+                }
                 Layer::Shape(shape) => self.shape(&mut frame, shape, clip)?,
                 Layer::Grid(grid) => self.grid(device, queue, &mut frame, grid, &mut used)?,
                 Layer::Text(text) => {
@@ -972,6 +1020,43 @@ impl Painter {
         opaque: bool,
     ) -> Result<wgpu::CommandBuffer, String> {
         validate_target(device, width, height)?;
+        let samples = if scene
+            .layers
+            .iter()
+            .any(|layer| matches!(layer, Layer::Vector(_)))
+        {
+            4
+        } else {
+            1
+        };
+        if u64::from(width) * u64::from(height) * 4 * u64::from(samples) > 256 * 1024 * 1024 {
+            return Err("Scene antialias target exceeds limits".into());
+        }
+        // Switch only when entering/leaving vector scenes. Existing scenes and
+        // all legacy fixtures retain their original single-sample pipeline.
+        if self.samples != samples {
+            let mut painter = Self::with_samples(device, self.format, self.system_fonts, samples);
+            painter.set_families(device, &self.terminal_family, &self.ui_family)?;
+            *self = painter;
+        }
+        if samples > 1
+            && self
+                .multisample_target
+                .as_ref()
+                .is_none_or(|(w, h, _)| *w != width || *h != height)
+        {
+            let target = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("scene vector antialias target"),
+                size: extent(width, height),
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.multisample_target = Some((width, height, target));
+        }
         if !metrics.0.is_finite()
             || !(1.0..=512.0).contains(&metrics.0)
             || metrics.1 == 0
@@ -999,6 +1084,11 @@ impl Painter {
         };
         let shapes = make("scene shapes", &frame.shapes);
         let textures = make("scene textured quads", &frame.textures);
+        let vectors = make("scene vector triangles", &frame.vectors);
+        let aa_view = self
+            .multisample_target
+            .as_ref()
+            .map(|(_, _, texture)| texture.create_view(&Default::default()));
         let mut encoder = device.create_command_encoder(&Default::default());
         let mut clear = scene.clear;
         if opaque {
@@ -1009,9 +1099,9 @@ impl Painter {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: aa_view.as_ref().unwrap_or(view),
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target: aa_view.as_ref().map(|_| view),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: c[0] as f64,
@@ -1029,6 +1119,11 @@ impl Painter {
             });
             for op in &frame.ops {
                 match op {
+                    Op::Vector(range) => {
+                        pass.set_pipeline(&self.vector_pipeline);
+                        pass.set_vertex_buffer(0, vectors.slice(..));
+                        pass.draw(range.clone(), 0..1);
+                    }
                     Op::Shape(range) => {
                         pass.set_pipeline(&self.shape_pipeline);
                         pass.set_vertex_buffer(0, shapes.slice(..));
@@ -1081,6 +1176,7 @@ fn pipeline(
     fragment: &str,
     stride: u64,
     attributes: &[wgpu::VertexAttribute],
+    samples: u32,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(fragment),
@@ -1097,7 +1193,10 @@ fn pipeline(
         },
         primitive: Default::default(),
         depth_stencil: None,
-        multisample: Default::default(),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(wgpu::FragmentState {
             module: shader,
             entry_point: Some(fragment),

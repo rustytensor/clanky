@@ -14,6 +14,8 @@ pub enum Layer {
     Shape(Shape),
     Grid(GridLayer),
     Text(TextRun),
+    /// Ordered lyon fills/strokes, with per-path homogeneous transforms and 4x MSAA.
+    Vector(crate::VectorLayer),
 }
 
 #[derive(Clone, Debug)]

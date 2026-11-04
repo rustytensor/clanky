@@ -18,7 +18,8 @@
     "sidebar_accent": "#221f1c",
     "ok": "#93b89a",
     "err": "#d98b7e",
-    "agent": "#d2a476"
+    "agent": "#d2a476",
+    "robot_paint": "#6b5236"
   },
   "ansi": ["#a0978d", "#d98b7e", "#93b89a", "#d6b27c", "#9faeb8", "#c5a39b", "#95b8ae", "#ebe6df", "#b3aaa0", "#e8a194", "#a8c9ae", "#e4c596", "#b5c2ca", "#d8b8af", "#accdc3", "#f5f0e9"],
   "window_gradient": null,
