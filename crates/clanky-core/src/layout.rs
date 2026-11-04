@@ -1,7 +1,7 @@
 //! Session-only terminal layout in cell coordinates, independent of PTYs and rendering.
 //!
-//! Each branch reserves one divider cell and gives the first child the smaller
-//! half of the remaining extent. Resizing never changes leaf IDs. Empty IDs are
+//! Each branch reserves one divider cell and applies its saved split ratio.
+//! Legacy splits default to one half. Resizing never changes leaf IDs. Empty IDs are
 //! reserved for an empty layout after its final leaf is removed.
 
 use serde::{Deserialize, Serialize};
@@ -23,18 +23,113 @@ pub enum Axis {
 }
 
 /// A binary tree whose nonempty leaves are stable terminal IDs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Layout {
     Leaf(String),
     Split {
         axis: Axis,
+        #[serde(
+            default = "half_ratio",
+            deserialize_with = "read_ratio",
+            skip_serializing_if = "is_half"
+        )]
+        ratio: f64,
         first: Box<Layout>,
         second: Box<Layout>,
     },
 }
 
+pub const MIN_COLUMNS: usize = 8;
+pub const MIN_ROWS: usize = 3;
+
+fn half_ratio() -> f64 {
+    0.5
+}
+fn is_half(ratio: &f64) -> bool {
+    *ratio == 0.5
+}
+fn read_ratio<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    let ratio = f64::deserialize(deserializer)?;
+    if ratio.is_finite() && (0.0..=1.0).contains(&ratio) {
+        Ok(ratio)
+    } else {
+        Err(serde::de::Error::custom(
+            "split ratio must be finite and between zero and one",
+        ))
+    }
+}
+
+/// Remove only floating-point arithmetic noise at integral pixel/cell boundaries.
+pub fn stable_floor(value: f64) -> f64 {
+    let nearest = value.round();
+    if (value - nearest).abs() <= 4.0 * f64::EPSILON * value.abs().max(1.0) {
+        nearest
+    } else {
+        value.floor()
+    }
+}
+
 impl Layout {
+    /// Construct a half split without requiring callers to repeat its default.
+    pub fn branch(axis: Axis, first: Self, second: Self) -> Self {
+        Self::Split {
+            axis,
+            ratio: 0.5,
+            first: Box::new(first),
+            second: Box::new(second),
+        }
+    }
+
+    /// Set a split selected by false=first / true=second child steps.
+    /// Invalid paths and values leave the tree unchanged.
+    pub fn set_ratio(&mut self, path: &[bool], value: f64) -> Result<(), String> {
+        if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+            return Err("split ratio must be finite and between zero and one".into());
+        }
+        let mut node = self;
+        for second_child in path {
+            node = match node {
+                Self::Split { first, second, .. } => {
+                    if *second_child {
+                        second
+                    } else {
+                        first
+                    }
+                }
+                Self::Leaf(_) => return Err("split path does not exist".into()),
+            };
+        }
+        match node {
+            Self::Split { ratio, .. } => {
+                *ratio = value;
+                Ok(())
+            }
+            Self::Leaf(_) => Err("split path names a leaf".into()),
+        }
+    }
+
+    /// Minimum grid dimensions, including all nested one-cell dividers.
+    pub fn minimum_size(&self) -> (usize, usize) {
+        match self {
+            Self::Leaf(id) if id.is_empty() => (0, 0),
+            Self::Leaf(_) => (MIN_COLUMNS, MIN_ROWS),
+            Self::Split {
+                axis,
+                first,
+                second,
+                ..
+            } => {
+                let (ac, ar) = first.minimum_size();
+                let (bc, br) = second.minimum_size();
+                match axis {
+                    Axis::Columns => (ac.saturating_add(bc).saturating_add(1), ar.max(br)),
+                    Axis::Rows => (ac.max(bc), ar.saturating_add(br).saturating_add(1)),
+                }
+            }
+        }
+    }
+
     /// Construct a leaf. An empty ID represents an empty layout.
     pub fn leaf(id: impl Into<String>) -> Self {
         Self::Leaf(id.into())
@@ -89,10 +184,17 @@ impl Layout {
             Self::Leaf(_) => {}
             Self::Split {
                 axis,
+                ratio,
                 first,
                 second,
             } => {
-                let (a, b) = partition(rect, *axis);
+                let (a, b) = partition(
+                    rect,
+                    *axis,
+                    *ratio,
+                    first.minimum_size(),
+                    second.minimum_size(),
+                );
                 first.collect_rectangles(a, panes);
                 if let Some(b) = b {
                     second.collect_rectangles(b, panes);
@@ -105,7 +207,7 @@ impl Layout {
     ///
     /// `rect` is the whole tree's rectangle, not the target pane's rectangle.
     /// Reject empty/duplicate IDs, missing or invisible targets, and any split
-    /// unable to leave both children at least one cell plus a one-cell divider.
+    /// unable to leave both children at least three rows/eight columns.
     /// Errors leave the tree unchanged.
     pub fn split(
         &mut self,
@@ -129,12 +231,25 @@ impl Layout {
             Axis::Columns => pane.cols,
             Axis::Rows => pane.rows,
         };
-        if extent < 3 {
-            return Err("split requires two content cells and one divider cell".into());
+        let minimum = match axis {
+            Axis::Columns => MIN_COLUMNS,
+            Axis::Rows => MIN_ROWS,
+        };
+        if extent < 2 * minimum + 1 || pane.cols < MIN_COLUMNS || pane.rows < MIN_ROWS {
+            return Err("split requires eight columns and three rows per pane".into());
         }
         // Also refuse a second child whose origin would overflow, even for a
         // caller-supplied rectangle extending beyond the coordinate domain.
-        if partition(pane, axis).1.is_none() {
+        if partition(
+            pane,
+            axis,
+            0.5,
+            (MIN_COLUMNS, MIN_ROWS),
+            (MIN_COLUMNS, MIN_ROWS),
+        )
+        .1
+        .is_none()
+        {
             return Err("split child origin exceeds cell coordinate range".into());
         }
         self.insert_split(target, new_id, axis);
@@ -147,6 +262,7 @@ impl Layout {
                 let old_id = std::mem::take(id);
                 *self = Self::Split {
                     axis,
+                    ratio: 0.5,
                     first: Box::new(Self::Leaf(old_id)),
                     second: Box::new(Self::Leaf(new_id)),
                 };
@@ -205,13 +321,37 @@ impl Layout {
 }
 
 /// Reserve a gutter even at tiny sizes, without subtracting below zero.
-fn partition(rect: Rect, axis: Axis) -> (Rect, Option<Rect>) {
+fn partition(
+    rect: Rect,
+    axis: Axis,
+    ratio: f64,
+    first_min: (usize, usize),
+    second_min: (usize, usize),
+) -> (Rect, Option<Rect>) {
     let extent = match axis {
         Axis::Columns => rect.cols,
         Axis::Rows => rect.rows,
     };
     let available = extent.saturating_sub(1);
-    let first_extent = available / 2;
+    let ratio = if ratio.is_finite() {
+        ratio.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    let ideal = if ratio == 0.5 {
+        available / 2
+    } else {
+        stable_floor(available as f64 * ratio) as usize
+    };
+    let (min_a, min_b) = match axis {
+        Axis::Columns => (first_min.0, second_min.0),
+        Axis::Rows => (first_min.1, second_min.1),
+    };
+    let first_extent = if available >= min_a.saturating_add(min_b) {
+        ideal.clamp(min_a, available - min_b)
+    } else {
+        ideal.min(available)
+    };
     let second_extent = available - first_extent;
     let mut first = rect.clone();
     let mut second = rect;

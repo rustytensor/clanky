@@ -27,6 +27,7 @@ struct Audits {
 }
 pub(super) struct Safety {
     pub policy: masking::Policy,
+    pub status: status::Status,
     pub authority: Mutex<()>,
     pub epoch: AtomicU64,
     pub latched: AtomicBool,
@@ -39,6 +40,7 @@ impl Safety {
     pub fn new() -> Self {
         Self {
             policy: masking::Policy::capture(),
+            status: status::Status::new(),
             authority: Mutex::new(()),
             epoch: AtomicU64::new(0),
             latched: AtomicBool::new(false),
@@ -47,6 +49,14 @@ impl Safety {
             changed: Condvar::new(),
             audit: Mutex::new(Audits::default()),
         }
+    }
+    /// Project only protocol metadata; never clone output or other event payloads.
+    pub fn look_events(&self) -> Vec<Value> {
+        let ring = self.events.lock().unwrap();
+        ring.items.iter().skip(ring.items.len().saturating_sub(20)).map(|event| {
+            json!({"seq":event.seq,"kind":event.value["kind"],
+                "tab_id":event.tab_id,"command_id":event.value["command_id"]})
+        }).collect()
     }
     pub fn deny_retained_events(&self) {
         let ring = self.events.lock().unwrap();

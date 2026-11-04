@@ -1,5 +1,6 @@
 //! Shared application configuration and input state.
 pub mod config;
+pub mod look;
 pub mod clipboard;
 pub mod scrollback_search;
 pub mod window_tools;

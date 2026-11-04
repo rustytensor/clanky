@@ -64,6 +64,7 @@ impl Control {
 #[derive(Default)]
 struct Cache {
     snapshots: HashMap<String, (u64, TerminalSnapshot)>,
+    block_anchors: HashMap<String, Value>,
     pixels: HashMap<u64, Arc<Vec<u8>>>,
 }
 struct Inner {
@@ -386,6 +387,10 @@ impl Client {
         .map_err(|_| fail("transport_error", "Invalid workspace"))
     }
     pub fn snapshot(&self, tab: &str) -> Result<TerminalSnapshot, CoreError> {
+        self.snapshot_with_blocks(tab).map(|(snapshot, _)| snapshot)
+    }
+    /// Cards and pixels always come from one server generation.
+    pub fn snapshot_with_blocks(&self, tab: &str) -> Result<(TerminalSnapshot, Value), CoreError> {
         let mut cache = self.0.cache.lock().unwrap();
         let generation = cache.snapshots.get(tab).map(|(g, _)| *g);
         let known: Vec<u64> = cache.pixels.keys().copied().take(4096).collect();
@@ -402,7 +407,7 @@ impl Client {
                 .snapshots
                 .get(tab)
                 .filter(|(g, _)| *g == generation)
-                .map(|(_, s)| s.clone())
+                .map(|(_, s)| (s.clone(), cache.block_anchors.get(tab).cloned().unwrap_or(Value::Null)))
                 .ok_or_else(|| fail("transport_error", "Missing cached snapshot"));
         }
         if result["unchanged"] != false {
@@ -492,6 +497,7 @@ impl Client {
         }
         if keys.values().sum::<usize>() > PIXEL_BUDGET || cache.snapshots.len() >= 64 {
             cache.snapshots.clear();
+            cache.block_anchors.clear();
             cache.pixels.clear();
         }
         cache
@@ -504,6 +510,8 @@ impl Client {
             .collect();
         cache.pixels.retain(|key, _| retained.contains(key));
         cache.pixels.extend(used);
-        Ok(snapshot)
+        let anchors = result["block_anchors"].clone();
+        cache.block_anchors.insert(tab.into(), anchors.clone());
+        Ok((snapshot, anchors))
     }
 }

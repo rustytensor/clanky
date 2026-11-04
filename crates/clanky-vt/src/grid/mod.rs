@@ -1,3 +1,4 @@
+// Modified by the Clanky project; see FORK.md in this crate.
 //! A specialized 2D grid implementation optimized for use in a terminal.
 
 use std::cmp::{max, min};
@@ -135,6 +136,13 @@ pub struct Grid<T> {
 
     /// Maximum number of lines in history.
     max_scroll_limit: usize,
+
+    /// Monotonic count of lines removed from the oldest end of history.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    evicted_lines: u64,
+    /// Changes when row movement cannot preserve absolute line anchors.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    anchor_revision: u64,
 }
 
 impl<T: GridCell + Default + PartialEq> Grid<T> {
@@ -143,6 +151,8 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
             raw: Storage::with_capacity(lines, columns),
             max_scroll_limit,
             display_offset: 0,
+            evicted_lines: 0,
+            anchor_revision: 0,
             saved_cursor: Cursor::default(),
             cursor: Cursor::default(),
             lines,
@@ -154,6 +164,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
     pub fn update_history(&mut self, history_size: usize) {
         let current_history_size = self.history_size();
         if current_history_size > history_size {
+            self.evicted_lines += (current_history_size - history_size) as u64;
             self.raw.shrink_lines(current_history_size - history_size);
         }
         self.display_offset = min(self.display_offset, history_size);
@@ -182,6 +193,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
     fn decrease_scroll_limit(&mut self, count: usize) {
         let count = min(count, self.history_size());
         if count != 0 {
+            self.evicted_lines += count as u64;
             self.raw.shrink_lines(min(count, self.history_size()));
             self.display_offset = min(self.display_offset, self.history_size());
         }
@@ -193,6 +205,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
         T: ResetDiscriminant<D>,
         D: PartialEq,
     {
+        self.anchor_revision += 1;
         // When rotating the entire region, just reset everything.
         if region.end - region.start <= positions {
             for i in (region.start.0..region.end.0).map(Line::from) {
@@ -254,6 +267,9 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
         T: ResetDiscriminant<D>,
         D: PartialEq,
     {
+        if region.start != 0 || region.end.0 != self.lines as i32 {
+            self.anchor_revision += 1;
+        }
         // When rotating the entire region with fixed lines at the top, just reset everything.
         if region.end - region.start <= positions && region.start != 0 {
             for i in (region.start.0..region.end.0).map(Line::from) {
@@ -270,8 +286,10 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
 
         // Only rotate the entire history if the active region starts at the top.
         if region.start == 0 {
-            // Create scrollback for the new lines.
+            // Count only lines actually lost, not newly retained history.
+            let history = self.history_size();
             self.increase_scroll_limit(positions);
+            self.evicted_lines += positions.saturating_sub(self.history_size() - history) as u64;
 
             // Swap the lines fixed at the top to their target positions after rotation.
             //
@@ -338,6 +356,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
         T: ResetDiscriminant<D>,
         D: PartialEq,
     {
+        self.anchor_revision += 1;
         self.clear_history();
 
         self.saved_cursor = Cursor::default();
@@ -353,6 +372,9 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
 }
 
 impl<T> Grid<T> {
+    pub fn evicted_lines(&self) -> u64 { self.evicted_lines }
+    pub fn anchor_revision(&self) -> u64 { self.anchor_revision }
+
     /// Reset a visible region within the grid.
     pub fn reset_region<D, R: RangeBounds<Line>>(&mut self, bounds: R)
     where
@@ -382,6 +404,7 @@ impl<T> Grid<T> {
     #[inline]
     pub fn clear_history(&mut self) {
         // Explicitly purge all lines from history.
+        self.evicted_lines += self.history_size() as u64;
         self.raw.shrink_lines(self.history_size());
 
         // Reset display offset.

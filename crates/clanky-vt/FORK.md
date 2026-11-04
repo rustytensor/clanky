@@ -15,6 +15,11 @@ Licensed under Apache-2.0 (LICENSE-APACHE). Upstream's CHANGELOG.md is kept as i
 - `src/event.rs`: redact clipboard store values from Debug output.
 - `FORK.md`: record these local modifications and retain the fork notice.
 
+- `src/grid/mod.rs`: added non-serialized history-eviction and anchor-revision counters.
+  History growth/eviction, history clearing and limit reduction update the eviction count;
+  reverse/partial-region scrolling and reset invalidate row anchors. Grid bytes and VT
+  behaviour are unchanged. The app invalidates anchors on resize instead of guessing reflow.
+
 ## Upstream fixes
 
 Check Alacritty's releases every release or two and port relevant fixes here, noting each one in this file.
