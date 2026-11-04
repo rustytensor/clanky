@@ -1,3 +1,6 @@
+# Rust sources may begin with #![attribute] lines; those are not shebangs.
+%global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
+
 Name:           clanky
 Version:        0.5.2
 Release:        1%{?dist}
