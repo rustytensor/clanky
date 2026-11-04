@@ -27,4 +27,8 @@ this is not a cross-process transaction lock. Invalid values never modify the fi
 Focused check: `cargo test --offline -p clanky --lib ordered_settings_round_trip -j 8`.
 Use the shared build lock and build environment from the team brief. Its planted
 fault is `CLANKY_SETTINGS_FAULT=1`; expected alpha 204 becomes 255 and fails.
-The panel UI and its polling loop are the next integration step.
+`settings_panel::SettingsPanel` now contains the WIP form controls, colour picker,
+sliders, import/export confirmation and mouse/keyboard handling. It compiles but is
+not yet connected to the window: Ctrl+comma/top-bar entry, live reload/application,
+agent-access callbacks and modal input routing remain to do. Visual review and UI
+checks have not run. Settings work is paused for the lead's M11 polish list.

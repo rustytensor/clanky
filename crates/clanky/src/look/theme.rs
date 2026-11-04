@@ -62,8 +62,10 @@ impl Theme {
     /// Recompute derived opaque fills after changing palette tokens or mix fractions.
     pub fn refresh_mixes(&mut self) {
         self.card = mix(self.panel, if self.is_light { self.ink } else { [255;4] }, self.card_mix);
-        self.focus_glow = Self::fade(self.focus, 112.0 / 255.0);
-        self.agent_glow = self.violet;
+        self.focus_glow = Self::fade(self.focus, if self.is_light { 0.22 } else { 0.35 });
+        // Saturate the glow, not the token: preserve the fixed hue checks with a narrow falloff.
+        self.agent_glow = [self.violet[0].saturating_add(13), self.violet[1].saturating_sub(79),
+            self.violet[2].saturating_add(5), if self.is_light { 89 } else { 166 }];
         self.selection = mix(self.panel, self.focus, 0.20);
         self.review_old = mix(self.panel, self.err, 0.15);
         self.review_new = mix(self.panel, self.ok, 0.15);
@@ -134,12 +136,12 @@ impl Metrics {
         pane_padding:12.0,pane_header:24.0,pane_radius:11.0,block_radius:8.0,card_inset:4.0,
         border:1.0,control_gap:8.0,rail_padding:16.0,rail_row_height:34.0,rail_section_gap:18.0,
         rail_header_height:24.0,item_radius:7.0,ui_font_px:14.0,small_font_px:11.0,title_font_px:15.0,
-        brand_font_px:16.0,search_width:320.0,search_height:26.0,pill_height:24.0,pill_padding:8.0,
+        brand_font_px:13.0,search_width:380.0,search_height:26.0,pill_height:24.0,pill_padding:9.0,
         chip_inset_y:2.0,chip_right_gap:6.0,chip_padding_x:8.0,chip_font_px:12.0,
         panel_padding:12.0,panel_header:24.0,panel_radius:11.0,panel_line_height:20.0,
         panel_max_width:600.0,panel_max_height:480.0,panel_rise:8.0,
         compose_dock_height:220.0,compose_min_height:120.0,
-        focus_glow_blur:16.0,focus_glow_spread:1.0,agent_glow_blur:20.0,agent_glow_spread:3.0,
+        focus_glow_blur:6.0,focus_glow_spread:0.0,agent_glow_blur:6.0,agent_glow_spread:0.0,
         panel_shadow_blur:20.0,panel_shadow_offset_y:8.0,
         cursor_width:2.0,cursor_inset_y:2.0,cursor_radius:1.0,
         sparkline_height:40.0,sparkline_bar_width:3.0,sparkline_bar_gap:2.0,timeline_row_height:28.0,

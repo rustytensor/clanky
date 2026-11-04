@@ -343,6 +343,7 @@ impl App {
         state.activity = self.studio.activity.clone();
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(id) = group.layout.leaves().first() {
+                state.session_counts.insert(id.clone(),group.layout.leaves().len());
                 state.sessions.push(look::SessionItem { id: id.clone(), title: format!("Session {} · {}", index+1, group.focus), active: index == self.active });
             }
         }
@@ -356,9 +357,13 @@ impl App {
                     state.agents.push(look::AgentItem { connection_id, peer_pid, tab_id: agent["tab_id"].as_str().map(str::to_owned), running: agent["running"].as_bool().unwrap_or(false) });
                 }
             }
-        } else { state.timeline.push(look::TimelineItem { label: "Metadata unavailable".into(), detail: "Agent peers, uptime and masking are unknown".into() }); }
+        }
         if let Some(events) = self.studio.metadata["events"].as_array() {
-            for event in events.iter().rev().take(20) {
+            for event in events.iter().skip(events.len().saturating_sub(20)) {
+                state.timeline_times.push(event["age_ms"].as_u64().map(|ms| {
+                    let seconds=ms/1000;
+                    if seconds<60 {format!("{seconds}s")} else if seconds<3600 {format!("{}m",seconds/60)} else {format!("{}h",seconds/3600)}
+                }).unwrap_or_default());
                 state.timeline.push(look::TimelineItem { label: event["kind"].as_str().unwrap_or("unknown").into(),
                     detail: format!("{} {}",event["tab_id"].as_str().unwrap_or(""),event["command_id"].as_str().unwrap_or("")) });
             }
@@ -434,7 +439,7 @@ impl App {
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
-            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { "Driver unknown".into() };
+            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { String::new() };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
                 if let Some(driver) = drivers.iter().find(|d| d["tab_id"].as_str() == Some(pane.id.as_str()) && d["running"] == true) {
                     view.agent_running = true;
@@ -558,7 +563,8 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
-        let mut presentation = look::presentation(&layout,&state);
+        let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
+        let mut presentation = look::presentation_with_measure(&layout,&state,&mut |run| renderer.measure_text(run));
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
@@ -608,10 +614,10 @@ impl App {
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
             let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { (layout.metrics.small_font_px as f32).min(layout.cell_px[0] as f32) } else { layout.metrics.ui_font_px as f32 };
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity })); }
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
         if let Some(status) = &self.status {
-            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0 }));
+            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {
