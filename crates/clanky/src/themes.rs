@@ -297,6 +297,50 @@ pub const BUILTINS: &[Builtin] = &[
         appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/stone-light.json"),
     },
+    Builtin {
+        id: "paper-dark", name: "Paper", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/paper-dark.json"),
+    },
+    Builtin {
+        id: "paper-light", name: "Paper", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/paper-light.json"),
+    },
+    Builtin {
+        id: "graphite-dark", name: "Graphite", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/graphite-dark.json"),
+    },
+    Builtin {
+        id: "graphite-light", name: "Graphite", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/graphite-light.json"),
+    },
+    Builtin {
+        id: "catppuccin-latte", name: "Catppuccin Latte", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/catppuccin-latte.json"),
+    },
+    Builtin {
+        id: "catppuccin-frappe", name: "Catppuccin Frappé", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/catppuccin-frappe.json"),
+    },
+    Builtin {
+        id: "catppuccin-macchiato", name: "Catppuccin Macchiato", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/catppuccin-macchiato.json"),
+    },
+    Builtin {
+        id: "catppuccin-mocha", name: "Catppuccin Mocha", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/catppuccin-mocha.json"),
+    },
+    Builtin {
+        id: "ai-bedazzled", name: "AI Bedazzled", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/ai-bedazzled.json"),
+    },
+    Builtin {
+        id: "unicorn-tears", name: "Unicorn Tears", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/unicorn-tears.json"),
+    },
+    Builtin {
+        id: "unicorn-vomit", name: "Unicorn Vomit", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/unicorn-vomit.json"),
+    },
 ];
 pub fn builtin(id: &str) -> Result<Theme, String> {
     BUILTINS
@@ -315,6 +359,74 @@ pub fn default_id(appearance: Appearance) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Theme documents are the real inputs. Catppuccin's expected colours come
+    /// from the unmodified upstream palette, not from our theme generator.
+    #[test]
+    fn builtin_documents() {
+        let expected_ids = [
+            "stone-dark", "stone-light", "paper-dark", "paper-light",
+            "graphite-dark", "graphite-light", "catppuccin-latte",
+            "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+            "ai-bedazzled", "unicorn-tears", "unicorn-vomit",
+        ];
+        assert_eq!(BUILTINS.iter().map(|b| b.id).collect::<Vec<_>>(), expected_ids);
+        for entry in BUILTINS {
+            let theme = entry.load().unwrap();
+            assert_eq!(theme.name, entry.name);
+            assert_eq!(theme.appearance, entry.appearance);
+            assert!(theme.ansi.iter().all(|color| color[3] == 255));
+            assert_eq!(Theme::from_json(&theme.to_json().unwrap()).unwrap(), theme);
+        }
+        let palette: Value = serde_json::from_str(include_str!(
+            "../../../assets/themes/upstream/catppuccin-palette.json"
+        )).unwrap();
+        assert_eq!(palette["version"], "1.8.0");
+        let mapping = [
+            ("sidebar", "crust"), ("background", "base"), ("card", "mantle"),
+            ("muted", "surface0"), ("foreground", "text"),
+            ("muted_foreground", "subtext1"), ("accent", "surface0"),
+            ("pressed", "surface1"), ("border", "surface1"), ("input", "surface2"),
+            ("ring", "overlay1"), ("primary", "text"), ("primary_foreground", "base"),
+            ("sidebar_accent", "surface0"), ("ok", "green"), ("err", "red"),
+            ("agent", "peach"), ("robot_paint", "peach"), ("primary_pressed", "subtext1"),
+        ];
+        for flavour in ["latte", "frappe", "macchiato", "mocha"] {
+            let mut theme = builtin(&format!("catppuccin-{flavour}")).unwrap();
+            if std::env::var_os("CLANKY_BUILTIN_FAULT").is_some() {
+                theme.colors.agent = [0, 0, 0, 255];
+            }
+            let upstream = &palette[flavour];
+            for (token, name) in mapping {
+                assert_eq!(theme.colors.get(token).unwrap(),
+                    parse_color(upstream["colors"][name]["hex"].as_str().unwrap()).unwrap(),
+                    "{flavour} {token}");
+            }
+            for pair in upstream["ansiColors"].as_object().unwrap().values() {
+                for variant in ["normal", "bright"] {
+                    let color = &pair[variant];
+                    assert_eq!(theme.ansi[color["code"].as_u64().unwrap() as usize],
+                        parse_color(color["hex"].as_str().unwrap()).unwrap());
+                }
+            }
+        }
+        for (id, stops) in [
+            ("ai-bedazzled", vec!["#7c3aed", "#2563eb"]),
+            ("unicorn-tears", vec!["#fde2f3", "#e4dcff"]),
+            ("unicorn-vomit", vec!["#ff0000", "#ff8000", "#ffff00", "#00ff00", "#0000ff", "#8000ff"]),
+        ] {
+            let theme = builtin(id).unwrap();
+            assert!(theme.glow);
+            assert_eq!(theme.window_gradient.unwrap(), stops.into_iter().map(|c| parse_color(c).unwrap()).collect::<Vec<_>>());
+        }
+        assert_eq!(builtin("unicorn-tears").unwrap().colors.foreground, [59, 42, 77, 255]);
+        for entry in BUILTINS.iter().take(10) {
+            let theme = entry.load().unwrap();
+            assert!(!theme.glow);
+            assert!(theme.window_gradient.is_none());
+        }
+        println!("PASS: 13 built-ins load, complete ANSI palettes round-trip, four Catppuccin palettes match upstream, three joke gradients match design");
+    }
 
     // Literal expected channels are transcribed from the approved component
     // sheets, not produced by the loader or by a rendering result.
