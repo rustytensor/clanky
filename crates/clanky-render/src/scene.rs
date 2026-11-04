@@ -45,6 +45,8 @@ pub struct Shadow {
 
 #[derive(Clone, Debug)]
 pub struct GridLayer {
+    /// Default black cell backgrounds are transparent in scenes; explicit
+    /// coloured backgrounds remain opaque. Legacy draw() does not change.
     pub origin: [f32; 2],
     /// Window-relative x, y, width, height in physical pixels.
     pub clip: [f32; 4],
@@ -64,14 +66,154 @@ pub struct TextRun {
 }
 
 impl Renderer {
-    /// Draw ordered pixel-space layers. Implementation follows the API commit.
-    pub fn draw_scene(&mut self, _scene: &Scene) -> Result<(), String> {
-        Err("scene rendering is not implemented yet".into())
+    /// Whether the compositor accepts premultiplied window transparency.
+    /// When false, draw_scene ignores clear alpha; the app can report this once.
+    pub fn supports_transparency(&self) -> bool {
+        self.config.alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
+    }
+
+    /// Configure installed or bundled scene families. Legacy fixture fonts stay fixed.
+    pub fn set_font_families(&mut self, terminal: &str, ui: &str) -> Result<(), String> {
+        let painter = self.scene.get_or_insert_with(|| {
+            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+        });
+        painter.set_families(&self.text.device, terminal, ui)
+    }
+
+    /// Draw ordered pixel-space layers with straight input/premultiplied output.
+    pub fn draw_scene(&mut self, scene: &Scene) -> Result<(), String> {
+        if self.suspended {
+            return Ok(());
+        }
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface.configure(&self.text.device, &self.config);
+                return Ok(());
+            }
+            other => return Err(format!("Surface acquisition failed: {other:?}")),
+        };
+        let view = frame.texture.create_view(&Default::default());
+        let opaque = !self.supports_transparency();
+        let painter = self.scene.get_or_insert_with(|| {
+            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+        });
+        let commands = painter.render(
+            &self.text.device,
+            &self.text.queue,
+            scene,
+            &view,
+            self.config.width,
+            self.config.height,
+            (
+                self.text.font_px,
+                self.text.cell_width,
+                self.text.cell_height,
+            ),
+            opaque,
+        )?;
+        self.text.queue.submit([commands]);
+        self.text.queue.present(frame);
+        Ok(())
     }
 }
 
 /// Top-left row-major premultiplied RGBA8, exactly width * height * 4 bytes.
-/// Implementation follows the API commit; legacy offscreen fixtures are unchanged.
-pub fn offscreen_scene(_scene: &Scene, _width: u32, _height: u32) -> Result<Vec<u8>, String> {
-    Err("offscreen scene rendering is not implemented yet".into())
+/// Uses only bundled fonts, at 16 px and 10x20 cells. Legacy fixtures are unchanged.
+pub fn offscreen_scene(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    crate::block_on(offscreen(scene, width, height))
 }
+
+async fn offscreen(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) * 4 > 256 * 1024 * 1024 {
+        return Err("Invalid offscreen scene dimensions".into());
+    }
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = crate::adapter(&instance, None).await?;
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    crate::scene_gpu::validate_target(&device, width, height)?;
+    let mut painter =
+        crate::scene_gpu::Painter::new(&device, wgpu::TextureFormat::Rgba8Unorm, false);
+    let target = crate::texture(
+        &device,
+        width,
+        height,
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    );
+    let view = target.create_view(&Default::default());
+    let draw = painter.render(
+        &device,
+        &queue,
+        scene,
+        &view,
+        width,
+        height,
+        (16.0, 10, 20),
+        false,
+    )?;
+    let stride = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("scene readback"),
+        size: u64::from(stride) * u64::from(height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(stride),
+                rows_per_image: Some(height),
+            },
+        },
+        crate::extent(width, height),
+    );
+    let submission = queue.submit([draw, encoder.finish()]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(std::time::Duration::from_secs(20)),
+        })
+        .map_err(|e| e.to_string())?;
+    rx.recv_timeout(std::time::Duration::from_secs(1))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let mapped = readback
+        .slice(..)
+        .get_mapped_range()
+        .map_err(|e| e.to_string())?;
+    let pixels = mapped
+        .chunks_exact(stride as usize)
+        .flat_map(|row| row[..width as usize * 4].iter().copied())
+        .collect();
+    drop(mapped);
+    readback.unmap();
+    Ok(pixels)
+}
+
+#[cfg(test)]
+#[path = "scene_tests.rs"]
+mod tests;
