@@ -1,5 +1,5 @@
 use crate::{Cell, TerminalSnapshot};
-use alacritty_terminal::{
+use clanky_vt::{
     Term,
     event::{Event, EventListener},
     grid::Dimensions,

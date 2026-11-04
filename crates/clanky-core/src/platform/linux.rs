@@ -1,4 +1,4 @@
-use alacritty_terminal::{
+use clanky_vt::{
     event::{OnResize, WindowSize},
     tty::{self, ChildEvent, EventedPty, EventedReadWrite},
 };

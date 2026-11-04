@@ -47,31 +47,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alacritty_terminal"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bda177466b9524d59f1b12f0dd30b68696788e9992a7e959021c4a0ed96fcf59"
-dependencies = [
- "base64 0.22.1",
- "bitflags 2.13.2",
- "home",
- "libc",
- "log",
- "miow",
- "parking_lot",
- "piper",
- "polling",
- "regex-automata",
- "rustix 1.1.6",
- "rustix-openpty",
- "serde",
- "signal-hook",
- "unicode-width",
- "vte",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -294,7 +269,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clanky"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -306,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-api"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.23.1",
  "clanky-core",
@@ -316,10 +291,10 @@ dependencies = [
 
 [[package]]
 name = "clanky-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
- "alacritty_terminal",
  "base64 0.23.1",
+ "clanky-vt",
  "libc",
  "png",
  "serde",
@@ -328,13 +303,49 @@ dependencies = [
 
 [[package]]
 name = "clanky-render"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clanky-core",
  "cosmic-text",
  "serde_json",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "clanky-vt"
+version = "0.26.0"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags 2.13.2",
+ "clanky-vte",
+ "home",
+ "libc",
+ "log",
+ "miow",
+ "parking_lot",
+ "piper",
+ "polling",
+ "regex-automata",
+ "rustix 1.1.6",
+ "rustix-openpty",
+ "serde",
+ "serde_json",
+ "signal-hook",
+ "unicode-width",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "clanky-vte"
+version = "0.15.0"
+dependencies = [
+ "arrayvec",
+ "bitflags 2.13.2",
+ "cursor-icon",
+ "log",
+ "memchr",
+ "serde",
 ]
 
 [[package]]
@@ -2268,18 +2279,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vte"
-version = "0.15.0"
-dependencies = [
- "arrayvec",
- "bitflags 2.13.2",
- "cursor-icon",
- "log",
- "memchr",
- "serde",
-]
 
 [[package]]
 name = "walkdir"

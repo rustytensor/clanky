@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 png = "=0.18.1"
-alacritty_terminal = "=0.26.0"
+clanky-vt = { path = "../clanky-vt" }
 libc = "=0.2.191"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"

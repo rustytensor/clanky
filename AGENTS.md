@@ -4,7 +4,9 @@ Clanky is a GPU-rendered terminal in Rust, built for people who work alongside c
 
 ## Rules
 
-- Build on the libraries in README.md. Do not write a VT parser, a font shaper or a window system of our own.
+- Build on the libraries in README.md. The terminal engine and parser are our forks of Alacritty's
+  (`crates/clanky-vt`, `crates/clanky-vte`): change them freely, list every change in their FORK.md, and put the
+  notice line at the top of each changed file. Do not write another VT parser, font shaper or window system.
 - Every milestone ends at a gate: one command that says PASS or FAIL on inputs whose expected results were
   worked out before the run. A gate is shown to fail once (a planted fault) before it counts.
 - Tests compare real output with an expected value worked out in advance. No tests for wiring, no test matrices.
@@ -80,7 +82,9 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
   accept or reject each one.
 - **M8: compose box.** A multi-line editor with spell-check for long prompts, pasted into the tab.
 - **M9: TUI editor.** The same editing core in a text-mode editor for machines without a display.
-- **M10: Windows and macOS, then 1.0.**
+- **M10: Windows and macOS, then 1.0.** Release packaging for Linux distributions: offline builds (`cargo vendor`),
+  a `.desktop` file, AppStream metadata, an icon, a man page, the system's monospace font by default (DejaVu stays the
+  gates' test font). Fedora COPR first, then the Arch AUR, then a Fedora package review.
 
 Smaller items (scrollback search, clickable links and paths, notifications for long commands, new tab in the same
 folder, OSC 52 clipboard, drop-down terminal, session restore, Kitty keyboard protocol, accessibility) are folded
