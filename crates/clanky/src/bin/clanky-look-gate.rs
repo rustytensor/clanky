@@ -91,14 +91,7 @@ fn run() -> Result<(), String> {
     let output = env::args().nth(1).ok_or("missing raw image path")?;
     let tree = Tree::branch(Axis::Rows, Tree::leaf("A"), Tree::leaf("B"));
     let shown = look::layout([1240,760],1.0,true,&tree,[10,20]);
-    let hidden = look::layout([1240,760],1.0,false,&tree,[10,20]);
-    let dragged = look::drag_divider(&shown,0,300.0)?;
     let work = Path::new(&output).parent().ok_or("missing fixture directory")?;
-    let ratio = if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("store") { 0.5 } else { dragged.ratio };
-    let (restored, restored_a, restored_b) = restored_layout(work, ratio)?;
-    let engine = Session(Engine::new());
-    let pty_a = pty_size(&engine.0, shown.pane("A").ok_or("pane A")?)?;
-    let pty_b = pty_size(&engine.0, shown.pane("B").ok_or("pane B")?)?;
     let snap_a = snapshot_from_chunks(14,71,&["~/projects/clanky ❯ ".as_bytes()]).map_err(|e| e.message)?;
     let snap_b = snapshot_from_chunks(14,71,&[b"cargo build"]).map_err(|e| e.message)?;
     let mut a = PaneState::new("A",snap_a);
@@ -145,10 +138,7 @@ fn run() -> Result<(), String> {
     state.panes[0].allow_agent = true;
     state.panes[0].agent_running = true;
     let agent = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
-    state.opacity = Config::from_json("{\"opacity\":1}")?.opacity;
     state.panes[0].allow_agent = false; state.panes[0].agent_running = false;
-    let opaque = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
-    state.opacity = 0.94;
     state.theme = Config::from_json("{\"theme\":\"light\"}")?.resolved_theme(false);
     let light = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
     fs::write(Path::new(&output).with_file_name("scene-light.rgba"), &light).map_err(|e| e.to_string())?;
@@ -158,6 +148,21 @@ fn run() -> Result<(), String> {
     }
     state.panes[0].allow_agent = true; state.panes[0].agent_running = true;
     let light_agent = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    if env::var("CLANKY_PICTURE_ONLY").as_deref() == Ok("1") {
+        println!("{}", json!({"pixels":pixels,"agent_glow":sample(&agent,215,222),"light_pixels":light_pixels,"light_agent_glow":sample(&light_agent,215,222)}));
+        return Ok(());
+    }
+    let hidden = look::layout([1240,760],1.0,false,&tree,[10,20]);
+    let dragged = look::drag_divider(&shown,0,300.0)?;
+    let ratio = if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("store") { 0.5 } else { dragged.ratio };
+    let (restored, restored_a, restored_b) = restored_layout(work, ratio)?;
+    let engine = Session(Engine::new());
+    let pty_a = pty_size(&engine.0, shown.pane("A").ok_or("pane A")?)?;
+    let pty_b = pty_size(&engine.0, shown.pane("B").ok_or("pane B")?)?;
+    state.theme = Config::from_json("{\"theme\":\"dark\"}")?.resolved_theme(false);
+    state.opacity = Config::from_json("{\"opacity\":1}")?.opacity;
+    state.panes[0].allow_agent = false; state.panes[0].agent_running = false;
+    let opaque = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
     let config_path = work.join("settings.json");
     fs::write(&config_path, b"{\"rails\":false,\"opacity\":0.94,\"theme\":\"light\"}\n").map_err(|e| e.to_string())?;
     let mut settings = Settings::open(&config_path)?;
