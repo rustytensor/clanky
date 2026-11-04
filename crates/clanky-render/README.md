@@ -8,8 +8,9 @@ RGBA; blending and `offscreen_scene` readback are premultiplied RGBA8.
   gradients, inset borders and Gaussian-like outside shadows fading to zero at
   the blur radius. No blur framebuffer passes.
 - Grids: origin and clip are window-relative; underlines are local row/column
-  ranges with exclusive end columns. Default black backgrounds are transparent
-  in scenes so card fills show through; other backgrounds are opaque. Images
+  ranges with exclusive end columns. Backgrounds identified as default are transparent
+  in scenes so themed pane/card fills show through. Explicit truecolour black is opaque;
+  RGB-only legacy grids still treat black as transparent. Other backgrounds are opaque. Images
   use nearest sampling and cannot escape the pane clip.
 - Text: origin is the top-left of the line box. Cosmic-text shapes complete UI
   runs with explicit newlines, without automatic wrapping. Glyph coverage uses

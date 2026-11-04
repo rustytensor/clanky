@@ -194,6 +194,6 @@ pub fn paint(frame: &mut TerminalSnapshot, row: usize, text: &str) {
     for col in 0..frame.cols {
         let cell = &mut frame.cells[row * frame.cols + col];
         cell.ch = chars.next().map(|c| if c.is_control() { ' ' } else { c }).unwrap_or(' ');
-        cell.fg = [255,255,255]; cell.bg = [50,60,85];
+        cell.fg = [255,255,255]; cell.bg = [50,60,85]; cell.color_source = None;
     }
 }

@@ -211,7 +211,7 @@ pub fn presentation_with_measure(layout: &Layout, state: &LookState,
         let origin=[pane.grid_origin[0],pane.grid_origin[1]-scroll];
         for block in &data.blocks { block_card(&mut out,layout,state,pane,data,block,origin); }
         let mut snapshot=data.snapshot.clone(); snapshot.cursor=None;
-        for cell in &mut snapshot.cells { cell.fg=t.terminal_color(cell.fg,false); }
+        for cell in &mut snapshot.cells { t.terminal_cell(cell); }
         out.scene.layers.push(Layer::Grid(GridLayer { origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0 }));
         if focused {
             let position=if let Some(motion)=data.cursor {

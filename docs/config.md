@@ -47,6 +47,48 @@ choosing the light/dark palette; dependent card fills and glows are recomputed.
 For example: `{"theme":"light","colors":{"panel":"#202020"},"font_size":16}`.
 Custom overrides can reduce contrast; the shipped palettes are the design defaults.
 
+## Terminal colours
+
+The scene resolves default colours and ANSI indices 0–15 from the active theme at
+draw time, including existing cells when the theme switches. Default foreground is
+`ink`, and default background shows the `panel`/command-card surface. Indexed colours
+16–255 and explicit truecolour remain as supplied by the terminal application.
+Legacy rendering and M1/M2 fixture RGB values are unchanged.
+
+The dark 16-colour palette is unchanged. Its historical ANSI 7 foreground uses
+`ink`; its indexed backgrounds retain their original values. The former RGB-match
+shortcut is gone: truecolour (229,229,229) stays that exact colour, and explicit
+truecolour black backgrounds are opaque rather than mistaken for defaults.
+
+| Index | Dark ANSI RGB | Light ANSI RGB | Light contrast on white |
+| --- | --- | --- | --- |
+| 0 | #000000 | #1a2233 | 15.903:1 |
+| 1 | #ff0000 | #c8303f | 5.316:1 |
+| 2 | #00cd00 | #1d8048 | 4.960:1 |
+| 3 | #cdcd00 | #b54f0b | 5.137:1 |
+| 4 | #0000ee | #2f63d6 | 5.417:1 |
+| 5 | #cd00cd | #6d4fd8 | 5.585:1 |
+| 6 | #00cdcd | #0b7f78 | 4.860:1 |
+| 7 | #e5e5e5 | #d6deea | 1.355:1 — white exception |
+| 8 | #7f7f7f | #4f5c76 | 6.720:1 |
+| 9 | #ff0000 | #a8222f | 7.155:1 |
+| 10 | #00ff00 | #166a3b | 6.648:1 |
+| 11 | #ffff00 | #994712 | 6.433:1 |
+| 12 | #5c5cff | #2b57b9 | 6.632:1 |
+| 13 | #ff00ff | #5e47ba | 6.804:1 |
+| 14 | #00ffff | #0e6e6c | 6.060:1 |
+| 15 | #ffffff | #f3f6fb | 1.083:1 — white exception |
+
+Ratios use WCAG relative luminance: linearize each sRGB channel with the 0.04045
+threshold, then L = 0.2126R + 0.7152G + 0.0722B; contrast on white is 1.05/(L+0.05).
+White-ish indices 7 and 15 intentionally remain light, for applications choosing
+white on a coloured background; they are exempt from the 4.5:1 foreground check.
+The minimum among required default light colours is 4.860:1. Light colours derive
+from the theme tokens; bright yellow/blue/magenta/cyan mix 18% ink into their normal
+token. Custom token overrides can lower contrast.
+
+## Other settings
+
 Personal spelling words go in `compose-words.txt` beside the selected config file,
 or in the normal Clanky config directory. The file is created only on Add.
 `compose_words` is an internal path, not a config key. Missing dictionaries leave

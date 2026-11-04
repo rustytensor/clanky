@@ -716,7 +716,12 @@ impl Painter {
                 cw,
                 ch,
             ];
-            if intersection(rect, clip).is_none() || cell.bg == [0; 3] {
+            let background_source=cell.color_source.map(|source| if source.inverse {source.fg}else{source.bg});
+            let default_background=cell.color_source.is_some_and(|source| !source.inverse && source.bg==clanky_core::ColorSource::Default);
+            // Default backgrounds expose the themed pane/card. Explicit truecolour
+            // black is opaque; metadata-free legacy grids retain their old behaviour.
+            let transparent=default_background || (cell.bg==[0;3] && background_source!=Some(clanky_core::ColorSource::Truecolor));
+            if intersection(rect, clip).is_none() || transparent {
                 continue;
             }
             self.shape(

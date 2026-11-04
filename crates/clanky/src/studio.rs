@@ -74,10 +74,10 @@ fn terminal_path(tree: &Tree, path: &mut Vec<bool>) -> bool {
 }
 fn rgb(color: look::Color) -> [u8;3] { [color[0],color[1],color[2]] }
 fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
-    for cell in &mut snapshot.cells { cell.fg = theme.ui_color(cell.fg,false); cell.bg = theme.ui_color(cell.bg,true); }
+    for cell in &mut snapshot.cells { cell.fg = theme.ui_color(cell.fg,false); cell.bg = theme.ui_color(cell.bg,true); cell.color_source = None; }
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
-    TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel) }; rows * cols],
+    TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None }; rows * cols],
         cursor: None, images: Vec::new() }
 }
 fn local_rect(pane: &PaneLayout) -> Rect { Rect { row: 0, col: 0, rows: pane.rows, cols: pane.cols } }
@@ -608,7 +608,7 @@ impl App {
                     let elapsed=scroll.start.elapsed().as_secs_f32()*1000.0;
                     let mut end=snapshot.rows;
                     if snapshot.rows==scroll.old.rows && snapshot.cols==scroll.old.cols {
-                        while end>1 && snapshot.cells[(end-1)*snapshot.cols..end*snapshot.cols].iter().zip(&scroll.old.cells[(end-1)*snapshot.cols..end*snapshot.cols]).all(|(a,b)|a.ch==b.ch && a.fg==b.fg && a.bg==b.bg) { end-=1; }
+                        while end>1 && snapshot.cells[(end-1)*snapshot.cols..end*snapshot.cols].iter().zip(&scroll.old.cells[(end-1)*snapshot.cols..end*snapshot.cols]).all(|(a,b)|a.ch==b.ch && a.fg==b.fg && a.bg==b.bg && a.color_source==b.color_source) { end-=1; }
                         if elapsed<layout.metrics.scroll_ms {
                             if let Some((stitched,from,to))=stitch_region(&scroll.old,snapshot,1,end,layout.cell_px[1] as f32) {
                                 let offset=look::ease_out_cubic(from,to,elapsed,layout.metrics.scroll_ms,self.config.animations);
@@ -739,7 +739,7 @@ fn stitch_region(old: &TerminalSnapshot,new: &TerminalSnapshot,start: usize,end:
 /// Stitch only verified overlapping rows. Unknown/repainted screens jump rather than invent text.
 fn stitch(old: &TerminalSnapshot, new: &TerminalSnapshot, cell_h: f32) -> Option<(TerminalSnapshot,f32,f32)> {
     if old.rows != new.rows || old.cols != new.cols || old.rows<2 || !old.images.is_empty() || !new.images.is_empty() { return None; }
-    let same = |a: &[Cell],b: &[Cell]| a.iter().zip(b).all(|(a,b)|a.ch==b.ch && a.fg==b.fg && a.bg==b.bg);
+    let same = |a: &[Cell],b: &[Cell]| a.iter().zip(b).all(|(a,b)|a.ch==b.ch && a.fg==b.fg && a.bg==b.bg && a.color_source==b.color_source);
     if same(&old.cells,&new.cells) { return None; }
     for shift in 1..old.rows.min(12) {
         let n = shift*old.cols;

@@ -9,11 +9,25 @@ pub(crate) use engine::{Command, Tab};
 pub use engine::{CoreError, Engine};
 use serde::{Deserialize, Serialize};
 pub use session::{Workspace, WorkspaceGroup};
+/// Original SGR colour selection, before inverse-video swaps foreground/background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorSource { Default, Indexed(u8), Truecolor }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellColorSource {
+    pub fg: ColorSource,
+    pub bg: ColorSource,
+    #[serde(default)]
+    pub inverse: bool,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cell {
     pub ch: char,
     pub fg: [u8; 3],
     pub bg: [u8; 3],
+    /// Optional presentation provenance; legacy readers continue using fg/bg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_source: Option<CellColorSource>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerminalSnapshot {

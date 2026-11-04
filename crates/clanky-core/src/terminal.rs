@@ -1,6 +1,6 @@
 mod search;
 
-use crate::{Cell, TerminalSnapshot};
+use crate::{Cell, CellColorSource, ColorSource, TerminalSnapshot};
 use clanky_vt::{
     Term,
     event::{Event, EventListener},
@@ -721,6 +721,10 @@ impl Terminal {
                     },
                     fg,
                     bg,
+                    color_source: Some(CellColorSource {
+                        fg: color_source(cell.fg), bg: color_source(cell.bg),
+                        inverse: cell.flags.contains(Flags::INVERSE),
+                    }),
                 });
             }
         }
@@ -748,6 +752,14 @@ impl Terminal {
 fn cell_text_len(cell: &clanky_vt::term::cell::Cell) -> usize {
     if cell.flags.contains(Flags::HIDDEN) { 1 } else {
         cell.c.len_utf8() + cell.zerowidth().into_iter().flatten().map(|c| c.len_utf8()).sum::<usize>()
+    }
+}
+fn color_source(color: Color) -> ColorSource {
+    match color {
+        Color::Spec(_) => ColorSource::Truecolor,
+        Color::Indexed(index) => ColorSource::Indexed(index),
+        Color::Named(name) if (name as usize) < 256 => ColorSource::Indexed(name as u8),
+        Color::Named(_) => ColorSource::Default,
     }
 }
 fn color(c: Color, foreground: bool) -> [u8; 3] {
