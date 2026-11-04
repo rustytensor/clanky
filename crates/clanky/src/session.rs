@@ -11,8 +11,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn connect_start(socket: &Path) -> io::Result<Client> {
-    match Client::connect_owner(socket) {
+fn connect_start_with(socket: &Path, owner: bool) -> io::Result<Client> {
+    let connect: fn(&Path) -> io::Result<Client> = if owner {
+        Client::connect_owner
+    } else {
+        Client::connect_agent
+    };
+    match connect(socket) {
         Ok(client) => return Ok(client),
         Err(error) => {
             // NotFound may mean a missing credential, not a missing socket.
@@ -33,7 +38,7 @@ fn connect_start(socket: &Path) -> io::Result<Client> {
     });
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        match Client::connect_owner(socket) {
+        match connect(socket) {
             Ok(client) => return Ok(client),
             Err(error)
                 if matches!(
@@ -52,6 +57,15 @@ fn connect_start(socket: &Path) -> io::Result<Client> {
             Err(error) => return Err(error),
         }
     }
+}
+
+fn connect_start(socket: &Path) -> io::Result<Client> {
+    connect_start_with(socket, true)
+}
+
+/// Agent-only startup: no owner token is read or authentication attempted.
+pub fn connect_agent_or_start(socket: &Path) -> Result<Client, String> {
+    connect_start_with(socket, false).map_err(|_| "cannot connect agent session".to_string())
 }
 
 pub fn connect_or_start(socket: &Path) -> Result<Client, String> {

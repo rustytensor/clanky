@@ -300,11 +300,69 @@ pub(crate) enum Control {
 }
 pub(crate) struct Process {
     pub tx: SyncSender<Control>,
+    pid: u32,
+    identity: Option<ProcessIdentity>,
+    master: File,
+    slave_device: Option<u64>,
     queued: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
 }
 impl Process {
+    pub(crate) fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Evidence only: the caller also applies its output-quiet interval.
+    /// A sleeping read must target this PTY's slave, in its foreground group
+    /// and original session. Missing procfs access is not input evidence.
+    pub(crate) fn waiting_for_input(&self) -> bool {
+        let Some(root) = self.identity else {
+            return false;
+        };
+        let Some(device) = self.slave_device else {
+            return false;
+        };
+        if self.stop.load(Ordering::Acquire) {
+            return false;
+        }
+        let foreground = unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) };
+        if foreground < 1 {
+            return false;
+        }
+        let Ok(entries) = fs::read_dir("/proc") else {
+            return false;
+        };
+        for entry in entries.take(65_536).flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.parse::<i32>().ok())
+            else {
+                continue;
+            };
+            let Ok(identity) = process_identity(pid) else {
+                continue;
+            };
+            if identity.session != root.pid || identity.group != foreground {
+                continue;
+            }
+            let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
+                continue;
+            };
+            for task in tasks.take(4096).flatten() {
+                let path = task.path();
+                if blocked_slave_read(&path, device)
+                    && process_identity(pid).ok() == Some(identity)
+                    && unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) } == foreground
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub fn input(&self, bytes: Vec<u8>) -> io::Result<()> {
         let n = bytes.len();
         self.queued
@@ -375,6 +433,17 @@ pub(crate) fn spawn(
     }
     let mut pty = tty::new(&options, size(rows, cols), 0)?;
     let pid = pty.child().id() as i32;
+    let identity = process_identity(pid).ok();
+    let master = pty.file().try_clone()?;
+    let mut slave_number: libc::c_uint = 0;
+    let slave_device =
+        if unsafe { libc::ioctl(master.as_raw_fd(), libc::TIOCGPTN, &mut slave_number) } == 0 {
+            fs::metadata(format!("/dev/pts/{slave_number}"))
+                .ok()
+                .map(|m| m.rdev())
+        } else {
+            None
+        };
     // tty::from_fd completes setsid before spawn returns, so PGID and SID
     // are known even if a very short-lived child already exited.
     roots.push(PtyRoot {
@@ -515,10 +584,58 @@ pub(crate) fn spawn(
     });
     Ok(Process {
         tx,
+        pid: pid as u32,
+        identity,
+        master,
+        slave_device,
         queued,
         stop,
         join: Mutex::new(Some(join)),
     })
+}
+
+/// Require a kernel sleeping state and a read syscall on the actual slave
+/// device. In particular, nanosleep, poll, pipe reads and silence do not count.
+fn blocked_slave_read(task: &Path, device: u64) -> bool {
+    let Ok(stat) = fs::read_to_string(task.join("stat")) else {
+        return false;
+    };
+    if stat
+        .rsplit_once(')')
+        .and_then(|(_, tail)| tail.split_whitespace().next())
+        != Some("S")
+    {
+        return false;
+    }
+    let Ok(syscall) = fs::read_to_string(task.join("syscall")) else {
+        return false;
+    };
+    let fields: Vec<_> = syscall.split_whitespace().collect();
+    let number = fields.first().and_then(|s| s.parse::<libc::c_long>().ok());
+    if number != Some(libc::SYS_read) && number != Some(libc::SYS_readv) {
+        return false;
+    }
+    let hex = |index: usize| {
+        fields
+            .get(index)
+            .and_then(|s| u64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16).ok())
+    };
+    let Some(fd) = hex(1).filter(|fd| *fd <= i32::MAX as u64) else {
+        return false;
+    };
+    if hex(3).is_none_or(|count| count == 0) {
+        return false;
+    }
+    use std::os::unix::fs::FileTypeExt;
+    let Ok(metadata) = fs::metadata(task.join(format!("fd/{fd}"))) else {
+        return false;
+    };
+    if !metadata.file_type().is_char_device() || metadata.rdev() != device {
+        return false;
+    }
+    // Recheck the syscall after resolving its descriptor to reject moving
+    // observations (e.g. a task waking and replacing the descriptor).
+    fs::read_to_string(task.join("syscall")).ok().as_deref() == Some(syscall.as_str())
 }
 
 const MAX_PTY_ROOTS: usize = 65_536;
@@ -580,6 +697,64 @@ fn process_identity(pid: i32) -> io::Result<ProcessIdentity> {
         return Err(invalid());
     }
     Ok(identity)
+}
+
+/// Server-observed provenance for audit; never taken from request arguments.
+#[derive(Clone, serde::Serialize)]
+pub struct AgentPeer {
+    pub pid: u32,
+    pub ancestry: Vec<u32>,
+    pub terminal_roots: Vec<u32>,
+}
+
+pub fn agent_peer(stream: &LocalStream) -> io::Result<AgentPeer> {
+    let invalid = || io::Error::other("peer ancestry unavailable or changed");
+    let peer = stream.1.ok_or_else(invalid)?;
+    if process_identity(peer.pid).ok() != Some(peer) {
+        return Err(invalid());
+    }
+    let roots = pty_roots().lock().map_err(|_| invalid())?;
+    let mut chain: Vec<ProcessIdentity> = Vec::new();
+    let mut terminal_roots = Vec::new();
+    let mut pid = peer.pid;
+    for _ in 0..256 {
+        let current = process_identity(pid)?;
+        if chain.iter().any(|p| p.pid == pid)
+            || chain
+                .last()
+                .is_some_and(|child| current.start > child.start)
+        {
+            return Err(invalid());
+        }
+        for root in roots.iter() {
+            if (current.group == root.pid
+                || current.session == root.pid
+                || (current.pid == root.pid && root.start.is_none_or(|s| s == current.start)))
+                && !terminal_roots.contains(&(root.pid as u32))
+            {
+                terminal_roots.push(root.pid as u32);
+            }
+        }
+        chain.push(current);
+        if current.pid == 1 && current.parent == 0 {
+            if chain
+                .iter()
+                .any(|p| process_identity(p.pid).ok() != Some(*p))
+            {
+                return Err(invalid());
+            }
+            return Ok(AgentPeer {
+                pid: peer.pid as u32,
+                ancestry: chain.iter().map(|p| p.pid as u32).collect(),
+                terminal_roots,
+            });
+        }
+        if current.parent < 1 {
+            return Err(invalid());
+        }
+        pid = current.parent;
+    }
+    Err(invalid())
 }
 
 /// Kernel-proven owner provenance. A token alone is never owner authority.

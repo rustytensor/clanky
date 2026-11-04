@@ -9,5 +9,7 @@ case "${CLANKY_GATE_FAULT:-}" in
     *) echo "FAIL: unknown CLANKY_GATE_FAULT" >&2; exit 1 ;;
 esac
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky-edit --bin editor-core-gate -j 8
+if [[ ${CLANKY_GATE_BINARIES_READY:-} != 1 ]]; then
+    flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky-edit --bin editor-core-gate -j 8
+fi
 "$CARGO_TARGET_DIR/debug/editor-core-gate"

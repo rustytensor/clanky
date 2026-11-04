@@ -37,12 +37,14 @@ fn main() {
 fn run() -> Result<(), String> {
     let (mut headless, mut socket, mut config_path) = (false, None, None);
     let mut stdio = false;
+    let mut mcp = false;
     let mut host = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--headless" | "--server" => headless = true,
             "--stdio" => stdio = true,
+            "mcp" => mcp = true,
             "attach" => host = Some(args.next().ok_or("attach needs a host")?),
             "--socket" => socket = Some(PathBuf::from(args.next().ok_or("--socket needs a path")?)),
             "--config" => {
@@ -50,18 +52,18 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar\nCtrl+Shift+Escape: revoke agents\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
-    if host.is_some() && (socket.is_some() || headless || stdio) {
-        return Err("attach cannot use --socket, --server, --headless or --stdio".into());
+    if host.is_some() && (socket.is_some() || headless || stdio || mcp) {
+        return Err("attach cannot use --socket, --server, --headless, --stdio or mcp".into());
     }
-    if headless && stdio {
-        return Err("choose either server or stdio mode".into());
+    if u8::from(headless) + u8::from(stdio) + u8::from(mcp) > 1 {
+        return Err("choose server, stdio or MCP mode".into());
     }
     if let Some(host) = host {
         let config = Config::load(config_path.as_deref())?;
@@ -80,6 +82,9 @@ fn run() -> Result<(), String> {
     }
     if stdio {
         return clanky::session::stdio(&socket);
+    }
+    if mcp {
+        return clanky::mcp::serve(&socket);
     }
     let config = Config::load(config_path.as_deref())?;
     run_window(clanky::session::connect_or_start(&socket)?, config)
@@ -358,6 +363,11 @@ impl App {
     }
     fn key(&mut self, key: &Key, text: Option<&str>) -> Result<(), String> {
         let ctrl = self.modifiers.control_key();
+        if ctrl && self.modifiers.shift_key() && *key == Key::Named(NamedKey::Escape) {
+            self.call("v4.revoke_all", json!({}))?;
+            self.status = Some("Agent access revoked; pending waits cancelled".into());
+            return Ok(());
+        }
         if ctrl
             && self.modifiers.shift_key()
             && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("p"))

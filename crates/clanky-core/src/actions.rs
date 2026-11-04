@@ -31,6 +31,8 @@ struct Task {
     block_id: String,
     command_id: String,
     payload: Vec<u8>,
+    safe_payload: Vec<u8>,
+    safe_label: String,
 }
 #[derive(Default)]
 pub(super) struct ActionState {
@@ -67,18 +69,24 @@ impl ActionState {
 fn payload(bytes: &[u8]) -> Value {
     json!({"encoding":"base64", "data":base64::engine::general_purpose::STANDARD.encode(bytes), "bytes":bytes.len()})
 }
-fn task_value(task: &Task, tab: &Tab, detailed: bool) -> Value {
+fn task_value(task: &Task, tab: &Tab, detailed: bool, trusted: bool) -> Value {
     let process = tab
         .command(&task.command_id)
         .ok()
         .map(|c| c.state.lock().unwrap().status());
-    let mut result = json!({"task_id":task.task_id,"label":task.label,"state":task.state,
+    let mut result = json!({"task_id":task.task_id,"label":if trusted { &task.label } else { &task.safe_label },"state":task.state,
         "tab_id":task.tab_id,"block_id":task.block_id,"command_id":task.command_id,"process":process});
     if detailed {
-        result
-            .as_object_mut()
+        result.as_object_mut().unwrap().extend(
+            payload(if trusted {
+                &task.payload
+            } else {
+                &task.safe_payload
+            })
+            .as_object()
             .unwrap()
-            .extend(payload(&task.payload).as_object().unwrap().clone());
+            .clone(),
+        );
     }
     result
 }
@@ -138,8 +146,40 @@ impl Engine {
         }
         let tab_id = string(args, "tab_id")?;
         let tab = self.tab(tab_id, trusted)?;
+        let lease = self.lease(&tab);
         // Snapshot and release the terminal before locking metadata or calling run.
         let (blocks, _) = tab.terminal.lock().unwrap().blocks();
+        // Use the owner block for selection coordinates, but never mask only a
+        // selected substring: a selection can begin in the middle of a secret.
+        let (mirror, _) = tab.safe_terminal.lock().unwrap().blocks();
+        let mut safe_blocks = blocks.clone();
+        for block in &mut safe_blocks {
+            // The mirror was masked before terminal retention. Rematching a raw
+            // truncated block could otherwise release a secret prefix at its cut.
+            if let Some(safe) = mirror
+                .iter()
+                .find(|b| b.block_id == block.block_id && b.command_id == block.command_id)
+            {
+                block.output = safe.output.clone();
+                block.command = safe.command.clone();
+            } else {
+                block.output.clear();
+                block.command = None;
+            }
+            let complete = !block.truncated
+                && (block.complete
+                    || tab
+                        .command(&block.command_id)
+                        .ok()
+                        .is_some_and(|c| c.state.lock().unwrap().done()));
+            if let Err(e) = self.0.1.policy.block(block, complete) {
+                if !trusted {
+                    return Err(e);
+                }
+                block.output.clear();
+                block.command = None;
+            }
+        }
         if action == "rerun" {
             validate_run(args)?;
             let block_id = string(args, "block_id")?;
@@ -175,9 +215,11 @@ impl Engine {
                 }
             };
         }
+        let _authority = self.0.1.authority.lock().unwrap();
+        self.check_lease(&tab, lease, trusted)?;
         let mut state = tab.actions.lock().unwrap();
         state.prune(&blocks);
-        match action {
+        let result = match action {
             "view" => {
                 let limit = if args.get("limit").is_some() {
                     number(args, "limit", 1, 64)? as usize
@@ -201,7 +243,8 @@ impl Engine {
                 };
                 let mut page = Vec::new();
                 let mut budget = 256 * 1024;
-                for mut block in blocks.iter().skip(start).take(limit).cloned() {
+                let visible = if trusted { &blocks } else { &safe_blocks };
+                for mut block in visible.iter().skip(start).take(limit).cloned() {
                     if budget == 0 {
                         break;
                     }
@@ -226,7 +269,7 @@ impl Engine {
                 let tasks: Vec<_> = state
                     .tasks
                     .iter()
-                    .map(|t| task_value(t, &tab, false))
+                    .map(|t| task_value(t, &tab, false, trusted))
                     .collect();
                 Ok(
                     json!({"has_more":blocks.len().saturating_sub(start)>page.len(),"next_after":next,
@@ -234,7 +277,7 @@ impl Engine {
                 )
             }
             "tasks" => Ok(
-                json!({"tasks":state.tasks.iter().map(|t| task_value(t,&tab,false)).collect::<Vec<_>>()}),
+                json!({"tasks":state.tasks.iter().map(|t| task_value(t,&tab,false,trusted)).collect::<Vec<_>>()}),
             ),
             "task_get" | "task_update" => {
                 let id = string(args, "task_id")?;
@@ -255,7 +298,7 @@ impl Engine {
                 if let Some(next) = next {
                     task.state = next.into();
                 }
-                Ok(task_value(task, &tab, action == "task_get"))
+                Ok(task_value(task, &tab, action == "task_get", trusted))
             }
             _ => {
                 let block_id = string(args, "block_id")?;
@@ -283,7 +326,14 @@ impl Engine {
                         });
                         Ok(json!({"selection":state.selection}))
                     }
-                    "copy" => Ok(payload(state.selected(block)?)),
+                    "copy" => {
+                        let visible = if trusted {
+                            block
+                        } else {
+                            safe_blocks.iter().find(|b| b.block_id == block_id).unwrap()
+                        };
+                        Ok(payload(state.selected(visible)?))
+                    }
                     "collapse" => {
                         let collapsed = args
                             .get("collapsed")
@@ -305,6 +355,21 @@ impl Engine {
                             return Err(error("resource_limit", "task limit reached"));
                         }
                         let bytes = state.selected(block)?.to_vec();
+                        let safe_block =
+                            safe_blocks.iter().find(|b| b.block_id == block_id).unwrap();
+                        let selection = state.selection.as_ref().unwrap();
+                        let safe_payload = safe_block
+                            .output
+                            .as_bytes()
+                            .get(selection.start..selection.end.min(safe_block.output.len()))
+                            .unwrap_or_default()
+                            .to_vec();
+                        let safe_label = self
+                            .0
+                            .1
+                            .policy
+                            .text(label, true)
+                            .unwrap_or_else(|_| "unavailable".into());
                         state.next_task += 1;
                         let task = Task {
                             task_id: format!("{}-task{}", tab_id, state.next_task),
@@ -314,14 +379,18 @@ impl Engine {
                             block_id: block_id.into(),
                             command_id: block.command_id.clone(),
                             payload: bytes,
+                            safe_payload,
+                            safe_label,
                         };
-                        let value = task_value(&task, &tab, true);
+                        let value = task_value(&task, &tab, true, trusted);
                         state.tasks.push(task);
                         Ok(value)
                     }
                     _ => unreachable!(),
                 }
             }
-        }
+        };
+        self.check_lease(&tab, lease, trusted)?;
+        result
     }
 }

@@ -1,5 +1,12 @@
 #[path = "actions.rs"]
 mod actions;
+#[path = "agent.rs"]
+mod agent;
+#[path = "events.rs"]
+mod events;
+#[path = "masking.rs"]
+mod masking;
+use agent::optional_number;
 
 use crate::{
     TerminalSnapshot, Workspace,
@@ -14,7 +21,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -74,6 +81,11 @@ fn fields(v: &Value, allowed: &[&str]) -> Result<(), CoreError> {
 }
 
 struct ResultState {
+    safe: VecDeque<u8>,
+    safe_total: u64,
+    masker: Option<clanky_mask::Masker>,
+    masking_failed: bool,
+    finished_event: bool,
     output: VecDeque<u8>,
     total: u64,
     exited: bool,
@@ -94,12 +106,21 @@ pub(crate) struct Command {
     pub id: String,
     state: Mutex<ResultState>,
     changed: Condvar,
+    safety: Arc<events::Safety>,
+    tab_id: String,
+    allowed: Arc<AtomicBool>,
+    safe_terminal: Arc<Mutex<Terminal>>,
 }
 impl Command {
-    fn new(id: String) -> Self {
-        Self {
+    fn new(id: String, tab_id: String, tab: &Tab) -> Result<Self, CoreError> {
+        Ok(Self {
             id,
             state: Mutex::new(ResultState {
+                safe: VecDeque::new(),
+                safe_total: 0,
+                masker: tab.safety.policy.stream().ok(),
+                masking_failed: false,
+                finished_event: false,
                 output: VecDeque::new(),
                 total: 0,
                 exited: false,
@@ -109,10 +130,34 @@ impl Command {
                 failure: None,
             }),
             changed: Condvar::new(),
+            safety: tab.safety.clone(),
+            tab_id,
+            allowed: tab.allowed.clone(),
+            safe_terminal: tab.safe_terminal.clone(),
+        })
+    }
+    fn append_safe(&self, s: &mut ResultState, bytes: &[u8]) {
+        let start = s.safe_total;
+        s.safe_total += bytes.len() as u64;
+        s.safe.extend(bytes);
+        let excess = s.safe.len().saturating_sub(8 * 1024 * 1024);
+        s.safe.drain(..excess);
+        self.safe_terminal.lock().unwrap().feed(&self.id, bytes);
+        self.safety
+            .output(&self.tab_id, &self.allowed, &self.id, bytes, start);
+    }
+    fn completion(&self, s: &mut ResultState) {
+        if s.done() && !s.finished_event {
+            s.finished_event = true;
+            self.safety.publish(&self.tab_id, &self.allowed, json!({"kind":"command_finished", "command_id":self.id,"exit_code":s.code,"signal":s.signal}));
         }
     }
     pub fn append(&self, bytes: &[u8]) {
         let mut s = self.state.lock().unwrap();
+        match s.masker.as_mut().map(|m| m.push(bytes)) {
+            Some(Ok(safe)) => self.append_safe(&mut s, &safe),
+            _ => s.masking_failed = true,
+        }
         s.total += bytes.len() as u64;
         s.output.extend(bytes);
         let excess = s.output.len().saturating_sub(8 * 1024 * 1024);
@@ -123,13 +168,23 @@ impl Command {
         s.exited = true;
         s.code = code;
         s.signal = signal;
+        self.completion(&mut s);
         self.changed.notify_all();
     }
     pub fn failed(&self, message: String) {
         self.state.lock().unwrap().failure = Some(message);
     }
     pub fn drained(&self) {
-        self.state.lock().unwrap().drained = true;
+        let mut s = self.state.lock().unwrap();
+        if !s.drained {
+            match s.masker.as_mut().map(clanky_mask::Masker::finish) {
+                Some(Ok(safe)) => self.append_safe(&mut s, &safe),
+                _ => s.masking_failed = true,
+            }
+            self.safe_terminal.lock().unwrap().eof();
+            s.drained = true;
+            self.completion(&mut s);
+        }
         self.changed.notify_all();
     }
 }
@@ -138,7 +193,14 @@ struct Commands {
     all: BTreeMap<String, Arc<Command>>,
 }
 pub(crate) struct Tab {
-    allowed: AtomicBool,
+    allowed: Arc<AtomicBool>,
+    permission: AtomicU64,
+    safety: Arc<events::Safety>,
+    id: String,
+    safe_terminal: Arc<Mutex<Terminal>>,
+    last_output: Mutex<Instant>,
+    last_input: Mutex<Option<Instant>>,
+    was_waiting: AtomicBool,
     closed: AtomicBool,
     lifecycle: Mutex<()>,
     terminal: Mutex<Terminal>,
@@ -147,9 +209,22 @@ pub(crate) struct Tab {
     actions: Mutex<actions::ActionState>,
 }
 impl Tab {
-    fn new(rows: usize, cols: usize, allowed: bool) -> Self {
+    fn new(
+        rows: usize,
+        cols: usize,
+        allowed: bool,
+        id: String,
+        safety: Arc<events::Safety>,
+    ) -> Self {
         Self {
-            allowed: AtomicBool::new(allowed),
+            allowed: Arc::new(AtomicBool::new(allowed)),
+            permission: AtomicU64::new(0),
+            safety,
+            id,
+            safe_terminal: Arc::new(Mutex::new(Terminal::new(rows, cols))),
+            last_output: Mutex::new(Instant::now()),
+            last_input: Mutex::new(None),
+            was_waiting: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             lifecycle: Mutex::new(()),
             terminal: Mutex::new(Terminal::new(rows, cols)),
@@ -162,6 +237,7 @@ impl Tab {
         }
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
+        *self.last_output.lock().unwrap() = Instant::now();
         let responses = self.terminal.lock().unwrap().feed(command, bytes);
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
@@ -185,7 +261,10 @@ impl Tab {
     }
     fn close(&self) {
         let _guard = self.lifecycle.lock().unwrap();
-        self.closed.store(true, Ordering::Release);
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            self.safety
+                .publish(&self.id, &self.allowed, json!({"kind":"terminal_closed"}));
+        }
         let process = self.process.lock().unwrap().take();
         if let Some(p) = process {
             p.stop();
@@ -199,9 +278,20 @@ struct State {
     shutdown: bool,
     workspace: Workspace,
 }
-struct Inner(Mutex<State>);
+struct Inner(
+    Mutex<State>,
+    Arc<events::Safety>,
+    Mutex<Option<std::thread::JoinHandle<()>>>,
+);
 impl Drop for Inner {
     fn drop(&mut self) {
+        self.1.stop.store(true, Ordering::Release);
+        self.1.changed.notify_all();
+        if let Some(handle) = self.2.get_mut().unwrap().take() {
+            if handle.thread().id() != std::thread::current().id() {
+                let _ = handle.join();
+            }
+        }
         let s = self.0.get_mut().unwrap();
         for t in s.tabs.values() {
             t.close();
@@ -217,15 +307,23 @@ impl Default for Engine {
 }
 impl Engine {
     pub fn new() -> Self {
-        Self(Arc::new(Inner(Mutex::new(State {
-            tabs: BTreeMap::new(),
-            next_tab: 0,
-            next_command: 0,
-            shutdown: false,
-            workspace: Workspace::empty(),
-        }))))
+        let engine = Self(Arc::new(Inner(
+            Mutex::new(State {
+                tabs: BTreeMap::new(),
+                next_tab: 0,
+                next_command: 0,
+                shutdown: false,
+                workspace: Workspace::empty(),
+            }),
+            Arc::new(events::Safety::new()),
+            Mutex::new(None),
+        )));
+        engine.start_monitor();
+        engine
     }
     fn tab(&self, id: &str, trusted: bool) -> Result<Arc<Tab>, CoreError> {
+        // Do not admit a fresh lease halfway through an epoch-wide revoke.
+        let _authority = (!trusted).then(|| self.0.1.authority.lock().unwrap());
         let tab = self
             .0
             .0
@@ -250,9 +348,15 @@ impl Engine {
         Ok(self.tab(tab_id, true)?.allowed.load(Ordering::Acquire))
     }
     pub fn set_agent_permission(&self, tab_id: &str, allowed: bool) -> Result<(), CoreError> {
-        self.tab(tab_id, true)?
-            .allowed
-            .store(allowed, Ordering::Release);
+        let tab = self.tab(tab_id, true)?;
+        let _authority = self.0.1.authority.lock().unwrap();
+        let _guard = tab.lifecycle.lock().unwrap();
+        tab.allowed.store(allowed, Ordering::Release);
+        tab.permission.fetch_add(1, Ordering::AcqRel);
+        tab.safety.changed.notify_all();
+        for command in tab.commands.lock().unwrap().all.values() {
+            command.changed.notify_all();
+        }
         Ok(())
     }
     pub fn snapshot(&self, tab_id: &str) -> Result<TerminalSnapshot, CoreError> {
@@ -267,6 +371,8 @@ impl Engine {
         let p = p
             .as_ref()
             .ok_or_else(|| error("not_found", "no active process"))?;
+        *t.last_input.lock().unwrap() = Some(Instant::now());
+        t.terminal.lock().unwrap().input_submitted();
         p.input(bytes.to_vec())
             .map_err(|e| error("resource_limit", e.to_string()))
     }
@@ -285,9 +391,12 @@ impl Engine {
             }
         }
         t.terminal.lock().unwrap().resize(rows, cols);
+        t.safe_terminal.lock().unwrap().resize(rows, cols);
         Ok(())
     }
     pub fn shutdown(&self) {
+        self.0.1.stop.store(true, Ordering::Release);
+        self.0.1.changed.notify_all();
         let tabs = {
             let mut s = self.0.0.lock().unwrap();
             s.shutdown = true;
@@ -297,6 +406,9 @@ impl Engine {
         for t in tabs.values() {
             t.close();
         }
+        if let Some(handle) = self.0.2.lock().unwrap().take() {
+            let _ = handle.join();
+        }
     }
     /// True only after the final explicitly closed tab, not on client loss.
     pub fn idle_exit_ready(&self) -> bool {
@@ -305,11 +417,9 @@ impl Engine {
     }
 
     pub fn scroll(&self, tab_id: &str, delta: i32) -> Result<(), CoreError> {
-        self.tab(tab_id, true)?
-            .terminal
-            .lock()
-            .unwrap()
-            .scroll(delta);
+        let tab = self.tab(tab_id, true)?;
+        tab.terminal.lock().unwrap().scroll(delta);
+        tab.safe_terminal.lock().unwrap().scroll(delta);
         Ok(())
     }
 
@@ -425,6 +535,7 @@ impl Engine {
                     .and_then(|n| i32::try_from(n).ok())
                     .ok_or_else(|| invalid("invalid scroll delta"))?;
                 let offset = tab.terminal.lock().unwrap().scroll(delta);
+                tab.safe_terminal.lock().unwrap().scroll(delta);
                 Ok(json!({"display_offset":offset}))
             }
             "input" => {
@@ -455,7 +566,7 @@ impl Engine {
                     .get("allow_agent")
                     .and_then(Value::as_bool)
                     .ok_or_else(|| invalid("allow_agent must be boolean"))?;
-                tab.allowed.store(allowed, Ordering::Release);
+                self.set_agent_permission(tab_id, allowed)?;
                 Ok(json!({"allow_agent":allowed}))
             }
             _ => unreachable!(),
@@ -463,6 +574,9 @@ impl Engine {
     }
 
     pub fn request(&self, op: &str, args: &Value, trusted: bool) -> Result<Value, CoreError> {
+        if let Some(action) = op.strip_prefix("v4.") {
+            return self.agent_request(action, args, trusted);
+        }
         if let Some(action) = op.strip_prefix("v2.") {
             return self.palette_action(action, args, trusted);
         }
@@ -496,13 +610,18 @@ impl Engine {
                 _ => return Err(invalid("allow_agent must be boolean")),
             };
             let mut s = self.0.0.lock().unwrap();
+            if !trusted && self.0.1.latched.load(Ordering::Acquire) {
+                return Err(error("permission_denied", "agent creation is revoked"));
+            }
             if s.shutdown || s.tabs.len() >= 64 {
                 return Err(error("resource_limit", "tab limit or engine shut down"));
             }
             s.next_tab += 1;
             let id = format!("t{}", s.next_tab);
-            s.tabs
-                .insert(id.clone(), Arc::new(Tab::new(rows, cols, allow)));
+            s.tabs.insert(
+                id.clone(),
+                Arc::new(Tab::new(rows, cols, allow, id.clone(), self.0.1.clone())),
+            );
             s.workspace.add(id.clone());
             return Ok(json!({"tab_id": id, "allow_agent": allow}));
         }
@@ -513,6 +632,7 @@ impl Engine {
         }
         let tab_id = string(args, "tab_id")?;
         let tab = self.tab(tab_id, trusted)?;
+        let lease = self.lease(&tab);
         match op {
             "run" => {
                 let values = args
@@ -542,7 +662,9 @@ impl Engine {
                 {
                     return Err(invalid("cwd must be an existing absolute directory"));
                 }
+                let _authority = self.0.1.authority.lock().unwrap();
                 let _guard = tab.lifecycle.lock().unwrap();
+                self.check_lease(&tab, lease, trusted)?;
                 if tab.closed.load(Ordering::Acquire) {
                     return Err(error("not_found", "tab closed"));
                 }
@@ -570,7 +692,7 @@ impl Engine {
                     s.next_command += 1;
                     format!("c{}", s.next_command)
                 };
-                let command = Arc::new(Command::new(id.clone()));
+                let command = Arc::new(Command::new(id.clone(), tab_id.into(), &tab)?);
                 let size = tab.terminal.lock().unwrap().size;
                 let process =
                     platform::spawn(&argv, cwd, size.0, size.1, command.clone(), tab.clone())
@@ -588,17 +710,22 @@ impl Engine {
                     let deadline = Instant::now()
                         + Duration::from_millis(number(args, "timeout_ms", 0, 30000)?);
                     while !s.done() {
+                        self.check_lease(&tab, lease, trusted)?;
                         let now = Instant::now();
                         if now >= deadline {
                             break;
                         }
-                        let (next, _) = command.changed.wait_timeout(s, deadline - now).unwrap();
+                        let (next, _) = command
+                            .changed
+                            .wait_timeout(s, (deadline - now).min(Duration::from_millis(100)))
+                            .unwrap();
                         s = next;
                     }
                 }
                 if let Some(failure) = &s.failure {
                     return Err(error("internal", failure.clone()));
                 }
+                self.check_lease(&tab, lease, trusted)?;
                 Ok(s.status())
             }
             "get_output" => {
@@ -613,20 +740,30 @@ impl Engine {
                 if let Some(failure) = &s.failure {
                     return Err(error("internal", failure.clone()));
                 }
-                let start = s.total - s.output.len() as u64;
+                if !trusted && s.masking_failed {
+                    return Err(error("masking_unavailable", "masking policy unavailable"));
+                }
+                let (output, output_start) = if trusted {
+                    (&s.output, s.total - s.output.len() as u64)
+                } else {
+                    (&s.safe, s.safe_total - s.safe.len() as u64)
+                };
+                // Preserve v1 raw coordinates and retention metadata. An unsafe
+                // pending suffix yields no bytes, not a different offset space.
+                let total = s.total;
+                let start = (s.total - s.output.len() as u64).max(output_start);
                 if offset < start {
                     return Err(error(
                         "output_evicted",
                         format!("earliest available offset: {start}"),
                     ));
                 }
-                if offset > s.total {
+                if offset > total {
                     return Err(invalid("offset exceeds total bytes"));
                 }
-                let bytes: Vec<u8> = s
-                    .output
+                let bytes: Vec<u8> = output
                     .iter()
-                    .skip((offset - start) as usize)
+                    .skip((offset - output_start) as usize)
                     .take(limit)
                     .copied()
                     .collect();
@@ -636,8 +773,9 @@ impl Engine {
                 } else {
                     String::from_utf8_lossy(&bytes).into_owned()
                 };
+                self.check_lease(&tab, lease, trusted)?;
                 Ok(
-                    json!({"encoding": encoding, "data": data, "next_offset": next, "retained_start": start, "total_bytes": s.total, "truncated": start != 0, "eof": s.done() && next == s.total}),
+                    json!({"encoding": encoding, "data": data, "next_offset": next, "retained_start": start, "total_bytes": total, "truncated": start != 0, "eof": s.done() && next == total}),
                 )
             }
             "list_blocks" => {
@@ -655,7 +793,22 @@ impl Engine {
                     Some(Value::String(id)) => Some(id.as_str()),
                     _ => return Err(invalid("after must be string or null")),
                 };
-                let (blocks, evicted) = tab.terminal.lock().unwrap().blocks();
+                let (mut blocks, evicted) = if trusted {
+                    tab.terminal.lock().unwrap().blocks()
+                } else {
+                    tab.safe_terminal.lock().unwrap().blocks()
+                };
+                if !trusted {
+                    for block in &mut blocks {
+                        let complete = !block.truncated
+                            && (block.complete
+                                || tab
+                                    .command(&block.command_id)
+                                    .ok()
+                                    .is_some_and(|c| c.state.lock().unwrap().done()));
+                        self.0.1.policy.block(block, complete)?;
+                    }
+                }
                 let start = if let Some(id) = after {
                     match blocks.iter().position(|b| b.block_id == id) {
                         Some(i) => i + 1,
@@ -690,11 +843,14 @@ impl Engine {
                     .last()
                     .map(|b| b.block_id.clone())
                     .or_else(|| after.map(str::to_owned));
+                self.check_lease(&tab, lease, trusted)?;
                 Ok(
                     json!({"has_more": matching.len() > page.len(), "blocks": page, "next_after": next, "evicted": evicted}),
                 )
             }
             "close_tab" => {
+                let _authority = self.0.1.authority.lock().unwrap();
+                self.check_lease(&tab, lease, trusted)?;
                 tab.close();
                 let mut s = self.0.0.lock().unwrap();
                 if s.tabs.remove(tab_id).is_some() {
