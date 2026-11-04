@@ -1,6 +1,6 @@
 //! Real app layout and scene observations for the M11 gate.
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use clanky::{config::Config, layout_store, look::{self, BlockCard, LookState, PaneState}};
+use clanky::{config::Config, layout_store, look::{self, BlockCard, LookState, PaneState}, settings::Settings};
 use clanky_api::Client;
 use clanky_core::{Engine, layout::{Axis, Layout as Tree}, snapshot_from_chunks};
 use clanky_render::{Layer, offscreen_scene};
@@ -133,6 +133,31 @@ fn run() -> Result<(), String> {
     }
     state.panes[0].allow_agent = true; state.panes[0].agent_running = true;
     let light_agent = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    let config_path = work.join("settings.json");
+    fs::write(&config_path, b"{\"rails\":false,\"opacity\":0.94,\"theme\":\"light\"}\n").map_err(|e| e.to_string())?;
+    let mut settings = Settings::open(&config_path)?;
+    settings.set("opacity",json!(0.8))?;
+    let loaded = Config::load(Some(&config_path))?;
+    let before = fs::read(&config_path).map_err(|e| e.to_string())?;
+    let text = std::str::from_utf8(&before).map_err(|e| e.to_string())?;
+    let key_order = text.find("\"rails\"") < text.find("\"opacity\"") && text.find("\"opacity\"") < text.find("\"theme\"");
+    state.opacity = loaded.opacity;
+    state.theme = loaded.resolved_theme(false);
+    state.panes[0].allow_agent = false; state.panes[0].agent_running = false;
+    let opacity_image = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    let invalid_error = settings.set("opacity",json!(0.3)).err().ok_or("invalid settings accepted")?;
+    let loader_error = Config::from_json("{\"opacity\":0.3}").err().ok_or("invalid loader config accepted")?;
+    let unchanged = fs::read(&config_path).map_err(|e| e.to_string())? == before;
+    settings.set_color("panel",Some("#202020"))?;
+    state.theme = settings.config().resolved_theme(false);
+    let override_image = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    let export = work.join("settings-export.json");
+    settings.export(&export)?;
+    settings.reset("rails")?;
+    settings.import(&export)?;
+    let identical = fs::read(&config_path).map_err(|e| e.to_string())? == fs::read(&export).map_err(|e| e.to_string())?;
+    let mut opacity_pixel = sample(&opacity_image,590,44).to_vec();
+    if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("settings") { opacity_pixel[3] = 255; }
     let ease = look::ease_out_cubic;
     println!("{}",json!({
         "layout":{"content":shown.content.array(),"a":pane(&shown,"A"),"b":pane(&shown,"B"),"pty_a":pty_a,"pty_b":pty_b},
@@ -140,6 +165,7 @@ fn run() -> Result<(), String> {
         "drag":{"a":pane(&dragged.layout,"A"),"b":pane(&dragged.layout,"B"),"restored_a":pane(&restored,&restored_a),"restored_b":pane(&restored,&restored_b)},
         "pixels":pixels,"agent_glow":sample(&agent,215,222),
         "light_pixels":light_pixels,"light_agent_glow":sample(&light_agent,215,222),
+        "settings":{"opacity_readback":loaded.opacity,"opacity_pixel":opacity_pixel,"invalid_error":invalid_error,"loader_error":loader_error,"invalid_unchanged":unchanged,"panel_override_pixel":sample(&override_image,950,380),"export_import_identical":identical,"key_order_preserved":key_order},
         "motion":{"cursor":[ease(100.,200.,0.,80.,true),ease(100.,200.,40.,80.,true),ease(100.,200.,80.,80.,true),ease(100.,200.,120.,80.,true)],"panel_60ms":ease(0.,1.,60.,120.,true),"cursor_disabled_0ms":ease(100.,200.,0.,80.,false),"panel_disabled_0ms":ease(0.,1.,0.,120.,false)},
         "config":{"opacity_0_3_error":Config::from_json("{\"opacity\":0.3}").is_err(),"rails_yes_error":Config::from_json("{\"rails\":\"yes\"}").is_err(),"opacity_one_pixel":sample(&opaque,590,44)}
     }));
