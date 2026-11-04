@@ -35,10 +35,11 @@ The following expected bytes are fixed before implementation:
    (16,777,222 bytes). Replace the last `1` with `2`, undo, redo, save/reopen;
    compare all bytes with independently constructed expected bytes. History
    stores changed spans, not a full copy per keystroke. No timing threshold.
-7. Opening invalid UTF-8 or a symlink fails. Saving preserves Unix permission
-   bits. A hard link to the old inode keeps the old bytes after save, while the
-   edited pathname gets the complete new bytes (atomic replacement). The gate
-   leaves no temporary sibling files after success or detected conflict.
+7. Opening invalid UTF-8 or a dangling symlink fails. Open via a symlink,
+   edit and save: the link remains a symlink, its target has the complete new
+   bytes, and a hard link to the target's old inode keeps the old bytes.
+   Saving preserves Unix permission bits. The gate leaves no temporary sibling
+   files after success or detected conflict.
 8. `CLANKY_GATE_FAULT=accepted scripts/gate-m7-core.sh` changes the observed
    accepted text to `WRONG` immediately before comparison in item 2. It must
    print FAIL at that exact comparison and exit nonzero. Run fault once, then
@@ -93,8 +94,11 @@ proportional to changed text, retained hunks and edit count, with no automatic
 history eviction in this version. Rendering and async IO belong to later layers.
 
 A disk module owns opening, baseline checks and saves. Linux-specific identity
-and permission handling stays in `platform.rs`. Reject symlinks and nonregular
-files. Baseline comparison checks identity, metadata and exact bytes (not mtime
+and permission handling stays in `platform.rs`. Resolve symlinks at open and
+pin the canonical target path; atomically save there, never replace the link.
+Dangling links and nonregular targets fail. Later retargeting of the original
+link does not redirect this open document: it remains attached to the resolved
+path. Baseline comparison checks identity, metadata and exact bytes (not mtime
 alone). Save creates a unique same-directory temporary file with create_new,
 writes and syncs complete bytes, preserves permissions, checks baseline again,
 then atomically renames and syncs the parent directory. Cleanup removes owned
