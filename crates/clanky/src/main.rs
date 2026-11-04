@@ -1,4 +1,5 @@
 mod panels;
+mod tui;
 
 use clanky::{
     config::{Config, Metrics, Zoom},
@@ -35,6 +36,10 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "edit") {
+        return tui::run(&args[1..]);
+    }
     let (mut headless, mut socket, mut config_path) = (false, None, None);
     let mut stdio = false;
     let mut host = None;
@@ -50,7 +55,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
                 );
                 return Ok(());
             }
