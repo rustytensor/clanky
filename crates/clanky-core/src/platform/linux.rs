@@ -1172,7 +1172,20 @@ pub fn default_socket() -> io::Result<PathBuf> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", uid())));
-    private_directory(&runtime, false)?;
+    socket_under(&runtime)
+}
+
+/// The runtime directory must be ours and writable by nobody else, so no other
+/// user can replace `clanky/` inside it. Group search (mode 0710, used on some
+/// systems) is allowed; Clanky's own directory must still be fully private.
+fn socket_under(runtime: &Path) -> io::Result<PathBuf> {
+    let meta = fs::metadata(runtime)?;
+    if !meta.is_dir() || meta.uid() != uid() || meta.mode() & 0o022 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "runtime directory must be owned and not writable by others",
+        ));
+    }
     let directory = runtime.join("clanky");
     private_directory(&directory, true)?;
     Ok(directory.join("server.sock"))
@@ -1312,4 +1325,35 @@ pub fn stop_server(child: &mut Child) -> io::Result<()> {
     child.kill()?;
     child.wait()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod runtime_directory_tests {
+    use super::*;
+
+    fn scratch(mode: u32) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("clanky-runtime-{}-{mode:o}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir(&base).unwrap();
+        fs::set_permissions(&base, fs::Permissions::from_mode(mode)).unwrap();
+        base
+    }
+
+    #[test]
+    fn group_search_runtime_is_accepted_and_clanky_dir_is_private() {
+        // Fedora with a 0710 /run/user/UID: seen on the developer's machine.
+        let base = scratch(0o710);
+        let socket = socket_under(&base).unwrap();
+        assert_eq!(socket, base.join("clanky/server.sock"));
+        assert_eq!(fs::metadata(base.join("clanky")).unwrap().mode() & 0o777, 0o700);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn group_writable_runtime_is_refused() {
+        let base = scratch(0o770);
+        assert_eq!(socket_under(&base).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert!(!base.join("clanky").exists());
+        fs::remove_dir_all(&base).unwrap();
+    }
 }
