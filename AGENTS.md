@@ -82,9 +82,10 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
   accept or reject each one.
 - **M8: compose box.** A multi-line editor with spell-check for long prompts, pasted into the tab.
 - **M9: TUI editor.** The same editing core in a text-mode editor for machines without a display.
-- **M10: Windows and macOS, then 1.0.** Release packaging for Linux distributions: offline builds (`cargo vendor`),
+- **M10: Linux 1.0.** Release packaging for Linux distributions: offline builds (`cargo vendor`),
   a `.desktop` file, AppStream metadata, an icon, a man page, the system's monospace font by default (DejaVu stays the
   gates' test font). Fedora COPR first, then the Arch AUR, then a Fedora package review.
+- **After 1.0: Windows and macOS (1.x).**
 
 Smaller items (scrollback search, clickable links and paths, notifications for long commands, new tab in the same
 folder, OSC 52 clipboard, drop-down terminal, session restore, Kitty keyboard protocol, accessibility) are folded
