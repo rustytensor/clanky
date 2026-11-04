@@ -6,6 +6,8 @@ mod agent;
 mod events;
 #[path = "masking.rs"]
 mod masking;
+#[path = "status.rs"]
+mod status;
 use agent::optional_number;
 
 use crate::{
@@ -189,6 +191,7 @@ impl Command {
     }
 }
 struct Commands {
+    driver: Option<status::Driver>,
     current: Option<String>,
     all: BTreeMap<String, Arc<Command>>,
 }
@@ -232,6 +235,7 @@ impl Tab {
             lifecycle: Mutex::new(()),
             terminal: Mutex::new(terminal),
             commands: Mutex::new(Commands {
+                driver: None,
                 current: None,
                 all: BTreeMap::new(),
             }),
@@ -265,6 +269,8 @@ impl Tab {
     fn close(&self) {
         let _guard = self.lifecycle.lock().unwrap();
         if !self.closed.swap(true, Ordering::AcqRel) {
+            self.commands.lock().unwrap().driver = None;
+            self.safety.status.close_tab(&self.id);
             self.safety
                 .publish(&self.id, &self.allowed, json!({"kind":"terminal_closed"}));
         }
@@ -448,7 +454,7 @@ impl Engine {
     /// Deliberately separate from the unprivileged v1/v2 dispatcher.
     pub fn owner_request(&self, op: &str, args: &Value) -> Result<Value, CoreError> {
         let allowed: &[&str] = match op {
-            "workspace_get" | "shell_defaults" => &[],
+            "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "snapshot" => &["tab_id", "known_generation", "known_images"],
             "history" => &["tab_id", "offset", "limit"],
@@ -464,6 +470,9 @@ impl Engine {
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
         fields(args, allowed)?;
+        if op == "look_state" {
+            return Ok(self.look_state());
+        }
         if op == "shell_defaults" {
             let shell = std::env::var("SHELL")
                 .ok()
@@ -806,6 +815,7 @@ impl Engine {
                         .map_err(|e| error("spawn_failed", e.to_string()))?;
                 *tab.process.lock().unwrap() = Some(process);
                 let mut commands = tab.commands.lock().unwrap();
+                commands.driver = None;
                 commands.current = Some(id.clone());
                 commands.all.insert(id.clone(), command);
                 Ok(json!({"command_id": id, "state": "running"}))

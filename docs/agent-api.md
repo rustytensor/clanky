@@ -121,6 +121,24 @@ below is owner-only**, including focus, metadata, search and clipboard operation
 
 Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"]}}`
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
+Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+
+For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
+agents, command drivers, the last 20 metadata-only events, and activity. **activity
+is exactly 30 unsigned integer command counts, oldest to newest**, for the chart
+“Agent commands per minute · last 30 min”. Each bucket covers one 60-second
+interval of monotonic server uptime; the final bucket is the current, partial
+minute. Missing intervals (including before startup) are zero. Counts saturate at
+u64::MAX and reset on server restart. A fixed-size rotating ring expires old
+minutes, including minutes with no requests.
+
+Count one successful agent v1 run or v2 rerun dispatch with a generated command
+ID, regardless of eventual exit status or a later close/replacement. Owner-issued
+commands, failed requests, output events, audit recency and UI polling do not
+increment counts. Rerun driver metadata uses its new result tab_id/command_id;
+the audit keeps the original source request unchanged. This metadata stores no
+raw arguments or output. Existing look_state fields are unchanged.
+
 Request: `{"v":3,"id":"1","op":"workspace_get"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"shell_defaults"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"workspace_set","revision":0,"groups":[],"active":0}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
