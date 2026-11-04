@@ -68,6 +68,8 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
 - **M2: splits, images (Kitty graphics protocol), config, font size and zoom, Wayland polish.** Done: v0.2.0.
 - **M3: the graphical layer.** Command blocks you can click (copy, rerun, send to an agent, collapse), a side panel
   listing agent tasks and their state, a command palette. Everything a person can click, an agent can call.
+  Automated gate passed: v0.3.0, `scripts/gate-m3.sh` (including M2/M1).
+  See `docs/design-m3.md` and `docs/m3-results.md` for expectations and manual checks.
 - **M4: persistent sessions.** A background server owns the shells; windows and agents are clients. Close the window
   and reattach later, locally or over SSH (`clanky attach host`).
 - **M5: the rest of the agent API.** Know when a program waits for input, read the screen as text, send keys,

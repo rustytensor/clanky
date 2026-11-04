@@ -294,7 +294,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clanky"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-api"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "clanky-core",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-core"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "alacritty_terminal",
  "base64 0.23.1",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-render"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "clanky-core",
  "cosmic-text",
