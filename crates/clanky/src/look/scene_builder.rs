@@ -1,7 +1,7 @@
 //! Pure Studio presentation: drawing and hit targets share physical rectangles.
 use super::{ease_out_cubic, Layout, PixelRect, Theme};
 use clanky_core::TerminalSnapshot;
-use clanky_render::{scene::{Fill, GridLayer, Layer, Scene, Shadow, Shape, TextRun}, Underline};
+use clanky_render::{Fill, GridLayer, Layer, Scene, Shadow, Shape, TextRun, Underline};
 
 
 #[derive(Clone, Debug)]
@@ -116,7 +116,7 @@ fn text(out: &mut Presentation, r: PixelRect, value: &str, px: f32, color: [u8; 
     if r.h < px * 1.25 { return; }
     let value = bounded(value, r.w, px);
     if !value.is_empty() { out.scene.layers.push(Layer::Text(TextRun {
-        origin: [r.x, r.y], text: value, px, color, weight, mono: false,
+        origin: [r.x, r.y], text: value, px, color, weight, mono: false, opacity: 1.0,
     })); }
 }
 fn hit(out: &mut Presentation, r: PixelRect, action: HitAction) {
@@ -171,7 +171,7 @@ pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
         for block in &data.blocks { block_card(&mut out,layout,state,pane,data,block,origin); }
         let mut snapshot=data.snapshot.clone(); snapshot.cursor=None;
         for cell in &mut snapshot.cells { cell.fg=t.terminal_color(cell.fg,false); }
-        out.scene.layers.push(Layer::Grid(GridLayer { origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone() }));
+        out.scene.layers.push(Layer::Grid(GridLayer { origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0 }));
         if focused {
             let position=if let Some(motion)=data.cursor {
                 Some([ease_out_cubic(motion.from[0],motion.to[0],motion.elapsed_ms,m.cursor_ms,state.animations),
@@ -362,8 +362,7 @@ fn panel_card(out: &mut Presentation,layout: &Layout,state: &LookState,panel: &P
     let content=rect(r.x+p,r.y+p+m.panel_header as f32,r.w-2.0*p,r.h-2.0*p-m.panel_header as f32);
     if let Some(snapshot)=&panel.snapshot {
         let mut snapshot=snapshot.clone(); snapshot.cursor=None;
-        // Grids lack a fade channel: reveal editable content after shell fade.
-        if opacity>=0.99 { out.scene.layers.push(Layer::Grid(GridLayer { origin:[content.x,content.y],clip:content.array(),snapshot,underlines:panel.underlines.clone() })); }
+        out.scene.layers.push(Layer::Grid(GridLayer { origin:[content.x,content.y],clip:content.array(),snapshot,underlines:panel.underlines.clone(),opacity }));
     }
     for (index,line) in panel.lines.iter().enumerate() {
         let y=content.y+index as f32*m.panel_line_height as f32;
@@ -379,7 +378,7 @@ fn panel_card(out: &mut Presentation,layout: &Layout,state: &LookState,panel: &P
 mod tests {
     use super::*;
     use clanky_core::{layout::{Axis, Layout as Tree}, snapshot_from_chunks};
-    use clanky_render::scene::offscreen_scene;
+    use clanky_render::offscreen_scene;
     #[test]
     fn studio_scene_app() {
         // Literal independent design cases 4/5, not samples derived from drawing.

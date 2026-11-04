@@ -2,7 +2,7 @@
 use super::*;
 use clanky::look::{self, PixelRect, PaneLayout, LookState, PaneState, PanelState, PanelLine, HitAction, Hotspot, CursorMotion};
 use clanky_core::layout::Layout as Tree;
-use clanky_render::scene::{Layer, TextRun, Shape, Fill, GridLayer};
+use clanky_render::{Layer, TextRun, Shape, Fill, GridLayer};
 
 pub struct Capture {
     layout: look::Layout,
@@ -531,8 +531,8 @@ impl App {
                 let x=look::ease_out_cubic(c.from[0],c.to[0],elapsed,m.cursor_ms,self.config.animations);
                 let y=look::ease_out_cubic(c.from[1],c.to[1],elapsed,m.cursor_ms,self.config.animations)+layout.cell_px[1] as f32-m.cursor_inset_y as f32;
                 let bottom=card.rect.y+card.rise_px+card.rect.h-m.panel_padding as f32;
-                if card.opacity>=0.99 && y>=card.rect.y && y+m.cursor_width as f32<=bottom {
-                    compose_cursor=Some(Shape { rect:[x,y,layout.cell_px[0] as f32,m.cursor_width as f32],radius:m.cursor_radius as f32,fill:Fill::Solid(state.theme.accent),border:None,shadow:None });
+                if y>=card.rect.y && y+m.cursor_width as f32<=bottom {
+                    compose_cursor=Some(Shape { rect:[x,y,layout.cell_px[0] as f32,m.cursor_width as f32],radius:m.cursor_radius as f32,fill:Fill::Solid(look::Theme::fade(state.theme.accent,card.opacity)),border:None,shadow:None });
                 }
             }
         }
@@ -543,12 +543,12 @@ impl App {
                     let mut end=snapshot.rows;
                     if snapshot.rows==scroll.old.rows && snapshot.cols==scroll.old.cols {
                         while end>1 && snapshot.cells[(end-1)*snapshot.cols..end*snapshot.cols].iter().zip(&scroll.old.cells[(end-1)*snapshot.cols..end*snapshot.cols]).all(|(a,b)|a.ch==b.ch && a.fg==b.fg && a.bg==b.bg) { end-=1; }
-                        if elapsed<layout.metrics.scroll_ms && card.opacity>=0.99 {
+                        if elapsed<layout.metrics.scroll_ms {
                             if let Some((stitched,from,to))=stitch_region(&scroll.old,snapshot,1,end,layout.cell_px[1] as f32) {
                                 let offset=look::ease_out_cubic(from,to,elapsed,layout.metrics.scroll_ms,self.config.animations);
                                 let origin=[card.rect.x+layout.metrics.panel_padding as f32,card.rect.y+card.rise_px+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32];
                                 let clip=PixelRect { x:origin[0],y:origin[1]+layout.cell_px[1] as f32,w:(card.rect.w-2.0*layout.metrics.panel_padding as f32).max(0.0),h:end.saturating_sub(1) as f32*layout.cell_px[1] as f32 };
-                                compose_animation=Some((origin,offset,clip,stitched)); compose_cursor=None;
+                                compose_animation=Some((origin,offset,clip,stitched,card.opacity)); compose_cursor=None;
                             }
                         }
                     }
@@ -557,7 +557,7 @@ impl App {
             }
         }
         let mut presentation = look::presentation(&layout,&state);
-        if let Some((origin,offset,clip,stitched))=compose_animation {
+        if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
                     let start=1; let end=start+(clip.h/layout.cell_px[1] as f32) as usize;
@@ -565,7 +565,7 @@ impl App {
                     grid.underlines.clear();
                 } }
             }
-            presentation.scene.layers.push(Layer::Grid(GridLayer { origin:[origin[0],origin[1]-offset],clip:clip.array(),snapshot:stitched,underlines:Vec::new() }));
+            presentation.scene.layers.push(Layer::Grid(GridLayer { origin:[origin[0],origin[1]-offset],clip:clip.array(),snapshot:stitched,underlines:Vec::new(),opacity }));
         }
         for layer in &mut presentation.scene.layers {
             if let Layer::Grid(grid)=layer {
@@ -606,10 +606,10 @@ impl App {
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
             let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { (layout.metrics.small_font_px as f32).min(layout.cell_px[0] as f32) } else { layout.metrics.ui_font_px as f32 };
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:look::Theme::fade(state.theme.ink,opacity),weight:400,mono:false })); }
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity })); }
         }
         if let Some(status) = &self.status {
-            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false }));
+            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0 }));
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {

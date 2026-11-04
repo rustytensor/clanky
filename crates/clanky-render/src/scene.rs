@@ -45,6 +45,8 @@ pub struct Shadow {
 
 #[derive(Clone, Debug)]
 pub struct GridLayer {
+    /// Fade each primitive (including images), finite 0..=1; 1 preserves its colour.
+    pub opacity: f32,
     /// Default black cell backgrounds are transparent in scenes; explicit
     /// coloured backgrounds remain opaque. Legacy draw() does not change.
     pub origin: [f32; 2],
@@ -57,6 +59,8 @@ pub struct GridLayer {
 
 #[derive(Clone, Debug)]
 pub struct TextRun {
+    /// Fade the run, finite 0..=1; multiplied with the colour's alpha.
+    pub opacity: f32,
     pub origin: [f32; 2],
     pub text: String,
     pub px: f32,
