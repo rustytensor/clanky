@@ -117,6 +117,14 @@ explicit save. Saves detect external changes and atomically replace the resolved
 target, preserving symlinks. There is no editor panel or socket integration yet.
 See [the API and gate](docs/design-m7-core.md) and [results](docs/m7-core-results.md).
 
+## Masking core
+
+`clanky-mask` recognizes common credential shapes and caller-supplied secret
+values across output chunks. It returns named masks, bounds its trailing buffer,
+and wipes internal secret storage on drop. It is not yet wired into agent reads;
+the person's display is untouched. See [matching rules and API](docs/design-m6-masking.md)
+and [gate results](docs/m6-masking-results.md) for coverage and limits.
+
 ## Why "Clanky"
 
 A clanker is a robot. This is where they work.
