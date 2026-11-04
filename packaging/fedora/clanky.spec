@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        0.6.0
+Version:        0.6.1
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -55,6 +55,9 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.6.1-1
+- Each theme has its own terminal colours; colours a program sets exactly are kept.
+
 * Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.6.0-1
 - Studio look: rounded pane cards, side rails, command cards, glows and motion.
 - Dark, light and follow-the-system themes; colour overrides and font size.
