@@ -2,8 +2,8 @@
 
 A GPU-rendered terminal for Linux, written in Rust, built for people who work alongside coding agents.
 
-> Status: Linux M2 automated gate passed, including M1 regression checks.
-> See [M2 results](docs/m2-results.md). Manual Wayland, IME and image-tool checks remain pending.
+> Status: Linux M3 automated gate passed, including M2 and M1 regression checks.
+> See [M3 results](docs/m3-results.md). Interactive UI and clipboard acceptance remain manual.
 
 ## What it is
 
@@ -59,6 +59,33 @@ uses 10x20 cells. See [M2 design](docs/design-m2.md) and the
 
 After building, `scripts/gate-m2.sh` checks image pixels, splits, PTYs, config,
 DPI/zoom and M1 regression. It needs no display; a software GPU adapter is allowed.
+
+## Command blocks and agent tasks
+
+The sidebar shows the focused terminal's OSC 133 command blocks and agent tasks.
+It needs a shell that emits those markers. Click a block to select its output,
+then Copy, Collapse, Rerun or Send. Collapse only hides the preview; retained
+output is unchanged. Large/truncated blocks require an explicit API byte range.
+Ctrl+Shift+B hides the sidebar; Ctrl+Shift+P opens the keyboard palette.
+
+Rerun asks for JSON such as `{"argv":["sh","-c","printf again"],"cwd":"/"}`.
+Edit it with typing/Backspace, then Enter to confirm a **new terminal**. No command
+is guessed from block text. Escape cancels. Open prompts keep their original
+IDs even if another client changes the focused terminal.
+
+Send queues selected bytes for an agent; it does not launch one. Task claimed
+states (queued/running/done/failed/cancelled) are shown separately from the source
+process's actual status. Select a task and use Mark done to update its claim.
+Scroll the sidebar and use its page controls for more blocks/tasks.
+
+Desktop copy uses an existing `wl-copy` on Wayland or `xclip` on X11. Missing
+helpers produce a visible error; none is installed automatically. Helpers are
+owned until replacement or app shutdown. A successful launch is not proof of
+clipboard ownership. The headless socket returns copy bytes without touching it.
+
+New socket operations use `v:2`; v1 `run` and routing stay unchanged. See
+[the M3 operation table and examples](docs/design-m3.md). `scripts/gate-m3.sh`
+checks socket and palette actions, then M2 (which includes M1), once each.
 
 ## Why "Clanky"
 
