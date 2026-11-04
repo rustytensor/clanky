@@ -14,10 +14,30 @@ mkdir -p "$CARGO_TARGET_DIR/look"
 work=$(mktemp -d "$CARGO_TARGET_DIR/look/gate.XXXXXXXX")
 trap 'rc=$?; rm -rf -- "$work"; if (( rc != 0 )); then echo "FAIL: M11 look" >&2; fi' EXIT
 flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky-look-gate -j 8
-"$CARGO_TARGET_DIR/debug/clanky-look-gate" --picture "$work/scene.png" > "$work/observations.json"
-python3 scripts/gate-m11-look.py < "$work/observations.json"
-[[ -s $work/scene.png ]] || { echo 'FAIL: look picture missing' >&2; exit 1; }
+"$CARGO_TARGET_DIR/debug/clanky-look-gate" "$work/scene.rgba" > "$work/observations.json"
+if [[ ${1:-} == --dark-only ]]; then
+    python3 scripts/gate-m11-look.py --dark-only < "$work/observations.json"
+else
+    [[ $# == 0 ]] || { echo 'FAIL: unknown argument' >&2; exit 1; }
+    python3 scripts/gate-m11-look.py < "$work/observations.json"
+fi
+python3 - "$work/scene.rgba" "$work/scene.png" <<'PY'
+import struct, sys, zlib
+raw = open(sys.argv[1], 'rb').read()
+w, h = 1240, 760
+if len(raw) != w * h * 4:
+    raise SystemExit('FAIL: invalid picture size')
+def chunk(kind, data):
+    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+rows = b''.join(b'\0' + raw[y*w*4:(y+1)*w*4] for y in range(h))
+with open(sys.argv[2], 'wb') as out:
+    out.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+PY
 mv -- "$work/scene.png" "$CARGO_TARGET_DIR/look/scene.png"
+if [[ ${1:-} == --dark-only ]]; then
+    echo 'PASS: M11 dark only (light, settings and regression not run)'
+    exit 0
+fi
 if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
     env -u CLANKY_GATE_FAULT CLANKY_M11_PARENT=1 scripts/gate-rc.sh
 fi
