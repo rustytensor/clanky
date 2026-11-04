@@ -154,7 +154,9 @@ def compare(data, non_pixel=False, dark_only=False, through_light=False):
         if through_light:
             return
         settings = data['settings']
-        exact(settings['opacity_readback'], 0.8, 'settings opacity readback')
+        opacity = settings['opacity_readback']
+        require(type(opacity) in (int, float) and math.isfinite(opacity) and abs(opacity - 0.8) < 1e-6,
+                'settings opacity readback', '0.8 within f32 precision', opacity)
         observed = rgba(settings['opacity_pixel'], 'settings opacity pixel (590,44)')
         exact(observed[3], 204, 'settings opacity alpha (590,44)')
         error = settings['invalid_error']
