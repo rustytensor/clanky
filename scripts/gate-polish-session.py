@@ -22,6 +22,12 @@ DBusGMainLoop(set_as_default=True)
 bus = dbus.SessionBus()
 name = dbus.service.BusName('org.freedesktop.Notifications', bus)
 class Receiver(dbus.service.Object):
+    @dbus.service.method('org.freedesktop.Notifications', in_signature='', out_signature='ssss')
+    def GetServerInformation(self):
+        return ('Clanky gate', 'Clanky', '1.0', '1.2')
+    @dbus.service.method('org.freedesktop.Notifications', in_signature='', out_signature='as')
+    def GetCapabilities(self):
+        return []
     @dbus.service.method('org.freedesktop.Notifications', in_signature='susssasa{sv}i', out_signature='u')
     def Notify(self, app, replace, icon, summary, body, actions, hints, timeout):
         with open(os.environ['CAPTURE'], 'a', encoding='utf-8') as f:
@@ -46,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix='polish-gate-', dir=build) as directory:
         if not address.startswith('unix:'):
             raise RuntimeError('invalid private D-Bus address')
         capture, marker = root / 'notifications.jsonl', root / 'receiver-ready'
-        env = dict(os.environ, DBUS_SESSION_BUS_ADDRESS=address, CAPTURE=str(capture), READY=str(marker))
+        env = dict(os.environ, DBUS_SESSION_BUS_ADDRESS=address, CAPTURE=str(capture), READY=str(marker), CLANKY_GATE_BINARY=clanky)
         env.pop('CLANKY_GATE_FAULT', None)
         receiver = subprocess.Popen([sys.executable, '-c', receiver_code], env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -66,7 +72,10 @@ with tempfile.TemporaryDirectory(prefix='polish-gate-', dir=build) as directory:
         first, second = root / 'first', root / 'second'
         first.mkdir()
         second.mkdir()
-        layout = root / 'layout.json'
+        config_dir = root / 'config'
+        config_dir.mkdir()
+        config_dir.chmod(0o755)
+        layout = config_dir / 'layout.json'
         fixture = {'version': 1, 'active': 0, 'groups': [{'layout': {'Split': {'axis': 'Columns',
             'first': {'Leaf': 'old1'}, 'second': {'Leaf': 'old2'}}}, 'focus': 'old2'}],
             'terminals': {'old1': {'cwd': str(first), 'rows': 24, 'cols': 40},
