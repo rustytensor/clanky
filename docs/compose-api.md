@@ -30,7 +30,8 @@ Re-export `Spellchecker` and `Misspelling` from its spelling module.
   send_enter: bool) -> Compose`: dictionary failure is retained as visible status,
   never a failure to create/edit/send drafts. Load once, not per frame.
 - `open(&mut self, terminal: &str) -> Result<(),String>`; `close(&mut self)`;
-  `active_target(&self) -> Option<&str>`; `draft(&self, terminal: &str)
+  `active_target(&self) -> Option<&str>`; `has_drafts(&self) -> bool` reports any
+  nonempty retained draft; `draft(&self, terminal: &str)
   -> Option<&EditorPane>`; `spell_error(&self) -> Option<&str>`.
 - `insert_text(&mut self, text: &str) -> Result<(),String>`;
   `key(&mut self, key: &Key, text: Option<&str>, modifiers: ModifiersState,

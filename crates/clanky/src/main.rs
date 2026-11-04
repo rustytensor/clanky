@@ -5,6 +5,7 @@ use clanky::editor::{EditorPane, location_at};
 
 use clanky::{
     config::{Config, Metrics, Zoom},
+    compose::{Compose, ComposeEvent},
     input::{InputState, key_bytes},
 };
 use clanky_api::Client;
@@ -53,7 +54,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them"
                 );
                 return Ok(());
             }
@@ -111,6 +112,11 @@ struct App {
     files: EditorWorkspace,
     local_files: bool,
     palette_editor: Option<String>,
+    // Drafts live only in this window; closing it can lose retained drafts.
+    compose: Compose,
+    compose_rect: Option<Rect>,
+    compose_dragging: bool,
+    compose_enter_held: bool,
 }
 
 fn run_window(engine: Client, config: Config, local_files: bool) -> Result<(), String> {
@@ -121,6 +127,11 @@ fn run_window(engine: Client, config: Config, local_files: bool) -> Result<(), S
         stop: false,
         revision: workspace.revision,
         zoom: Zoom::new(config.font_size_pt),
+        compose: Compose::new(&config.compose_dictionary_dir, &config.compose_dictionary,
+            config.compose_words.clone(), config.compose_send_enter),
+        compose_rect: None,
+        compose_dragging: false,
+        compose_enter_held: false,
         config,
         scale: 1.0,
         window: None,
@@ -189,15 +200,53 @@ impl App {
         if let Some(request) = self.panels.local.take() {
             let target = self.palette_editor.take().unwrap_or_else(|| self.files.focus.clone());
             let tab = (!request.tab.is_empty()).then_some(request.tab);
+            if request.action == "Compose" {
+                if target != TERMINALS { return Err("Focus a terminal to open Compose; a file editor is focused".into()); }
+                return self.open_compose(tab.as_deref());
+            }
             self.open_prompt(Axis::Columns, request.action == "Load changes", tab, target)?;
         }
         Ok(())
+    }
+    fn open_compose(&mut self, target: Option<&str>) -> Result<(), String> {
+        if self.files.focus != TERMINALS {
+            return Err("Focus a terminal to open Compose; a file editor is focused".into());
+        }
+        let target = target.ok_or("No focused terminal for Compose")?;
+        let root = self.terminal_rect()?;
+        let rect = self.groups.iter()
+            .find(|group| group.layout.contains(target))
+            .and_then(|group| group.layout.rectangles(root).into_iter().find(|(id, _)| id == target))
+            .map(|(_, rect)| rect).ok_or("Compose target was closed")?;
+        self.compose.open(target)?;
+        self.compose_rect = Some(rect);
+        self.compose_dragging = false;
+        self.reset_ime();
+        Ok(())
+    }
+    fn compose_bounds(&self) -> Option<Rect> {
+        let target = self.compose.active_target()?;
+        let full = self.full_rect().ok()?;
+        let root = self.terminal_rect().ok()?;
+        // Follow geometry changes, not focus changes; a closed target never retargets Send.
+        let mut rect = self.groups.iter().find(|g| g.layout.contains(target))
+            .and_then(|g| g.layout.rectangles(root).into_iter().find(|(id, _)| id == target))
+            .map(|(_, rect)| rect).or_else(|| self.compose_rect.clone())?;
+        rect.cols = rect.cols.min(full.cols.saturating_sub(rect.col));
+        rect.rows = rect.rows.min((full.row + full.rows).saturating_sub(rect.row));
+        if rect.cols == 0 || rect.rows == 0 { rect = full; }
+        Some(rect)
+    }
+    fn has_local_work(&self) -> bool {
+        !self.files.panes.is_empty() || self.compose.active_target().is_some()
+            || self.compose.has_drafts()
     }
     fn focused(&self) -> Option<&str> {
         self.groups.get(self.active).map(|g| g.focus.as_str())
     }
     fn reset_ime(&mut self) {
         self.input.focus_lost();
+        self.compose.preedit("");
         if let Some(w) = &self.window {
             w.set_ime_allowed(false);
             w.set_ime_allowed(true);
@@ -381,7 +430,7 @@ impl App {
                 // The final reply is followed by server exit; do not query it.
                 self.groups.clear();
                 self.sizes.clear();
-                self.stop = self.files.panes.is_empty();
+                self.stop = !self.has_local_work();
                 return Ok(());
             }
         }
@@ -390,7 +439,7 @@ impl App {
         self.resize_panes()
     }
     fn send(&self, bytes: &[u8]) -> Result<(), String> {
-        if self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
+        if self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
         if !bytes.is_empty() {
             if let Some(id) = self.focused() {
                 self.engine.input(id, bytes).map_err(|e| e.message)?;
@@ -399,6 +448,35 @@ impl App {
         Ok(())
     }
     fn key(&mut self, key: &Key, text: Option<&str>) -> Result<(), String> {
+        if self.compose.active_target().is_some() {
+            // The opening chord is never an editing/send chord, even while open.
+            if self.modifiers.control_key() && self.modifiers.shift_key()
+                && *key == Key::Named(NamedKey::Enter) { return Ok(()); }
+            let event = self.compose.key(key, text, self.modifiers, self.input.composing())?;
+            let result = if event == ComposeEvent::Send {
+                let groups = &self.groups;
+                let engine = &self.engine;
+                self.compose.send_with(|target, bytes| {
+                    if !groups.iter().any(|g| g.layout.contains(target)) {
+                        return Err("Compose target was closed; draft retained".into());
+                    }
+                    engine.input(target, bytes).map_err(|e| e.message)
+                })
+            } else { Ok(()) };
+            if self.compose.active_target().is_none() {
+                self.compose_rect = None;
+                self.compose_dragging = false;
+                self.reset_ime();
+            }
+            return result;
+        }
+        if !self.files.modal() && !self.panels.open
+            && self.modifiers.control_key() && self.modifiers.shift_key()
+            && *key == Key::Named(NamedKey::Enter)
+        {
+            let target = self.focused().map(str::to_owned);
+            return self.open_compose(target.as_deref());
+        }
         if self.files.modal() {
             let root = self.rect()?;
             let was_open = self.files.modal();
@@ -506,6 +584,16 @@ impl App {
     fn click(&mut self) -> Result<(), String> {
         let (col, row) = self.mouse_cell()?;
         self.files.dragging = None;
+        if self.compose.active_target().is_some() {
+            self.compose_dragging = false;
+            if let Some(rect) = self.compose_bounds() {
+                if col >= rect.col && col < rect.col + rect.cols && row >= rect.row && row < rect.row + rect.rows {
+                    self.compose.click(&rect, col, row, self.modifiers.shift_key())?;
+                    self.compose_dragging = true;
+                }
+            }
+            return Ok(());
+        }
         if self.panels.open || self.files.modal() { return Ok(()); }
         if row > 0 && col >= self.rect()?.cols {
             if row < self.full_rect()?.rows {
@@ -557,6 +645,16 @@ impl App {
         Ok(())
     }
     fn drag(&mut self) -> Result<(), String> {
+        if self.compose.active_target().is_some() {
+            if self.compose_dragging {
+                if let Some(rect) = self.compose_bounds() {
+                    let (col, row) = self.mouse_cell()?;
+                    self.compose.drag(&rect, col.clamp(rect.col, rect.col + rect.cols - 1),
+                        row.clamp(rect.row, rect.row + rect.rows - 1))?;
+                }
+            }
+            return Ok(());
+        }
         if self.files.modal() || self.panels.open { return Ok(()); }
         let Some(id) = self.files.dragging.clone() else { return Ok(()); };
         let (col, row) = self.mouse_cell()?;
@@ -576,6 +674,14 @@ impl App {
             MouseScrollDelta::LineDelta(x, y) => (-x * 3.0, -y * 3.0),
             MouseScrollDelta::PixelDelta(p) => (-p.x as f32 / m.cell_width as f32, -p.y as f32 / m.cell_height as f32),
         };
+        if self.compose.active_target().is_some() {
+            if let Some(rect) = self.compose_bounds() {
+                if col >= rect.col && col < rect.col + rect.cols && row >= rect.row && row < rect.row + rect.rows {
+                    self.compose.scroll(lines.round() as i64, columns.round() as i64)?;
+                }
+            }
+            return Ok(());
+        }
         if col >= self.rect()?.cols { self.panels.scroll(lines.round() as i32); return Ok(()); }
         let Some(local) = self.files.layout.hit_test(self.rect()?, col, row) else { return Ok(()); };
         if self.files.panes.contains_key(&local) {
@@ -661,6 +767,24 @@ impl App {
             let row = frame.rows.saturating_sub(1);
             editor_workspace::paint(&mut frame, row, status);
         }
+        // Paint compose last. Images render after cells, so discard overlapping placements.
+        let mut underlines = Vec::new();
+        if let Some(target) = self.compose.active_target().map(str::to_owned) {
+            if !self.groups.iter().any(|g| g.layout.contains(&target)) {
+                self.status = Some("Compose target was closed; draft retained (Escape to close)".into());
+            }
+            if let Some(rect) = self.compose_bounds() {
+                frame.images.retain(|image| {
+                    image.clip_x >= rect.col + rect.cols || image.clip_y >= rect.row + rect.rows
+                        || image.clip_x.saturating_add(image.clip_cols) <= rect.col
+                        || image.clip_y.saturating_add(image.clip_rows) <= rect.row
+                });
+                underlines = self.compose.draw(&mut frame, &rect);
+                if let Some(status) = &self.status {
+                    editor_workspace::paint(&mut frame, full.row + full.rows - 1, status);
+                }
+            }
+        }
         if let Some(window) = &self.window {
             let id = if self.files.focus == TERMINALS { self.focused().unwrap_or("no pane") } else { &self.files.focus };
             let allowed = self.files.focus == TERMINALS && !self.engine.is_closed() && self.engine.agent_permission(id).unwrap_or(false);
@@ -678,10 +802,10 @@ impl App {
                 );
             }
         }
-        self.renderer.as_mut().unwrap().draw(&frame)
+        self.renderer.as_mut().unwrap().draw_with_underlines(&frame, &underlines)
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
-        if !self.files.panes.is_empty() { self.status = Some(error); return; }
+        if self.has_local_work() { self.status = Some(error); return; }
         self.error = Some(error);
         event_loop.exit();
     }
@@ -750,13 +874,26 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.files.dragging = None;
+                self.compose_dragging = false;
                 Ok(())
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Err(e) = self.scroll(delta) { self.status = Some(e); }
                 Ok(())
             }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Released && event.logical_key == Key::Named(NamedKey::Enter) => {
+                self.compose_enter_held = false;
+                Ok(())
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                // Hold the consumed chord until release: releasing Ctrl first must
+                // not turn an auto-repeat after Send into ordinary PTY Enter.
+                if event.repeat && self.compose_enter_held { return; }
+                if event.logical_key == Key::Named(NamedKey::Enter) && self.modifiers.control_key()
+                    && (self.compose.active_target().is_some() || self.modifiers.shift_key()) {
+                    self.compose_enter_held = true;
+                }
                 if event.repeat
                     && (self.panels.open || self.files.modal())
                     && event.logical_key == Key::Named(NamedKey::Enter)
@@ -770,7 +907,19 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::Ime(event) => {
-                if self.panels.open {
+                if self.compose.active_target().is_some() {
+                    match &event {
+                        Ime::Commit(text) => {
+                            if let Err(error) = self.compose.insert_text(text) { self.status = Some(error); }
+                            self.compose.preedit("");
+                        }
+                        Ime::Preedit(text, _) => self.compose.preedit(text),
+                        Ime::Disabled => self.compose.preedit(""),
+                        _ => {}
+                    }
+                    self.input.on_ime(&event);
+                    Ok(())
+                } else if self.panels.open {
                     match &event {
                         Ime::Commit(text) => {
                             self.panels.text(text);
@@ -803,6 +952,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Focused(false) => {
                 self.input.focus_lost();
+                self.compose.preedit("");
+                self.compose_dragging = false;
+                self.compose_enter_held = false;
                 self.files.dragging = None;
                 self.modifiers = ModifiersState::empty();
                 Ok(())
@@ -844,12 +996,12 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.engine.is_closed() && !self.files.panes.is_empty() {
+        if self.engine.is_closed() && self.has_local_work() {
             self.groups.clear();
             self.sizes.clear();
-            if self.status.is_none() { self.status = Some("Session connection closed; local editors remain available".into()); }
+            if self.status.is_none() { self.status = Some("Session connection closed; local editors and compose drafts retained".into()); }
         }
-        if self.stop || (self.engine.is_closed() && self.files.panes.is_empty()) {
+        if self.stop || (self.engine.is_closed() && !self.has_local_work()) {
             if !self.stop && self.error.is_none() {
                 self.error =
                     Some("Session connection closed; sessions may still be running".into());

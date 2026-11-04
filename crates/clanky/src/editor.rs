@@ -50,6 +50,14 @@ struct Preview {
     width: usize,
 }
 
+/// A visible source cell at absolute frame coordinates and a UTF-8 byte start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ByteCell {
+    pub byte: usize,
+    pub row: usize,
+    pub col: usize,
+}
+
 pub struct EditorPane {
     document: Document,
     path: PathBuf,
@@ -99,13 +107,20 @@ impl EditorPane {
         let mut document = Document::open(path).map_err(|e| e.to_string())?;
         let cursor = document.offset(line, column).map_err(|e| e.to_string())?;
         document.select(Selection { anchor: cursor, cursor }).map_err(|e| e.to_string())?;
+        Ok(Self::with_document(document, path.to_owned(), line.saturating_sub(1)))
+    }
+    /// Create an editor with no persistent path; [compose] is only a display label.
+    pub fn from_text(text: &str) -> Self {
+        Self::with_document(Document::from_text(text), PathBuf::from("[compose]"), 0)
+    }
+    fn with_document(document: Document, path: PathBuf, top: usize) -> Self {
         let lines = line_starts(document.text());
         let newline = document.text().find('\n').map_or("\n", |i| if i > 0 && document.text().as_bytes()[i - 1] == b'\r' { "\r\n" } else { "\n" });
         let saved = document.text().to_owned();
-        Ok(Self { document, path: path.to_owned(), saved, dirty: false, lines,
-            top: line.saturating_sub(1), left: 0, page: 16, columns: 80, newline, review: 0, review_top: 0,
+        Self { document, path, saved, dirty: false, lines,
+            top, left: 0, page: 16, columns: 80, newline, review: 0, review_top: 0,
             previews: HashMap::new(), find: None, query: String::new(), error: None,
-            was_focused: false, dragging: false })
+            was_focused: false, dragging: false }
     }
     pub fn from_click(snapshot: &TerminalSnapshot, row: usize, col: usize, cwd: Option<&Path>) -> Result<Self> {
         let location = location_at(snapshot, row, col).ok_or("no source location")?;
@@ -422,6 +437,34 @@ impl EditorPane {
             self.command("select", &json!({"anchor": anchor, "cursor": cursor}))?;
         }
         Ok(())
+    }
+
+    /// Enumerate source cells only, excluding title, status and review rows.
+    /// Cached line starts restrict traversal to the current viewport.
+    pub fn visible_byte_cells(&self, rect: &Rect) -> Vec<ByteCell> {
+        let (text_rows, _) = self.geometry(rect);
+        let mut cells = Vec::new();
+        if rect.cols == 0 { return cells; }
+        for visible in 0..text_rows {
+            let index = self.top.saturating_add(visible);
+            let Some(&start) = self.lines.get(index) else { break; };
+            let end = line_end(self.text(), &self.lines, index);
+            let row = rect.row.saturating_add(1 + visible);
+            let mut visual = 0usize;
+            for (offset, ch) in self.text()[start..end].char_indices() {
+                let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
+                for step in 0..width {
+                    let column = visual.saturating_add(step);
+                    if column >= self.left && column - self.left < rect.cols {
+                        cells.push(ByteCell { byte: start + offset, row,
+                            col: rect.col.saturating_add(column - self.left) });
+                    }
+                }
+                visual = visual.saturating_add(width);
+                if visual >= self.left.saturating_add(rect.cols) { break; }
+            }
+        }
+        cells
     }
 
     pub fn draw(&mut self, frame: &mut TerminalSnapshot, rect: &Rect, focused: bool) -> DrawInfo {
