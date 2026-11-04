@@ -87,6 +87,7 @@ enum Op {
     Image(Range<u32>, wgpu::BindGroup),
 }
 struct Frame {
+    opacity: f32,
     shapes: Vec<u8>,
     textures: Vec<u8>,
     ops: Vec<Op>,
@@ -129,7 +130,8 @@ impl Frame {
                 ],
             );
             floats(&mut self.shapes, &p);
-            for v in [rect, metrics, top, bottom, border, clip] {
+            let fade = |c: [f32; 4]| c.map(|v| v * self.opacity);
+            for v in [rect, metrics, fade(top), fade(bottom), fade(border), clip] {
                 floats(&mut self.shapes, &v);
             }
         }
@@ -162,7 +164,7 @@ impl Frame {
                     uv[1] + t * uv[3],
                 ],
             );
-            floats(&mut self.textures, &color);
+            floats(&mut self.textures, &color.map(|v| v * self.opacity));
             floats(&mut self.textures, &clip);
         }
         if let Some(binding) = image {
@@ -651,6 +653,7 @@ impl Painter {
                 queue,
                 frame,
                 &TextRun {
+                    opacity: 1.0, // The enclosing grid's fade is applied by Frame.
                     origin,
                     text: cell.ch.to_string(),
                     px,
@@ -823,6 +826,7 @@ impl Painter {
             return Err("Too many scene layers".into());
         }
         let mut frame = Frame {
+            opacity: 1.0,
             shapes: Vec::new(),
             textures: Vec::new(),
             ops: Vec::new(),
@@ -832,6 +836,14 @@ impl Painter {
         let mut used = HashSet::new();
         let mut text_bytes = 0usize;
         for layer in &scene.layers {
+            frame.opacity = match layer {
+                Layer::Shape(_) => 1.0,
+                Layer::Grid(grid) => grid.opacity,
+                Layer::Text(text) => text.opacity,
+            };
+            if !frame.opacity.is_finite() || !(0.0..=1.0).contains(&frame.opacity) {
+                return Err("Invalid scene layer opacity: expected finite 0..=1".into());
+            }
             let clip = frame.viewport();
             match layer {
                 Layer::Shape(shape) => self.shape(&mut frame, shape, clip)?,
