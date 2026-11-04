@@ -93,7 +93,7 @@ fn run() -> Result<(), String> {
     let shown = look::layout([1240,760],1.0,true,&tree,[10,20]);
     let work = Path::new(&output).parent().ok_or("missing fixture directory")?;
     let snap_a = snapshot_from_chunks(14,71,&[b"git log --oneline -2\r\n\x1b[38;2;79;209;197m803c17b\x1b[0m Add light theme\r\n\x1b[38;2;79;209;197m8f32fbd\x1b[0m Render pixel scenes\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
-    let snap_b = snapshot_from_chunks(14,71,&[b"cargo build\r\n\x1b[38;2;141;155;184m   Compiling clanky v0.5.5\r\n    Finished `dev` profile in 41.17s\x1b[0m"]).map_err(|e| e.message)?;
+    let snap_b = snapshot_from_chunks(14,71,&[b"cargo build\r\n\x1b[38;2;141;155;184m   Compiling clanky v0.5.5\r\n    Finished `dev` profile in 41.17s\x1b[0m\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
     let mut a = PaneState::new("A",snap_a);
     a.title = "~/projects/clanky".into(); a.driver = "fish".into();
     a.blocks.push(BlockCard { id:"history".into(),first_row:0,last_row:2,command:"git log --oneline -2".into(),exit_code:Some(0),duration_ms:Some(120),running:false });
@@ -111,6 +111,7 @@ fn run() -> Result<(), String> {
             AgentItem { connection_id:1,peer_pid:1842,tab_id:Some("A".into()),running:false },
             AgentItem { connection_id:2,peer_pid:1856,tab_id:Some("B".into()),running:true },
         ],
+        agent_labels:[(1,"pi · astra".into()),(2,"codex".into())].into_iter().collect(),
         files:vec![
             FileItem { id:"main.rs".into(),title:"main.rs".into(),pending:2,active:true },
             FileItem { id:"config.rs".into(),title:"config.rs".into(),pending:0,active:false },
