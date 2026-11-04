@@ -32,20 +32,15 @@ impl Tab {
         let input_time = *self.last_input.lock().unwrap();
         let after_input =
             input_time.is_none_or(|time| time.elapsed() >= Duration::from_millis(200));
-        let blocked = !exited
-            && quiet
-            && after_input
-            && self
-                .process
-                .lock()
-                .unwrap()
-                .as_ref()
-                .is_some_and(Process::waiting_for_input);
         let prompt = !exited
             && quiet
             && after_input
             && self.terminal.lock().unwrap().prompt_waiting()
             && input_time.is_none_or(|time| *self.last_output.lock().unwrap() > time);
+        // An explicit quiet shell prompt is already sufficient evidence; do not
+        // scan every process on the desktop ten times a second to confirm it.
+        let blocked = !prompt && !exited && quiet && after_input
+            && self.process.lock().unwrap().as_ref().is_some_and(Process::waiting_for_input);
         let waiting = blocked || prompt;
         let bracketed_paste = self.terminal.lock().unwrap().bracketed_paste();
         json!({"state":if exited {"exited"} else if waiting {"waiting"} else {"running"},

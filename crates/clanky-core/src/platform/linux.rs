@@ -419,6 +419,19 @@ impl Process {
         if foreground < 1 {
             return false;
         }
+        let blocked = |identity:ProcessIdentity| {
+            if identity.session!=root.pid || identity.group!=foreground {return false;}
+            let Ok(tasks)=fs::read_dir(format!("/proc/{}/task",identity.pid)) else{return false;};
+            for task in tasks.take(4096).flatten(){
+                if blocked_slave_read(&task.path(),device)
+                    && process_identity(identity.pid).ok()==Some(identity)
+                    && unsafe{libc::tcgetpgrp(self.master.as_raw_fd())}==foreground {return true;}
+            }
+            false
+        };
+        // The foreground group leader is the common shell/read case. Validate
+        // the same identity, slave and foreground evidence as the full scan.
+        if process_identity(foreground).ok().is_some_and(&blocked){return true;}
         let Ok(entries) = fs::read_dir("/proc") else {
             return false;
         };
@@ -433,21 +446,7 @@ impl Process {
             let Ok(identity) = process_identity(pid) else {
                 continue;
             };
-            if identity.session != root.pid || identity.group != foreground {
-                continue;
-            }
-            let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
-                continue;
-            };
-            for task in tasks.take(4096).flatten() {
-                let path = task.path();
-                if blocked_slave_read(&path, device)
-                    && process_identity(pid).ok() == Some(identity)
-                    && unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) } == foreground
-                {
-                    return true;
-                }
-            }
+            if blocked(identity){return true;}
         }
         false
     }

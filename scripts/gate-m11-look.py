@@ -12,6 +12,7 @@ schema is:
   rails_hidden: {a: {rect, cols, rows}, b: {rect}}
   drag: {a: {rect, rows}, b: {rect, rows},
          restored_a: {rect}, restored_b: {rect}}
+  idle_frames: 0                    (2 seconds without input after startup)
   pixels: {"x,y": [r,g,b,a], ...}  (first scene, premultiplied RGBA)
   agent_glow: [r,g,b,a]             (second scene at 215,222)
   motion: {cursor: [0ms,40ms,80ms,120ms], panel_60ms,
@@ -99,6 +100,7 @@ def compare(data, non_pixel=False, dark_only=False, through_light=False):
     exact(drag['restored_b']['rect'], [220, 305, 740, 445], 'restored pane B')
 
     if not non_pixel:
+        exact(data['idle_frames'], 0, 'idle frames over 2 seconds after startup')
         pixels = data['pixels']
         for coord, expected, name in [
             ('590,44', [14, 20, 32, 240], 'gap above pane A'),
