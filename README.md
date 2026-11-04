@@ -130,6 +130,25 @@ preserves UTF-8/line endings and symlinks and refuses external-file conflicts.
 See [panel design](docs/design-m7-panel.md), [controller/proposal API](docs/editor-panel-api.md),
 [gate results](docs/m7-panel-results.md), and [editor core](docs/design-m7-core.md).
 
+## Compose long prompts
+
+Focus a terminal and press Ctrl+Shift+Enter, or choose **Compose** in the palette.
+Enter adds a line; Ctrl+Enter sends one bracketed paste to the named terminal.
+No Enter is appended by default. Escape closes while keeping that terminal's
+memory-only draft; sending also keeps it. Closing the window can lose drafts.
+
+Misspellings are underlined. F7 requests suggestions; Up/Down and Enter choose a
+correction. Ctrl+Alt+A adds a word to `compose-words.txt` beside the config file.
+Code-looking paths, flags, identifiers, URLs and backtick spans are excluded.
+Missing dictionaries show an error but do not block editing or sending.
+
+Optional config fields: `compose_dictionary` (default `en_US`),
+`compose_dictionary_dir` (default `/usr/share/hunspell`), and
+`compose_send_enter` (default `false`; `true` appends one CR after the paste).
+The system supplies Hunspell dictionaries; none is bundled or downloaded at run
+time. See [compose design](docs/design-m8-compose.md) and
+[gate results](docs/m8-compose-results.md).
+
 ## Masking core
 
 `clanky-mask` recognizes common credential shapes and caller-supplied secret

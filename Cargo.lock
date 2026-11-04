@@ -269,7 +269,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clanky"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -277,12 +277,13 @@ dependencies = [
  "clanky-edit",
  "clanky-render",
  "serde_json",
+ "spellbook",
  "winit",
 ]
 
 [[package]]
 name = "clanky-api"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 dependencies = [
  "base64 0.23.1",
  "clanky-core",
@@ -292,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-core"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 dependencies = [
  "base64 0.23.1",
  "clanky-vt",
@@ -304,15 +305,15 @@ dependencies = [
 
 [[package]]
 name = "clanky-edit"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 
 [[package]]
 name = "clanky-mask"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 
 [[package]]
 name = "clanky-render"
-version = "0.4.4-compose.1"
+version = "0.4.4-compose.2"
 dependencies = [
  "clanky-core",
  "cosmic-text",
@@ -2039,6 +2040,15 @@ name = "smol_str"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "hashbrown 0.17.1",
+]
 
 [[package]]
 name = "spirv"

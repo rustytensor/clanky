@@ -24,6 +24,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     Io(std::io::Error),
     InvalidUtf8,
+    NoPath,
     InvalidRange,
     InvalidPosition,
     InvalidLocation,
@@ -44,6 +45,7 @@ impl fmt::Display for Error {
         match self {
             Self::Io(error) => write!(f, "file operation failed: {error}"),
             Self::InvalidUtf8 => f.write_str("file is not valid UTF-8"),
+            Self::NoPath => f.write_str("memory document has no file path"),
             Self::InvalidRange => f.write_str("range is not ordered UTF-8 boundaries"),
             Self::InvalidPosition => f.write_str("line or column is out of range"),
             Self::InvalidLocation => {
@@ -101,11 +103,11 @@ struct Change {
     after: Selection,
 }
 
-/// An open document pinned to its resolved target path, including through links.
+/// A memory document or an open file pinned to its resolved target path.
 ///
 /// Selection and history belong to this document, not a renderer.
 pub struct Document {
-    disk: disk::Disk,
+    disk: Option<disk::Disk>,
     text: String,
     selection: Selection,
     undo: Vec<Change>,
@@ -119,16 +121,24 @@ impl Document {
     /// Open an existing regular UTF-8 file, following and resolving symlinks.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let (disk, text) = disk::Disk::open(path.as_ref())?;
-        Ok(Self {
-            disk,
-            text,
+        let mut document = Self::from_text("");
+        document.text = text;
+        document.disk = Some(disk);
+        Ok(document)
+    }
+
+    /// Create a memory-only document with the same editing and review history.
+    pub fn from_text(text: &str) -> Self {
+        Self {
+            disk: None,
+            text: text.to_owned(),
             selection: Selection::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             hunks: Vec::new(),
             next_id: 1,
             conflict: false,
-        })
+        }
     }
 
     pub fn text(&self) -> &str {
@@ -256,7 +266,10 @@ impl Document {
         if self.conflict {
             return Ok(false);
         }
-        match self.disk.matches() {
+        let Some(disk) = &self.disk else {
+            return Ok(true);
+        };
+        match disk.matches() {
             Ok(true) => Ok(true),
             Ok(false) => {
                 self.mark_conflict();
@@ -282,7 +295,8 @@ impl Document {
     /// a post-rename sync error can mean bytes were written but durability failed.
     pub fn save(&mut self) -> Result<()> {
         self.require_current_disk()?;
-        if let Err(error) = self.disk.save(&self.text) {
+        let disk = self.disk.as_mut().ok_or(Error::NoPath)?;
+        if let Err(error) = disk.save(&self.text) {
             self.mark_conflict();
             return Err(error);
         }

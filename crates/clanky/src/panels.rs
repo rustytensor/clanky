@@ -5,9 +5,10 @@ use clanky_core::{TerminalSnapshot, platform::Clipboard};
 use serde_json::{Value, json};
 use winit::keyboard::{Key, NamedKey};
 
-const ACTIONS: [&str; 11] = [
+const ACTIONS: [&str; 12] = [
     "Open file",
     "Load changes",
+    "Compose",
     "copy",
     "collapse",
     "rerun",
@@ -120,7 +121,7 @@ impl Panels {
         Ok(json!({"tab_id":self.tab,"block_id":block}))
     }
     fn action(&mut self, engine: &Client, action: &'static str) -> Result<(), String> {
-        if matches!(action, "Open file" | "Load changes") {
+        if matches!(action, "Open file" | "Load changes" | "Compose") {
             self.local = Some(LocalRequest { action, tab: self.tab.clone() });
             self.open = false;
             self.prompt = None;
@@ -325,6 +326,7 @@ impl Panels {
         self.lines.clear();
         self.lines.push(("[Open file]".into(), Some(Hit::Action("Open file"))));
         self.lines.push(("[Load changes]".into(), Some(Hit::Action("Load changes"))));
+        self.lines.push(("[Compose]".into(), Some(Hit::Action("Compose"))));
         self.lines.push((format!("Blocks: {}", self.tab), None));
         if !self.after.is_empty() {
             self.lines
