@@ -503,6 +503,7 @@ impl App {
             self.status = Some("Agent access revoked; pending waits cancelled".into());
             return Ok(());
         }
+        if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
             && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
         {
@@ -719,6 +720,7 @@ impl ApplicationHandler for App {
                 self.modifiers = m.state();
                 Ok(())
             }
+            WindowEvent::CursorLeft { .. } => { self.mouse=(-1.0,-1.0); Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if let Err(e) = self.drag() { self.status = Some(e); }
@@ -750,6 +752,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if event.repeat && self.card_focused() { return; }
                 // Hold the consumed chord until release: releasing Ctrl first must
                 // not turn an auto-repeat after Send into ordinary PTY Enter.
                 if event.repeat && self.compose_enter_held { return; }
@@ -770,6 +773,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::Ime(event) => {
+                if self.card_focused() { return; }
                 if self.compose.active_target().is_some() {
                     match &event {
                         Ime::Commit(text) => {
