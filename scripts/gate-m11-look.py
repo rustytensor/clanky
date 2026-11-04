@@ -71,7 +71,7 @@ def pixel(actual, expected, label, tolerance=3):
             label, f"{expected} ±{tolerance} per channel", actual)
 
 
-def compare(data, non_pixel=False):
+def compare(data, non_pixel=False, dark_only=False):
     exact(data['layout']['content'], [220, 50, 740, 700], 'content area')
     a, b = data['layout']['a'], data['layout']['b']
     exact(a['rect'], [220, 50, 740, 345], 'pane A')
@@ -130,6 +130,8 @@ def compare(data, non_pixel=False):
         observed = rgba(config['opacity_one_pixel'], 'opacity 1 pixel (590,44)')
         exact(observed[3], 255, 'opacity 1 alpha (590,44)')
 
+        if dark_only:
+            return
         light = data['light_pixels']
         for coord, expected, name in [
             ('590,44', [219, 224, 232, 240], 'gap above pane A'),
@@ -167,15 +169,18 @@ def compare(data, non_pixel=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--non-pixel', action='store_true')
+    parser.add_argument('--dark-only', action='store_true')
     args = parser.parse_args()
     try:
         data = json.load(sys.stdin)
-        compare(data, args.non_pixel)
+        compare(data, args.non_pixel, args.dark_only)
     except (Mismatch, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         print(f'FAIL: M11 look: {error}', file=sys.stderr)
         return 1
     if args.non_pixel:
         print('PASS: M11 non-pixel comparisons (pixel checks not run)')
+    elif args.dark_only:
+        print('PASS: M11 dark comparisons (light and settings not run)')
     else:
         print('PASS: M11 look comparisons')
     return 0
