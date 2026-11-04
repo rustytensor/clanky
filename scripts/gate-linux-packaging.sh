@@ -8,13 +8,25 @@ lock="${CLANKY_BUILD_LOCK:-${CARGO_TARGET_DIR:-$root/target}/.build.lock}"
 export CLANKY_BUILD_LOCK="$lock"
 export CARGO_TARGET_DIR="$build/target"
 : "${CARGO_HOME:?set CARGO_HOME}"
-version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
 export CARGO_NET_OFFLINE=true
 export CARGO_BUILD_JOBS=8
 mkdir -p "$build"
 work=$(mktemp -d "$build/gate.XXXXXXXX")
 trap 'rc=$?; if (( rc != 0 )); then echo "FAIL: Linux packaging (exit $rc)" >&2; fi' EXIT
 mkdir -p "$work/desktop" "$work/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+cp packaging/fedora/clanky.spec "$work/clanky.spec"
+if [[ ${CLANKY_GATE_FAULT:-} == version ]]; then
+    python3 - "$work/clanky.spec" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+s, count = re.subn(r'^Version:\s*\S+', 'Version: 0.0.0', p.read_text(), flags=re.MULTILINE)
+assert count == 1
+p.write_text(s)
+PY
+fi
+version=$(python3 scripts/packaging-version.py)
+tarball="$work/rpmbuild/SOURCES/clanky-$version.tar.gz"
+python3 scripts/packaging-version.py --check --spec "$work/clanky.spec" --tarball "$tarball"
 cp packaging/linux/clanky.desktop "$work/desktop/clanky.desktop"
 if [[ ${CLANKY_GATE_FAULT:-} == desktop ]]; then
     python3 - "$work/desktop/clanky.desktop" <<'PY'
@@ -42,9 +54,9 @@ PY
 timeout 30 desktop-file-validate "$work/desktop/clanky.desktop"
 check_desktop "$work/desktop/clanky.desktop"
 timeout 30 appstreamcli validate --no-net packaging/linux/io.github.rustytensor.Clanky.metainfo.xml
-timeout 1800 "$root/scripts/vendor-tarball.sh" "$work/rpmbuild/SOURCES/clanky-$version.tar.gz"
+timeout 1800 "$root/scripts/vendor-tarball.sh" "$tarball"
 timeout 1800 flock "$lock" rpmbuild -bb \
-    --define "_topdir $work/rpmbuild" --define '_smp_mflags -j8' --define "clanky_version $version" \
+    --define "_topdir $work/rpmbuild" --define '_smp_mflags -j8' \
     packaging/fedora/clanky.spec
 mapfile -t rpms < <(find "$work/rpmbuild/RPMS" -type f -name '*.rpm' ! -name '*debuginfo*' ! -name '*debugsource*')
 [[ ${#rpms[@]} == 1 ]] || { echo 'Expected exactly one binary RPM' >&2; exit 1; }
@@ -94,5 +106,17 @@ cat > "$work/expected-files" <<'EOF'
 EOF
 diff -u "$work/expected-files" "$work/actual-files"
 rpmlint packaging/fedora/clanky.spec "${rpms[0]}"
+srpm=$(timeout 1800 "$root/scripts/build-srpm.sh" "$work/srpm-output")
+actual_version=$(rpm -qp --qf '%{VERSION}' "$srpm")
+[[ $actual_version == "$version" ]] || { echo "FAIL: SRPM version $actual_version, expected $version" >&2; exit 1; }
+rpm -qpl "$srpm" > "$work/srpm-files"
+python3 - "$work/srpm-files" "$version" <<'PY'
+import pathlib, sys
+files = pathlib.Path(sys.argv[1]).read_text().splitlines()
+expected = f'clanky-{sys.argv[2]}.tar.gz'
+if files.count(expected) != 1:
+    sys.exit(f'FAIL: SRPM expected source {expected!r}; observed {files!r}')
+PY
+echo "SRPM: $srpm"
 echo "RPM: ${rpms[0]}"
 echo 'PASS: Linux packaging'

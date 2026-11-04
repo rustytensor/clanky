@@ -1,0 +1,33 @@
+# Build a Linux source RPM and submit it to COPR
+
+The preparation step uses only the local Cargo cache. It does not download crates
+or contact COPR. Run from a committed checkout; the source archive is made from
+`HEAD`. The Cargo workspace version must match the spec and AppStream release.
+Choose an empty absolute output directory with enough space, then run:
+
+```sh
+SRPM=$(scripts/build-srpm.sh "$CLANKY_PACKAGE_OUTPUT")
+printf '%s\n' "$SRPM"
+```
+
+The script prints the path of the source RPM. It requires Cargo, rpmbuild and
+all locked crates already in the configured Cargo cache. It refuses to overwrite
+an existing source RPM. Verify the packaging gate before publishing:
+
+```sh
+scripts/gate-linux-packaging.sh
+```
+
+The following commands contact COPR and upload the SRPM. Run them only when
+ready to publish, with the `copr-cli` client already installed and configured
+for your own account. Select an available Fedora chroot from
+`copr-cli list-chroots`; this example uses `fedora-45-x86_64`:
+
+```sh
+copr-cli create clanky --chroot fedora-45-x86_64
+copr-cli build clanky "$SRPM"
+```
+
+Keep `SRPM` in the same shell. Create the project only once; later releases
+use only `copr-cli build`.
+No COPR project, credentials or upload is created by the packaging scripts.
