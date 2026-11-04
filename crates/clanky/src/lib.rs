@@ -1,5 +1,6 @@
 //! Shared application configuration and input state.
 pub mod config;
+pub mod themes;
 pub mod settings;
 pub mod settings_panel;
 #[cfg(test)]
