@@ -71,7 +71,7 @@ def pixel(actual, expected, label, tolerance=3):
             label, f"{expected} ±{tolerance} per channel", actual)
 
 
-def compare(data, non_pixel=False, dark_only=False):
+def compare(data, non_pixel=False, dark_only=False, through_light=False):
     exact(data['layout']['content'], [220, 50, 740, 700], 'content area')
     a, b = data['layout']['a'], data['layout']['b']
     exact(a['rect'], [220, 50, 740, 345], 'pane A')
@@ -151,6 +151,8 @@ def compare(data, non_pixel=False, dark_only=False):
         require(glow[1] <= 214 and glow[2] >= glow[1] + 18,
                 'light agent glow (215,222)', 'green <= 214 and blue >= green + 18', glow)
 
+        if through_light:
+            return
         settings = data['settings']
         exact(settings['opacity_readback'], 0.8, 'settings opacity readback')
         observed = rgba(settings['opacity_pixel'], 'settings opacity pixel (590,44)')
@@ -170,10 +172,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--non-pixel', action='store_true')
     parser.add_argument('--dark-only', action='store_true')
+    parser.add_argument('--through-light', action='store_true')
     args = parser.parse_args()
     try:
         data = json.load(sys.stdin)
-        compare(data, args.non_pixel, args.dark_only)
+        compare(data, args.non_pixel, args.dark_only, args.through_light)
     except (Mismatch, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         print(f'FAIL: M11 look: {error}', file=sys.stderr)
         return 1
@@ -181,6 +184,8 @@ def main():
         print('PASS: M11 non-pixel comparisons (pixel checks not run)')
     elif args.dark_only:
         print('PASS: M11 dark comparisons (light and settings not run)')
+    elif args.through_light:
+        print('PASS: M11 dark and light comparisons (settings not run)')
     else:
         print('PASS: M11 look comparisons')
     return 0
