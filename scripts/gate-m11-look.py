@@ -18,6 +18,12 @@ schema is:
            cursor_disabled_0ms, panel_disabled_0ms}
   config: {opacity_0_3_error: bool, rails_yes_error: bool,
            opacity_one_pixel: [r,g,b,a]}
+  light_pixels: {"x,y": [r,g,b,a], ...}
+  light_agent_glow: [r,g,b,a]
+  settings: {opacity_readback: number, opacity_pixel: [r,g,b,a],
+             invalid_error: string, loader_error: string, invalid_unchanged: bool,
+             panel_override_pixel: [r,g,b,a], export_import_identical: bool,
+             key_order_preserved: bool}
 
 `--non-pixel` checks layout, drag, motion and the two config errors before the
 renderer exists. It deliberately does not claim the complete gate passed.
@@ -123,6 +129,39 @@ def compare(data, non_pixel=False):
     if not non_pixel:
         observed = rgba(config['opacity_one_pixel'], 'opacity 1 pixel (590,44)')
         exact(observed[3], 255, 'opacity 1 alpha (590,44)')
+
+        light = data['light_pixels']
+        for coord, expected, name in [
+            ('590,44', [219, 224, 232, 240], 'gap above pane A'),
+            ('950,380', [255, 255, 255, 255], 'pane A padding'),
+            ('221,51', [219, 224, 232, 240], 'pane A rounded corner'),
+            ('226,56', [255, 255, 255, 255], 'pane A inside corner'),
+            ('100,700', [243, 246, 251, 255], 'left rail'),
+            ('1100,700', [243, 246, 251, 255], 'right rail'),
+            ('230,451', [246, 246, 247, 255], 'block card'),
+            ('936,451', [224, 234, 229, 255], 'exit chip'),
+        ]:
+            pixel(light[coord], expected, f'light {name} ({coord})')
+        glow = rgba(light['215,577'], 'light focus glow (215,577)')
+        require(glow[2] - glow[0] >= 21, 'light focus glow (215,577)',
+                'blue >= red + 21', glow)
+        glow = rgba(data['light_agent_glow'], 'light agent glow (215,222)')
+        require(glow[1] <= 214 and glow[2] >= glow[1] + 18,
+                'light agent glow (215,222)', 'green <= 214 and blue >= green + 18', glow)
+
+        settings = data['settings']
+        exact(settings['opacity_readback'], 0.8, 'settings opacity readback')
+        observed = rgba(settings['opacity_pixel'], 'settings opacity pixel (590,44)')
+        exact(observed[3], 204, 'settings opacity alpha (590,44)')
+        error = settings['invalid_error']
+        require(isinstance(error, str) and bool(error), 'settings invalid opacity error',
+                'nonempty loader error', error)
+        exact(error, settings['loader_error'], 'settings error matches loader')
+        exact(settings['invalid_unchanged'], True, 'invalid settings leave file unchanged')
+        pixel(settings['panel_override_pixel'], [32, 32, 32, 255],
+              'settings panel override (950,380)')
+        exact(settings['export_import_identical'], True, 'settings export and import')
+        exact(settings['key_order_preserved'], True, 'settings key order')
 
 
 def main():
