@@ -299,12 +299,40 @@ pub(crate) enum Control {
     Resize(usize, usize),
 }
 pub(crate) struct Process {
+    cwd_tty: Option<File>,
+    shell: Option<ProcessIdentity>,
     pub tx: SyncSender<Control>,
     queued: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
 }
 impl Process {
+    /// Read live kernel state, never the directory supplied at spawn time.
+    pub fn cwd(&self) -> Option<String> {
+        if self.stop.load(Ordering::Acquire) {
+            return None;
+        }
+        let shell = self.shell?;
+        if let Some(tty) = &self.cwd_tty {
+            let group = unsafe { libc::tcgetpgrp(tty.as_raw_fd()) };
+            if group > 1 {
+                if let Ok(identity) = process_identity(group) {
+                    if identity.group == group && identity.session == shell.session
+                        && identity.start >= shell.start
+                    {
+                        if let Some(cwd) = identity_cwd(identity) {
+                            if unsafe { libc::tcgetpgrp(tty.as_raw_fd()) } == group
+                                && process_identity(group).ok() == Some(identity)
+                            {
+                                return Some(cwd);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        identity_cwd(shell)
+    }
     pub fn input(&self, bytes: Vec<u8>) -> io::Result<()> {
         let n = bytes.len();
         self.queued
@@ -375,6 +403,9 @@ pub(crate) fn spawn(
     }
     let mut pty = tty::new(&options, size(rows, cols), 0)?;
     let pid = pty.child().id() as i32;
+    let shell = process_identity(pid).ok();
+    // Only the worker reads/writes the PTY. This duplicate is used for ioctl only.
+    let cwd_tty = pty.file().try_clone().ok();
     // tty::from_fd completes setsid before spawn returns, so PGID and SID
     // are known even if a very short-lived child already exited.
     roots.push(PtyRoot {
@@ -514,6 +545,8 @@ pub(crate) fn spawn(
         drop(pty);
     });
     Ok(Process {
+        cwd_tty,
+        shell,
         tx,
         queued,
         stop,
@@ -855,4 +888,81 @@ pub fn spawn_ssh(host: &str) -> io::Result<Child> {
         .map(OsString::from)
         .collect();
     spawn_pipe(OsStr::new("ssh"), &args)
+}
+
+/// Validate the process lifetime on both sides of the cwd read.
+fn identity_cwd(identity: ProcessIdentity) -> Option<String> {
+    if process_identity(identity.pid).ok() != Some(identity) {
+        return None;
+    }
+    let path = fs::read_link(format!("/proc/{}/cwd", identity.pid)).ok()?;
+    let path = path.to_str()?;
+    // proc appends this suffix for deleted directories: it is not a usable path.
+    if !Path::new(path).is_absolute() || path.ends_with(" (deleted)")
+        || path.contains('\0') || process_identity(identity.pid).ok() != Some(identity)
+    {
+        return None;
+    }
+    Some(path.to_owned())
+}
+
+/// Decode only local file URLs. No DNS, filesystem lookup or guessed directory.
+pub(crate) fn local_osc7_cwd(bytes: &[u8]) -> Option<String> {
+    let url = std::str::from_utf8(bytes).ok()?.strip_prefix("file://")?;
+    let (host, path) = url.split_once('/')?;
+    if !host.is_empty() && !host.eq_ignore_ascii_case("localhost") {
+        static HOST: OnceLock<Option<String>> = OnceLock::new();
+        let local = HOST.get_or_init(|| {
+            let mut bytes = [0u8; 256];
+            if unsafe { libc::gethostname(bytes.as_mut_ptr().cast(), bytes.len()) } != 0 {
+                return None;
+            }
+            let end = bytes.iter().position(|b| *b == 0)?;
+            std::str::from_utf8(&bytes[..end]).ok().map(str::to_owned)
+        });
+        if !local.as_ref().is_some_and(|local| host.eq_ignore_ascii_case(local)) {
+            return None;
+        }
+    }
+    // Reject credentials, ports, query/fragment components and raw controls.
+    if host.contains(['@', ':', '%']) || path.contains(['?', '#'])
+        || bytes.iter().any(|b| b.is_ascii_control())
+    {
+        return None;
+    }
+    let mut decoded = vec![b'/'];
+    let mut bytes = path.as_bytes().iter().copied();
+    while let Some(byte) = bytes.next() {
+        decoded.push(if byte == b'%' {
+            let hex = |b: u8| (b as char).to_digit(16).map(|n| n as u8);
+            (hex(bytes.next()?)? << 4) | hex(bytes.next()?)?
+        } else {
+            byte
+        });
+    }
+    let path = String::from_utf8(decoded).ok()?;
+    if path.contains('\0') || !Path::new(&path).is_absolute() {
+        return None;
+    }
+    Some(path)
+}
+
+/// Stop and reap a server child by its owned PID, allowing normal PTY cleanup.
+pub fn stop_server(child: &mut Child) -> io::Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
+    if unsafe { libc::kill(child.id() as i32, libc::SIGTERM) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if child.try_wait()?.is_some() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    child.kill()?;
+    child.wait()?;
+    Ok(())
 }

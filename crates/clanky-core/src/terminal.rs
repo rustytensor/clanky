@@ -49,6 +49,7 @@ pub(crate) struct Block {
 }
 #[derive(Default)]
 struct Observer {
+    cwd: Option<String>,
     blocks: VecDeque<Block>,
     active: Option<Block>,
     next: u64,
@@ -118,6 +119,15 @@ impl vte::Perform for Observer {
         }
     }
     fn osc_dispatch(&mut self, params: &[&[u8]], _: bool) {
+        if params.first() == Some(&b"7".as_slice()) {
+            // vte splits OSC parameters at semicolons, which can also occur
+            // literally in a file URL path. Reassemble only this OSC payload.
+            let payload = params[1..].join(&b';');
+            if let Some(cwd) = crate::platform::local_osc7_cwd(&payload) {
+                self.cwd = Some(cwd);
+            }
+            return;
+        }
         if params.first() != Some(&b"133".as_slice()) {
             return;
         }
@@ -206,6 +216,9 @@ impl Terminal {
         self.size = Size(rows, cols);
         self.term.resize(self.size);
         self.observer.viewport = (rows, cols);
+    }
+    pub fn cwd(&self) -> Option<String> {
+        self.observer.cwd.clone()
     }
     pub fn blocks(&self) -> (Vec<Block>, u64) {
         let mut b: Vec<_> = self.observer.blocks.iter().cloned().collect();
