@@ -200,6 +200,18 @@ def block_command_masking(o, a, d, secret, fault=False):
     require(secret not in json.dumps(response).encode(), 'block command response no secret')
 
 
+def owner_copy_search(o, tab_id, block_id, secret):
+    # Fixed expectations: copying the secret's line yields stars; its first
+    # twelve bytes cannot be found in the person's displayed scrollback.
+    o.call('select', dict(tab_id=tab_id, block_id=block_id, start=0, end=len(secret)), 2)
+    copied = o.call('copy', dict(tab_id=tab_id, block_id=block_id), 2)
+    data = base64.b64decode(copied['data'], validate=True)
+    search = o.call('window_search', dict(tab_id=tab_id, query=secret[:12].decode('ascii'),
+                                          after=None, backwards=False), 3)
+    require(data == b'*' * len(secret), 'owner copy masked')
+    require(search['total'] == 0, 'owner search secret absent')
+
+
 def suite(bins, d, env, fault):
     socket = d / 'server.sock'
     server = spawn([bins / 'clanky', '--server', '--socket', socket], env=env)
@@ -280,6 +292,7 @@ def suite(bins, d, env, fault):
         require(observed == expected, 'fixed star masking')
         blocks = a.call('list_blocks', dict(tab_id=mt, limit=64), 1)['blocks']
         require(len(blocks) == 1 and blocks[0]['output'] == '*' * 24 + '\n' + '*' * 23, 'masked block')
+        owner_copy_search(o, mt, blocks[0]['block_id'], secret)
         ms = a.call('screen', dict(tab_id=mt))
         require(ms['lines'][:2] == ['*' * 24, '*' * 23], 'masked screen')
         replay = events(a, cursor, mt)
