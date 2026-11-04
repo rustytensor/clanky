@@ -88,7 +88,7 @@ pub struct PanelState {
 pub struct PanelLine { pub text: String, pub selected: bool, pub action: Option<HitAction> }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HitAction {
-    Palette, ToggleRails, Session(String), File(String),
+    Palette, Settings, ToggleRails, Session(String), File(String),
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
 }
@@ -335,6 +335,9 @@ fn chrome(out: &mut Builder<'_>,layout: &Layout,state: &LookState) {
         uptime_x-=width;
         chip(out,t,m,rect(uptime_x,bar_y,width,pill_h),&label,t.ok,None);uptime_x-=gap;
     }
+    let settings_width=text_width(out,"Settings",small,600,false,0.0)+2.0*m.pill_padding as f32;
+    uptime_x-=settings_width+gap;
+    chip(out,t,m,rect(uptime_x,bar_y,settings_width,pill_h),"Settings",t.dim,Some(HitAction::Settings));
     let search_x=p+mark+gap+brand_w+3.0*gap;
     let search_w=if layout.rails_shown { m.search_width as f32 } else { small*6.0+2.0*m.pill_padding as f32 };
     let search=rect(search_x,(layout.top_bar.h-m.search_height as f32)/2.0,search_w.min(uptime_x-gap-search_x),m.search_height as f32);
