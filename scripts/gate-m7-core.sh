@@ -3,7 +3,7 @@ set -euo pipefail
 trap 'status=$?; if (( status != 0 )); then echo "FAIL: M7 editor core" >&2; fi' EXIT
 : "${CARGO_TARGET_DIR:?set CARGO_TARGET_DIR}"
 : "${CARGO_HOME:?set CARGO_HOME}"
-: "${CLANKY_BUILD_LOCK:?set CLANKY_BUILD_LOCK}"
+: "${CLANKY_BUILD_LOCK:=/srv/devops/build/clanky/.build.lock}"
 case "${CLANKY_GATE_FAULT:-}" in
     ''|accepted) ;;
     *) echo "FAIL: unknown CLANKY_GATE_FAULT" >&2; exit 1 ;;

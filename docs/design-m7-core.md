@@ -4,8 +4,9 @@
 
 Run `scripts/gate-m7-core.sh`. It builds only `clanky-edit` offline, under the
 shared build lock, and runs a Rust executable against fresh private fixture files.
-Set `CARGO_TARGET_DIR` and `CARGO_HOME` to absolute build/cache paths, and
-`CLANKY_BUILD_LOCK` to the shared build-lock file before invoking the command.
+Set `CARGO_TARGET_DIR` and `CARGO_HOME` to absolute build/cache paths.
+`CLANKY_BUILD_LOCK` defaults to `/srv/devops/build/clanky/.build.lock`;
+set it explicitly to override the shared build-lock file.
 No display, terminal engine, network, or existing user file is involved.
 The following expected bytes are fixed before implementation:
 
