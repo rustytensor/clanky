@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 base64 = "=0.23.1"
 clanky-core = { path = "../clanky-core" }
+clanky-edit = { path = "../clanky-edit" }
 clanky-render = { path = "../clanky-render" }
 clanky-api = { path = "../clanky-api" }
 serde_json = "=1.0.154"
