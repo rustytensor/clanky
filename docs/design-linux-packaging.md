@@ -21,12 +21,17 @@ independent expectations hold:
    `rpmbuild -bb` builds it with offline Cargo, at most eight jobs, under
    `/srv/devops/build/clanky-pkg`, with the shared build lock held. The build
    including lock wait has a 30-minute deadline; timeout is failure.
-3. `rpm -qlp` gives exactly the following sorted paths (no directory entries):
+3. `rpm -qlp` gives exactly the following sorted paths, plus only RPM build-ID
+   entries matching `^/usr/lib/\.build-id(/[0-9a-f]{2}(/[0-9a-f]{38}(\.debug)?)?)?$`.
+   Build-ID directories must be directories; at least one build-ID link must
+   exist, and every build-ID link must resolve to `/usr/bin/clanky` according
+   to RPM's file metadata. No other extra paths are accepted:
 
 ```
 /usr/bin/clanky
 /usr/share/applications/clanky.desktop
 /usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+/usr/share/licenses/clanky
 /usr/share/licenses/clanky/LICENSE-APACHE
 /usr/share/licenses/clanky/LICENSE-MIT
 /usr/share/man/man1/clanky.1.gz
@@ -42,6 +47,6 @@ independent expectations hold:
    gate once; report both results. The temporary entry does not change the repo.
 
 The source archive and RPM are written under the build directory, not the home
-filesystem. The package's full RPM contents, not a filtered subset, are compared
-with the list above. Network-free Cargo is enforced by `--offline` and vendored
+filesystem. The package's full RPM contents are checked against the list and
+constrained build-ID rule above. Network-free Cargo is enforced by `--offline` and vendored
 source replacement; this gate does not claim an OS-level network sandbox.

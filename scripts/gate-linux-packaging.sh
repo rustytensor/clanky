@@ -47,11 +47,42 @@ mapfile -t rpms < <(find "$work/rpmbuild/RPMS" -type f -name '*.rpm' ! -name '*d
 mkdir -p "$work/extracted"
 (cd "$work/extracted" && timeout 30 rpm2cpio "${rpms[0]}" | timeout 30 cpio -id --quiet ./usr/share/applications/clanky.desktop)
 check_desktop "$work/extracted/usr/share/applications/clanky.desktop"
-rpm -qlp "${rpms[0]}" | LC_ALL=C sort > "$work/actual-files"
+rpm -qlp "${rpms[0]}" | LC_ALL=C sort > "$work/all-files"
+rpm -qp --qf '[%{FILENAMES}\t%{FILEMODES}\t%{FILELINKTOS}\n]' "${rpms[0]}" > "$work/file-metadata"
+python3 - "$work/all-files" "$work/file-metadata" "$work/actual-files" <<'PY'
+import pathlib, posixpath, re, stat, sys
+all_paths = pathlib.Path(sys.argv[1]).read_text().splitlines()
+metadata = {}
+for row in pathlib.Path(sys.argv[2]).read_text().splitlines():
+    path, mode, target = row.split('\t', 2)
+    if path in metadata:
+        sys.exit(f'FAIL: duplicate RPM metadata path: {path}')
+    metadata[path] = (int(mode), target)
+pattern = re.compile(r'^/usr/lib/\.build-id(/[0-9a-f]{2}(/[0-9a-f]{38}(\.debug)?)?)?$')
+remaining = []
+links = 0
+for path in all_paths:
+    if not pattern.fullmatch(path):
+        remaining.append(path)
+        continue
+    mode, target = metadata[path]
+    if path.count('/') < 5:
+        if not stat.S_ISDIR(mode):
+            sys.exit(f'FAIL: build-ID directory is not a directory: {path}')
+    else:
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+        if not stat.S_ISLNK(mode) or resolved != '/usr/bin/clanky':
+            sys.exit(f'FAIL: build-ID link {path} targets {target!r}, expected /usr/bin/clanky')
+        links += 1
+if not links:
+    sys.exit('FAIL: no build-ID link to /usr/bin/clanky')
+pathlib.Path(sys.argv[3]).write_text(''.join(path + '\n' for path in remaining))
+PY
 cat > "$work/expected-files" <<'EOF'
 /usr/bin/clanky
 /usr/share/applications/clanky.desktop
 /usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+/usr/share/licenses/clanky
 /usr/share/licenses/clanky/LICENSE-APACHE
 /usr/share/licenses/clanky/LICENSE-MIT
 /usr/share/man/man1/clanky.1.gz
