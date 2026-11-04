@@ -74,6 +74,7 @@ fn run() -> Result<(), String> {
     state.opacity = 0.94;
     state.theme = Config::from_json("{\"theme\":\"light\"}")?.resolved_theme(false);
     let light = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    fs::write(Path::new(&output).with_file_name("scene-light.rgba"), &light).map_err(|e| e.to_string())?;
     let mut light_pixels = serde_json::Map::new();
     for (x,y) in [(590,44),(950,380),(221,51),(226,56),(100,700),(1100,700),(230,451),(936,451),(215,577)] {
         light_pixels.insert(format!("{x},{y}"),json!(sample(&light,x,y)));
