@@ -56,4 +56,5 @@ A clanker is a robot. This is where they work.
 
 Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
 at your option. Dependencies retain their own licences, including MPL-2.0 for
-spellbook. See [NOTICE](NOTICE) for terminal/parser attribution.
+spellbook. The bundled JetBrains Mono and Inter fonts are under the SIL Open Font
+License 1.1. See [NOTICE](NOTICE) for terminal, parser and font attribution.
