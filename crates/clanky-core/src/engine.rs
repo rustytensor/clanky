@@ -10,10 +10,15 @@ mod masking;
 mod status;
 #[path = "window_changes.rs"]
 mod window_changes;
+#[path = "readiness.rs"]
+mod readiness;
 use agent::optional_number;
 #[cfg(test)]
 #[path = "anchor_tests.rs"]
 mod anchor_tests;
+#[cfg(test)]
+#[path = "readiness_tests.rs"]
+mod readiness_tests;
 
 use crate::{
     TerminalSnapshot, Workspace,
@@ -253,7 +258,11 @@ impl Tab {
         *self.last_output.lock().unwrap() = Instant::now();
         let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
             &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
-        if !bytes.is_empty() {self.safety.window_signal.notify();}
+        if !bytes.is_empty() {
+            *self.last_output.lock().unwrap()=Instant::now();
+            self.safety.readiness.activity(&self.id);
+            self.safety.window_signal.notify();
+        }
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
                 for r in responses {
@@ -305,6 +314,7 @@ impl Drop for Inner {
     fn drop(&mut self) {
         self.1.stop.store(true, Ordering::Release);
         self.1.changed.notify_all();
+        self.1.readiness.wake();
         if let Some(handle) = self.2.get_mut().unwrap().take() {
             if handle.thread().id() != std::thread::current().id() {
                 let _ = handle.join();
@@ -412,8 +422,9 @@ impl Engine {
             .ok_or_else(|| error("not_found", "no active process"))?;
         *t.last_input.lock().unwrap() = Some(Instant::now());
         t.terminal.lock().unwrap().input_submitted();
-        p.input(bytes.to_vec())
-            .map_err(|e| error("resource_limit", e.to_string()))
+        let result=p.input(bytes.to_vec()).map_err(|e| error("resource_limit", e.to_string()));
+        if result.is_ok(){self.0.1.readiness.activity(tab_id);}
+        result
     }
     pub fn resize(&self, tab_id: &str, rows: usize, cols: usize) -> Result<(), CoreError> {
         dimensions(rows, cols)?;
@@ -423,7 +434,8 @@ impl Engine {
             match p.tx.try_send(Control::Resize(rows, cols)) {
                 // An exited PTY has no reader, but its retained screen must
                 // still resize when a split collapses or the window changes.
-                Ok(()) | Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {}
+                Ok(()) => p.wake_control(),
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {}
                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                     return Err(error("resource_limit", "PTY control queue unavailable"));
                 }
@@ -437,6 +449,7 @@ impl Engine {
     pub fn shutdown(&self) {
         self.0.1.stop.store(true, Ordering::Release);
         self.0.1.changed.notify_all();
+        self.0.1.readiness.wake();
         self.0.1.window_signal.notify();
         let tabs = {
             let mut s = self.0.0.lock().unwrap();
@@ -853,6 +866,9 @@ impl Engine {
                 commands.driver = None;
                 commands.current = Some(id.clone());
                 commands.all.insert(id.clone(), command);
+                *tab.last_output.lock().unwrap()=Instant::now();
+                *tab.last_input.lock().unwrap()=None;
+                self.0.1.readiness.activity(tab_id);
                 Ok(json!({"command_id": id, "state": "running"}))
             }
             "wait" | "get_exit_code" => {

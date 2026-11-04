@@ -268,6 +268,10 @@ Request: `{"v":4,"id":"1","op":"resume_agents"}` Response: `{"id":"1","ok":false
 
 Waiting is observed after a quiet period (200 ms), using a blocked foreground
 PTY read or OSC prompt evidence; silence/sleep alone is not proof of readiness.
+The background observer checks on command/input/output activity and one quiet-period
+deadline, then parks. input_state and bounded wait_input calls refresh the evidence.
+An events request probes at entry and timeout; a silent readiness transition without
+PTY activity is detected on the next request/deadline, not by periodic idle scans.
 The event ring retains 1,024 entries with ordered cursors and kinds such as
 output_appended, command_finished, waiting_for_input and terminal_closed.
 Output events carry base64 data and offset; replay rechecks permissions. A gap
