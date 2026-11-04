@@ -264,14 +264,15 @@ impl Terminal {
             clipboard,
         }
     }
-    pub fn clipboard_events(&mut self, current: Option<&str>, write: bool, read: bool) -> serde_json::Value {
+    pub fn clipboard_events(&mut self, current: Option<&str>, write: bool, read: bool,
+        mask: &dyn Fn(&str) -> Result<String, String>) -> Result<serde_json::Value, String> {
         use base64::Engine as _;
         let mut state = self.clipboard.lock().unwrap();
         state.pending.retain(|_, (origin, _)| Some(origin.as_str()) == current);
         while let Some((id, origin, request)) = state.queue.pop_front() {
             if Some(origin.as_str()) != current { continue; }
             let event = match request {
-                ClipboardRequest::Write(data) if write => serde_json::json!({"id":id,"kind":"write","data":base64::engine::general_purpose::STANDARD.encode(data.as_bytes())}),
+                ClipboardRequest::Write(data) if write => serde_json::json!({"id":id,"kind":"write","data":base64::engine::general_purpose::STANDARD.encode(mask(&data)?.as_bytes())}),
                 ClipboardRequest::Read(formatter) if read => {
                     // A missing desktop helper must not permanently fill the queue.
                     if state.pending.len() >= 8 {
@@ -284,11 +285,12 @@ impl Terminal {
                 }
                 _ => continue,
             };
-            return serde_json::json!({"events":[event]});
+            return Ok(serde_json::json!({"events":[event]}));
         }
-        serde_json::json!({"events":[]})
+        Ok(serde_json::json!({"events":[]}))
     }
-    pub fn clipboard_reply(&mut self, current: Option<&str>, id: u64, data: &str) -> Result<Vec<u8>, String> {
+    pub fn clipboard_reply(&mut self, current: Option<&str>, id: u64, data: &str,
+        mask: &dyn Fn(&str) -> Result<String, String>) -> Result<Vec<u8>, String> {
         use base64::Engine as _;
         // Consume before validation: even malformed or expired replies are one-use.
         let (origin, formatter) = self.clipboard.lock().unwrap().pending.remove(&id)
@@ -299,7 +301,7 @@ impl Terminal {
             .map_err(|_| "Invalid clipboard reply base64".to_owned())?;
         if bytes.len() > 65536 { return Err("Clipboard reply exceeds 64 KiB".into()); }
         let text = std::str::from_utf8(&bytes).map_err(|_| "Clipboard reply is not UTF-8".to_owned())?;
-        Ok(formatter(text).into_bytes())
+        Ok(formatter(&mask(text)?).into_bytes())
     }
     pub fn feed(&mut self, command: &str, bytes: &[u8]) -> Vec<Vec<u8>> {
         self.feed_masked(command, bytes, &|_, _, _| false)
@@ -665,6 +667,38 @@ impl Terminal {
         }
         (total, lines)
     }
+    /// Replace secret-bearing cells using full masked logical context. Keep the
+    /// raw grid, widths, colours and cursor intact; never parse replacement stars.
+    pub(crate) fn masked_snapshot(&self, lines: &[String]) -> TerminalSnapshot {
+        let mut snapshot = self.snapshot();
+        let grid = self.term.grid();
+        let history = grid.history_size();
+        let offset = grid.display_offset();
+        for row in 0..self.size.0 {
+            let safe = lines[history - offset + row].as_bytes();
+            let mut byte = 0;
+            for col in 0..self.size.1 {
+                let cell = &grid[Point::new(Line(row as i32 - offset as i32), Column(col))];
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                let len = cell_text_len(cell);
+                let original: String = if cell.flags.contains(Flags::HIDDEN) {
+                    " ".into()
+                } else {
+                    std::iter::once(cell.c).chain(cell.zerowidth().into_iter().flatten().copied()).collect()
+                };
+                if safe.get(byte..byte + len) != Some(original.as_bytes()) {
+                    snapshot.cells[row * self.size.1 + col].ch = '*';
+                    if cell.flags.contains(Flags::WIDE_CHAR) && col + 1 < self.size.1 {
+                        snapshot.cells[row * self.size.1 + col + 1].ch = '*';
+                    }
+                }
+                byte += len;
+            }
+        }
+        snapshot
+    }
     pub fn snapshot(&self) -> TerminalSnapshot {
         let mut cells = Vec::with_capacity(self.size.0 * self.size.1);
         let offset = self.term.grid().display_offset();
@@ -709,6 +743,11 @@ impl Terminal {
                 Vec::new()
             },
         }
+    }
+}
+fn cell_text_len(cell: &clanky_vt::term::cell::Cell) -> usize {
+    if cell.flags.contains(Flags::HIDDEN) { 1 } else {
+        cell.c.len_utf8() + cell.zerowidth().into_iter().flatten().map(|c| c.len_utf8()).sum::<usize>()
     }
 }
 fn color(c: Color, foreground: bool) -> [u8; 3] {

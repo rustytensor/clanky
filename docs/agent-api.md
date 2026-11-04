@@ -26,8 +26,11 @@ copy and task payloads/labels (including send/task_get/task_update/tasks); v4
 screen text/history and output_appended event replay. MCP uses the same agent
 paths. Audit arguments are masked even for the owner's audit reader, with auth
 arguments omitted. Agent-facing transport error messages are sanitized too.
-The person's terminal display and owner output/block/screen reads remain raw.
-Owner event output refers back to raw retained archives, or reports
+The person's terminal display, block views, selection/copy, task payloads,
+screen/history and scrollback search use the same masking policy. Search matches
+masked text, never raw cells. OSC 52 writes and replies mask decoded text before
+encoding. Owner v1 get_output remains a raw archive interface; owner event output
+refers back to raw retained archives, or reports
 `data_unavailable` when those bytes are no longer available.
 
 The shared clanky-mask recognizer covers these conservative shapes, not issuer
@@ -93,7 +96,8 @@ list_blocks accepts optional command_id/after and up to 64 OSC 133 blocks.
 Block `command` is captured between OSC 133 B and C from the same masked logical
 screen context as the screen API, including wrapped rows. It is null when capture
 or masking is unavailable, or the command exceeds 64 KiB. This applies even to owner block reads; the ordinary
-owner terminal grid remains raw. Masking has the coverage limits described above.
+terminal grid remains raw internally, but snapshots shown to the person are masked.
+Masking has the coverage limits described above.
 
 Blocks also carry nullable absolute-line anchors: `prompt_line` (A, or B without A),
 `command_line` (C), and `end_line` (D). Lines count from the oldest retained row plus

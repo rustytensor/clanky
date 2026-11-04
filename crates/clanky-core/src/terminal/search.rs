@@ -11,9 +11,9 @@ struct Span {
 }
 
 impl Terminal {
-    // KMP keeps only query-sized byte-to-cell mapping, never a string per hit
-    // or a copy of the complete scrollback. A second pass marks the final view.
-    fn search_hits(&self, query: &[u8], mut hit: impl FnMut((usize, usize), &VecDeque<Span>)) {
+    // KMP maps masked bytes back to raw cell coordinates without reparsing stars.
+    // A second pass marks the final view. Masking always precedes matching.
+    fn search_hits(&self, lines: &[String], query: &[u8], mut hit: impl FnMut((usize, usize), &VecDeque<Span>)) {
         let mut prefix = vec![0; query.len()];
         let mut matched = 0;
         for i in 1..query.len() {
@@ -29,6 +29,7 @@ impl Terminal {
         let history = grid.history_size();
         for row in 0..history + self.size.0 {
             let line = Line(row as i32 - history as i32);
+            let mut offset = 0;
             for col in 0..self.size.1 {
                 let cell = &grid[Point::new(line, Column(col))];
                 if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
@@ -39,20 +40,20 @@ impl Terminal {
                 )].flags.contains(Flags::LEADING_WIDE_CHAR_SPACER);
                 let span = Span { row, col, leading,
                     width: if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 } };
-                for ch in std::iter::once(cell.c).chain(cell.zerowidth().into_iter().flatten().copied()) {
-                    let mut buffer = [0; 4];
-                    for &byte in ch.encode_utf8(&mut buffer).as_bytes() {
-                        if recent.len() == query.len() { recent.pop_front(); }
-                        recent.push_back(span);
-                        while matched > 0 && byte != query[matched] {
-                            matched = prefix[matched - 1];
-                        }
-                        if byte == query[matched] { matched += 1; }
-                        if matched == query.len() {
-                            let start = recent.front().unwrap();
-                            hit((start.row, start.col), &recent);
-                            matched = prefix[matched - 1];
-                        }
+                let len = cell_text_len(cell);
+                let bytes = &lines[row].as_bytes()[offset..offset + len];
+                offset += len;
+                for &byte in bytes {
+                    if recent.len() == query.len() { recent.pop_front(); }
+                    recent.push_back(span);
+                    while matched > 0 && byte != query[matched] {
+                        matched = prefix[matched - 1];
+                    }
+                    if byte == query[matched] { matched += 1; }
+                    if matched == query.len() {
+                        let start = recent.front().unwrap();
+                        hit((start.row, start.col), &recent);
+                        matched = prefix[matched - 1];
                     }
                 }
             }
@@ -63,7 +64,7 @@ impl Terminal {
         }
     }
 
-    pub fn window_search(&mut self, query: &str, after: Option<(usize, usize)>, backwards: bool)
+    pub fn window_search(&mut self, lines: &[String], query: &str, after: Option<(usize, usize)>, backwards: bool)
         -> Result<Value, String>
     {
         if query.len() > 256 { return Err("search query exceeds 256 bytes".into()); }
@@ -72,7 +73,7 @@ impl Terminal {
         let mut last = None;
         let mut candidate = None;
         if !query.is_empty() {
-            self.search_hits(query.as_bytes(), |start, _| {
+            self.search_hits(lines, query.as_bytes(), |start, _| {
                 total += 1;
                 first.get_or_insert(start);
                 last = Some(start);
@@ -94,7 +95,7 @@ impl Terminal {
         let top = history - self.term.grid().display_offset();
         let mut marks = vec![0u8; self.size.0 * self.size.1];
         if !query.is_empty() {
-            self.search_hits(query.as_bytes(), |start, spans| {
+            self.search_hits(lines, query.as_bytes(), |start, spans| {
                 let mark = if Some(start) == selected { 2 } else { 1 };
                 let mut paint = |row: usize, col: usize| {
                     if row >= top && row - top < self.size.0 && col < self.size.1 {
@@ -111,7 +112,7 @@ impl Terminal {
         let highlights: Vec<_> = marks.iter().enumerate().filter(|(_, mark)| **mark != 0)
             .map(|(i, mark)| json!({"row":i / self.size.1,"col":i % self.size.1,"selected":*mark == 2}))
             .collect();
-        let mut snapshot = self.snapshot();
+        let mut snapshot = self.masked_snapshot(lines);
         snapshot.images.clear();
         Ok(json!({"total":total,"selected":selected.map(|(row,col)| json!({"row":row,"col":col})),
             "snapshot":snapshot,"highlights":highlights}))
