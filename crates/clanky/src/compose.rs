@@ -72,6 +72,19 @@ impl Compose {
             personal_enabled, send_enter, popup: None, preedit: String::new() }
     }
 
+    pub fn configure(&mut self, config: &crate::config::Config) {
+        let replacement = Self::new(&config.compose_dictionary_dir, &config.compose_dictionary,
+            config.compose_words.clone(), config.compose_send_enter);
+        self.checker = replacement.checker;
+        self.spell_error = replacement.spell_error;
+        self.personal_enabled = replacement.personal_enabled;
+        self.send_enter = replacement.send_enter;
+        self.popup = None;
+        for draft in self.drafts.values_mut() {
+            draft.flagged = self.checker.as_ref().map_or_else(Vec::new, |checker| checker.flagged(draft.editor.text()));
+        }
+    }
+
     pub fn open(&mut self, terminal: &str) -> Result<(), String> {
         if terminal.is_empty() { return Err("no compose target".into()); }
         self.drafts.entry(terminal.to_owned()).or_insert_with(|| Draft {

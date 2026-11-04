@@ -2,6 +2,19 @@
 use std::path::PathBuf;
 use winit::window::{Theme, Window};
 
+/// Ask the desktop's file association to open a settings file without a shell.
+pub fn open_settings_file(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "linux")] {
+        let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+        let mut child = std::process::Command::new("xdg-open").arg(path)
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()).spawn().map_err(|e| e.to_string())?;
+        std::thread::spawn(move || { let _ = child.wait(); });
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))] { let _ = path; Err("Opening settings is not implemented on this platform".into()) }
+}
+
 pub fn private_file(options: &mut std::fs::OpenOptions) {
     #[cfg(unix)] {
         use std::os::unix::fs::OpenOptionsExt;

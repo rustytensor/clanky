@@ -142,8 +142,17 @@ Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result"
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
 Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 
+Socket `hello` accepts optional `client_name` and `model` strings (1–128 UTF-8
+bytes, not whitespace-only, no control characters). Existing hello responses are
+unchanged. These untrusted display labels are masked before storage and appear only
+in the authenticated owner's look_state agent entries; they grant no authority.
+A later hello replaces the labels; omitted labels clear them. Owners never appear
+in the connected-agent list. The UI falls back to `agent <pid>` without a name.
+
 For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
-agents, command drivers, the last 20 metadata-only events, and activity. **activity
+agents, command drivers, the last 20 metadata-only events, and activity. Each
+look event includes `age_ms`, its monotonic age at the time of the query; the UI
+shows relative seconds/minutes/hours rather than inventing wall-clock times. **activity
 is exactly 30 unsigned integer command counts, oldest to newest**, for the chart
 “Agent commands per minute · last 30 min”. Each bucket covers one 60-second
 interval of monotonic server uptime; the final bucket is the current, partial

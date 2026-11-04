@@ -109,6 +109,7 @@ Exit chip: a pill on the command row, from 2 px below the row's top to 2 px abov
 inside the card, 8 px padding around its text, filled ok or err over the card (dark 18 %, light 10 %), its text
 in ok_ink or err_ink.
 Only the focused pane and agent-driven panes get a shadow or glow, in both themes; other panes have none.
+Agent glow RGB derives from violet by saturating (+13, −79, +5), with alpha 166 dark / 89 light and a 6 px falloff; the violet token itself is unchanged.
 
 ## Config (new keys)
 

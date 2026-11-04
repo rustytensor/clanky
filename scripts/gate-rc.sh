@@ -89,5 +89,10 @@ for gate in scripts/gate-m6-masking.sh scripts/gate-m7-core.sh scripts/gate-m7-p
     scripts/gate-polish-session.sh scripts/gate-linux-packaging.sh scripts/gate-docs.sh; do
     run_gate "$gate"
 done
+# A standalone M11 run calls this regression gate after its own check.
+# In that case, do not recurse into M11 a second time.
+if [[ ${CLANKY_M11_PARENT:-0} != 1 ]]; then
+    run_gate scripts/gate-m11-look.sh
+fi
 if (( failed )); then echo 'FAIL: release-candidate gate'; exit 1; fi
 echo 'PASS: release-candidate gate'

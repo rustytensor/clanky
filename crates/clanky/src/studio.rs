@@ -29,6 +29,10 @@ pub struct Studio {
     blocks: BTreeMap<String, Value>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
+    card_clocks: BTreeMap<(String,String),Instant>,
+    card_keys: Vec<(String,String)>,
+    card_focus: Option<(String,String)>,
+    card_action: usize,
     snapshots: BTreeMap<String, TerminalSnapshot>,
     shown: BTreeMap<String, (TerminalSnapshot, f32)>,
     reviews: BTreeMap<String, Review>,
@@ -41,6 +45,7 @@ impl Default for Studio {
     fn default() -> Self {
         Self { drag: None, theme: look::Theme::default(), hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
+            card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
             activity: Vec::new(), started: Instant::now() }
     }
@@ -168,8 +173,56 @@ impl App {
         let focused = self.focused().map(str::to_owned);
         if !self.engine.is_closed() { self.panels.refresh(&self.engine, focused.as_deref()); }
     }
+    fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
+        self.studio.card_keys.clear();
+        let modal=self.settings_open() || self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some();
+        let mut shown=Vec::new();
+        for pane in &layout.panes {
+            let Some(data)=state.panes.iter().find(|data|data.id==pane.id) else{continue;};
+            for block in &data.blocks {
+                let origin=[pane.grid_origin[0],pane.grid_origin[1]-data.scroll_px];
+                let Some(rect)=look::block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{continue;};
+                let key=(data.id.clone(),block.id.clone());
+                self.studio.card_keys.push(key.clone());
+                if !modal && (rect.contains(self.mouse.0,self.mouse.1) || self.studio.card_focus.as_ref()==Some(&key)) {
+                    let start=self.studio.card_clocks.entry(key.clone()).or_insert(now);
+                    let opacity=look::ease_out_cubic(0.0,1.0,start.elapsed().as_secs_f32()*1000.0,120.0,self.config.animations);
+                    state.block_actions.insert(key.clone(),opacity);
+                    shown.push(key);
+                }
+            }
+        }
+        self.studio.card_clocks.retain(|key,_|shown.contains(key));
+        if self.studio.card_focus.as_ref().is_some_and(|key|!self.studio.card_keys.contains(key)) || modal {self.studio.card_focus=None;}
+        state.block_action_focus=self.studio.card_focus.as_ref().map(|(tab,id)|(tab.clone(),id.clone(),self.studio.card_action));
+    }
+    pub fn settings_button_hit(&self)->bool {
+        self.studio.hits.iter().any(|hit|hit.action==HitAction::Settings && hit.rect.contains(self.mouse.0,self.mouse.1))
+    }
+    pub fn clear_card_focus(&mut self) {self.studio.card_focus=None;}
+    pub fn card_focused(&self)->bool {self.studio.card_focus.is_some()}
+    pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
+        if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return Ok(false);}
+        if *key==Key::Named(NamedKey::F6) {
+            if !self.studio.card_keys.is_empty() {
+                let next=self.studio.card_focus.as_ref().and_then(|key|self.studio.card_keys.iter().position(|k|k==key)).map_or(0,|i|(i+1)%self.studio.card_keys.len());
+                self.studio.card_focus=Some(self.studio.card_keys[next].clone());self.studio.card_action=0;self.reset_ime();
+            }
+            return Ok(true);
+        }
+        let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
+        match key {
+            Key::Named(NamedKey::Escape)=>{self.studio.card_focus=None;self.reset_ime();},
+            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+3)%4,
+            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%4,
+            Key::Named(NamedKey::Enter)=>{self.panels.block_action(&self.engine,&tab,&id,["copy","rerun","send","collapse"][self.studio.card_action])?;self.local_request()?;},
+            _=>(),
+        }
+        Ok(true)
+    }
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
+            HitAction::Settings=>{self.toggle_settings()?;},
             HitAction::Palette => {
                 self.palette_editor = Some(self.files.focus.clone());
                 let focused = self.focused().map(str::to_owned);
@@ -206,6 +259,8 @@ impl App {
         Ok(())
     }
     pub(super) fn click_studio(&mut self) -> Result<(), String> {
+        if self.settings_button_hit() {return self.toggle_settings();}
+        self.studio.card_focus=None;
         self.files.dragging = None; self.studio.drag = None;
         let layout = self.pixel_layout()?;
         if self.compose.active_target().is_some() {
@@ -335,7 +390,7 @@ impl App {
         let now = Instant::now();
         let mut state = LookState { theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
             elapsed_ms: self.studio.started.elapsed().as_secs_f32()*1000.0,
-            focused: if self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
+            focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
             ..LookState::default() };
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
@@ -343,6 +398,7 @@ impl App {
         state.activity = self.studio.activity.clone();
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(id) = group.layout.leaves().first() {
+                state.session_counts.insert(id.clone(),group.layout.leaves().len());
                 state.sessions.push(look::SessionItem { id: id.clone(), title: format!("Session {} · {}", index+1, group.focus), active: index == self.active });
             }
         }
@@ -353,12 +409,20 @@ impl App {
         if let Some(agents) = self.studio.metadata["agents"].as_array() {
             for agent in agents {
                 if let (Some(connection_id),Some(peer_pid)) = (agent["connection_id"].as_u64(),agent["peer_pid"].as_u64().and_then(|n|u32::try_from(n).ok())) {
+                    if let Some(name)=agent["client_name"].as_str().filter(|s|!s.is_empty()) {
+                        let label=agent["model"].as_str().filter(|s|!s.is_empty()).map(|model|format!("{name} · {model}")).unwrap_or_else(||name.into());
+                        state.agent_labels.insert(connection_id,label);
+                    }
                     state.agents.push(look::AgentItem { connection_id, peer_pid, tab_id: agent["tab_id"].as_str().map(str::to_owned), running: agent["running"].as_bool().unwrap_or(false) });
                 }
             }
-        } else { state.timeline.push(look::TimelineItem { label: "Metadata unavailable".into(), detail: "Agent peers, uptime and masking are unknown".into() }); }
+        }
         if let Some(events) = self.studio.metadata["events"].as_array() {
-            for event in events.iter().rev().take(20) {
+            for event in events.iter().skip(events.len().saturating_sub(20)) {
+                state.timeline_times.push(event["age_ms"].as_u64().map(|ms| {
+                    let seconds=ms/1000;
+                    if seconds<60 {format!("{seconds}s")} else if seconds<3600 {format!("{}m",seconds/60)} else {format!("{}h",seconds/3600)}
+                }).unwrap_or_default());
                 state.timeline.push(look::TimelineItem { label: event["kind"].as_str().unwrap_or("unknown").into(),
                     detail: format!("{} {}",event["tab_id"].as_str().unwrap_or(""),event["command_id"].as_str().unwrap_or("")) });
             }
@@ -434,7 +498,7 @@ impl App {
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
-            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { "Driver unknown".into() };
+            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { String::new() };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
                 if let Some(driver) = drivers.iter().find(|d| d["tab_id"].as_str() == Some(pane.id.as_str()) && d["running"] == true) {
                     view.agent_running = true;
@@ -558,7 +622,9 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
-        let mut presentation = look::presentation(&layout,&state);
+        self.update_card_actions(&layout,&mut state,now);
+        let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
+        let mut presentation = look::presentation_with_measure(&layout,&state,&mut |run| renderer.measure_text(run));
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
@@ -608,10 +674,15 @@ impl App {
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
             let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { (layout.metrics.small_font_px as f32).min(layout.cell_px[0] as f32) } else { layout.metrics.ui_font_px as f32 };
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity })); }
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
         if let Some(status) = &self.status {
-            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0 }));
+            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
+        }
+        if let Some(panel)=&mut self.settings {
+            let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|(pane.id.clone(),pane.allow_agent)).collect();
+            presentation.scene.layers.extend(panel.draw_with_measure(&layout,&state.theme,&access,&mut |run|renderer.measure_text(run)));
+            if panel.open{ime=panel.ime_position();}
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {
