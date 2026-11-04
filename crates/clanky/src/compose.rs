@@ -11,6 +11,31 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 const MAX_BYTES: usize = 256 * 1024;
 const NORMAL: [u8; 3] = [24, 24, 28];
 
+/// Largest input one socket request accepts (`Client::input`).
+pub const INPUT_CHUNK: usize = 64 * 1024;
+
+/// Deliver one paste through an input path that accepts at most `limit` bytes
+/// per call. Pieces go in order to the same target. If a later piece fails,
+/// send the bracketed-paste end marker so the shell is not left inside a paste.
+pub fn send_chunked(
+    payload: &[u8],
+    limit: usize,
+    mut input: impl FnMut(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut sent = 0;
+    for piece in payload.chunks(limit.max(1)) {
+        if let Err(error) = input(piece) {
+            if sent > 0 {
+                let _ = input(b"\x1b[201~");
+                return Err(format!("{error} (send stopped after {sent} bytes; draft retained)"));
+            }
+            return Err(error);
+        }
+        sent += piece.len();
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ComposeEvent { None, Send }
 

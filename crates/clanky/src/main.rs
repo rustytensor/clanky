@@ -528,7 +528,9 @@ impl App {
                     if !groups.iter().any(|g| g.layout.contains(target)) {
                         return Err("Compose target was closed; draft retained".into());
                     }
-                    engine.input(target, bytes).map_err(|e| e.message)
+                    clanky::compose::send_chunked(bytes, clanky::compose::INPUT_CHUNK, |piece| {
+                        engine.input(target, piece).map_err(|e| e.message)
+                    })
                 })
             } else { Ok(()) };
             if self.compose.active_target().is_none() {
