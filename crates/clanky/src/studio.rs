@@ -22,7 +22,7 @@ struct Scroll {
 }
 pub struct Studio {
     pub drag: Option<Capture>,
-    theme: look::Theme,
+    pub(crate) theme: look::Theme,
     hits: Vec<Hotspot>,
     metadata: Value,
     permissions: BTreeMap<String, bool>,
