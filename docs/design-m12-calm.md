@@ -50,12 +50,23 @@ A theme is a JSON file. Built-in themes ship inside the binary; user themes live
   - **Stone** (default, dark and light): the approved values, as on the sheets.
   - **Paper:** warmer, with softer contrast, dark and light.
   - **Graphite:** cool neutral, shadcn's own neutral greys, dark and light.
-  - **Catppuccin:** Latte (light), Frappé, Macchiato and Mocha (dark). MIT. Colours are taken from the upstream
+  - **Catppuccin** (Marc's yes, 2026-11-04): Latte (light), Frappé, Macchiato and Mocha (dark). MIT. Colours are taken from the upstream
     `catppuccin/palette` palette.json, and the gate checks them against that file. Agent colour = peach.
   - **AI Bedazzled** (dark): the joke theme, every AI cliché in one place.
     - Violet-to-blue `window_gradient` (#7c3aed to #2563eb), glows on, and violet and cyan accents.
     - A drawn sparkle icon beside the brand, and an "AI-powered" badge in the top bar.
     - Its description in Settings: "Every AI cliché, lovingly assembled. For the rare person who wants it."
+  - **Unicorn Tears** (light): a soft pastel dream.
+    - Pale pink-to-lavender sidebar gradient (#fde2f3 to #e4dcff), with mint, baby-blue and peach accents and
+      gentle rounded glows.
+    - Text in a deep plum (#3b2a4d), so it still reads at 4.5:1.
+    - Settings: "Soft, dreamy, a little sad. Like a unicorn who just watched a sad film."
+  - **Unicorn Vomit** (dark): full-saturation rainbow.
+    - A red-orange-yellow-green-blue-violet window gradient, a different neon colour on each pane border, glows on,
+      and a hot-pink cursor.
+    - Settings: "Every colour at once. You were warned."
+    - Exempt from the contrast check, like AI Bedazzled; the gate lists the exempt tokens.
+  - **Gradients** may have more than two stops: `window_gradient` is a list of 2 to 8 colours, spread evenly.
 - **Settings > Appearance:**
   - a theme picker for dark and one for light (`theme_dark`, `theme_light`; `theme` stays dark, light or system);
   - colour pickers on the active theme;
@@ -83,6 +94,43 @@ tabs and splits. No agents, no AI features. For coding and AI purists." Config `
   - search, the palette, Settings, the editor and themes;
   - secret masking, which is a safety feature, not AI.
 - **Switching** applies at once. Connected agents are disconnected, which is the same as revoking all agents.
+
+## Clanky the robot (start-up animation)
+
+Marc approved the robot on 2026-11-04. The reference animation is
+/srv/devops/build/clanky/mockups/robot4.html; its shapes, timings and easings are the spec. Use its "Slow motion"
+button, or `?t=<ms>` to freeze a frame.
+
+- **What it does, about 2.4 s:**
+  1. Clanky rolls in side-on, wheels spinning, and brakes with a forward rock.
+  2. **The turn (800–1400 ms):** the tread base turns 90° to face the viewer. It is a box of six faces (192 × 58 × 120)
+     projected with a perspective of 640 px. During the turn the view tilts down to 22° and back, the side face
+     darkens up to 55 %, the front face brightens from 45 %, and the shadow narrows. Before and after the turn it
+     is flat 2D.
+  3. The neck rises, the head tilts −7°, the shutters open and the irises focus.
+  4. The charge bars light up one by one, it blinks, and the right arm waves with an elbow bend and a double claw
+     snap.
+  5. "Clanky" fades up with a blinking cursor in the agent colour.
+- **When:** it plays centred in the first pane of every new window, over the pane, while the shell starts
+  underneath.
+- **Skipping:** any key or click skips it at once, and that key or click goes to the shell or the control as normal.
+  Nothing is ever delayed or swallowed.
+- **Turning it off:** config `startup_animation` (default true), or `animations: false`.
+- **Colour:** every colour comes from the theme: metal = the muted greys, paint = a theme token `robot_paint` (Stone:
+  dark #6b5236, light #e3c08e), glow parts = agent. Every built-in theme defines `robot_paint`.
+- **`clanky +hello`** plays it large, in its own window, for fun.
+- **Renderer:** filled and stroked paths with anti-aliasing for the curves (arms, claws, chest wave and the
+  sidebar's line icons), using the lyon crate (MIT OR Apache-2.0, on the licence list; name it in the commit
+  message). The 3D turn is six flat panels through a 4 × 4 perspective matrix: no 3D engine.
+- **Gate (check 15):**
+  - with the clock driven by the harness, frames are drawn only from 0 to 2400 ms; then 0 frames over the next
+    2 s;
+  - a key at 300 ms ends the animation within one frame, and the shell receives that key's bytes;
+  - at 2400 ms, the antenna light's centre pixel in Stone dark is the agent colour (210, 164, 118, 255),
+    tolerance 3;
+  - at 1100 ms, the tread base's front face and side face are both visible: the pixel at the base's centre-left
+    differs from both the pre-turn and the post-turn frames;
+  - planted fault `robot` (never stops): must fail the zero-frame check.
 
 ## Layout numbers
 
@@ -166,7 +214,7 @@ column are shown. Every expected value below was worked out from the numbers abo
     - Every built-in theme loads.
     - A theme missing one colour is refused with the loader's message.
     - The Catppuccin colours equal upstream palette.json, version pinned in the gate.
-    - Every text colour of every built-in theme except AI Bedazzled is at least 4.5:1 on its surface.
+    - Every text colour of every built-in theme except AI Bedazzled and Unicorn Vomit is at least 4.5:1 on its surface.
     - Save as new, then export, then import gives an identical file.
 11. **Post-AI mode.**
     - `post_ai: true` lays out with no right column: pane A = (268, 76, 952, 326), 116 columns.
@@ -199,7 +247,8 @@ release v1.9.1), plus OFL-Geist.txt. Marc approved Geist on 2026-11-04.
   - docs;
   - built on m11-idle, the redraw fix.
 - **clanky-build:**
-  - the theme system: format, loader, built-ins (Stone, Paper, Graphite, Catppuccin, AI Bedazzled), user theme
+  - Clanky the robot: lyon paths, the perspective panels, the animation timeline, `clanky +hello`;
+  - the theme system: format, loader, built-ins (Stone, Paper, Graphite, Catppuccin, AI Bedazzled, Unicorn Tears, Unicorn Vomit), user theme
     folder, and the Settings data for the picker, save, export and import;
   - the Geist fonts in the renderer.
 - **clanky-pkg:** this gate, the click harness, the idle check, the theme checks, the packaging list, and the
