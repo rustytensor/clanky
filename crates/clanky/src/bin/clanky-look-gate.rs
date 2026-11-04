@@ -1,10 +1,11 @@
 //! Real app layout and scene observations for the M11 gate.
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use clanky::{config::Config, look::{self, BlockCard, LookState, PaneState}};
+use clanky::{config::Config, layout_store, look::{self, BlockCard, LookState, PaneState}};
+use clanky_api::Client;
 use clanky_core::{Engine, layout::{Axis, Layout as Tree}, snapshot_from_chunks};
 use clanky_render::{Layer, offscreen_scene};
 use serde_json::{json, Value};
-use std::{env, fs, path::Path, time::{Duration, Instant}};
+use std::{env, fs, path::Path, process::{Child, Command, Stdio}, thread, time::{Duration, Instant}};
 
 struct Session(Engine);
 impl Drop for Session { fn drop(&mut self) { self.0.shutdown(); } }
@@ -27,6 +28,57 @@ fn pty_size(engine: &Engine, pane: &look::PaneLayout) -> Result<Vec<usize>, Stri
     call("close_tab", json!({"tab_id":tab}))?;
     Ok(size)
 }
+struct StoreServer { child: Child, client: Client }
+impl StoreServer {
+    fn start(socket: &Path) -> Result<Self, String> {
+        let app = env::current_exe().map_err(|e| e.to_string())?.with_file_name("clanky");
+        let mut child = Command::new(app).arg("--server").arg("--socket").arg(socket)
+            .stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let client = loop {
+            if let Ok(client) = Client::connect_owner(socket) { break client; }
+            if Instant::now() >= deadline || child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                let _ = child.kill(); let _ = child.wait();
+                return Err("store server startup failed".into());
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        Ok(Self { child, client })
+    }
+}
+impl Drop for StoreServer {
+    fn drop(&mut self) {
+        let _ = Command::new("kill").arg("-TERM").arg(self.child.id().to_string()).status();
+        let _ = self.child.wait();
+    }
+}
+fn restored_layout(dir: &Path, ratio: f64) -> Result<(look::Layout, String, String), String> {
+    let path = dir.join("config").join("clanky").join("layout.json");
+    let first = StoreServer::start(&dir.join("save.sock"))?;
+    let call = |op: &str, args: Value| first.client.exchange(1, op, &args).map_err(|e| e.message);
+    let mut ids = Vec::new();
+    for _ in 0..2 {
+        let tab = call("open_tab", json!({"rows":14,"cols":71,"allow_agent":false}))?["tab_id"].as_str().ok_or("store tab")?.to_owned();
+        call("run",json!({"tab_id":tab,"argv":["sh","-c","sleep 600"],"cwd":"/"}))?;
+        ids.push(tab);
+    }
+    let mut tree = Tree::branch(Axis::Rows,Tree::leaf(&ids[0]),Tree::leaf(&ids[1]));
+    tree.set_ratio(&[],ratio)?;
+    let mut workspace = first.client.workspace_get().map_err(|e| e.message)?;
+    workspace.groups = vec![clanky_core::WorkspaceGroup { layout: tree, focus: ids[1].clone() }];
+    workspace.active = 0;
+    first.client.workspace_set(&workspace).map_err(|e| e.message)?;
+    layout_store::save(&first.client,&path)?;
+    drop(first);
+    let second = StoreServer::start(&dir.join("restore.sock"))?;
+    if !layout_store::restore(&second.client,&path,true)? { return Err("store did not restore".into()); }
+    let workspace = second.client.workspace_get().map_err(|e| e.message)?;
+    let tree = &workspace.groups.first().ok_or("missing restored group")?.layout;
+    let ids = tree.leaves();
+    if ids.len() != 2 { return Err("wrong restored pane count".into()); }
+    let layout = look::layout([1240,760],1.0,true,tree,[10,20]);
+    Ok((layout,ids[0].clone(),ids[1].clone()))
+}
 fn pane(layout: &look::Layout, id: &str) -> Value {
     let p = layout.pane(id).expect("fixture pane");
     json!({"rect":p.rect.array(),"origin":p.grid_origin,"cols":p.cols,"rows":p.rows})
@@ -41,9 +93,9 @@ fn run() -> Result<(), String> {
     let shown = look::layout([1240,760],1.0,true,&tree,[10,20]);
     let hidden = look::layout([1240,760],1.0,false,&tree,[10,20]);
     let dragged = look::drag_divider(&shown,0,300.0)?;
-    let saved = serde_json::to_vec(&dragged.workspace_layout).map_err(|e| e.to_string())?;
-    let restored: Tree = serde_json::from_slice(&saved).map_err(|e| e.to_string())?;
-    let restored = look::layout([1240,760],1.0,true,&restored,[10,20]);
+    let work = Path::new(&output).parent().ok_or("missing fixture directory")?;
+    let ratio = if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("store") { 0.5 } else { dragged.ratio };
+    let (restored, restored_a, restored_b) = restored_layout(work, ratio)?;
     let engine = Session(Engine::new());
     let pty_a = pty_size(&engine.0, shown.pane("A").ok_or("pane A")?)?;
     let pty_b = pty_size(&engine.0, shown.pane("B").ok_or("pane B")?)?;
@@ -85,7 +137,7 @@ fn run() -> Result<(), String> {
     println!("{}",json!({
         "layout":{"content":shown.content.array(),"a":pane(&shown,"A"),"b":pane(&shown,"B"),"pty_a":pty_a,"pty_b":pty_b},
         "rails_hidden":{"a":pane(&hidden,"A"),"b":pane(&hidden,"B")},
-        "drag":{"a":pane(&dragged.layout,"A"),"b":pane(&dragged.layout,"B"),"restored_a":pane(&restored,"A"),"restored_b":pane(&restored,"B")},
+        "drag":{"a":pane(&dragged.layout,"A"),"b":pane(&dragged.layout,"B"),"restored_a":pane(&restored,&restored_a),"restored_b":pane(&restored,&restored_b)},
         "pixels":pixels,"agent_glow":sample(&agent,215,222),
         "light_pixels":light_pixels,"light_agent_glow":sample(&light_agent,215,222),
         "motion":{"cursor":[ease(100.,200.,0.,80.,true),ease(100.,200.,40.,80.,true),ease(100.,200.,80.,80.,true),ease(100.,200.,120.,80.,true)],"panel_60ms":ease(0.,1.,60.,120.,true),"cursor_disabled_0ms":ease(100.,200.,0.,80.,false),"panel_disabled_0ms":ease(0.,1.,0.,120.,false)},
