@@ -14,6 +14,7 @@
     "input": "#ddd6cc",
     "ring": "#a39a8f",
     "primary": "#2a2622",
+    "primary_pressed": "#3d3832",
     "primary_foreground": "#fbfaf8",
     "sidebar_accent": "#e9e4dc",
     "ok": "#4d7a56",
