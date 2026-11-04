@@ -1,11 +1,17 @@
 //! Startup configuration and session-only font sizing.
-use std::{env, fs, io::ErrorKind, path::Path};
+use std::{env, fs, io::ErrorKind, path::{Path, PathBuf}};
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_size_pt: f32,
     pub columns: usize,
     pub rows: usize,
+    pub compose_dictionary: String,
+    pub compose_dictionary_dir: PathBuf,
+    pub compose_send_enter: bool,
+    pub compose_words: Option<PathBuf>,
+    pub osc52_write: bool,
+    pub osc52_read: bool,
 }
 
 impl Default for Config {
@@ -14,6 +20,12 @@ impl Default for Config {
             font_size_pt: 12.0,
             columns: 80,
             rows: 24,
+            compose_dictionary: "en_US".into(),
+            compose_dictionary_dir: PathBuf::from("/usr/share/hunspell"),
+            compose_send_enter: false,
+            compose_words: None,
+            osc52_write: true,
+            osc52_read: false,
         }
     }
 }
@@ -39,14 +51,16 @@ impl Config {
                 &default_path
             }
         };
-        match fs::read_to_string(path) {
+        let mut config = match fs::read_to_string(path) {
             Ok(json) => Self::from_json(&json)
                 .map_err(|error| format!("config {}: {error}", path.display())),
             Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => {
                 Ok(Self::default())
             }
             Err(error) => Err(format!("config {}: {error}", path.display())),
-        }
+        }?;
+        config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
+        Ok(config)
     }
 
     pub fn from_json(json: &str) -> Result<Self, String> {
@@ -74,6 +88,29 @@ impl Config {
                     } else {
                         config.rows = dimension;
                     }
+                }
+                "compose_dictionary" => {
+                    let language = value.as_str().ok_or("compose_dictionary must be a string")?;
+                    if language.is_empty() || language.len() > 64
+                        || !language.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    {
+                        return Err("compose_dictionary must be a safe locale name (letters, digits, _ or -)".into());
+                    }
+                    config.compose_dictionary = language.into();
+                }
+                "compose_dictionary_dir" => {
+                    let dir = PathBuf::from(value.as_str().ok_or("compose_dictionary_dir must be a string")?);
+                    if !dir.is_absolute() { return Err("compose_dictionary_dir must be absolute".into()); }
+                    config.compose_dictionary_dir = dir;
+                }
+                "osc52_write" => {
+                    config.osc52_write = value.as_bool().ok_or("osc52_write must be a boolean")?;
+                }
+                "osc52_read" => {
+                    config.osc52_read = value.as_bool().ok_or("osc52_read must be a boolean")?;
+                }
+                "compose_send_enter" => {
+                    config.compose_send_enter = value.as_bool().ok_or("compose_send_enter must be a boolean")?;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }

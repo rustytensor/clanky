@@ -1,3 +1,4 @@
+// Modified by the Clanky project; see FORK.md in this crate.
 use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
 use std::process::ExitStatus;
@@ -61,7 +62,7 @@ pub enum Event {
 impl Debug for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Event::ClipboardStore(ty, text) => write!(f, "ClipboardStore({ty:?}, {text})"),
+            Event::ClipboardStore(ty, _) => write!(f, "ClipboardStore({ty:?}, [redacted])"),
             Event::ClipboardLoad(ty, _) => write!(f, "ClipboardLoad({ty:?})"),
             Event::TextAreaSizeRequest(_) => write!(f, "TextAreaSizeRequest"),
             Event::ColorRequest(index, _) => write!(f, "ColorRequest({index})"),

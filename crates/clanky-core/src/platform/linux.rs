@@ -38,13 +38,13 @@ impl Clipboard {
         Self::default()
     }
 
-    /// Copies at most 64 KiB without writing into a potentially blocked pipe.
+    /// Copies at most 1 MiB without writing into a potentially blocked pipe.
     /// Success means the helper was spawned, not that the display accepted it.
     pub fn copy(&mut self, bytes: &[u8]) -> io::Result<()> {
-        if bytes.len() > 64 * 1024 {
+        if bytes.len() > 1024 * 1024 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "clipboard input exceeds 64 KiB",
+                "clipboard input exceeds 1 MiB",
             ));
         }
         let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
@@ -57,38 +57,12 @@ impl Clipboard {
             command
         };
 
-        // Unlink before writing any clipboard bytes. create_new rejects existing
-        // files and symlinks; mode 0600 also protects the brief named lifetime.
-        static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
-        let mut input = None;
-        for _ in 0..32 {
-            let path = std::env::temp_dir().join(format!(
-                ".clanky-clipboard-{}-{}",
-                std::process::id(),
-                NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-            ));
-            match fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)
-            {
-                Ok(file) => {
-                    fs::remove_file(&path)?;
-                    input = Some(file);
-                    break;
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        let mut input = input.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "could not create private clipboard input",
-            )
-        })?;
+        // Anonymous RAM-backed input: no clipboard bytes touch a named disk file.
+        use std::os::fd::FromRawFd;
+        let name = c"clanky-clipboard";
+        let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+        if fd < 0 { return Err(io::Error::other("could not create clipboard memory input")); }
+        let mut input = unsafe { File::from_raw_fd(fd) };
         input.write_all(bytes)?;
         input.rewind()?;
 
@@ -102,7 +76,7 @@ impl Clipboard {
                 .map_err(|error| {
                     io::Error::new(
                         error.kind(),
-                        format!("clipboard helper unavailable: {error}"),
+                        "clipboard helper unavailable",
                     )
                 })?,
         );
@@ -125,6 +99,65 @@ impl Drop for Clipboard {
     fn drop(&mut self) {
         let _ = self.stop();
     }
+}
+
+/// Read only the clipboard selection with a bounded capture and helper lifetime.
+/// Helpers' stderr and clipboard bytes are never used in diagnostics.
+pub fn clipboard_read() -> io::Result<Vec<u8>> {
+    const LIMIT: usize = 64 * 1024;
+    let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        let mut command = HelperCommand::new("wl-paste");
+        command.args(["--no-newline", "--type", "text/plain;charset=utf-8"]);
+        command
+    } else {
+        let mut command = HelperCommand::new("xclip");
+        command.args(["-selection", "clipboard", "-out"]);
+        command
+    };
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped())
+        .stderr(Stdio::null()).spawn().map_err(|_| io::Error::other("clipboard read helper unavailable"))?;
+    let result = (|| {
+        let mut output = child.stdout.take().ok_or_else(|| io::Error::other("clipboard capture unavailable"))?;
+        let fd = output.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::other("clipboard capture unavailable"));
+        }
+        let deadline = Instant::now() + Duration::from_millis(750);
+        let mut bytes = Vec::new();
+        let mut buffer = [0u8; 4096];
+        let mut eof = false;
+        loop {
+            if Instant::now() >= deadline { return Err(io::Error::new(io::ErrorKind::TimedOut, "clipboard read timed out")); }
+            if !eof {
+                // At the bound probe one byte, but never retain an oversized capture.
+                let count = (LIMIT - bytes.len()).clamp(1, buffer.len());
+                match output.read(&mut buffer[..count]) {
+                    Ok(0) => eof = true,
+                    Ok(n) => {
+                        if bytes.len() + n > LIMIT { return Err(io::Error::other("clipboard read exceeds 64 KiB")); }
+                        bytes.extend_from_slice(&buffer[..n]);
+                        continue;
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                    Err(_) => return Err(io::Error::other("clipboard capture failed")),
+                }
+            }
+            if eof {
+                if let Some(status) = child.try_wait().map_err(|_| io::Error::other("clipboard helper status unavailable"))? {
+                    return if status.success() { Ok(bytes) } else { Err(io::Error::other("clipboard read helper failed")) };
+                }
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    })();
+    // Only this owned PID is stopped/reaped, including capture failures/timeouts.
+    if !matches!(child.try_wait(), Ok(Some(_))) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
 }
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -363,6 +396,33 @@ impl Process {
         false
     }
 
+    /// Read live kernel state, never the directory supplied at spawn time.
+    pub fn cwd(&self) -> Option<String> {
+        if self.stop.load(Ordering::Acquire) {
+            return None;
+        }
+        let shell = self.identity?;
+        {
+            let tty = &self.master;
+            let group = unsafe { libc::tcgetpgrp(tty.as_raw_fd()) };
+            if group > 1 {
+                if let Ok(identity) = process_identity(group) {
+                    if identity.group == group && identity.session == shell.session
+                        && identity.start >= shell.start
+                    {
+                        if let Some(cwd) = identity_cwd(identity) {
+                            if unsafe { libc::tcgetpgrp(tty.as_raw_fd()) } == group
+                                && process_identity(group).ok() == Some(identity)
+                            {
+                                return Some(cwd);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        identity_cwd(shell)
+    }
     pub fn input(&self, bytes: Vec<u8>) -> io::Result<()> {
         let n = bytes.len();
         self.queued
@@ -1030,4 +1090,81 @@ pub fn spawn_ssh(host: &str) -> io::Result<Child> {
         .map(OsString::from)
         .collect();
     spawn_pipe(OsStr::new("ssh"), &args)
+}
+
+/// Validate the process lifetime on both sides of the cwd read.
+fn identity_cwd(identity: ProcessIdentity) -> Option<String> {
+    if process_identity(identity.pid).ok() != Some(identity) {
+        return None;
+    }
+    let path = fs::read_link(format!("/proc/{}/cwd", identity.pid)).ok()?;
+    let path = path.to_str()?;
+    // proc appends this suffix for deleted directories: it is not a usable path.
+    if !Path::new(path).is_absolute() || path.ends_with(" (deleted)")
+        || path.contains('\0') || process_identity(identity.pid).ok() != Some(identity)
+    {
+        return None;
+    }
+    Some(path.to_owned())
+}
+
+/// Decode only local file URLs. No DNS, filesystem lookup or guessed directory.
+pub(crate) fn local_osc7_cwd(bytes: &[u8]) -> Option<String> {
+    let url = std::str::from_utf8(bytes).ok()?.strip_prefix("file://")?;
+    let (host, path) = url.split_once('/')?;
+    if !host.is_empty() && !host.eq_ignore_ascii_case("localhost") {
+        static HOST: OnceLock<Option<String>> = OnceLock::new();
+        let local = HOST.get_or_init(|| {
+            let mut bytes = [0u8; 256];
+            if unsafe { libc::gethostname(bytes.as_mut_ptr().cast(), bytes.len()) } != 0 {
+                return None;
+            }
+            let end = bytes.iter().position(|b| *b == 0)?;
+            std::str::from_utf8(&bytes[..end]).ok().map(str::to_owned)
+        });
+        if !local.as_ref().is_some_and(|local| host.eq_ignore_ascii_case(local)) {
+            return None;
+        }
+    }
+    // Reject credentials, ports, query/fragment components and raw controls.
+    if host.contains(['@', ':', '%']) || path.contains(['?', '#'])
+        || bytes.iter().any(|b| b.is_ascii_control())
+    {
+        return None;
+    }
+    let mut decoded = vec![b'/'];
+    let mut bytes = path.as_bytes().iter().copied();
+    while let Some(byte) = bytes.next() {
+        decoded.push(if byte == b'%' {
+            let hex = |b: u8| (b as char).to_digit(16).map(|n| n as u8);
+            (hex(bytes.next()?)? << 4) | hex(bytes.next()?)?
+        } else {
+            byte
+        });
+    }
+    let path = String::from_utf8(decoded).ok()?;
+    if path.contains('\0') || !Path::new(&path).is_absolute() {
+        return None;
+    }
+    Some(path)
+}
+
+/// Stop and reap a server child by its owned PID, allowing normal PTY cleanup.
+pub fn stop_server(child: &mut Child) -> io::Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
+    if unsafe { libc::kill(child.id() as i32, libc::SIGTERM) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if child.try_wait()?.is_some() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    child.kill()?;
+    child.wait()?;
+    Ok(())
 }

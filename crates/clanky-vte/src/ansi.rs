@@ -1,3 +1,4 @@
+// Modified by the Clanky project; see FORK.md in this crate.
 // SPDX-License-Identifier: Apache-2.0
 //
 // This module was originally part of the `alacritty_terminal` crate, which is
@@ -1481,8 +1482,10 @@ where
 
             // Set clipboard.
             b"52" => {
-                if params.len() < 3 {
-                    return unhandled(params);
+                // Reject the entire malformed request, never its valid prefix;
+                // clipboard bytes must not reach unhandled-OSC diagnostics.
+                if params.len() != 3 {
+                    return;
                 }
 
                 let clipboard = params[1].first().unwrap_or(&b'c');

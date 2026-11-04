@@ -5,3 +5,7 @@ compile_error!("Clanky M1 supports Linux only");
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "linux")]
+mod desktop;
+#[cfg(target_os = "linux")]
+pub use desktop::{home_dir, valid_http_url, UrlOpener};
