@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$ROOT/scripts/gate-render-env.sh"
 : "${CARGO_TARGET_DIR:?set an absolute CARGO_TARGET_DIR}"
 : "${CARGO_HOME:?set an absolute CARGO_HOME}"
 case "$CARGO_TARGET_DIR" in /*) ;; *) echo 'FAIL: CARGO_TARGET_DIR must be absolute' >&2; exit 1;; esac

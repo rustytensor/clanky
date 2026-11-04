@@ -3,11 +3,9 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 : "${CARGO_TARGET_DIR:?set an absolute CARGO_TARGET_DIR}"
 : "${CARGO_HOME:?set an absolute CARGO_HOME}"
-: "${VK_DRIVER_FILES:?lead must supply the software Vulkan driver}"
-: "${LIBGL_ALWAYS_SOFTWARE:?lead must force software rendering}"
+. "$ROOT/scripts/gate-render-env.sh"
 case "$CARGO_TARGET_DIR" in /*) ;; *) echo 'FAIL: CARGO_TARGET_DIR must be absolute' >&2; exit 1;; esac
 case "$CARGO_HOME" in /*) ;; *) echo 'FAIL: CARGO_HOME must be absolute' >&2; exit 1;; esac
-case "$LIBGL_ALWAYS_SOFTWARE" in 1|true) ;; *) echo 'FAIL: software rendering required' >&2; exit 1;; esac
 export CLANKY_BUILD_LOCK=${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}
 case "$CLANKY_BUILD_LOCK" in /*) ;; *) echo 'FAIL: CLANKY_BUILD_LOCK must be absolute' >&2; exit 1;; esac
 case "${CLANKY_GATE_FAULT:-}" in ''|compose-send) ;; *) echo 'FAIL: unknown compose fault' >&2; exit 1;; esac
