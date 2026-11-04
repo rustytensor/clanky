@@ -1,5 +1,5 @@
 Name:           clanky
-Version:        0.5.1
+Version:        0.5.2
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 License:        MIT OR Apache-2.0
@@ -50,6 +50,9 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.5.2-1
+- Add the text editor, session restore and command-finished notifications.
+
 * Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.5.1-1
 - Keep package versions in step with Cargo and build offline source RPMs.
 
