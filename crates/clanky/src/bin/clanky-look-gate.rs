@@ -92,8 +92,8 @@ fn run() -> Result<(), String> {
     let tree = Tree::branch(Axis::Rows, Tree::leaf("A"), Tree::leaf("B"));
     let shown = look::layout([1240,760],1.0,true,&tree,[10,20]);
     let work = Path::new(&output).parent().ok_or("missing fixture directory")?;
-    let snap_a = snapshot_from_chunks(14,71,&[b"git log --oneline -2\r\n\x1b[38;2;79;209;197m803c17b\x1b[0m Add light theme\r\n\x1b[38;2;79;209;197m8f32fbd\x1b[0m Render pixel scenes\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
-    let snap_b = snapshot_from_chunks(14,71,&[b"cargo build\r\n\x1b[38;2;141;155;184m   Compiling clanky v0.5.5\r\n    Finished `dev` profile in 41.17s\x1b[0m\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
+    let snap_a = snapshot_from_chunks(14,71,&[b"git log --oneline -2\r\n\x1b[36m803c17b\x1b[0m Add light theme\r\n\x1b[36m8f32fbd\x1b[0m Render pixel scenes\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
+    let snap_b = snapshot_from_chunks(14,71,&[b"cargo build\r\n   \x1b[32mCompiling\x1b[0m clanky v0.5.5\r\n    \x1b[32mFinished\x1b[0m `dev` profile in 41.17s\r\n\r\n~/projects/clanky > "]).map_err(|e| e.message)?;
     let mut a = PaneState::new("A",snap_a);
     a.title = "~/projects/clanky".into(); a.driver = "fish".into();
     a.blocks.push(BlockCard { id:"history".into(),first_row:0,last_row:2,command:"git log --oneline -2".into(),exit_code:Some(0),duration_ms:Some(120),running:false });
