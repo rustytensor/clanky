@@ -147,12 +147,14 @@ pub(crate) struct Tab {
     actions: Mutex<actions::ActionState>,
 }
 impl Tab {
-    fn new(rows: usize, cols: usize, allowed: bool) -> Self {
+    fn new(rows: usize, cols: usize, allowed: bool, focus: Arc<Mutex<Option<(u64, String)>>>) -> Self {
+        let mut terminal = Terminal::new(rows, cols);
+        terminal.set_focus_tracker(focus);
         Self {
             allowed: AtomicBool::new(allowed),
             closed: AtomicBool::new(false),
             lifecycle: Mutex::new(()),
-            terminal: Mutex::new(Terminal::new(rows, cols)),
+            terminal: Mutex::new(terminal),
             commands: Mutex::new(Commands {
                 current: None,
                 all: BTreeMap::new(),
@@ -199,7 +201,7 @@ struct State {
     shutdown: bool,
     workspace: Workspace,
 }
-struct Inner(Mutex<State>);
+struct Inner(Mutex<State>, Arc<Mutex<Option<(u64, String)>>>);
 impl Drop for Inner {
     fn drop(&mut self) {
         let s = self.0.get_mut().unwrap();
@@ -223,7 +225,23 @@ impl Engine {
             next_command: 0,
             shutdown: false,
             workspace: Workspace::empty(),
-        }))))
+        }), Arc::new(Mutex::new(None)))))
+    }
+    /// Publish focus only from an authenticated owner connection.
+    pub fn set_window_focus(&self, connection: u64, tab: Option<&str>) -> Result<(), CoreError> {
+        if let Some(id) = tab {
+            self.tab(id, true)?;
+            *self.0.1.lock().map_err(|_| error("internal", "focus state unavailable"))? = Some((connection, id.to_owned()));
+        } else {
+            self.clear_window_focus(connection);
+        }
+        Ok(())
+    }
+    /// A disconnected/unfocused window cannot clear another owner's focus.
+    pub fn clear_window_focus(&self, connection: u64) {
+        if let Ok(mut focus) = self.0.1.lock() {
+            if focus.as_ref().is_some_and(|(owner, _)| *owner == connection) { *focus = None; }
+        }
     }
     fn tab(&self, id: &str, trusted: bool) -> Result<Arc<Tab>, CoreError> {
         let tab = self
@@ -324,6 +342,8 @@ impl Engine {
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
             "resize" => &["tab_id", "rows", "cols"],
+            "terminal_info" => &["tab_id"],
+            "block_events" => &["tab_id", "after", "limit"],
             "permission_get" => &["tab_id"],
             "permission_set" => &["tab_id", "allow_agent"],
             _ => return Err(error("unknown_operation", "unknown operation")),
@@ -449,6 +469,35 @@ impl Engine {
                 )?;
                 Ok(json!({}))
             }
+            "block_events" => {
+                let limit = if args.get("limit").is_some() { number(args, "limit", 1, 64)? as usize } else { 64 };
+                let after = match args.get("after") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(id)) => Some(id.as_str()),
+                    _ => return Err(invalid("after must be string or null")),
+                };
+                let blocks = tab.terminal.lock().unwrap().block_events();
+                let start = match after {
+                    Some(id) => blocks.iter().position(|b| b.block_id == id).map(|i| i + 1)
+                        .ok_or_else(|| error("not_found", "block cursor no longer retained"))?,
+                    None => 0,
+                };
+                let page: Vec<_> = blocks.iter().skip(start).take(limit).collect();
+                let next = page.last().map(|b| b.block_id.as_str()).or(after);
+                Ok(json!({"blocks":page,"has_more":blocks.len().saturating_sub(start)>page.len(),"next_after":next}))
+            }
+            "terminal_info" => {
+                let (cwd, exe) = {
+                    let guard = tab.process.lock().unwrap();
+                    let process = guard.as_ref().ok_or_else(|| error("not_found", "terminal has no process"))?;
+                    (process.current_cwd().map_err(|e| error("io_error", e.to_string()))?,
+                     process.current_exe().map_err(|e| error("io_error", e.to_string()))?)
+                };
+                let cwd = cwd.to_str().ok_or_else(|| invalid("terminal directory is not UTF-8"))?;
+                let exe = exe.to_str().ok_or_else(|| invalid("terminal executable is not UTF-8"))?;
+                let terminal = tab.terminal.lock().unwrap();
+                Ok(json!({"cwd":cwd,"exe":exe,"rows":terminal.size.0,"cols":terminal.size.1}))
+            }
             "permission_get" => Ok(json!({"allow_agent":tab.allowed.load(Ordering::Acquire)})),
             "permission_set" => {
                 let allowed = args
@@ -502,7 +551,7 @@ impl Engine {
             s.next_tab += 1;
             let id = format!("t{}", s.next_tab);
             s.tabs
-                .insert(id.clone(), Arc::new(Tab::new(rows, cols, allow)));
+                .insert(id.clone(), Arc::new(Tab::new(rows, cols, allow, self.0.1.clone())));
             s.workspace.add(id.clone());
             return Ok(json!({"tab_id": id, "allow_agent": allow}));
         }

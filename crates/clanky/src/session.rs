@@ -11,9 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn connect_start(socket: &Path) -> io::Result<Client> {
+fn connect_start(socket: &Path) -> io::Result<(Client, bool)> {
     match Client::connect_owner(socket) {
-        Ok(client) => return Ok(client),
+        Ok(client) => return Ok((client, false)),
         Err(error) => {
             // NotFound may mean a missing credential, not a missing socket.
             // Never launch over any existing endpoint, even a stale one.
@@ -26,6 +26,7 @@ fn connect_start(socket: &Path) -> io::Result<Client> {
     }
     let exe = std::env::current_exe()?;
     let mut child = platform::spawn_server(&exe, socket)?;
+    let spawned_pid = child.id();
     // A competing launcher may lose the instance flock and exit. Both
     // launchers connect to the winner, and every launcher child is reaped.
     thread::spawn(move || {
@@ -34,7 +35,11 @@ fn connect_start(socket: &Path) -> io::Result<Client> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match Client::connect_owner(socket) {
-            Ok(client) => return Ok(client),
+            Ok(client) => {
+                let hello = client.exchange(3, "hello", &json!({}))
+                    .map_err(|e| io::Error::other(e.message))?;
+                return Ok((client, hello["server_pid"].as_u64() == Some(u64::from(spawned_pid))));
+            }
             Err(error)
                 if matches!(
                     error.kind(),
@@ -55,7 +60,20 @@ fn connect_start(socket: &Path) -> io::Result<Client> {
 }
 
 pub fn connect_or_start(socket: &Path) -> Result<Client, String> {
+    connect_or_start_with_status(socket).map(|(client, _)| client)
+}
+
+pub fn connect_or_start_with_status(socket: &Path) -> Result<(Client, bool), String> {
     connect_start(socket).map_err(|error| format!("cannot connect to session server: {error}"))
+}
+
+/// Shared startup path for graphical and offscreen windows.
+pub fn prepare_window(socket: &Path, layout: Option<&Path>) -> Result<Client, String> {
+    let guard = platform::StartupLock::acquire(socket).map_err(|e| format!("cannot lock window startup: {e}"))?;
+    let (client, fresh) = connect_or_start_with_status(socket)?;
+    if let Some(path) = layout { crate::layout_store::restore(&client, path, fresh)?; }
+    drop(guard);
+    Ok(client)
 }
 
 pub fn run_server(socket: &Path) -> Result<(), String> {
@@ -127,7 +145,7 @@ fn read_line(reader: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
 
 pub fn stdio(socket: &Path) -> Result<(), String> {
     let client = match connect_start(socket) {
-        Ok(client) => client,
+        Ok((client, _)) => client,
         // Inside a terminal, owner denial is expected. Preserve that role and
         // keep forwarding, including explicit auth requests carrying a token.
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {

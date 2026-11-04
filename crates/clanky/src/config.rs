@@ -6,6 +6,8 @@ pub struct Config {
     pub font_size_pt: f32,
     pub columns: usize,
     pub rows: usize,
+    pub notify_after_seconds: u64,
+    pub restore_layout: bool,
 }
 
 impl Default for Config {
@@ -14,6 +16,8 @@ impl Default for Config {
             font_size_pt: 12.0,
             columns: 80,
             rows: 24,
+            notify_after_seconds: 10,
+            restore_layout: true,
         }
     }
 }
@@ -74,6 +78,12 @@ impl Config {
                     } else {
                         config.rows = dimension;
                     }
+                }
+                "notify_after_seconds" => {
+                    config.notify_after_seconds = value.as_u64().ok_or("notify_after_seconds must be a nonnegative integer")?;
+                }
+                "restore_layout" => {
+                    config.restore_layout = value.as_bool().ok_or("restore_layout must be a boolean")?;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }

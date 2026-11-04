@@ -6,8 +6,11 @@
 notifications. Time each OSC 133 C..D block with a monotonic clock in the
 terminal engine, including blocks that start and finish between window frames.
 Only complete blocks at or above the threshold notify, once per window while it
-is attached, if the window itself is unfocused or the block's terminal is not
-its focused pane. Do not replay retained completions when attaching. A missing
+is attached, if the block's terminal was not the focused pane at its OSC D
+marker. An owner connection publishes focus changes to the server immediately;
+the terminal engine records the server's current focused terminal on each D.
+The owner connection's focus claim is cleared on disconnect, and another
+connection cannot clear it. The UI does not decide from focus at poll time. Do not replay retained completions when attaching. A missing
 OSC exit code is displayed as unknown. Use `notify-send` when available through
 the platform boundary; a missing helper or session bus must not stop editing.
 The notification is `Clanky` / `Command finished (exit 7)` for exit 7. Do not
@@ -32,16 +35,20 @@ Before implementation, the fixed expectations are:
 
 1. Start a private session `dbus-daemon` and fake freedesktop Notifications
    receiver. Exercise three real OSC 133 blocks: an unfocused 10.2-second block
-   ending in 7, a focused 10.2-second block, and an unfocused short block. At a
+   ending in 7, a focused 10.2-second block ending in 9, and an unfocused short block. At a
    threshold of 10 seconds the receiver must get exactly one notification:
    app `Clanky`, summary `Clanky`, body `Command finished (exit 7)`. A zero
    threshold produces none. All processes belong to the gate and are reaped.
-2. The gate writes a layout fixture with a two-pane column split, focused second
-   pane, two distinct existing temporary directories, and terminal sizes 24x40
-   and 30x60. Restore against a fresh private server. Observe the actual new
-   workspace, shell working directories and sizes: exactly those values and
-   split/focus, with new shell IDs and no old command execution. Repeat against
-   the same live server: no additional terminals or replaced workspace.
+2. Focus is on the first terminal at both long blocks' D markers, then changes
+   to the second before polling. The first must not notify and the second must
+   notify once, despite its later focus. The gate writes a layout fixture with a
+   two-pane column split, focused second pane, two distinct existing temporary
+   directories, and terminal sizes 24x40 and 30x60. The fixture file is 0600
+   inside an owned 0755 configuration directory. Start the real clanky binary
+   in an offscreen window-startup mode with no existing server; observe the new
+   workspace, shell directories and sizes. Start a second offscreen window on
+   the same server: no additional terminals or replaced workspace. Both use
+   the same startup and restore path as a normal graphical window.
 3. `CLANKY_GATE_FAULT=polish` changes the observed exit code from 7 to 8 at the
    ordinary exact notification comparison; the gate must print FAIL there. No
    expected values are changed. The clean run prints PASS.
