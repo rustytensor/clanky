@@ -160,6 +160,62 @@ pub fn clipboard_read() -> io::Result<Vec<u8>> {
     result
 }
 
+static NOTIFICATION_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+struct NotificationSlot;
+impl Drop for NotificationSlot {
+    fn drop(&mut self) {
+        NOTIFICATION_WORKERS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Best-effort desktop notification. Never includes command text or output.
+/// At most eight helpers run concurrently; excess notifications are dropped.
+/// Spawning and waiting happen off the caller's thread. Helpers get two seconds
+/// before being killed and reaped; missing helpers/session buses are nonfatal.
+pub fn send_command_finished_notification(exit_code: Option<i32>) {
+    if NOTIFICATION_WORKERS
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < 8).then_some(n + 1)
+        })
+        .is_err()
+    {
+        return;
+    }
+    let slot = NotificationSlot;
+    let _ = thread::Builder::new()
+        .name("clanky-notification".into())
+        .spawn(move || {
+            let _slot = slot;
+            let code = exit_code.map_or_else(|| "unknown".into(), |code| code.to_string());
+            let Ok(mut child) = HelperCommand::new("notify-send")
+                .arg("--app-name=Clanky")
+                .arg("Clanky")
+                .arg(format!("Command finished (exit {code})"))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return;
+            };
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => return,
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return;
+                    }
+                }
+            }
+        });
+}
+
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 extern "C" fn signal_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
@@ -423,6 +479,37 @@ impl Process {
         }
         identity_cwd(shell)
     }
+
+    /// Current shell directory, not the foreground program's directory.
+    /// Fail closed if spawn-time identity was unavailable or the PID changed.
+    pub fn current_cwd(&self) -> io::Result<PathBuf> {
+        let shell = self.identity
+            .ok_or_else(|| io::Error::other("shell identity unavailable"))?;
+        let verify = || -> io::Result<()> {
+            let current = process_identity(shell.pid)?;
+            if current.start != shell.start {
+                return Err(io::Error::other("shell process identity changed"));
+            }
+            Ok(())
+        };
+        verify()?;
+        let cwd = fs::read_link(format!("/proc/{}/cwd", shell.pid))?;
+        verify()?;
+        Ok(cwd)
+    }
+
+    pub fn current_exe(&self) -> io::Result<PathBuf> {
+        let shell = self.identity.ok_or_else(|| io::Error::other("shell identity unavailable"))?;
+        let verify = || -> io::Result<()> {
+            if process_identity(shell.pid)?.start != shell.start { return Err(io::Error::other("shell process identity changed")); }
+            Ok(())
+        };
+        verify()?;
+        let exe = fs::read_link(format!("/proc/{}/exe", shell.pid))?;
+        verify()?;
+        Ok(exe)
+    }
+
     pub fn input(&self, bytes: Vec<u8>) -> io::Result<()> {
         let n = bytes.len();
         self.queued
@@ -508,7 +595,7 @@ pub(crate) fn spawn(
     // are known even if a very short-lived child already exited.
     roots.push(PtyRoot {
         pid,
-        start: process_identity(pid).ok().map(|p| p.start),
+        start: identity.map(|p| p.start),
     });
     drop(roots);
     let (tx, rx) = mpsc::sync_channel(64);
@@ -951,6 +1038,64 @@ fn open_sidecar(directory: &File, name: &CString, flags: i32) -> io::Result<File
         ));
     }
     Ok(file)
+}
+
+// Existing configuration directories may be 0755. Require ownership, no
+// group/other write permission, and no symlink; the state file itself is 0600.
+fn config_directory(path: &Path, create: bool) -> io::Result<File> {
+    if create {
+        match fs::DirBuilder::new().mode(0o700).create(path) {
+            Ok(()) => (),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(e),
+        }
+    }
+    let dir = fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
+    let meta = dir.metadata()?;
+    if !meta.is_dir() || meta.uid() != uid() || meta.mode() & 0o022 != 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "unsafe configuration directory"));
+    }
+    Ok(dir)
+}
+
+/// Open an existing owner-only regular state file without following symlinks.
+pub fn read_private_file(path: &Path) -> io::Result<File> {
+    let parent = path.parent().ok_or_else(|| io::Error::other("missing configuration directory"))?;
+    let name = path.file_name().ok_or_else(|| io::Error::other("invalid state file"))?;
+    let name = CString::new(name.as_bytes()).map_err(|_| io::Error::other("invalid state file"))?;
+    open_sidecar(&config_directory(parent, false)?, &name, libc::O_RDONLY)
+}
+
+/// Create or validate a safe configuration directory without following symlinks.
+pub fn create_private_directory(path: &Path) -> io::Result<()> {
+    config_directory(path, true).map(|_| ())
+}
+
+/// Serialize new-server startup and restoration separately from server lifetime.
+/// Keep this guard until startup/restore is complete. Never unlink its file.
+pub struct StartupLock {
+    _file: File,
+}
+impl StartupLock {
+    pub fn acquire(socket: &Path) -> io::Result<Self> {
+        let (directory, name) = sidecar(socket, ".startup.lock", true)?;
+        let file = open_sidecar(&directory, &name, libc::O_RDWR | libc::O_CREAT)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                return Ok(Self { _file: file });
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::WouldBlock {
+                return Err(error);
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "startup lock timed out"));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
 }
 
 /// The lock file is permanent; unlinking it could create two lock domains.

@@ -20,6 +20,10 @@ const MAX_LINE: usize = 1024 * 1024;
 const MAX_IDS: usize = 4096;
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 const MAX_REPLY: usize = 128 * 1024 * 1024;
+struct FocusGuard { engine: Engine, connection: u64 }
+impl Drop for FocusGuard {
+    fn drop(&mut self) { self.engine.clear_window_focus(self.connection); }
+}
 mod client;
 pub use client::Client;
 
@@ -158,6 +162,8 @@ fn client(
     peer: platform::AgentPeer,
     connection_id: u64,
 ) {
+    let connection = connection_id;
+    let _focus_guard = FocusGuard { engine: engine.clone(), connection };
     let mut reader = BufReader::new(stream);
     let mut ids = HashSet::new();
     let mut owner = false;
@@ -213,6 +219,7 @@ fn client(
                 let mut response = dispatch(
                     &engine,
                     &request,
+                    connection,
                     &mut ids,
                     &mut owner,
                     &mut eligible,
@@ -257,6 +264,7 @@ fn client(
 fn dispatch(
     engine: &Engine,
     request: &Value,
+    connection: u64,
     ids: &mut HashSet<String>,
     owner: &mut bool,
     eligible: &mut bool,
@@ -371,6 +379,20 @@ fn dispatch(
         }
         if !*owner {
             return error(id, "permission_denied", "Owner authentication required");
+        }
+        if op == "focus_set" {
+            if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op" | "tab_id")) {
+                return error(id, "invalid_request", "Unknown focus field");
+            }
+            let tab = match obj.get("tab_id") {
+                Some(Value::String(tab)) if !tab.is_empty() => Some(tab.as_str()),
+                Some(Value::Null) => None,
+                _ => return error(id, "invalid_request", "tab_id must be a string or null"),
+            };
+            return match engine.set_window_focus(connection, tab) {
+                Ok(()) => json!({"id":id,"ok":true,"result":{}}),
+                Err(err) => error(id, &err.code, &err.message),
+            };
         }
         return match engine.owner_request(op, &request) {
             Ok(result) => json!({"id":id,"ok":true,"result":result}),

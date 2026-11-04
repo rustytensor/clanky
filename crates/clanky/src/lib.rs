@@ -7,4 +7,6 @@ pub mod compose;
 pub mod editor;
 pub mod input;
 pub mod mcp;
+pub mod layout_store;
+pub mod notifications;
 pub mod session;

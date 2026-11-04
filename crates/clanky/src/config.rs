@@ -12,6 +12,8 @@ pub struct Config {
     pub compose_words: Option<PathBuf>,
     pub osc52_write: bool,
     pub osc52_read: bool,
+    pub notify_after_seconds: u64,
+    pub restore_layout: bool,
 }
 
 impl Default for Config {
@@ -26,6 +28,8 @@ impl Default for Config {
             compose_words: None,
             osc52_write: true,
             osc52_read: false,
+            notify_after_seconds: 10,
+            restore_layout: true,
         }
     }
 }
@@ -111,6 +115,12 @@ impl Config {
                 }
                 "compose_send_enter" => {
                     config.compose_send_enter = value.as_bool().ok_or("compose_send_enter must be a boolean")?;
+                }
+                "notify_after_seconds" => {
+                    config.notify_after_seconds = value.as_u64().ok_or("notify_after_seconds must be a nonnegative integer")?;
+                }
+                "restore_layout" => {
+                    config.restore_layout = value.as_bool().ok_or("restore_layout must be a boolean")?;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }
