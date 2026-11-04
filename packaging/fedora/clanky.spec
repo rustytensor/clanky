@@ -1,4 +1,4 @@
-%{!?clanky_version:%global clanky_version 0.4.6}
+%{!?clanky_version:%global clanky_version 0.5.0}
 Name:           clanky
 Version:        %{clanky_version}
 Release:        1%{?dist}
@@ -51,7 +51,7 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
-* Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.4.6-1
+* Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.5.0-1
 - Package the current source version and build only the application binary.
 
 * Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.3.3-1

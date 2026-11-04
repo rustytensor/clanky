@@ -2,8 +2,8 @@
 
 A GPU-rendered terminal for Linux, written in Rust, built for people who work alongside coding agents.
 
-> Status: Linux M4 automated gate passed, including M1–M3 regression checks.
-> See [M4 results](docs/m4-results.md). Interactive window and live SSH acceptance remain manual.
+> Status: M5 and remaining M6 automated gate passed, including earlier milestone, masking,
+> editor-core and Linux-packaging gates. See [results](docs/m5-results.md). UI shortcuts remain manual checks.
 
 ## What it is
 
@@ -124,6 +124,41 @@ values across output chunks. It returns named masks, bounds its trailing buffer,
 and wipes internal secret storage on drop. It is not yet wired into agent reads;
 the person's display is untouched. See [matching rules and API](docs/design-m6-masking.md)
 and [gate results](docs/m6-masking-results.md) for coverage and limits.
+
+## Agent control and safety
+
+Protocol v4 adds `input_state`, `wait_input`, `screen`, `send_key`, `paste` and
+cursor-based `events`. Existing v1–v3 operations remain available. Input readiness
+uses an observed blocked foreground PTY read after 200 ms of quiet, or OSC prompt
+markers; unproven readiness is not guessed from silence. Screen replies contain
+visible text, the original cursor coordinates and a paged history range.
+Named keys follow terminal modes; paste uses bracketed-paste markers when enabled.
+
+`clanky mcp --socket PATH` exposes agent tools over MCP stdio. It never loads an
+owner capability. Each tool connects on demand as an agent; failed requests are
+not silently replayed. It cannot expose the owner audit or revocation operations.
+
+Agent raw output, blocks, screen text, tasks and event payloads pass through
+`clanky-mask`. Recognized bytes become stars without changing raw byte offsets;
+undecided stream prefixes are withheld. Owner content stays unmasked.
+**Masking is pattern-based, not a sandbox or universal secret detector.**
+It covers eligible environment literals, the server capability and documented
+built-ins. Star-containing configured literals fail closed to avoid collisions.
+Screen masking is applied to raw-grid logical text before paging, not by reflowing
+replacement characters through a second screen.
+
+**Ctrl+Shift+Escape revokes agent permissions and cancels pending waits.**
+The same owner action is `v:4, op:"revoke_all"`. New agent-created tabs are then
+blocked. Owner `resume_agents` permits their creation again but does not regrant
+existing tabs; per-tab owner grants remain explicit. This revokes API access,
+not the operating-system processes themselves.
+
+Owner `audit` reads bounded, masked operation records with peer PID, terminal
+ancestry, timestamps and result codes. There are 512 records per terminal, with
+explicit eviction metadata; `_connection` holds unscoped requests. Events retain
+1024 records and report replay gaps rather than silently dropping history.
+See [the v4 design and gate](docs/design-m5.md). Existing running servers must be
+restarted explicitly to load new code; upgrading a binary does not replace them.
 
 ## Why "Clanky"
 
