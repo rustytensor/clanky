@@ -2,8 +2,8 @@
 
 A GPU-rendered terminal for Linux, written in Rust, built for people who work alongside coding agents.
 
-> Status: Linux M3 automated gate passed, including M2 and M1 regression checks.
-> See [M3 results](docs/m3-results.md). Interactive UI and clipboard acceptance remain manual.
+> Status: Linux M4 automated gate passed, including M1–M3 regression checks.
+> See [M4 results](docs/m4-results.md). Interactive window and live SSH acceptance remain manual.
 
 ## What it is
 
@@ -28,10 +28,29 @@ cargo build --workspace --bins -j 8
 "${CARGO_TARGET_DIR:-target}/debug/clanky"
 ```
 
-Linux only. The GUI needs a display and `XDG_RUNTIME_DIR` for its private agent
-socket. Use `clanky --headless --socket /path/to/private-directory/agent.sock`
-for socket-only operation. The directory must belong to the current user and
-have no group/other permissions. The app never removes an existing socket.
+Linux only. The GUI needs a display. It connects to a private session server,
+starting one on demand at `$XDG_RUNTIME_DIR/clanky/server.sock` (or an existing
+private `/run/user/<uid>` runtime directory). `--socket PATH` selects another
+private socket. The directory must belong to the current user and have no
+group/other permissions. Existing sockets are never blindly removed.
+
+Closing or crashing a window leaves sessions running. Launch Clanky again to
+reattach to their tabs, split layout, history, blocks, tasks and permissions.
+Ctrl+Shift+W explicitly closes a pane; closing the last session ends the server.
+An exited command still has a session until its tab is closed. State survives
+client loss, **not server loss or reboot**.
+
+`clanky --server --socket PATH` runs the server in the foreground; `--headless`
+is also supported. New shells use the server's shell and directory defaults.
+`clanky attach HOST` uses key-based SSH and the remote `clanky --stdio` bridge;
+Clanky opens no TCP listener. The remote program must be installed and SSH login
+must already work. `clanky --stdio --socket PATH` exposes the same local pipe path.
+
+**Owner authority requires both outside-terminal ancestry and a private capability.**
+Connections from inside the server's terminals remain agents even with the real
+token; this also applies to stdio. Same-UID processes outside Clanky are not
+sandboxed. An agent with SSH access can attach as owner of that host's server.
+See [the M4 transport and security design](docs/design-m4.md).
 
 Ctrl+Shift+T opens a tab. Ctrl+Shift+D splits right; Ctrl+Shift+E splits below.
 Click a pane to focus it; Ctrl+Shift+W closes that pane. Click the tab strip or
@@ -48,8 +67,9 @@ point; Ctrl+0 resets it. Load JSON with `--config PATH`, otherwise from
 ```
 
 Font sizes are 6–48 pt. Unknown or invalid settings are errors; a missing default
-file uses defaults. Zoom and split layout are session-only. Headless operation
-keeps the socket's existing terminal-size defaults.
+file uses defaults. Zoom is window-local; split layout and terminal scrollback
+survive reattachment for the server's lifetime. Wheel over a pane to scroll its
+history. Headless operation keeps the socket's existing terminal-size defaults.
 
 Kitty images support direct data, chunked transfer, stored placement and deletion.
 File/shared-memory transport, cropping, compression controls, animation and
@@ -86,6 +106,8 @@ clipboard ownership. The headless socket returns copy bytes without touching it.
 New socket operations use `v:2`; v1 `run` and routing stay unchanged. See
 [the M3 operation table and examples](docs/design-m3.md). `scripts/gate-m3.sh`
 checks socket and palette actions, then M2 (which includes M1), once each.
+`scripts/gate-m4.sh` adds real client-loss/reattachment and permission checks,
+then invokes M3 once. It uses a local stdio pipe, not a live SSH connection.
 
 ## Why "Clanky"
 

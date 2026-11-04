@@ -74,6 +74,9 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
   See `docs/design-m3.md` and `docs/m3-results.md` for expectations and manual checks.
 - **M4: persistent sessions.** A background server owns the shells; windows and agents are clients. Close the window
   and reattach later, locally or over SSH (`clanky attach host`).
+  Automated gate passed: v0.4.0, `scripts/gate-m4.sh` (including M1–M3).
+  Owner authority requires outside-terminal peer ancestry and the capability.
+  See `docs/design-m4.md` and `docs/m4-results.md`; live SSH/window checks remain manual.
 - **M5: the rest of the agent API.** Know when a program waits for input, read the screen as text, send keys,
   events instead of polling, an MCP server.
 - **M6: safety.** Secrets masked before an agent reads output, a per-tab log of what each agent typed, one key that
