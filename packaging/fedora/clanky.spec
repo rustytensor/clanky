@@ -39,7 +39,6 @@ install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg %{buildroot}%{_d
 install -Dm644 packaging/linux/clanky.1 %{buildroot}%{_mandir}/man1/clanky.1
 
 %files
-%dir %attr(0755,root,root) %{_licensedir}/%{name}
 %license LICENSE-MIT LICENSE-APACHE
 %{_bindir}/clanky
 %{_datadir}/applications/clanky.desktop
