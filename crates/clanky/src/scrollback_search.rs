@@ -138,14 +138,19 @@ impl Search {
                 let sc = col - rect.col;
                 frame.cells[row * frame.cols + col] = if sr < source.rows && sc < source.cols {
                     source.cells[sr * source.cols + sc].clone()
-                } else { Cell { ch: ' ', fg: [229; 3], bg: [0; 3] } };
+                } else { Cell { ch: ' ', fg: [229; 3], bg: [0; 3], color_source: None } };
             }
         }
         for h in &view.highlights {
             let row = top.saturating_add(h.row);
             let col = rect.col.saturating_add(h.col);
             if row < bottom && col < right {
-                frame.cells[row * frame.cols + col].bg = if h.selected { [120,85,25] } else { [65,60,30] };
+                let cell=&mut frame.cells[row * frame.cols + col];
+                cell.bg = if h.selected { [120,85,25] } else { [65,60,30] };
+                if let Some(source)=&mut cell.color_source {
+                    if source.inverse {source.fg=clanky_core::ColorSource::Truecolor;}
+                    else {source.bg=clanky_core::ColorSource::Truecolor;}
+                }
             }
         }
         frame.images.retain(|image| {
@@ -157,7 +162,7 @@ impl Search {
         let mut chars = status.chars();
         for cell in &mut frame.cells[..frame.cols] {
             let ch = chars.next().unwrap_or(' ');
-            *cell = Cell { ch: if ch.is_control() { ' ' } else { ch }, fg: [235;3], bg: [35,35,40] };
+            *cell = Cell { ch: if ch.is_control() { ' ' } else { ch }, fg: [235;3], bg: [35,35,40], color_source: None };
         }
     }
 }

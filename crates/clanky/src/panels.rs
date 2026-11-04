@@ -564,5 +564,6 @@ fn paint(
             [35, 40, 48]
         };
         cell.fg = [235, 235, 235];
+        cell.color_source = None;
     }
 }

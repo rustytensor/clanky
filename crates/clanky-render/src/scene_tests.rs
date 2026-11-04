@@ -19,7 +19,8 @@ fn blank(rows: usize, cols: usize) -> TerminalSnapshot {
             Cell {
                 ch: ' ',
                 fg: [255, 255, 255],
-                bg: [0, 0, 0]
+                bg: [0, 0, 0],
+                color_source: None,
             };
             rows * cols
         ],

@@ -604,7 +604,7 @@ fn review_buttons() -> [(usize, &'static str, &'static str); 6] {
 fn put(frame: &mut TerminalSnapshot, row: usize, col: usize, ch: char, bg: [u8; 3]) {
     if row >= frame.rows || col >= frame.cols { return; }
     if let Some(index) = row.checked_mul(frame.cols).and_then(|i| i.checked_add(col)) {
-        if let Some(cell) = frame.cells.get_mut(index) { *cell = Cell { ch, fg: [220, 220, 225], bg }; }
+        if let Some(cell) = frame.cells.get_mut(index) { *cell = Cell { ch, fg: [220, 220, 225], bg, color_source: None }; }
     }
 }
 fn paint(frame: &mut TerminalSnapshot, rect: &Rect, row: usize, text: &str, bg: [u8; 3]) {

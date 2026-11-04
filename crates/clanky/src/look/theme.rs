@@ -1,4 +1,10 @@
-//! App-chosen colour and spacing tokens. Terminal-provided ANSI colours are data.
+//! App-chosen colour and spacing tokens; truecolour terminal values stay data.
+use clanky_core::{Cell, ColorSource};
+const DARK_ANSI: [[u8;3];16] = [
+    [0,0,0],[255,0,0],[0,205,0],[205,205,0],[0,0,238],[205,0,205],[0,205,205],[229,229,229],
+    [127,127,127],[255,0,0],[0,255,0],[255,255,0],[92,92,255],[255,0,255],[0,255,255],[255,255,255],
+];
+fn rgb(color: Color)->[u8;3] {[color[0],color[1],color[2]]}
 pub type Color = [u8; 4];
 pub const COLOR_TOKENS: [&str; 14] = ["window", "rail", "panel", "line", "ink", "dim", "accent", "violet", "teal", "ok", "err", "focus", "ok_ink", "err_ink"];
 
@@ -14,6 +20,9 @@ pub struct Theme {
     pub link: Color, pub spelling: Color,
     pub card_mix: f32, pub chip_mix: f32,
     pub is_light: bool,
+    pub ansi: [[u8;3];16],
+    pub terminal_foreground: [u8;3],
+    pub terminal_background: [u8;3],
 }
 impl Default for Theme { fn default() -> Self { Self::dark() } }
 impl Theme {
@@ -28,6 +37,7 @@ impl Theme {
             shadow: [0,0,0,120], focus_glow: [143,180,255,112], agent_glow: [167,139,250,255],
             selection: [40,70,120,255], review_old: [80,24,24,255], review_new: [24,80,40,255],
             link: [80,160,255,255], spelling: [255,96,96,255], card_mix: 0.03, chip_mix: 0.18, is_light: false,
+            ansi:DARK_ANSI, terminal_foreground:[0;3], terminal_background:[0;3],
         };
         theme.refresh_mixes();
         theme
@@ -61,6 +71,13 @@ impl Theme {
     }
     /// Recompute derived opaque fills after changing palette tokens or mix fractions.
     pub fn refresh_mixes(&mut self) {
+        self.terminal_foreground=rgb(self.ink);
+        self.terminal_background=rgb(self.panel);
+        self.ansi=if self.is_light {
+            [rgb(self.ink),rgb(self.err),rgb(self.ok),rgb(self.accent),rgb(self.focus),rgb(self.violet),rgb(self.teal),rgb(self.line),
+                rgb(self.dim),rgb(self.err_ink),rgb(self.ok_ink),rgb(mix(self.accent,self.ink,0.18)),
+                rgb(mix(self.focus,self.ink,0.18)),rgb(mix(self.violet,self.ink,0.18)),rgb(mix(self.teal,self.ink,0.18)),rgb(self.rail)]
+        } else {DARK_ANSI};
         self.card = mix(self.panel, if self.is_light { self.ink } else { [255;4] }, self.card_mix);
         self.focus_glow = Self::fade(self.focus, if self.is_light { 0.22 } else { 0.35 });
         // Saturate the glow, not the token: preserve the fixed hue checks with a narrow falloff.
@@ -80,10 +97,30 @@ impl Theme {
         let opacity = if opacity.is_finite() { opacity.clamp(0.0,1.0) } else { 1.0 };
         [color[0],color[1],color[2],(color[3] as f32 * opacity).round() as u8]
     }
-    /// Translate the terminal's default foreground; explicit nondefault ANSI RGB stays data.
-    pub fn terminal_color(&self, color: [u8;3], background: bool) -> [u8;3] {
-        if !background && color == [229,229,229] { [self.ink[0],self.ink[1],self.ink[2]] }
-        else { color }
+    /// Resolve only identified terminal colours on a draw-time copy, never by RGB equality.
+    /// Cells without provenance (legacy peers and local widgets) retain their RGB values.
+    pub fn terminal_cell(&self, cell: &mut Cell) {
+        let Some(source)=cell.color_source else{return;};
+        let (fg,bg)=if source.inverse {(source.bg,source.fg)}else{(source.fg,source.bg)};
+        let default_fg=if source.inverse {
+            if self.is_light {self.terminal_background}else{[0;3]}
+        } else {self.terminal_foreground};
+        let default_bg=if source.inverse {
+            // Preserve the legacy dark inverse-default background exactly.
+            if self.is_light {self.terminal_foreground}else{[229;3]}
+        } else {self.terminal_background};
+        cell.fg=match fg {
+            ColorSource::Default=>default_fg,
+            // Dark ANSI white foreground historically used the theme ink.
+            ColorSource::Indexed(7) if !self.is_light=>self.terminal_foreground,
+            ColorSource::Indexed(index @ 0..=15)=>self.ansi[index as usize],
+            ColorSource::Indexed(_)|ColorSource::Truecolor=>cell.fg,
+        };
+        cell.bg=match bg {
+            ColorSource::Default=>default_bg,
+            ColorSource::Indexed(index @ 0..=15)=>self.ansi[index as usize],
+            ColorSource::Indexed(_)|ColorSource::Truecolor=>cell.bg,
+        };
     }
     /// Translate legacy editor/widget roles at the scene boundary, never terminal RGB.
     pub fn ui_color(&self, color: [u8;3], background: bool) -> [u8;3] {

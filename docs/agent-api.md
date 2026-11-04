@@ -208,6 +208,23 @@ headless server does not invoke desktop clipboard helpers. Config and first-owne
 handling are described in [configuration](config.md). block_events cursors are
 block IDs; evicted cursors return not_found, not the v4 events gap format.
 
+#### Optional cell colour provenance
+
+Existing snapshot fields, including each cell's `ch`, `fg` and `bg`, remain unchanged.
+Cells may additionally contain `color_source`; it is omitted when unavailable:
+
+```json
+{"ch":"A","fg":[229,229,229],"bg":[0,0,0],"color_source":{"fg":"truecolor","bg":"default","inverse":false}}
+```
+
+Each source is `"default"`, `{"indexed":n}` (integer 0–255), or `"truecolor"`.
+The source pair describes the original SGR choices; `inverse` records whether
+foreground/background were swapped. The existing RGB fields already include that
+swap and retain their legacy values. New clients use provenance only at draw time
+for theme palettes; truecolour and indexed colours 16–255 keep their RGB values.
+Clients without provenance support can keep reading the original RGB fields.
+RGB-only cells are never classified by matching their colour values.
+
 ### Version 4: agent control, events and owner safety controls
 
 input_state, wait_input, screen, send_key and paste require terminal permission.

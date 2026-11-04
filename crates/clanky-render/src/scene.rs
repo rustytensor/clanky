@@ -47,8 +47,9 @@ pub struct Shadow {
 pub struct GridLayer {
     /// Fade each primitive (including images), finite 0..=1; 1 preserves its colour.
     pub opacity: f32,
-    /// Default black cell backgrounds are transparent in scenes; explicit
-    /// coloured backgrounds remain opaque. Legacy draw() does not change.
+    /// Provenance-marked default backgrounds are transparent in scenes; explicit
+    /// truecolour backgrounds stay opaque, including black. RGB-only legacy grids
+    /// still treat black as transparent. Legacy draw() does not change.
     pub origin: [f32; 2],
     /// Window-relative x, y, width, height in physical pixels.
     pub clip: [f32; 4],
