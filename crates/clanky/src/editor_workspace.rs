@@ -20,16 +20,35 @@ pub struct EditorWorkspace {
     pub focus: String,
     pub dragging: Option<String>,
     views: BTreeMap<String, (Rect, DrawInfo)>,
+    pub viewport: Option<clanky::look::Layout>,
     prompt: Option<Prompt>,
     preedit: String,
     next: u64,
 }
 impl Default for EditorWorkspace {
     fn default() -> Self {
-        Self { layout: Layout::leaf(TERMINALS), panes: BTreeMap::new(), focus: TERMINALS.into(), dragging: None, views: BTreeMap::new(), prompt: None, preedit: String::new(), next: 0 }
+        Self { layout: Layout::leaf(TERMINALS), panes: BTreeMap::new(), focus: TERMINALS.into(), dragging: None, views: BTreeMap::new(), viewport: None, prompt: None, preedit: String::new(), next: 0 }
     }
 }
 impl EditorWorkspace {
+    pub fn prompt_card(&self, rect: clanky::look::PixelRect, metrics: &clanky::look::Metrics) -> Option<clanky::look::PanelState> {
+        use clanky::look::{PanelState, PanelLine};
+        let prompt = self.prompt.as_ref()?;
+        let title = if prompt.import { "Load changes JSON path" } else { "Open local file path[:line[:col]]" };
+        let tail: String=prompt.text.chars().rev().take(((rect.w-2.0*metrics.panel_padding as f32)/metrics.ui_font_px as f32).max(0.0) as usize/2).collect::<Vec<_>>().into_iter().rev().collect();
+        let lines = [format!("Target {} · Enter confirms · Escape cancels", prompt.target),
+            format!("{tail}▏"), self.preedit.clone()].into_iter()
+            .map(|text| PanelLine { text, selected: false, action: None }).collect();
+        Some(PanelState { id: "file-prompt".into(), rect, title: title.into(), lines,
+            snapshot: None, underlines: Vec::new(), opacity: 1.0, rise_px: 0.0 })
+    }
+    pub fn draw_pane(&mut self, id: &str, frame: &mut TerminalSnapshot, rect: Rect) -> Option<usize> {
+        let pane = self.panes.get_mut(id)?;
+        let info = pane.draw(frame, &rect, self.focus == id && self.prompt.is_none());
+        let text_rows = info.text_rows;
+        self.views.insert(id.into(), (rect, info));
+        Some(text_rows)
+    }
     pub fn terminal_rect(&self, root: Rect) -> Rect {
         self.layout.rectangles(root).into_iter().find(|(id, _)| id == TERMINALS)
             .map(|(_, r)| r).unwrap_or(Rect { col: 0, row: 1, cols: 0, rows: 0 })
@@ -52,7 +71,29 @@ impl EditorWorkspace {
     }
     pub fn add(&mut self, target: &str, pane: EditorPane, axis: Axis, root: Rect) -> Result<(), String> {
         let id = format!("editor-{}", self.next);
-        self.layout.split(target, id.clone(), axis, root)?;
+        let mut candidate = self.layout.clone();
+        candidate.split(target, id.clone(), axis, root)?;
+        if let Some(view) = &self.viewport {
+            let mut path = Vec::new();
+            fn subtree(tree: &Layout, id: &str, path: &mut Vec<bool>) -> bool {
+                match tree {
+                    Layout::Leaf(leaf) => leaf == id,
+                    Layout::Split { first, second, .. } => {
+                        path.push(false); if subtree(first,id,path) { return true; } path.pop();
+                        path.push(true); if subtree(second,id,path) { return true; } path.pop(); false
+                    }
+                }
+            }
+            subtree(&self.layout, TERMINALS, &mut path);
+            let mut server = &view.workspace_layout;
+            for second in path { if let Layout::Split { first, second: next, .. } = server { server = if second { next } else { first }; } }
+            let combined = super::studio::expand(&candidate, server);
+            let proposed = clanky::look::layout_with_metrics(view.window_px,view.scale,view.rails_shown,&combined,view.cell_px,&view.logical_metrics);
+            if !proposed.fits_minimum || proposed.panes.iter().any(|p|p.rows<3 || p.cols<8) {
+                return Err("Split needs at least 3 rows and 8 columns in every pane".into());
+            }
+        }
+        self.layout = candidate;
         self.next += 1;
         self.panes.insert(id.clone(), pane);
         self.focus_on(id);

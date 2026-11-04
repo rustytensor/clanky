@@ -9,7 +9,8 @@ they do not restore old processes, output or unsaved editor/compose text.
 **Safety:** agent raw-output, block/copy/task, screen/history and replayed-output
 reads are secret-masked, including through MCP. Recognized bytes become fixed-width
 `*` characters, preserving raw byte offsets; undecided streaming suffixes are held
-back. The person's own terminal view and owner output reads are never masked. Detection
+back. The person's terminal view, copy, block text, search and OSC 52 clipboard
+text are masked too. Owner raw-output archives remain available through the socket. Detection
 covers common OpenAI/OpenRouter, GitHub, AWS access-ID, Slack, Hugging Face and
 RunPod token shapes, Bearer headers, private-key blocks and eligible secret values
 captured from the server's startup environment. It is not universal secret discovery:

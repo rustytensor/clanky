@@ -226,33 +226,17 @@ impl Engine {
                 let offset =
                     optional_number(args, "history_offset", 0, usize::MAX as u64, 0)? as usize;
                 let limit = optional_number(args, "history_limit", 1, 64, 64)? as usize;
-                let (raw, total, display_offset, mut all, wraps, truncated_head, text_cursor) = {
+                let (raw, total, display_offset, mut all) = {
                     let terminal = tab.terminal.lock().unwrap();
-                    let (total, display_offset, all, wraps, truncated_head) =
-                        terminal.text_context();
+                    let (total, display_offset, _, _, _) = terminal.text_context();
+                    let all = self.0.1.policy.terminal_lines(&terminal)?;
                     (
                         terminal.snapshot(),
                         total,
                         display_offset,
                         all,
-                        wraps,
-                        truncated_head,
-                        terminal.text_cursor(),
                     )
                 };
-                if !trusted {
-                    self.mask_lines(&mut all, &wraps, text_cursor)?;
-                    // A full history buffer may begin halfway through a secret.
-                    // Conservatively hide that first logical line, not its tail alone.
-                    if truncated_head {
-                        for (line, wrapped) in all.iter_mut().zip(&wraps) {
-                            *line = "*".repeat(line.len());
-                            if !wrapped {
-                                break;
-                            }
-                        }
-                    }
-                }
                 for line in &mut all {
                     *line = line.trim_end_matches(' ').to_owned();
                 }
@@ -279,7 +263,10 @@ impl Engine {
         self.check_lease(&tab, lease, trusted)?;
         Ok(result)
     }
-    fn mask_lines(
+}
+
+impl super::masking::Policy {
+    pub(super) fn mask_lines(
         &self,
         lines: &mut [String],
         wraps: &[bool],
@@ -306,13 +293,13 @@ impl Engine {
                     context.push('\n');
                 }
             }
-            let safe = self.0.1.policy.bytes(context.as_bytes(), false)?;
+            let safe = self.bytes(context.as_bytes(), false)?;
             // Blank cells after the live cursor are not received delimiters:
             // do not release an undecided prefix just because they are present.
             let cut =
                 cursor.and_then(|(row, byte)| ranges.get(row).map(|r| r.start + byte.min(r.len())));
             let prefix = cut
-                .map(|cut| self.0.1.policy.bytes(&context.as_bytes()[..cut], false))
+                .map(|cut| self.bytes(&context.as_bytes()[..cut], false))
                 .transpose()?;
             for ((out, original), range) in merged.iter_mut().zip(&original).zip(ranges) {
                 for index in 0..range.len() {

@@ -1,9 +1,15 @@
 //! Startup configuration and session-only font sizing.
-use std::{env, fs, io::ErrorKind, path::{Path, PathBuf}};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::{Path, PathBuf}};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemePreference { Dark, Light, #[default] System }
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_size_pt: f32,
+    pub font_size: f32,
+    pub theme: ThemePreference,
+    pub colors: BTreeMap<String, crate::look::Color>,
     pub columns: usize,
     pub rows: usize,
     pub compose_dictionary: String,
@@ -14,12 +20,20 @@ pub struct Config {
     pub osc52_read: bool,
     pub notify_after_seconds: u64,
     pub restore_layout: bool,
+    pub opacity: f32,
+    pub animations: bool,
+    pub rails: bool,
+    pub font_family: String,
+    pub ui_font_family: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             font_size_pt: 12.0,
+            font_size: 16.0,
+            theme: ThemePreference::System,
+            colors: BTreeMap::new(),
             columns: 80,
             rows: 24,
             compose_dictionary: "en_US".into(),
@@ -30,28 +44,43 @@ impl Default for Config {
             osc52_read: false,
             notify_after_seconds: 10,
             restore_layout: true,
+            opacity: 0.94,
+            animations: true,
+            rails: true,
+            font_family: "JetBrains Mono".into(),
+            ui_font_family: "Inter".into(),
         }
     }
 }
 
 impl Config {
+    pub fn resolved_theme(&self, system_light: bool) -> crate::look::Theme {
+        let light = match self.theme {
+            ThemePreference::Light => true, ThemePreference::Dark => false,
+            ThemePreference::System => system_light,
+        };
+        let mut theme = if light { crate::look::Theme::light() } else { crate::look::Theme::dark() };
+        for (token, color) in &self.colors {
+            // from_json has already validated each token.
+            let _ = theme.override_color(token, *color);
+        }
+        theme
+    }
+    /// Straight alpha byte for scene clear; renderer reports opaque-only surfaces.
+    pub fn opacity_alpha(&self) -> u8 {
+        let opacity = if self.opacity.is_finite() { self.opacity.clamp(0.5, 1.0) } else { 0.94 };
+        (opacity * 255.0).round() as u8
+    }
+
     pub fn load(explicit: Option<&Path>) -> Result<Self, String> {
         let default_path;
         let path = match explicit {
             Some(path) => path,
             None => {
-                let base = env::var_os("XDG_CONFIG_HOME")
-                    .filter(|value| !value.is_empty())
-                    .map(std::path::PathBuf::from)
-                    .or_else(|| {
-                        env::var_os("HOME")
-                            .filter(|value| !value.is_empty())
-                            .map(|home| std::path::PathBuf::from(home).join(".config"))
-                    });
-                let Some(base) = base else {
+                let Some(path) = crate::platform::settings_path() else {
                     return Ok(Self::default());
                 };
-                default_path = base.join("clanky/config.json");
+                default_path = path;
                 &default_path
             }
         };
@@ -74,6 +103,34 @@ impl Config {
         let mut config = Self::default();
         for (key, value) in object {
             match key.as_str() {
+                "theme" => {
+                    config.theme = match value.as_str() {
+                        Some("dark") => ThemePreference::Dark,
+                        Some("light") => ThemePreference::Light,
+                        Some("system") => ThemePreference::System,
+                        _ => return Err("theme must be dark, light or system".into()),
+                    };
+                }
+                "colors" => {
+                    let colors = value.as_object().ok_or("colors must be an object")?;
+                    for (token, value) in colors {
+                        if !crate::look::COLOR_TOKENS.contains(&token.as_str()) {
+                            return Err(format!("unknown color token: {token}"));
+                        }
+                        let text = value.as_str().filter(|text| text.len() == 7 && text.starts_with('#')
+                            && text.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit))
+                            .ok_or_else(|| format!("colors.{token} must be #rrggbb"))?;
+                        let channel = |start| u8::from_str_radix(&text[start..start+2], 16).unwrap();
+                        config.colors.insert(token.clone(), [channel(1),channel(3),channel(5),255]);
+                    }
+                }
+                "font_size" => {
+                    let pixels = value.as_f64().ok_or("font_size must be a number")?;
+                    if !pixels.is_finite() || !(8.0..=32.0).contains(&pixels) {
+                        return Err("font_size must be finite and between 8 and 32".into());
+                    }
+                    config.font_size = pixels as f32;
+                }
                 "font_size_pt" => {
                     let points = value.as_f64().ok_or("font_size_pt must be a number")?;
                     if !points.is_finite() || !(6.0..=48.0).contains(&points) {
@@ -122,9 +179,30 @@ impl Config {
                 "restore_layout" => {
                     config.restore_layout = value.as_bool().ok_or("restore_layout must be a boolean")?;
                 }
+                "opacity" => {
+                    let opacity = value.as_f64().ok_or("opacity must be a number")?;
+                    if !opacity.is_finite() || !(0.5..=1.0).contains(&opacity) {
+                        return Err("opacity must be finite and between 0.5 and 1.0".into());
+                    }
+                    config.opacity = opacity as f32;
+                }
+                "animations" | "rails" => {
+                    let enabled = value.as_bool().ok_or_else(|| format!("{key} must be a boolean"))?;
+                    if key == "animations" { config.animations = enabled; } else { config.rails = enabled; }
+                }
+                "font_family" | "ui_font_family" => {
+                    let family = value.as_str().ok_or_else(|| format!("{key} must be a string"))?;
+                    if family.trim().is_empty() || family.len() > 256 || family.chars().any(char::is_control) {
+                        return Err(format!("{key} must be a nonempty font family of at most 256 bytes without controls"));
+                    }
+                    if key == "font_family" { config.font_family = family.into(); } else { config.ui_font_family = family.into(); }
+                }
                 _ => return Err(format!("unknown config field: {key}")),
             }
         }
+        // The new logical-pixel key wins independent of JSON key order.
+        if object.contains_key("font_size") { config.font_size_pt = config.font_size * 0.75; }
+        else { config.font_size = config.font_size_pt * 4.0 / 3.0; }
         // Match the core's per-axis and total-cell limits.
         if config.columns * config.rows > 250_000 {
             return Err("terminal dimensions exceed 250000 cells".into());

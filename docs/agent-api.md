@@ -26,8 +26,11 @@ copy and task payloads/labels (including send/task_get/task_update/tasks); v4
 screen text/history and output_appended event replay. MCP uses the same agent
 paths. Audit arguments are masked even for the owner's audit reader, with auth
 arguments omitted. Agent-facing transport error messages are sanitized too.
-The person's terminal display and owner output/block/screen reads remain raw.
-Owner event output refers back to raw retained archives, or reports
+The person's terminal display, block views, selection/copy, task payloads,
+screen/history and scrollback search use the same masking policy. Search matches
+masked text, never raw cells. OSC 52 writes and replies mask decoded text before
+encoding. Owner v1 get_output remains a raw archive interface; owner event output
+refers back to raw retained archives, or reports
 `data_unavailable` when those bytes are no longer available.
 
 The shared clanky-mask recognizer covers these conservative shapes, not issuer
@@ -90,6 +93,22 @@ shell interpolation. wait allows 0–30,000 ms and reports drained completion.
 get_output uses raw byte offset, limit 1–65,536 and utf8/base64 encoding; retained
 output is bounded to 8 MiB per command, with output_evicted on stale offsets.
 list_blocks accepts optional command_id/after and up to 64 OSC 133 blocks.
+Block `command` is captured between OSC 133 B and C from the same masked logical
+screen context as the screen API, including wrapped rows. It is null when capture
+or masking is unavailable, or the command exceeds 64 KiB. This applies even to owner block reads; the ordinary
+terminal grid remains raw internally, but snapshots shown to the person are masked.
+Masking has the coverage limits described above.
+
+Blocks also carry nullable absolute-line anchors: `prompt_line` (A, or B without A),
+`command_line` (C), and `end_line` (D). Lines count from the oldest retained row plus
+the grid's monotonic eviction count. Evicted anchors become null. Resize, reset,
+alternate-screen changes and non-preserving region scrolling invalidate old anchors;
+new A/B markers establish new ones. Terminals without OSC 133 have no cards.
+Owner v3 changed `snapshot` replies include `block_anchors: {viewport_line, blocks}`:
+up to 64 visible-command-row block summaries, without output, captured atomically
+with the grid. Summaries carry block_id, command, the three anchors, complete,
+exit_code and duration_ms. Unchanged replies reuse that generation's metadata.
+Cards subtract viewport_line from command_line/end_line; they never match text.
 Closing a terminal terminates its processes; closing a client does not.
 
 ### Version 2: block actions and tasks
@@ -121,6 +140,24 @@ below is owner-only**, including focus, metadata, search and clipboard operation
 
 Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"]}}`
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
+Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+
+For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
+agents, command drivers, the last 20 metadata-only events, and activity. **activity
+is exactly 30 unsigned integer command counts, oldest to newest**, for the chart
+“Agent commands per minute · last 30 min”. Each bucket covers one 60-second
+interval of monotonic server uptime; the final bucket is the current, partial
+minute. Missing intervals (including before startup) are zero. Counts saturate at
+u64::MAX and reset on server restart. A fixed-size rotating ring expires old
+minutes, including minutes with no requests.
+
+Count one successful agent v1 run or v2 rerun dispatch with a generated command
+ID, regardless of eventual exit status or a later close/replacement. Owner-issued
+commands, failed requests, output events, audit recency and UI polling do not
+increment counts. Rerun driver metadata uses its new result tab_id/command_id;
+the audit keeps the original source request unchanged. This metadata stores no
+raw arguments or output. Existing look_state fields are unchanged.
+
 Request: `{"v":3,"id":"1","op":"workspace_get"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"shell_defaults"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"workspace_set","revision":0,"groups":[],"active":0}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
@@ -143,7 +180,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | --- | --- |
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
-| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers |
+| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |

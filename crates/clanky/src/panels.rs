@@ -76,6 +76,62 @@ impl Default for Panels {
     }
 }
 impl Panels {
+    pub fn new(visible: bool) -> Self { Self { visible, ..Self::default() } }
+    pub fn block_action(&mut self, engine: &Client, tab: &str, block: &str, action: &str) -> Result<(), String> {
+        let action = match action { "copy" => "copy", "rerun" => "rerun", "send" => "send", "collapse" => "collapse", _ => return Err("Unknown block action".into()) };
+        let view = Self::call(engine, "view", &json!({"tab_id":tab,"limit":64}))?;
+        if !view["blocks"].as_array().is_some_and(|blocks| blocks.iter().any(|b|b["block_id"].as_str()==Some(block))) {
+            return Err("Block is no longer on the visible page".into());
+        }
+        if action == "copy" {
+            let selected=view["blocks"].as_array().unwrap().iter().find(|b|b["block_id"].as_str()==Some(block)).unwrap();
+            let len=selected["output"].as_str().ok_or("Missing block output")?.len();
+            if selected["truncated"]==true || len>64*1024 { return Err("Large/truncated block: select a byte range through the API".into()); }
+            Self::call(engine,"select",&json!({"tab_id":tab,"block_id":block,"start":0,"end":len}))?;
+        }
+        self.tab = tab.into(); self.view = view;
+        self.view["selection"] = json!({"block_id":block});
+        self.action(engine, action)
+    }
+    pub fn choose(&mut self, engine: &Client, index: usize) {
+        if self.open && self.prompt.is_none() && index >= ACTIONS.len() {
+            self.open=false;
+            self.click(engine,index-ACTIONS.len()+1);
+            if !self.open && self.local.is_none() { self.open=true; }
+            return;
+        }
+        if self.open && self.prompt.is_none() && index < ACTIONS.len() {
+            self.choice = index;
+            let result = self.action(engine, ACTIONS[index]);
+            self.report(result);
+        }
+    }
+    pub fn card(&mut self, rect: clanky::look::PixelRect, metrics: &clanky::look::Metrics) -> Option<clanky::look::PanelState> {
+        use clanky::look::{PanelState, PanelLine, HitAction};
+        if !self.open { return None; }
+        self.rebuild_lines();
+        let mut lines = vec![PanelLine { text: format!("Target {} / block {} / task {}", self.tab,
+            self.view["selection"]["block_id"].as_str().unwrap_or("none"), self.task.as_deref().unwrap_or("none")), selected: false, action: None }];
+        if let Some(prompt) = &self.prompt {
+            let tail: String=prompt.text.chars().rev().take(((rect.w-2.0*metrics.panel_padding as f32)/metrics.ui_font_px as f32).max(0.0) as usize/2).collect::<Vec<_>>().into_iter().rev().collect();
+            for text in [format!("{} — Enter confirms; Escape cancels", prompt.action), format!("{tail}▏"), self.preedit.clone()] {
+                lines.push(PanelLine { text, selected: false, action: None });
+            }
+        } else {
+            let capacity = (((rect.h-(2.0*metrics.panel_padding+metrics.panel_header) as f32).max(0.0)/metrics.panel_line_height as f32).floor() as usize).saturating_sub(1).max(1);
+            let start = self.choice.saturating_sub(capacity-1);
+            for (i, action) in ACTIONS.iter().enumerate().skip(start).take(capacity) {
+                lines.push(PanelLine { text: (*action).into(), selected: i == self.choice, action: Some(HitAction::PaletteChoice(i)) });
+            }
+            let remaining=capacity.saturating_sub(ACTIONS.len());
+            for (index,(text,hit)) in self.lines.iter().enumerate().skip(self.scroll+3).take(remaining) {
+                lines.push(PanelLine { text:text.clone(),selected:false,action:hit.as_ref().map(|_|HitAction::PaletteChoice(ACTIONS.len()+index-self.scroll)) });
+            }
+        }
+        if !self.message.is_empty() { lines.push(PanelLine { text: self.message.clone(), selected: false, action: None }); }
+        Some(PanelState { id: "palette".into(), rect, title: "Command palette · ↑ ↓ Enter · Esc".into(), lines,
+            snapshot: None, underlines: Vec::new(), opacity: 1.0, rise_px: 0.0 })
+    }
     pub fn width(&self, cols: usize) -> usize {
         if self.visible && cols >= 64 { 32 } else { 0 }
     }
@@ -322,7 +378,7 @@ impl Panels {
         };
         self.report(result);
     }
-    pub fn draw(&mut self, frame: &mut TerminalSnapshot, width: usize) {
+    fn rebuild_lines(&mut self) {
         self.lines.clear();
         self.lines.push(("[Open file]".into(), Some(Hit::Action("Open file"))));
         self.lines.push(("[Load changes]".into(), Some(Hit::Action("Load changes"))));
@@ -406,6 +462,9 @@ impl Panels {
                 }
             }
         }
+    }
+    pub fn draw(&mut self, frame: &mut TerminalSnapshot, width: usize) {
+        self.rebuild_lines();
         if width > 0 {
             let col = frame.cols - width;
             for (row, (text, _)) in self

@@ -6,7 +6,12 @@ mod agent;
 mod events;
 #[path = "masking.rs"]
 mod masking;
+#[path = "status.rs"]
+mod status;
 use agent::optional_number;
+#[cfg(test)]
+#[path = "anchor_tests.rs"]
+mod anchor_tests;
 
 use crate::{
     TerminalSnapshot, Workspace,
@@ -142,7 +147,8 @@ impl Command {
         s.safe.extend(bytes);
         let excess = s.safe.len().saturating_sub(8 * 1024 * 1024);
         s.safe.drain(..excess);
-        self.safe_terminal.lock().unwrap().feed(&self.id, bytes);
+        self.safe_terminal.lock().unwrap().feed_masked(&self.id, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         self.safety
             .output(&self.tab_id, &self.allowed, &self.id, bytes, start);
     }
@@ -189,6 +195,7 @@ impl Command {
     }
 }
 struct Commands {
+    driver: Option<status::Driver>,
     current: Option<String>,
     all: BTreeMap<String, Arc<Command>>,
 }
@@ -232,6 +239,7 @@ impl Tab {
             lifecycle: Mutex::new(()),
             terminal: Mutex::new(terminal),
             commands: Mutex::new(Commands {
+                driver: None,
                 current: None,
                 all: BTreeMap::new(),
             }),
@@ -241,7 +249,8 @@ impl Tab {
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
         *self.last_output.lock().unwrap() = Instant::now();
-        let responses = self.terminal.lock().unwrap().feed(command, bytes);
+        let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
                 for r in responses {
@@ -265,6 +274,8 @@ impl Tab {
     fn close(&self) {
         let _guard = self.lifecycle.lock().unwrap();
         if !self.closed.swap(true, Ordering::AcqRel) {
+            self.commands.lock().unwrap().driver = None;
+            self.safety.status.close_tab(&self.id);
             self.safety
                 .publish(&self.id, &self.allowed, json!({"kind":"terminal_closed"}));
         }
@@ -381,7 +392,10 @@ impl Engine {
         Ok(())
     }
     pub fn snapshot(&self, tab_id: &str) -> Result<TerminalSnapshot, CoreError> {
-        Ok(self.tab(tab_id, true)?.terminal.lock().unwrap().snapshot())
+        let tab = self.tab(tab_id, true)?;
+        let terminal = tab.terminal.lock().unwrap();
+        let lines = self.0.1.policy.terminal_lines(&terminal)?;
+        Ok(terminal.masked_snapshot(&lines))
     }
     pub fn input(&self, tab_id: &str, bytes: &[u8]) -> Result<(), CoreError> {
         if bytes.len() > 1024 * 1024 {
@@ -448,7 +462,7 @@ impl Engine {
     /// Deliberately separate from the unprivileged v1/v2 dispatcher.
     pub fn owner_request(&self, op: &str, args: &Value) -> Result<Value, CoreError> {
         let allowed: &[&str] = match op {
-            "workspace_get" | "shell_defaults" => &[],
+            "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "snapshot" => &["tab_id", "known_generation", "known_images"],
             "history" => &["tab_id", "offset", "limit"],
@@ -464,6 +478,9 @@ impl Engine {
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
         fields(args, allowed)?;
+        if op == "look_state" {
+            return Ok(self.look_state());
+        }
         if op == "shell_defaults" {
             let shell = std::env::var("SHELL")
                 .ok()
@@ -512,7 +529,9 @@ impl Engine {
                     None => false,
                     Some(value) => value.as_bool().ok_or_else(|| invalid("backwards must be boolean"))?,
                 };
-                tab.terminal.lock().unwrap().window_search(query, after, backwards)
+                let mut terminal = tab.terminal.lock().unwrap();
+                let lines = self.0.1.policy.terminal_lines(&terminal)?;
+                terminal.window_search(&lines, query, after, backwards)
                     .map_err(|message| error("invalid_request", message))
             }
             "clipboard_events" => {
@@ -521,7 +540,9 @@ impl Engine {
                 let _guard = tab.lifecycle.lock().unwrap();
                 let commands = tab.commands.lock().unwrap();
                 let current = commands.current.as_deref();
-                Ok(tab.terminal.lock().unwrap().clipboard_events(current, write, read))
+                tab.terminal.lock().unwrap().clipboard_events(current, write, read,
+                    &|text| self.0.1.policy.text(text, true).map_err(|_| "Clipboard masking unavailable".into()))
+                    .map_err(|_| error("masking_unavailable", "Clipboard masking unavailable"))
             }
             "clipboard_reply" => {
                 // `id` belongs to the RPC envelope, not the clipboard request.
@@ -534,7 +555,8 @@ impl Engine {
                     !tab.closed.load(Ordering::Acquire) && commands.all.get(*id)
                         .is_some_and(|c| !c.state.lock().unwrap().exited)
                 });
-                let response = tab.terminal.lock().unwrap().clipboard_reply(current, id, data)
+                let response = tab.terminal.lock().unwrap().clipboard_reply(current, id, data,
+                    &|text| self.0.1.policy.text(text, true).map_err(|_| "Clipboard masking unavailable".into()))
                     .map_err(|_| invalid("Invalid, expired or oversized clipboard reply"))?;
                 let process = tab.process.lock().unwrap();
                 process.as_ref().ok_or_else(|| error("not_found", "no active process"))?
@@ -574,7 +596,9 @@ impl Engine {
                     return Ok(json!({"generation":generation,"unchanged":true}));
                 }
                 // Placements clone only Arc headers, never their RGBA buffers.
-                let snapshot = terminal.snapshot();
+                let lines = self.0.1.policy.terminal_lines(&terminal)?;
+                let snapshot = terminal.masked_snapshot(&lines);
+                let block_anchors = terminal.card_metadata();
                 drop(terminal);
                 let mut pixels = Vec::new();
                 for image in &snapshot.images {
@@ -584,7 +608,8 @@ impl Engine {
                     }
                 }
                 Ok(
-                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels}),
+                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels,
+                        "block_anchors":block_anchors}),
                 )
             }
             "history" => {
@@ -598,7 +623,11 @@ impl Engine {
                 } else {
                     64
                 };
-                let (total, lines) = tab.terminal.lock().unwrap().history(offset, limit);
+                let terminal = tab.terminal.lock().unwrap();
+                let total = terminal.text_context().0;
+                let lines: Vec<_> = self.0.1.policy.terminal_lines(&terminal)?
+                    .into_iter().take(total).skip(offset).take(limit)
+                    .map(|line| line.trim_end_matches(' ').to_owned()).collect();
                 if offset > total {
                     return Err(invalid("offset exceeds history"));
                 }
@@ -806,6 +835,7 @@ impl Engine {
                         .map_err(|e| error("spawn_failed", e.to_string()))?;
                 *tab.process.lock().unwrap() = Some(process);
                 let mut commands = tab.commands.lock().unwrap();
+                commands.driver = None;
                 commands.current = Some(id.clone());
                 commands.all.insert(id.clone(), command);
                 Ok(json!({"command_id": id, "state": "running"}))
@@ -900,12 +930,8 @@ impl Engine {
                     Some(Value::String(id)) => Some(id.as_str()),
                     _ => return Err(invalid("after must be string or null")),
                 };
-                let (mut blocks, evicted) = if trusted {
-                    tab.terminal.lock().unwrap().blocks()
-                } else {
-                    tab.safe_terminal.lock().unwrap().blocks()
-                };
-                if !trusted {
+                let (mut blocks, evicted) = tab.safe_terminal.lock().unwrap().blocks();
+                {
                     for block in &mut blocks {
                         let complete = !block.truncated
                             && (block.complete
