@@ -14,6 +14,11 @@ pub struct Config {
     pub osc52_read: bool,
     pub notify_after_seconds: u64,
     pub restore_layout: bool,
+    pub opacity: f32,
+    pub animations: bool,
+    pub rails: bool,
+    pub font_family: String,
+    pub ui_font_family: String,
 }
 
 impl Default for Config {
@@ -30,11 +35,22 @@ impl Default for Config {
             osc52_read: false,
             notify_after_seconds: 10,
             restore_layout: true,
+            opacity: 0.94,
+            animations: true,
+            rails: true,
+            font_family: "JetBrains Mono".into(),
+            ui_font_family: "Inter".into(),
         }
     }
 }
 
 impl Config {
+    /// Straight alpha byte for scene clear; renderer reports opaque-only surfaces.
+    pub fn opacity_alpha(&self) -> u8 {
+        let opacity = if self.opacity.is_finite() { self.opacity.clamp(0.5, 1.0) } else { 0.94 };
+        (opacity * 255.0).round() as u8
+    }
+
     pub fn load(explicit: Option<&Path>) -> Result<Self, String> {
         let default_path;
         let path = match explicit {
@@ -121,6 +137,24 @@ impl Config {
                 }
                 "restore_layout" => {
                     config.restore_layout = value.as_bool().ok_or("restore_layout must be a boolean")?;
+                }
+                "opacity" => {
+                    let opacity = value.as_f64().ok_or("opacity must be a number")?;
+                    if !opacity.is_finite() || !(0.5..=1.0).contains(&opacity) {
+                        return Err("opacity must be finite and between 0.5 and 1.0".into());
+                    }
+                    config.opacity = opacity as f32;
+                }
+                "animations" | "rails" => {
+                    let enabled = value.as_bool().ok_or_else(|| format!("{key} must be a boolean"))?;
+                    if key == "animations" { config.animations = enabled; } else { config.rails = enabled; }
+                }
+                "font_family" | "ui_font_family" => {
+                    let family = value.as_str().ok_or_else(|| format!("{key} must be a string"))?;
+                    if family.trim().is_empty() || family.len() > 256 || family.chars().any(char::is_control) {
+                        return Err(format!("{key} must be a nonempty font family of at most 256 bytes without controls"));
+                    }
+                    if key == "font_family" { config.font_family = family.into(); } else { config.ui_font_family = family.into(); }
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }
