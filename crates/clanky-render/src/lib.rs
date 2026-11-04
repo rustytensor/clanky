@@ -1,5 +1,6 @@
 //! Shared window and offscreen text and image rendering.
 mod scene;
+mod scene_gpu;
 pub use scene::{Fill, GridLayer, Layer, Scene, Shadow, Shape, TextRun, offscreen_scene};
 use clanky_core::TerminalSnapshot;
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent};
@@ -632,6 +633,7 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     text: TextPipeline,
+    scene: Option<scene_gpu::Painter>,
     suspended: bool,
 }
 impl Renderer {
@@ -653,12 +655,19 @@ impl Renderer {
         {
             config.format = format;
         }
+        let alpha_modes = surface.get_capabilities(&adapter).alpha_modes;
+        if alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+            config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+        } else if alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+            config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
+        }
         let text = TextPipeline::new(&adapter, config.format).await?;
         surface.configure(&text.device, &config);
         Ok(Self {
             surface,
             config,
             text,
+            scene: None,
             suspended: size.width == 0 || size.height == 0,
         })
     }
