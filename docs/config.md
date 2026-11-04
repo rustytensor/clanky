@@ -7,7 +7,10 @@ a missing explicit file, invalid value or unknown key is an error.
 
 | Key | Type | Default | Allowed values / effect |
 | --- | --- | --- | --- |
-| `font_size_pt` | number | 12 | Finite, 6–48 points inclusive |
+| `font_size` | number | 16 | Finite, 8–32 logical pixels inclusive |
+| `font_size_pt` | number | 12 | Legacy: finite, 6–48 points inclusive; font_size wins when both exist |
+| `theme` | string | `system` | `dark`, `light` or `system`; system follows desktop changes live, falling back to dark |
+| `colors` | object | `{}` | Overrides the active theme's named tokens with `#rrggbb` strings |
 | `columns` | integer | 80 | 1–1000 inclusive |
 | `rows` | integer | 24 | 1–1000 inclusive; columns × rows must not exceed 250,000 |
 | `compose_dictionary` | string | `en_US` | 1–64 ASCII letters, digits, `_` or `-`; Hunspell dictionary basename |
@@ -30,8 +33,16 @@ a missing explicit file, invalid value or unknown key is an error.
 Settings are loaded at startup; zoom changes are window-local and do not rewrite
 this file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
-The M11 settings are parsed now; scene rendering/window wiring is delivered with
-M11. Legacy M1/M2 offscreen fixtures retain DejaVu Sans Mono.
+The bundled scene fonts are JetBrains Mono and Inter. Legacy M1/M2 offscreen
+fixtures retain DejaVu Sans Mono. Legacy font_size_pt remains accepted without
+clamping it to the new key's narrower range; 12 points equals 16 logical pixels.
+
+Colour tokens: `window`, `rail`, `panel`, `line`, `ink`, `dim`, `accent`, `violet`,
+`teal`, `ok`, `err`, `focus`, `ok_ink`, `err_ink`. Unknown tokens and values other
+than six hexadecimal digits prefixed by `#` are errors. Overrides apply after
+choosing the light/dark palette; dependent card fills and glows are recomputed.
+For example: `{"theme":"light","colors":{"panel":"#202020"},"font_size":16}`.
+Custom overrides can reduce contrast; the shipped palettes are the design defaults.
 
 Personal spelling words go in `compose-words.txt` beside the selected config file,
 or in the normal Clanky config directory. The file is created only on Add.

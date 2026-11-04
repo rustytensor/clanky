@@ -1,5 +1,6 @@
 //! App-chosen colour and spacing tokens. Terminal-provided ANSI colours are data.
 pub type Color = [u8; 4];
+pub const COLOR_TOKENS: [&str; 14] = ["window", "rail", "panel", "line", "ink", "dim", "accent", "violet", "teal", "ok", "err", "focus", "ok_ink", "err_ink"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
@@ -12,6 +13,7 @@ pub struct Theme {
     pub selection: Color, pub review_old: Color, pub review_new: Color,
     pub link: Color, pub spelling: Color,
     pub card_mix: f32, pub chip_mix: f32,
+    pub is_light: bool,
 }
 impl Default for Theme { fn default() -> Self { Self::dark() } }
 impl Theme {
@@ -25,14 +27,48 @@ impl Theme {
             card: [0;4], chip_ok: [0;4], chip_err: [0;4], chip_neutral: [0;4],
             shadow: [0,0,0,120], focus_glow: [143,180,255,112], agent_glow: [167,139,250,255],
             selection: [40,70,120,255], review_old: [80,24,24,255], review_new: [24,80,40,255],
-            link: [80,160,255,255], spelling: [255,96,96,255], card_mix: 0.03, chip_mix: 0.18,
+            link: [80,160,255,255], spelling: [255,96,96,255], card_mix: 0.03, chip_mix: 0.18, is_light: false,
         };
         theme.refresh_mixes();
         theme
     }
+    pub fn light() -> Self {
+        let mut theme = Self::dark();
+        theme.is_light = true;
+        theme.window = [233,238,246,255]; theme.rail = [243,246,251,255];
+        theme.panel = [255,255,255,255]; theme.line = [214,222,234,255];
+        theme.ink = [26,34,51,255]; theme.dim = [79,92,118,255];
+        theme.accent = [181,79,11,255]; theme.violet = [109,79,216,255];
+        theme.teal = [11,127,120,255]; theme.ok = [29,128,72,255];
+        theme.err = [200,48,63,255]; theme.focus = [47,99,214,255];
+        theme.ok_ink = [22,106,59,255]; theme.err_ink = [168,34,47,255];
+        theme.card_mix = 0.04; theme.chip_mix = 0.10;
+        theme.refresh_mixes();
+        theme
+    }
+    pub fn override_color(&mut self, token: &str, color: Color) -> Result<(), String> {
+        let target = match token {
+            "window" => &mut self.window, "rail" => &mut self.rail, "panel" => &mut self.panel,
+            "line" => &mut self.line, "ink" => &mut self.ink, "dim" => &mut self.dim,
+            "accent" => &mut self.accent, "violet" => &mut self.violet, "teal" => &mut self.teal,
+            "ok" => &mut self.ok, "err" => &mut self.err, "focus" => &mut self.focus,
+            "ok_ink" => &mut self.ok_ink, "err_ink" => &mut self.err_ink,
+            _ => return Err(format!("unknown color token: {token}")),
+        };
+        *target = color;
+        self.refresh_mixes();
+        Ok(())
+    }
     /// Recompute derived opaque fills after changing palette tokens or mix fractions.
     pub fn refresh_mixes(&mut self) {
-        self.card = mix(self.panel, [255;4], self.card_mix);
+        self.card = mix(self.panel, if self.is_light { self.ink } else { [255;4] }, self.card_mix);
+        self.focus_glow = Self::fade(self.focus, 112.0 / 255.0);
+        self.agent_glow = self.violet;
+        self.selection = mix(self.panel, self.focus, 0.20);
+        self.review_old = mix(self.panel, self.err, 0.15);
+        self.review_new = mix(self.panel, self.ok, 0.15);
+        self.link = self.focus;
+        self.spelling = self.err;
         self.chip_ok = mix(self.card, self.ok, self.chip_mix);
         self.chip_err = mix(self.card, self.err, self.chip_mix);
         self.chip_neutral = mix(self.card, self.dim, self.chip_mix);
