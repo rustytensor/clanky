@@ -49,6 +49,7 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %license LICENSE-MIT LICENSE-APACHE NOTICE
 %license assets/fonts/OFL-JetBrainsMono.txt assets/fonts/OFL-Inter.txt assets/fonts/LICENSE-DejaVu.txt
 %license assets/fonts/OFL-Geist.txt
+%license assets/themes/upstream/LICENSE-Catppuccin
 %{_bindir}/clanky
 %{_datadir}/applications/clanky.desktop
 %{_metainfodir}/io.github.rustytensor.Clanky.metainfo.xml

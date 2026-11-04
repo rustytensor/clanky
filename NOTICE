@@ -24,6 +24,11 @@ and contributors, licensed under MIT OR Apache-2.0. Its lyon_algorithms,
 lyon_geom, lyon_path and lyon_tessellation components use the same licences.
 Supporting geometry uses euclid (MIT OR Apache-2.0) and float_next_after (MIT).
 
+Catppuccin theme colours are from catppuccin/palette v1.8.0, commit
+07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd. Copyright (c) 2021 Catppuccin.
+MIT licence: assets/themes/upstream/LICENSE-Catppuccin.
+Source: https://github.com/catppuccin/palette
+
 Bundled fonts (assets/fonts), compiled into the clanky binary:
 
 - Geist and Geist Mono 1.9.1 (Regular, Medium, SemiBold), Copyright 2026 The
