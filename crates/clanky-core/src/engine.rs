@@ -9,6 +9,9 @@ mod masking;
 #[path = "status.rs"]
 mod status;
 use agent::optional_number;
+#[cfg(test)]
+#[path = "anchor_tests.rs"]
+mod anchor_tests;
 
 use crate::{
     TerminalSnapshot, Workspace,
@@ -144,7 +147,8 @@ impl Command {
         s.safe.extend(bytes);
         let excess = s.safe.len().saturating_sub(8 * 1024 * 1024);
         s.safe.drain(..excess);
-        self.safe_terminal.lock().unwrap().feed(&self.id, bytes);
+        self.safe_terminal.lock().unwrap().feed_masked(&self.id, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         self.safety
             .output(&self.tab_id, &self.allowed, &self.id, bytes, start);
     }
@@ -245,7 +249,8 @@ impl Tab {
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
         *self.last_output.lock().unwrap() = Instant::now();
-        let responses = self.terminal.lock().unwrap().feed(command, bytes);
+        let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
                 for r in responses {
@@ -584,6 +589,7 @@ impl Engine {
                 }
                 // Placements clone only Arc headers, never their RGBA buffers.
                 let snapshot = terminal.snapshot();
+                let block_anchors = terminal.card_metadata();
                 drop(terminal);
                 let mut pixels = Vec::new();
                 for image in &snapshot.images {
@@ -593,7 +599,8 @@ impl Engine {
                     }
                 }
                 Ok(
-                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels}),
+                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels,
+                        "block_anchors":block_anchors}),
                 )
             }
             "history" => {

@@ -90,6 +90,21 @@ shell interpolation. wait allows 0–30,000 ms and reports drained completion.
 get_output uses raw byte offset, limit 1–65,536 and utf8/base64 encoding; retained
 output is bounded to 8 MiB per command, with output_evicted on stale offsets.
 list_blocks accepts optional command_id/after and up to 64 OSC 133 blocks.
+Block `command` is captured between OSC 133 B and C from the same masked logical
+screen context as the screen API, including wrapped rows. It is null when capture
+or masking is unavailable, or the command exceeds 64 KiB. This applies even to owner block reads; the ordinary
+owner terminal grid remains raw. Masking has the coverage limits described above.
+
+Blocks also carry nullable absolute-line anchors: `prompt_line` (A, or B without A),
+`command_line` (C), and `end_line` (D). Lines count from the oldest retained row plus
+the grid's monotonic eviction count. Evicted anchors become null. Resize, reset,
+alternate-screen changes and non-preserving region scrolling invalidate old anchors;
+new A/B markers establish new ones. Terminals without OSC 133 have no cards.
+Owner v3 changed `snapshot` replies include `block_anchors: {viewport_line, blocks}`:
+up to 64 visible-command-row block summaries, without output, captured atomically
+with the grid. Summaries carry block_id, command, the three anchors, complete,
+exit_code and duration_ms. Unchanged replies reuse that generation's metadata.
+Cards subtract viewport_line from command_line/end_line; they never match text.
 Closing a terminal terminates its processes; closing a client does not.
 
 ### Version 2: block actions and tasks
@@ -161,7 +176,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | --- | --- |
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
-| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers |
+| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |
