@@ -5,7 +5,10 @@ use clanky_core::{TerminalSnapshot, platform::Clipboard};
 use serde_json::{Value, json};
 use winit::keyboard::{Key, NamedKey};
 
-const ACTIONS: [&str; 9] = [
+const ACTIONS: [&str; 12] = [
+    "Open file",
+    "Load changes",
+    "Compose",
     "copy",
     "collapse",
     "rerun",
@@ -31,7 +34,13 @@ struct Prompt {
     text: String,
 }
 
+pub struct LocalRequest {
+    pub action: &'static str,
+    pub tab: String,
+}
+
 pub struct Panels {
+    pub local: Option<LocalRequest>,
     pub visible: bool,
     pub open: bool,
     tab: String,
@@ -49,6 +58,7 @@ pub struct Panels {
 impl Default for Panels {
     fn default() -> Self {
         Self {
+            local: None,
             visible: true,
             open: false,
             tab: String::new(),
@@ -111,6 +121,13 @@ impl Panels {
         Ok(json!({"tab_id":self.tab,"block_id":block}))
     }
     fn action(&mut self, engine: &Client, action: &'static str) -> Result<(), String> {
+        if matches!(action, "Open file" | "Load changes" | "Compose") {
+            self.local = Some(LocalRequest { action, tab: self.tab.clone() });
+            self.open = false;
+            self.prompt = None;
+            self.preedit.clear();
+            return Ok(());
+        }
         let mut args = match action {
             "tasks" | "view" => json!({"tab_id":self.tab}),
             "task_update" | "task_get" => {
@@ -307,6 +324,9 @@ impl Panels {
     }
     pub fn draw(&mut self, frame: &mut TerminalSnapshot, width: usize) {
         self.lines.clear();
+        self.lines.push(("[Open file]".into(), Some(Hit::Action("Open file"))));
+        self.lines.push(("[Load changes]".into(), Some(Hit::Action("Load changes"))));
+        self.lines.push(("[Compose]".into(), Some(Hit::Action("Compose"))));
         self.lines.push((format!("Blocks: {}", self.tab), None));
         if !self.after.is_empty() {
             self.lines

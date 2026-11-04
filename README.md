@@ -41,7 +41,8 @@ An exited command still has a session until its tab is closed. State survives
 client loss, **not server loss or reboot**.
 
 `clanky --server --socket PATH` runs the server in the foreground; `--headless`
-is also supported. New shells use the server's shell and directory defaults.
+is also supported. New tabs and terminal splits use the server's shell and the
+focused terminal's directory, falling back to the server's home only when unknown.
 `clanky attach HOST` uses key-based SSH and the remote `clanky --stdio` bridge;
 Clanky opens no TCP listener. The remote program must be installed and SSH login
 must already work. `clanky --stdio --socket PATH` exposes the same local pipe path.
@@ -109,13 +110,63 @@ checks socket and palette actions, then M2 (which includes M1), once each.
 `scripts/gate-m4.sh` adds real client-loss/reattachment and permission checks,
 then invokes M3 once. It uses a local stdio pipe, not a live SSH connection.
 
-## Editor core
+## Search, links and clipboard
 
-`clanky-edit` provides standalone UTF-8 editing, selections, undo/redo, source
-locations and per-hunk accept/reject review. Accepted edits stay in memory until
-explicit save. Saves detect external changes and atomically replace the resolved
-target, preserving symlinks. There is no editor panel or socket integration yet.
-See [the API and gate](docs/design-m7-core.md) and [results](docs/m7-core-results.md).
+Ctrl+Shift+F searches the focused terminal's retained text, including soft-wrapped
+lines. Enter/Shift+Enter selects next/previous; Escape closes. The displayed
+search view stays stable until the query or navigation changes.
+
+Hover over a complete http/https URL to underline it; Ctrl+click opens it with
+`xdg-open`. Plain URL clicks are inert. URLs must fit one visible physical row;
+ordinary file-path clicks still open the editor.
+
+Programs may write up to 1 MiB of UTF-8 clipboard text using OSC 52. Set
+`osc52_write: false` in config to disable this. Clipboard reads default off;
+`osc52_read: true` explicitly enables reads of at most 64 KiB. Only the clipboard
+selection is supported. An owner window handles events using `wl-copy`/`wl-paste`
+or `xclip`; headless servers never touch a desktop clipboard. With multiple
+windows, the first owner to drain an event applies that window's policy.
+See [polish design](docs/design-polish-window.md) and [gate results](docs/polish-window-results.md).
+
+## Editor panes
+
+Click a terminal `path:line[:col]`, use Ctrl+Shift+O, or choose **Open file** in
+the palette. Relative paths use that terminal's current directory; an unknown
+directory is an error, never a guess. Editor panes split alongside the terminal
+workspace and use its font/zoom. They are window-local, not persistent sessions.
+Remote terminal file clicks are refused rather than opening a local lookalike.
+
+Type, select with mouse/Shift arrows, Ctrl+Z/Ctrl+Shift+Z undo/redo, Ctrl+S save,
+and Ctrl+F find (Enter next, Escape close). Ctrl+Shift+D/E opens another editor
+split when an editor has focus. Dirty pane/window closure refuses until save or
+undo restores saved contents. Wheel scrolls text or the review preview under it.
+
+**Load changes** imports a chosen proposal JSON into the focused file. Review
+cards show old/new text with accept/reject and all-hunk controls; stale hunks
+cannot apply. Ctrl+Alt+A/R acts on the selected hunk; add Shift for all pending.
+Changes stay in memory until explicit save. The existing `clanky-edit` core
+preserves UTF-8/line endings and symlinks and refuses external-file conflicts.
+See [panel design](docs/design-m7-panel.md), [controller/proposal API](docs/editor-panel-api.md),
+[gate results](docs/m7-panel-results.md), and [editor core](docs/design-m7-core.md).
+
+## Compose long prompts
+
+Focus a terminal and press Ctrl+Shift+Enter, or choose **Compose** in the palette.
+Enter adds a line; Ctrl+Enter sends one bracketed paste to the named terminal.
+No Enter is appended by default. Escape closes while keeping that terminal's
+memory-only draft; sending also keeps it. Closing the window can lose drafts.
+
+Misspellings are underlined. F7 requests suggestions; Up/Down and Enter choose a
+correction. Ctrl+Alt+A adds a word to `compose-words.txt` beside the config file.
+Code-looking paths, flags, identifiers, URLs and backtick spans are excluded.
+Missing dictionaries show an error but do not block editing or sending.
+
+Optional config fields: `compose_dictionary` (default `en_US`),
+`compose_dictionary_dir` (default `/usr/share/hunspell`), and
+`compose_send_enter` (default `false`; `true` appends one CR after the paste).
+The system supplies Hunspell dictionaries; none is bundled or downloaded at run
+time. See [compose design](docs/design-m8-compose.md) and
+[gate results](docs/m8-compose-results.md).
 
 ## Masking core
 

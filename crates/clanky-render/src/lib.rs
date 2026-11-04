@@ -11,6 +11,15 @@ use std::{
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+/// Client-local decoration; never part of a serialized terminal snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Underline {
+    pub row: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+    pub color: [u8; 3],
+}
+
 pub const CELL_WIDTH: u32 = 16;
 pub const CELL_HEIGHT: u32 = 32;
 const ATLAS_SIZE: u32 = 2048;
@@ -298,6 +307,7 @@ impl TextPipeline {
         view: &wgpu::TextureView,
         width: u32,
         height: u32,
+        underlines: &[Underline],
     ) -> Result<wgpu::CommandBuffer, String> {
         let count = snapshot
             .rows
@@ -352,6 +362,28 @@ impl TextPipeline {
                     height,
                 );
             }
+        }
+        // Solid decorations follow glyphs and precede the caret.
+        for underline in underlines {
+            let start = underline.start_col.min(snapshot.cols);
+            let end = underline.end_col.min(snapshot.cols);
+            if underline.row >= snapshot.rows || start >= end {
+                continue;
+            }
+            let x = start as f32 * self.cell_width as f32;
+            let y = (underline.row + 1) as f32 * self.cell_height as f32
+                - self.cell_height.min(2) as f32;
+            if x >= width as f32 || y >= height as f32 {
+                continue;
+            }
+            quad(
+                &mut vertices,
+                [x, y, ((end - start) as f32 * self.cell_width as f32)
+                    .min(width as f32 - x),
+                    (self.cell_height.min(2) as f32).min(height as f32 - y)],
+                [0.5, 0.5, 0.0, 0.0],
+                underline.color, width, height,
+            );
         }
         if let Some((row, col)) = snapshot.cursor {
             if row < snapshot.rows && col < snapshot.cols {
@@ -648,6 +680,14 @@ impl Renderer {
         self.surface.configure(&self.text.device, &self.config);
     }
     pub fn draw(&mut self, snapshot: &TerminalSnapshot) -> Result<(), String> {
+        self.draw_with_underlines(snapshot, &[])
+    }
+
+    pub fn draw_with_underlines(
+        &mut self,
+        snapshot: &TerminalSnapshot,
+        underlines: &[Underline],
+    ) -> Result<(), String> {
         if self.suspended {
             return Ok(());
         }
@@ -666,7 +706,7 @@ impl Renderer {
         let view = frame.texture.create_view(&Default::default());
         let commands = self
             .text
-            .render(snapshot, &view, self.config.width, self.config.height)?;
+            .render(snapshot, &view, self.config.width, self.config.height, underlines)?;
         self.text.queue.submit([commands]);
         self.text.queue.present(frame);
         Ok(())
@@ -688,8 +728,41 @@ pub fn offscreen_image_samples(snapshot: &TerminalSnapshot) -> Result<[[u8; 4]; 
     ))
 }
 
+/// Render cell centres with the existing offscreen pipeline (row, column).
+pub fn offscreen_cell_samples<const N: usize>(
+    snapshot: &TerminalSnapshot,
+    coordinates: [(usize, usize); N],
+) -> Result<[[u8; 4]; N], String> {
+    let mut pixels = [(0, 0); N];
+    for (out, (row, col)) in pixels.iter_mut().zip(coordinates) {
+        if row >= snapshot.rows || col >= snapshot.cols {
+            return Err("Offscreen cell outside snapshot".into());
+        }
+        *out = (col * CELL_WIDTH as usize + CELL_WIDTH as usize / 2,
+                row * CELL_HEIGHT as usize + CELL_HEIGHT as usize / 2);
+    }
+    block_on(offscreen_samples(snapshot, pixels))
+}
+
+/// Sample pixel coordinates using the real text pipeline and local decorations.
+pub fn offscreen_underlined_samples<const N: usize>(
+    snapshot: &TerminalSnapshot,
+    underlines: &[Underline],
+    coordinates: [(usize, usize); N],
+) -> Result<[[u8; 4]; N], String> {
+    block_on(offscreen_decorated_samples(snapshot, underlines, coordinates))
+}
+
 async fn offscreen_samples<const N: usize>(
     snapshot: &TerminalSnapshot,
+    coordinates: [(usize, usize); N],
+) -> Result<[[u8; 4]; N], String> {
+    offscreen_decorated_samples(snapshot, &[], coordinates).await
+}
+
+async fn offscreen_decorated_samples<const N: usize>(
+    snapshot: &TerminalSnapshot,
+    underlines: &[Underline],
     coordinates: [(usize, usize); N],
 ) -> Result<[[u8; 4]; N], String> {
     let width = u32::try_from(snapshot.cols)
@@ -726,7 +799,7 @@ async fn offscreen_samples<const N: usize>(
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
     );
     let view = target.create_view(&Default::default());
-    let draw = text.render(snapshot, &view, width, height)?;
+    let draw = text.render(snapshot, &view, width, height, underlines)?;
     let stride = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
         * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let readback = text.device.create_buffer(&wgpu::BufferDescriptor {
