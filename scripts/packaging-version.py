@@ -18,9 +18,13 @@ with (root / 'Cargo.toml').open('rb') as manifest:
 if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
     sys.exit(f'FAIL: unsupported workspace version {version!r}')
 if args.check:
-    versions = re.findall(r'^Version:\s*(\S+)\s*$', args.spec.read_text(), re.MULTILINE)
+    spec = args.spec.read_text()
+    versions = re.findall(r'^Version:\s*(\S+)\s*$', spec, re.MULTILINE)
+    sections = re.split(r'^%changelog\s*$', spec, flags=re.MULTILINE)
+    header = re.search(r'^\*.*$', sections[1], re.MULTILINE) if len(sections) == 2 else None
+    entry = re.fullmatch(r'\* .+ - ([0-9]+\.[0-9]+\.[0-9]+)-\S+', header.group()) if header else None
     release = ET.parse(root / 'packaging/linux/io.github.rustytensor.Clanky.metainfo.xml').find('./releases/release')
-    observed = {'spec Version': versions, 'AppStream current release': [] if release is None else [release.get('version')]}
+    observed = {'spec Version': versions, 'spec top changelog version': [entry.group(1)] if entry else [], 'AppStream current release': [] if release is None else [release.get('version')]}
     if args.tarball is not None:
         observed['tarball name'] = [args.tarball.name]
     for name, actual in observed.items():
