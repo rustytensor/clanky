@@ -21,19 +21,28 @@ else
     [[ $# == 0 ]] || { echo 'FAIL: unknown argument' >&2; exit 1; }
     python3 scripts/gate-m11-look.py < "$work/observations.json"
 fi
-python3 - "$work/scene.rgba" "$work/scene.png" <<'PY'
-import struct, sys, zlib
-raw = open(sys.argv[1], 'rb').read()
+python3 - "$work" <<'PY'
+import pathlib, struct, sys, zlib
+work = pathlib.Path(sys.argv[1])
 w, h = 1240, 760
-if len(raw) != w * h * 4:
-    raise SystemExit('FAIL: invalid picture size')
 def chunk(kind, data):
     return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
-rows = b''.join(b'\0' + raw[y*w*4:(y+1)*w*4] for y in range(h))
-with open(sys.argv[2], 'wb') as out:
-    out.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+for name in ('scene', 'scene-light'):
+    raw = (work / (name + '.rgba')).read_bytes()
+    if len(raw) != w * h * 4:
+        raise SystemExit('FAIL: invalid picture size')
+    # Readback is premultiplied; PNG stores straight alpha.
+    pixels = bytearray(raw)
+    for i in range(0, len(pixels), 4):
+        alpha = pixels[i + 3]
+        if alpha:
+            for c in range(3):
+                pixels[i+c] = min(255, (pixels[i+c] * 255 + alpha // 2) // alpha)
+    rows = b''.join(b'\0' + pixels[y*w*4:(y+1)*w*4] for y in range(h))
+    (work / (name + '.png')).write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
 PY
 mv -- "$work/scene.png" "$CARGO_TARGET_DIR/look/scene.png"
+mv -- "$work/scene-light.png" "$CARGO_TARGET_DIR/look/scene-light.png"
 if [[ ${1:-} == --dark-only ]]; then
     echo 'PASS: M11 dark only (light, settings and regression not run)'
     exit 0
