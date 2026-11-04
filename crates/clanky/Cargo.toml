@@ -9,5 +9,8 @@ base64 = "=0.23.1"
 clanky-core = { path = "../clanky-core" }
 clanky-render = { path = "../clanky-render" }
 clanky-api = { path = "../clanky-api" }
+clanky-edit = { path = "../clanky-edit" }
+crossterm = "=0.28.1"
+ratatui = { version = "=0.29.0", default-features = false, features = ["crossterm"] }
 serde_json = "=1.0.154"
 winit = "=0.30.13"
