@@ -30,8 +30,11 @@ a missing explicit file, invalid value or unknown key is an error.
 {"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}
 ```
 
-Settings are loaded at startup; zoom changes are window-local and do not rewrite
-this file. Headless terminals use their socket size defaults. Font family names
+Settings load at startup and apply live when the file changes (checked every
+500 ms). Invalid edits retain the last good settings and show the error once.
+Ctrl+, or the top-bar Settings button opens the same file as a point-and-click
+panel; see [Settings](settings.md). Zoom changes remain window-local and do not
+rewrite the file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
 The bundled scene fonts are JetBrains Mono and Inter. Legacy M1/M2 offscreen
 fixtures retain DejaVu Sans Mono. Legacy font_size_pt remains accepted without
