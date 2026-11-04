@@ -58,9 +58,10 @@ pub struct TextRun { pub origin: [f32; 2], pub text: String, pub px: f32, pub co
   opaque (then `opacity` is ignored and the status line says so once).
 - The existing `draw(snapshot)` path and every `offscreen_*` fixture stay byte-for-byte as they are; M1 and M2
   pixel gates do not change.
-- UI text: system fonts through fontconfig as loaded by cosmic-text's font database (no new crate). Defaults:
-  UI font `sans-serif`, terminal font the bundled DejaVu Sans Mono. Config can name other installed families.
-  The gate uses only the bundled font, so results do not depend on the machine.
+- Fonts: bundled JetBrains Mono (terminal) and Inter (interface), OFL-1.1, approved by Marc 2026-11-04. Config can
+  name other installed families, loaded through cosmic-text's font database (no new crate). The gate uses only
+  bundled fonts, so results do not depend on the machine. The existing M1/M2 offscreen fixtures keep DejaVu Sans
+  Mono so their pixels do not change.
 - `offscreen_scene(scene, width, height) -> Vec<u8>` reads back premultiplied RGBA for the gate.
 
 ## Layout: pixels from the core layout tree
@@ -105,7 +106,7 @@ Only the focused pane and agent-driven panes get a shadow or glow; other panes h
 ## Config (new keys)
 
 `opacity` (0.5 to 1.0, default 0.94), `animations` (default true), `rails` (default true),
-`font_family` (terminal font family, default the bundled one), `ui_font_family` (default `sans-serif`).
+`font_family` (terminal font family, default bundled JetBrains Mono), `ui_font_family` (default bundled Inter).
 Unknown keys stay errors.
 
 ## Gate: `scripts/gate-m11-look.sh`
