@@ -87,6 +87,14 @@ New socket operations use `v:2`; v1 `run` and routing stay unchanged. See
 [the M3 operation table and examples](docs/design-m3.md). `scripts/gate-m3.sh`
 checks socket and palette actions, then M2 (which includes M1), once each.
 
+## Editor core
+
+`clanky-edit` provides standalone UTF-8 editing, selections, undo/redo, source
+locations and per-hunk accept/reject review. Accepted edits stay in memory until
+explicit save. Saves detect external changes and atomically replace the resolved
+target, preserving symlinks. There is no editor panel or socket integration yet.
+See [the API and gate](docs/design-m7-core.md) and [results](docs/m7-core-results.md).
+
 ## Why "Clanky"
 
 A clanker is a robot. This is where they work.
