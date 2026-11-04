@@ -1,0 +1,44 @@
+.TH CLANKY 1
+.SH NAME
+clanky \- GPU-rendered terminal for coding agents
+.SH SYNOPSIS
+.B clanky
+.RB [ --headless ]
+.RB [ --socket " PATH" ]
+.RB [ --config " PATH" ]
+.br
+.B clanky
+.RB [ --help | -h ]
+.SH DESCRIPTION
+Clanky is a Linux terminal with tabs, split panes, and a local agent socket.
+Agent access to a graphical terminal is disabled by default.
+.SH OPTIONS
+.TP
+.B --headless
+Run without a graphical window.
+.TP
+.BI --socket " PATH"
+Use PATH for the agent socket. Its parent directory must be private and owned
+by the current user. An existing socket is not removed.
+.TP
+.BI --config " PATH"
+Read configuration from PATH.
+.TP
+.BR --help , " -h"
+Print usage and keyboard shortcuts.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/clanky/config.json
+Default configuration when XDG_CONFIG_HOME is set.
+.TP
+.I $HOME/.config/clanky/config.json
+Default configuration otherwise. A missing default file uses built-in defaults.
+.SH KEYBOARD
+Ctrl+Shift+T opens a tab; Ctrl+Shift+D and Ctrl+Shift+E split a pane.
+Ctrl+Shift+W closes a pane; Ctrl+Tab switches tabs. Ctrl+Shift+A toggles
+agent access to the focused pane. Ctrl+Shift+P opens the palette and
+Ctrl+Shift+B toggles the sidebar. Ctrl+= and Ctrl+- zoom; Ctrl+0 resets zoom.
+.SH SEE ALSO
+.UR https://github.com/rustytensor/clanky
+Clanky project
+.UE
