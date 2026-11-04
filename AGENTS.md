@@ -78,9 +78,11 @@ VT parser, and the socket's terminal IDs and command routing stay unchanged.
   Owner authority requires outside-terminal peer ancestry and the capability.
   See `docs/design-m4.md` and `docs/m4-results.md`; live SSH/window checks remain manual.
 - **M5: the rest of the agent API.** Know when a program waits for input, read the screen as text, send keys,
-  events instead of polling, an MCP server.
+  events instead of polling, an MCP server. Automated gate passed with the remaining M6 work: v0.5.0.
+  `scripts/gate-m5.sh` includes the earlier milestone, masker, editor-core and Linux-packaging gates.
 - **M6: safety.** Secrets masked before an agent reads output, a per-tab log of what each agent typed, one key that
-  stops every agent.
+  stops every agent's API access and cancels pending waits. Automated gate passed: v0.5.0.
+  See `docs/design-m5.md` and `docs/m5-results.md` for masking/readiness limits and manual checks.
 - **M7: GUI editor.** Open files fast (click `path:line` anywhere), edit beside the agent, see its changes live and
   accept or reject each one.
 - **M8: compose box.** A multi-line editor with spell-check for long prompts, pasted into the tab.
