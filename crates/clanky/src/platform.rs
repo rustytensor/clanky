@@ -2,6 +2,14 @@
 use std::path::PathBuf;
 use winit::window::{Theme, Window};
 
+pub fn private_file(options: &mut std::fs::OpenOptions) {
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))] let _ = options;
+}
+
 pub fn system_light(window: &Window) -> bool {
     preference_is_light(window.theme())
 }
