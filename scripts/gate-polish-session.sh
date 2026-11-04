@@ -8,5 +8,7 @@ export CLANKY_BUILD_LOCK=/srv/devops/build/clanky/.build.lock
 case ${CLANKY_GATE_FAULT:-} in ''|polish) ;; *) echo 'FAIL: unknown fault' >&2; exit 1;; esac
 flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky --bin polish-session-gate -j 8
 python3 scripts/gate-polish-session.py "$CARGO_TARGET_DIR/debug/polish-session-gate" "$CARGO_TARGET_DIR/debug/clanky"
-env -u CLANKY_GATE_FAULT scripts/gate-m9.sh
+if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
+    env -u CLANKY_GATE_FAULT scripts/gate-m9.sh
+fi
 echo 'PASS: session polish'
