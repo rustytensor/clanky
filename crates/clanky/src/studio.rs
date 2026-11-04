@@ -175,7 +175,7 @@ impl App {
     }
     fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
         self.studio.card_keys.clear();
-        let modal=self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some();
+        let modal=self.settings_open() || self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some();
         let mut shown=Vec::new();
         for pane in &layout.panes {
             let Some(data)=state.panes.iter().find(|data|data.id==pane.id) else{continue;};
@@ -196,6 +196,10 @@ impl App {
         if self.studio.card_focus.as_ref().is_some_and(|key|!self.studio.card_keys.contains(key)) || modal {self.studio.card_focus=None;}
         state.block_action_focus=self.studio.card_focus.as_ref().map(|(tab,id)|(tab.clone(),id.clone(),self.studio.card_action));
     }
+    pub fn settings_button_hit(&self)->bool {
+        self.studio.hits.iter().any(|hit|hit.action==HitAction::Settings && hit.rect.contains(self.mouse.0,self.mouse.1))
+    }
+    pub fn clear_card_focus(&mut self) {self.studio.card_focus=None;}
     pub fn card_focused(&self)->bool {self.studio.card_focus.is_some()}
     pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
         if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return Ok(false);}
@@ -218,6 +222,7 @@ impl App {
     }
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
+            HitAction::Settings=>{self.toggle_settings()?;},
             HitAction::Palette => {
                 self.palette_editor = Some(self.files.focus.clone());
                 let focused = self.focused().map(str::to_owned);
@@ -254,6 +259,7 @@ impl App {
         Ok(())
     }
     pub(super) fn click_studio(&mut self) -> Result<(), String> {
+        if self.settings_button_hit() {return self.toggle_settings();}
         self.studio.card_focus=None;
         self.files.dragging = None; self.studio.drag = None;
         let layout = self.pixel_layout()?;
@@ -384,7 +390,7 @@ impl App {
         let now = Instant::now();
         let mut state = LookState { theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
             elapsed_ms: self.studio.started.elapsed().as_secs_f32()*1000.0,
-            focused: if self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
+            focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
             ..LookState::default() };
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
@@ -672,6 +678,11 @@ impl App {
         }
         if let Some(status) = &self.status {
             presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
+        }
+        if let Some(panel)=&mut self.settings {
+            let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|(pane.id.clone(),pane.allow_agent)).collect();
+            presentation.scene.layers.extend(panel.draw_with_measure(&layout,&state.theme,&access,&mut |run|renderer.measure_text(run)));
+            if panel.open{ime=panel.ime_position();}
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {

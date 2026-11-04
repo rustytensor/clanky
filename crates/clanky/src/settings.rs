@@ -37,7 +37,11 @@ impl Settings {
         };
         if observed == self.observed { return Ok(false); }
         self.observed = observed.clone();
-        let bytes = observed.unwrap_or_else(|| b"{}\n".to_vec());
+        let Some(bytes) = observed else {
+            let error = "settings file was removed; keeping last good settings".to_owned();
+            self.last_error = Some(error.clone());
+            return Err(error);
+        };
         match validate(&self.path, &bytes) {
             Ok(config) => { self.config = config; self.bytes = bytes; self.last_error = None; Ok(true) }
             Err(error) => { self.last_error = Some(error.clone()); Err(error) }
@@ -69,7 +73,7 @@ impl Settings {
     fn change(&mut self, change: impl FnOnce(&mut Value) -> Result<(), String>) -> Result<&Config, String> {
         // Always merge against the latest valid disk content, never a stale UI copy.
         let expected = read_optional(&self.path)?;
-        let source = expected.as_deref().unwrap_or(b"{}\n");
+        let source = expected.as_deref().unwrap_or(&self.bytes);
         validate(&self.path, source)?;
         let mut document: Value = serde_json::from_slice(source).map_err(|e| format!("invalid JSON: {e}"))?;
         change(&mut document)?;
@@ -139,6 +143,23 @@ fn atomic_write(path: &Path, bytes: &[u8], expected: Option<&[u8]>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removed_settings_keeps_last_good() {
+        let path = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").expect("shared build directory"))
+            .join(format!("settings-removed-{}.json",std::process::id()));
+        fs::write(&path,b"{\"rails\":false,\"opacity\":0.8}").unwrap();
+        let mut settings=Settings::open(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(settings.reload().is_err());
+        assert_eq!(settings.config().opacity_alpha(),204);
+        assert!(!settings.reload().unwrap());
+        settings.set("font_size",serde_json::json!(20)).unwrap();
+        let config=Config::load(Some(&path)).unwrap();
+        assert_eq!(config.opacity_alpha(),204);
+        assert!(!config.rails);
+        assert_eq!(config.font_size,20.0);
+        fs::remove_file(path).unwrap();
+    }
     #[test]
     fn ordered_settings_round_trip() {
         let root = PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").expect("use the shared build directory"))
