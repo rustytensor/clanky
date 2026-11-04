@@ -17,6 +17,10 @@ pub struct LookState {
     /// Optional age labels (or labelled Eastern times), parallel to timeline.
     pub timeline_times: Vec<String>,
     pub agents: Vec<AgentItem>,
+    pub agent_labels: std::collections::BTreeMap<u64,String>,
+    /// Action opacity by (terminal, block), absent for resting cards.
+    pub block_actions: std::collections::BTreeMap<(String,String),f32>,
+    pub block_action_focus: Option<(String,String,usize)>,
     pub files: Vec<FileItem>,
     pub timeline: Vec<TimelineItem>,
     pub activity: Vec<f32>,
@@ -27,7 +31,7 @@ pub struct LookState {
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
-            panes: vec![], sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], files: vec![],
+            panes: vec![], sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
             masking_ready: false, panels: vec![] }
     }
@@ -227,17 +231,29 @@ fn intersect(a: PixelRect,b: PixelRect) -> PixelRect {
     let x=a.x.max(b.x); let y=a.y.max(b.y);
     rect(x,y,(a.x+a.w).min(b.x+b.w)-x,(a.y+a.h).min(b.y+b.h)-y)
 }
-fn block_card(out: &mut Builder<'_>,layout: &Layout,state: &LookState,pane: &super::PaneLayout,data: &PaneState,block: &BlockCard,origin:[f32;2]) {
-    if block.last_row<block.first_row || block.first_row>=data.snapshot.rows { return; }
-    let t=&state.theme; let m=&layout.metrics;
-    let last=block.last_row.min(data.snapshot.rows.saturating_sub(1));
-    let ch=layout.cell_px[1] as f32; let inset=m.card_inset as f32;
+pub fn block_card_rect(layout: &Layout,pane: &super::PaneLayout,block: &BlockCard,rows: usize,origin: [f32;2]) -> Option<PixelRect> {
+    if block.last_row<block.first_row || block.first_row>=rows {return None;}
+    let last=block.last_row.min(rows.saturating_sub(1));
+    let ch=layout.cell_px[1] as f32;let inset=layout.metrics.card_inset as f32;
     let y=origin[1]+block.first_row as f32*ch;
     let card=intersect(rect(origin[0]-inset,y-inset,pane.grid_clip.w+2.0*inset,(last-block.first_row+1) as f32*ch+2.0*inset),
         rect(pane.grid_clip.x-inset,pane.grid_clip.y-inset,pane.grid_clip.w+2.0*inset,pane.grid_clip.h+2.0*inset));
-    if card.h<=0.0 { return; }
+    (card.h>0.0).then_some(card)
+}
+fn block_card(out: &mut Builder<'_>,layout: &Layout,state: &LookState,pane: &super::PaneLayout,data: &PaneState,block: &BlockCard,origin:[f32;2]) {
+    let Some(card)=block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{return;};
+    let t=&state.theme; let m=&layout.metrics;
+    let ch=layout.cell_px[1] as f32;
+    let y=origin[1]+block.first_row as f32*ch;
     shape(out,card,m.block_radius as f32,t.card,block.running.then_some((m.border as f32,t.violet)),None);
     if y<pane.grid_clip.y || y+ch>pane.grid_clip.y+pane.grid_clip.h { return; }
+    let prompt_px=ch/1.25;
+    let prompt_width=text_width(out,"❯",prompt_px,400,false,0.0);
+    let prompt_left=pane.rect.x+m.border as f32;
+    let prompt_space=origin[0]-prompt_left;
+    if prompt_width<=prompt_space {
+        text(out,rect(prompt_left,y,prompt_space,ch),"❯",prompt_px,t.accent,400);
+    }
     let mut right=card.x+card.w-m.chip_right_gap as f32;
     let dy=m.chip_inset_y as f32;
     if let Some(code)=block.exit_code {
@@ -264,13 +280,18 @@ fn block_card(out: &mut Builder<'_>,layout: &Layout,state: &LookState,pane: &sup
         shape(out,rect(right-diameter,y+(ch-diameter)/2.0,diameter,diameter),diameter/2.0,Theme::fade(t.violet,pulse),None,None);
     }
     // Actual command/output are painted only by the original, unmodified grid.
+    let opacity=state.block_actions.get(&(data.id.clone(),block.id.clone())).copied().unwrap_or(0.0).clamp(0.0,1.0);
+    if opacity<=0.0 {return;}
     let actions=[("copy","Copy"),("rerun","Run"),("send","Agent"),("collapse","Fold")];
     let width=m.pill_height as f32*2.0;
     let controls_width=actions.len() as f32*width;
     if right-controls_width>card.x+pane.grid_clip.w/2.0 {
         for (i,(action,label)) in actions.iter().enumerate() {
             let r=rect(right-controls_width+i as f32*width,y+dy,width-m.control_gap as f32,ch-2.0*dy);
-            text(out,r,label,m.small_font_px as f32,t.dim,500);
+            if state.block_action_focus.as_ref().is_some_and(|(tab,id,index)|tab==&data.id && id==&block.id && *index==i) {
+                shape(out,r,m.item_radius as f32,Theme::fade(t.selection,opacity),None,None);
+            }
+            text(out,r,label,m.small_font_px as f32,Theme::fade(t.dim,opacity),500);
             hit(out,r,HitAction::Block { tab_id:data.id.clone(),block_id:block.id.clone(),action:(*action).into() });
         }
     }
@@ -334,7 +355,7 @@ fn chrome(out: &mut Builder<'_>,layout: &Layout,state: &LookState) {
                 },
                 1=>for item in &state.agents {
                     if y+m.rail_row_height as f32>bottom { break; }
-                    row(out,t,m,rect(r.x+gap,y,r.w-2.0*gap,m.rail_row_height as f32),&item.peer_pid.to_string(),if item.running {"run"} else {"idle"},item.running,if item.running {t.violet} else {t.dim},HitAction::Agent { connection_id:item.connection_id,tab_id:item.tab_id.clone() }); y+=m.rail_row_height as f32;
+                    row(out,t,m,rect(r.x+gap,y,r.w-2.0*gap,m.rail_row_height as f32),&state.agent_labels.get(&item.connection_id).cloned().unwrap_or_else(||format!("agent {}",item.peer_pid)),if item.running {"run"} else {"idle"},item.running,if item.running {t.violet} else {t.dim},HitAction::Agent { connection_id:item.connection_id,tab_id:item.tab_id.clone() }); y+=m.rail_row_height as f32;
                 },
                 _=>for item in &state.files {
                     if y+m.rail_row_height as f32>bottom { break; }
@@ -462,6 +483,8 @@ mod tests {
         // Literal independent design cases 4/5, not samples derived from drawing.
         let tree=Tree::branch(Axis::Rows,Tree::leaf("A"),Tree::leaf("B"));
         let layout=super::super::layout([1240,760],1.0,true,&tree,[10,20]);
+        let prompt=clanky_render::measure_text(&run("❯",16.0,400,false,0.0));
+        println!("prompt mark at 16 px: advance {}, ascent {}, descent {}; card inset 4, pane padding 12",prompt.width,prompt.ascent,prompt.descent);
         let a=PaneState::new("A",snapshot_from_chunks(14,71,&[]).unwrap());
         let mut b=PaneState::new("B",snapshot_from_chunks(14,71,&[b"cargo build"]).unwrap());
         b.blocks.push(BlockCard { id:"build".into(),first_row:0,last_row:0,command:"cargo build".into(),exit_code:Some(0),duration_ms:None,running:false });

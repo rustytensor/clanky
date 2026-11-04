@@ -24,6 +24,14 @@ agent access and cancels waits, but does not kill running commands.
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Reset zoom |
 | `Ctrl+Tab` | Next terminal tab group |
+| `F6` | Focus/cycle visible command cards; reveal block actions |
+| `Card:ArrowLeft/ArrowRight/Tab` | Choose Copy, Run, Agent or Fold |
+| `Card:Enter` | Activate the chosen block action |
+| `Card:Escape` | Return keyboard input to the pane |
+
+Block actions appear only while the card is hovered or keyboard-focused. They
+fade in over 120 ms; animations off makes them immediate. Card focus consumes
+ordinary typing and IME input rather than sending it to the shell underneath.
 
 ## Palette and file prompts
 
