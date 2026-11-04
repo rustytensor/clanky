@@ -10,62 +10,162 @@ def read(path):
     return (root / path).read_text()
 def check(label, expected, actual):
     if expected != actual:
-        sys.exit(f'FAIL: {label}: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}')
-def arms(section):
-    result = set()
-    for line in section.splitlines():
-        if '=>' in line:
-            result.update(re.findall(r'"([a-z_]+)"', line.split('=>')[0]))
-    return result
-config = read('crates/clanky/src/config.rs').split('match key.as_str() {', 1)[1].split('_ =>', 1)[0]
-keys = arms(config)
-doc_keys = set(re.findall(r'^\| `([a-z_]+)` \|', read('docs/config.md'), re.MULTILINE))
-if os.environ.get('CLANKY_GATE_FAULT') == 'docs':
-    doc_keys.add('made_up_config_key')
-check('config keys', keys, doc_keys)
-main = read('crates/clanky/src/main.rs').split('    fn key(&mut self, key:', 1)[1].split('    fn click(', 1)[0]
-shift = main.split('match lower.as_str() {', 1)[1].split('_ =>', 1)[0]
-shortcuts = {'Ctrl+Shift+' + x.upper() for x in arms(shift)}
-shortcuts.update('Ctrl+Shift+' + x.upper() for x in re.findall(r'eq_ignore_ascii_case\("([a-z])"\)', main))
-zoom = main.split('match lower.as_str() {', 2)[2].split('_ =>', 1)[0]
-shortcuts.update('Ctrl+' + x for x in re.findall(r'"([^\"]+)"', '\n'.join(line.split('=>')[0] for line in zoom.splitlines() if '=>' in line)))
-if 'NamedKey::Tab' in main:
-    shortcuts.add('Ctrl+Tab')
-panels = read('crates/clanky/src/panels.rs').split('    pub fn key(', 1)[1]
-panels = panels.split('\n    pub fn ', 1)[0]
-shortcuts.update('Palette:' + x for x in re.findall(r'NamedKey::(\w+)', panels))
-documented = set(re.findall(r'^\| `([^`]+)` \|', read('docs/shortcuts.md'), re.MULTILINE))
-check('shortcuts', shortcuts, documented)
-engine = read('crates/clanky-core/src/engine.rs')
-actions = read('crates/clanky-core/src/actions.rs')
-def operations(source, function, match_expr):
-    return arms(source.split(function, 1)[1].split(match_expr, 1)[1].split('_ =>', 1)[0])
-ops = {
-    1: operations(engine, 'pub fn request(', 'match op {') | {'hello'},
-    2: operations(actions, 'pub fn palette_action(', 'match action {') | {'hello'},
-    3: operations(engine, 'pub fn owner_request(', 'match op {') | {'hello', 'auth'},
-}
-api = read('docs/agent-api.md')
-examples = re.findall(r'^Request: `([^`]+)` Response: `([^`]+)`$', api, re.MULTILINE)
-seen = {1: set(), 2: set(), 3: set()}
-for request, response in examples:
-    try:
-        req, reply = json.loads(request), json.loads(response)
-        version, op = req['v'], req['op']
-        if version not in seen or op not in ops[version] or reply['id'] != req['id']:
-            raise ValueError('unknown operation or mismatched response id')
-        seen[version].add(op)
-    except (ValueError, KeyError, TypeError) as exc:
-        sys.exit(f'FAIL: API example {request}: {exc}')
+        sys.exit(f'FAIL: {label}: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}')
+def require(ok, message):
+    if not ok:
+        sys.exit('FAIL: ' + message)
+# These inventories read Rust dispatch/key handlers, not a second feature list.
+# Skip quoted braces and comments when delimiting functions/matches. This is a
+# lexical inventory of the current handlers, not a general Rust semantic parser.
+TOKEN = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'|[{}()]', re.S)
+def body_at(text, opening):
+    depth = 0
+    for token in TOKEN.finditer(text, opening):
+        value = token.group()
+        if value == '{': depth += 1
+        elif value == '}':
+            depth -= 1
+            if depth == 0: return text[opening+1:token.start()]
+    raise ValueError('unterminated source block')
+def function(text, name):
+    match = re.search(r'\bfn\s+' + re.escape(name) + r'\s*(?:<[^\n]*?>)?\s*\(', text)
+    if not match: raise ValueError('source function missing: ' + name)
+    return body_at(text, text.index('{', match.end()))
+def blocks(text, pattern):
+    return [body_at(text, m.end()-1) for m in re.finditer(pattern, text)]
+def depth_at(text, end):
+    depth = 0
+    for token in TOKEN.finditer(text, 0, end):
+        if token.group() in ('{','('): depth += 1
+        elif token.group() in ('}',')'): depth -= 1
+    return depth
+def arm_details(text):
+    pattern = r'(?m)^[ \t]*((?:"[^"\n]+"[ \t]*(?:\|[ \t]*)?)+)([^\n]*?)=>'
+    hits = [m for m in re.finditer(pattern, text) if depth_at(text,m.start()) == 0]
+    for n,m in enumerate(hits):
+        yield re.findall(r'"([^"\n]+)"', m.group(1)), m.group(2), text[m.end():hits[n+1].start() if n+1<len(hits) else len(text)]
+def arms(text):
+    return {name for names,_,_ in arm_details(text) for name in names}
+def operations(source, name, variable):
+    return set().union(*(arms(b) for b in blocks(function(source,name),r'\bmatch\s+'+variable+r'\s*\{')))
+def named(text):
+    return set(re.findall(r'NamedKey::(\w+)',text))
+
+fault = os.environ.get('CLANKY_GATE_FAULT','')
+require(fault in ('','docs'), 'unknown documentation fault')
+config = function(read('crates/clanky/src/config.rs'),'from_json')
+keys = arms(blocks(config,r'match key\.as_str\(\)\s*\{')[0])
+doc_keys = set(re.findall(r'^\| `([a-z0-9_]+)` \|',read('docs/config.md'),re.M))
+if fault == 'docs': doc_keys.add('made_up_config_key')
+check('config keys',keys,doc_keys)
+
+main = function(read('crates/clanky/src/main.rs'),'key')
+letter_matches = blocks(main,r'match lower\.as_str\(\)\s*\{')
+shortcuts = {'Ctrl+Shift+'+x.upper() for x in arms(letter_matches[0])}
+shortcuts.update('Ctrl+Shift+'+x.upper() for x in re.findall(r'eq_ignore_ascii_case\("([a-z])"\)',main))
+shortcuts.update('Ctrl+'+x for x in arms(letter_matches[1]))
+shortcuts.update(('Ctrl+' if x=='Tab' else 'Ctrl+Shift+')+x for x in named(main))
+stop = main.index('"v4.revoke_all"')
+require(all(x in main[:stop] for x in ('control_key()','shift_key()','NamedKey::Escape'))
+        and stop < main.index('self.compose.active_target()')
+        and stop < main.index('self.panels.open'), 'revoke shortcut must precede modal routing')
+for prefix,path,method in [
+    ('Palette','crates/clanky/src/panels.rs','key'),
+    ('File prompt','crates/clanky/src/editor_workspace.rs','prompt_key'),
+    ('Editor','crates/clanky/src/editor.rs','key'),
+    ('Compose','crates/clanky/src/compose.rs','handle_key'),
+    ('Search','crates/clanky/src/scrollback_search.rs','key')]:
+    code = function(read(path),method)
+    shortcuts.update(prefix+':'+x for x in named(code))
+    if prefix == 'Editor':
+        for movement in blocks(code,r'match key\s*\{'):
+            if 'Some("left")' in movement:
+                shortcuts.update(prefix+':Shift+'+x for x in named(movement))
+        for names,guard,action in arm_details(blocks(code,r'match lower\.as_str\(\)\s*\{')[0]):
+            alt = 'modifiers.alt_key()' in guard and '!modifiers.alt_key()' not in guard
+            base = 'Ctrl+' + ('Alt+' if alt else '')
+            for name in names:
+                shortcuts.add(prefix+':'+base+name.upper())
+                if 'if extend' in action:
+                    shortcuts.add(prefix+':'+base+'Shift+'+name.upper())
+    elif prefix == 'Compose':
+        for m in re.finditer(r'eq_ignore_ascii_case\("([a-z])"\)([^\n{]*)\{',code):
+            modifiers = 'Ctrl+Alt+' if 'alt_key()' in m.group(2) else 'Ctrl+'
+            shortcuts.add(prefix+':'+modifiers+m.group(1).upper())
+        if 'NamedKey::Enter' in code and re.search(r'modifiers\.control_key\(\)\s*&&\s*!modifiers\.shift_key\(\)',code):
+            shortcuts.add(prefix+':Ctrl+Enter')
+    elif prefix == 'Search' and 'mods.shift_key()' in code:
+        shortcuts.add(prefix+':Shift+Enter')
+# The text-mode editor has its own input vocabulary, not winit's NamedKey.
+tui = function(read('crates/clanky/src/tui.rs'),'key')
+shortcuts.update('TUI:F'+n for n in re.findall(r'KeyCode::F\((\d+)\)',tui))
+for name in set(re.findall(r'KeyCode::(\w+)',tui))-{'Char','F'}:
+    shortcuts.add('TUI:'+{'Esc':'Escape','BackTab':'Shift+Tab'}.get(name,name))
+confirm = blocks(tui,r'if self\.confirm\s*\{')[0]
+shortcuts.update('TUI:'+c.upper() for c in re.findall(r"'([ynYN])'",confirm))
+for condition in re.findall(r'if ctrl[^\n{]*',tui):
+    shortcuts.update('TUI:Ctrl+'+c.upper() for c in re.findall(r"'([a-z])'",condition))
+for block in blocks(tui,r'if ctrl\s*\{'):
+    shortcuts.update('TUI:Ctrl+'+c.upper() for c in re.findall(r"KeyCode::Char\('([a-z])'\)",block))
+for movement in re.findall(r'((?:KeyCode::\w+\s*(?:\|\s*)?)+)=>\s*self\.move_cursor\(',tui):
+    shortcuts.update('TUI:Shift+'+x for x in re.findall(r'KeyCode::(\w+)',movement))
+documented = set(re.findall(r'^\| `([^`]+)` \|',read('docs/shortcuts.md'),re.M))
+check('shortcuts',shortcuts,documented)
+
+engine=read('crates/clanky-core/src/engine.rs')
+agent=read('crates/clanky-core/src/agent.rs')
+transport=function(read('crates/clanky-api/src/lib.rs'),'dispatch')
+ops={1:operations(engine,'request','op'),
+     2:operations(read('crates/clanky-core/src/actions.rs'),'palette_action','action'),
+     3:operations(engine,'owner_request','op'),
+     4:operations(agent,'agent_request','op')}
+# Discover transport-level hello/auth/focus_set rather than overlooking them.
+for m in re.finditer(r'if op == "([a-z_]+)"',transport):
+    if depth_at(transport,m.start()) == 0:
+        for names in ops.values(): names.add(m.group(1))
 for version in ops:
-    check(f'v{version} operations', ops[version], seen[version])
-for path in ['README.md', 'docs/getting-started.md', 'docs/config.md', 'docs/agent-api.md', 'docs/shortcuts.md']:
-    text = read(path)
-    for target in re.findall(r'(?<!!)\[[^\]]+\]\(([^)]+)\)', text):
-        url = urlsplit(target.split()[0])
-        if url.scheme or url.netloc or not url.path or url.path.startswith('/'):
-            continue
-        if not ((root / path).parent / unquote(url.path)).exists():
-            sys.exit(f'FAIL: broken link in {path}: {target}')
-print('PASS: documentation')
+    for block in blocks(transport,r'if version == '+str(version)+r'\s*\{'):
+        ops[version].update(re.findall(r'if op == "([a-z_]+)"',block))
+mcp_source=read('crates/clanky/src/mcp.rs')
+mcp_tools=set(re.findall(r'\btool\(\s*"([a-z_]+)"',function(mcp_source,'tools')))
+require(bool(mcp_tools) and all(ops.values()),'empty source operation inventory')
+api=read('docs/agent-api.md')
+examples=re.findall(r'^Request: `([^`]+)` Response: `([^`]+)`$',api,re.M)
+seen={version:set() for version in ops}
+seen_tools=set()
+for request,response in examples:
+    try:
+        req,reply=json.loads(request),json.loads(response)
+        if reply['id'] != req['id']: raise ValueError('response id differs')
+        if 'v' in req:
+            version,op=req['v'],req['op']
+            if version not in ops or op not in ops[version]: raise ValueError('unknown socket operation')
+            if op in seen[version]: raise ValueError('duplicate socket example')
+            if not isinstance(reply['ok'],bool): raise ValueError('missing result status')
+            if ('result' if reply['ok'] else 'error') not in reply: raise ValueError('missing payload')
+            seen[version].add(op)
+        else:
+            if req['jsonrpc']!='2.0' or reply['jsonrpc']!='2.0' or req['method']!='tools/call':
+                raise ValueError('expected MCP tools/call')
+            name=req['params']['name']
+            if name not in mcp_tools or name in seen_tools: raise ValueError('unknown/duplicate MCP tool')
+            if not isinstance(req['params']['arguments'],dict): raise ValueError('invalid MCP arguments')
+            result=reply['result']
+            if not isinstance(result['isError'],bool): raise ValueError('invalid MCP status')
+            for content in result['content']:
+                if content['type']!='text': raise ValueError('expected MCP text content')
+                json.loads(content['text'])
+            seen_tools.add(name)
+    except (ValueError,KeyError,TypeError) as exc:
+        sys.exit(f'FAIL: API example: {exc}')
+for version in ops: check(f'v{version} operations',ops[version],seen[version])
+check('MCP tools',mcp_tools,seen_tools)
+for path in ['README.md','docs/getting-started.md','docs/config.md','docs/agent-api.md','docs/shortcuts.md','docs/design-docs-1.0.md']:
+    text=read(path)
+    require('coming in 1.0' not in text.lower(),f'obsolete release claim in {path}')
+    for target in re.findall(r'(?<!!)\[[^\]]+\]\(([^)]+)\)',text):
+        url=urlsplit(target.split()[0])
+        if url.scheme or url.netloc or not url.path or url.path.startswith('/'): continue
+        require(((root/path).parent/unquote(url.path)).exists(),f'broken link in {path}: {target}')
+print('PASS: documentation (config, shortcuts, v1-v4, MCP tools and links)')
 PY

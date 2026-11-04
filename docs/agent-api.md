@@ -1,46 +1,79 @@
-# Agent socket API
+# Agent socket API and MCP
 
-Clanky uses UTF-8 JSON lines over a Unix-domain socket. By default the socket is
-`$XDG_RUNTIME_DIR/clanky/server.sock`, with an existing private `/run/user/<uid>`
-used if XDG_RUNTIME_DIR is absent. `clanky --headless --socket PATH` starts a
-foreground server at a custom private path. Connect with a Unix stream socket,
-write one JSON object and newline per request, and read one JSON line per reply.
-The directory must belong to the user and be private. Existing sockets are not
-blindly removed. Use a nonempty unique string `id` for each agent request.
+Use UTF-8 JSON lines over Clanky's private Unix socket, normally
+`$XDG_RUNTIME_DIR/clanky/server.sock` (existing private `/run/user/<uid>` fallback).
+`clanky --server --socket PATH` selects another private socket. Send one JSON
+object plus newline per request. Versions 1–4 share the `id`, `ok`, `result`/`error`
+envelope. Requests are at most 1 MiB. Agent IDs are unique nonempty strings of at
+most 256 bytes; authenticated owner IDs increase as canonical decimal u64 values.
 
-For example, in Python, after connecting `s` to the socket:
+GUI terminals deny agents by default. Ctrl+Shift+A grants/revokes one terminal;
+Ctrl+Shift+Escape revokes all and cancels pending agent waits, including in modals.
+Agent-created tabs also default to denied: request `allow_agent:true` explicitly.
+After global revocation, agents cannot evade the latch by opening another tab.
+An owner resume clears that creation latch but does not regrant existing tabs.
+Revocation does not kill processes or sandbox filesystem/network access.
 
-```python
-import json
-s.sendall((json.dumps({"v": 1, "id": "1", "op": "hello"}) + "\n").encode())
-reply = s.makefile("rb").readline()
-```
+Owner authentication uses v3 auth, a private capability and proven ancestry
+outside Clanky's terminals. A process inside a terminal remains an agent even
+with the capability; unknown ancestry fails closed. Never log/share the capability.
+Same-user processes outside Clanky are not sandboxed. See [session security](design-m4.md).
 
-GUI terminals deny agents by default. The owner can toggle focused-terminal
-permission with Ctrl+Shift+A. Agents see and use only allowed tabs; an agent can
-open its own tab with `allow_agent:true`. Operations can return errors including
-`permission_denied`, `not_found`, `invalid_request` and `unknown_operation`.
+## Masking and its limits
 
-Version 3 is for owners. Owner authentication requires both a private capability
-and proven ancestry outside the server's terminals. Processes inside a terminal
-remain agents even with the capability; unknown ancestry fails closed. Same-user
-processes outside Clanky are not sandboxed, and SSH access may grant remote owner
-access. Owner IDs after authentication must increase as decimal integers. Do not
-log or share the capability. See [session security](design-m4.md).
+Agents receive fixed-width masking on v1 get_output/list_blocks; v2 block views,
+copy and task payloads/labels (including send/task_get/task_update/tasks); v4
+screen text/history and output_appended event replay. MCP uses the same agent
+paths. Audit arguments are masked even for the owner's audit reader, with auth
+arguments omitted. Agent-facing transport error messages are sanitized too.
+The person's terminal display and owner output/block/screen reads remain raw.
+Owner event output refers back to raw retained archives, or reports
+`data_unavailable` when those bytes are no longer available.
 
-**Agent output is not secret-masked.** Do not expose secrets to an agent that
-should not read them.
+The shared clanky-mask recognizer covers these conservative shapes, not issuer
+validation. A token character below is ASCII alphanumeric, `_` or `-`:
 
-## Examples
+| Shape | Recognition |
+| --- | --- |
+| `sk-` | At least 6 token characters; covers OpenAI/OpenRouter-style prefixes |
+| `ghp_`, `github_pat_`, `hf_`, `rpa_` | At least 12 token characters |
+| Slack `xox` + ASCII letter + `-` | At least 12 token characters |
+| AWS `AKIA` | Exactly 16 following uppercase ASCII letters/digits; not arbitrary AWS secret keys |
+| `Authorization: Bearer ` | Case-insensitive prefix, exact spaces, followed by at least one alphanumeric or `-._~+/=` byte |
+| Private-key blocks | Standard PRIVATE KEY, RSA, EC, DSA, OPENSSH and ENCRYPTED PRIVATE KEY delimiters; suppress through matching end or EOF |
+| Environment literals | Exact values of at least 12 Unicode characters whose server-startup names contain KEY, TOKEN, SECRET, PASSWORD or PASSWD, case-insensitively |
 
-Each example is an independent connection to a fresh server; IDs and process IDs
-are illustrative. `t0` means a nonexistent tab, so examples using it demonstrate
-the real `not_found` response rather than pretending that a tab or block exists.
-Version 3 examples other than hello are deliberately unauthenticated, showing the
-owner-only boundary. Supply actual IDs and authenticate an eligible owner to use
-those operations. `data` in v3 input and v2 copy payloads is base64.
+The server also registers its owner capability as a literal. There is no runtime
+mask-pattern config key. Policy limits are 128 effective literals, each at most
+65,536 bytes; invalid names/policy, non-UTF-8 eligible environment entries or
+star-containing literals fail closed rather than expose plaintext.
 
-### Version 1: tabs and commands
+Each recognized raw byte becomes one ASCII `*`. Matching continues across output
+chunks; undecided suffixes are withheld until resolved or command completion.
+Original raw byte offsets/retention coordinates are preserved: a page can return
+no bytes while a suffix remains withheld. Use next_offset, not character counts.
+Structured reads mask logical context before slicing; screen cursors retain
+original cell coordinates, not indices into redacted UTF-8 strings. A partial
+oldest retained logical line may be hidden conservatively. Overlapping matches
+and unseparated token runs can hide more text than expected.
+
+**Not caught automatically:** unknown formats, short/lookalike prefixes, secrets
+created after server startup that match no built-in, changed environment values,
+or values a program encodes/transforms before printing. Base64 *transport*
+encoding is not a bypass: raw bytes are masked before encoding. This is not a
+universal secret scanner or a sandbox; do not grant access on that assumption.
+See [masking design](design-m5.md) and [recognizer rules](design-m6-masking.md).
+
+## Request/response examples
+
+Each pair uses an independent connection and a fresh, unrevoked server with a
+valid masking policy. IDs/PIDs are illustrative. `t0` is a nonexistent terminal;
+those examples deliberately show real not_found replies. V3 examples except
+hello/auth deliberately omit owner authentication; the denial illustrates their
+owner-only boundary, not a successful action. Supply real IDs and authenticate an
+eligible owner for use. V4 owner-only examples likewise show agent denials.
+
+### Version 1: terminals and commands
 
 Request: `{"v":1,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":1,"capabilities":["tabs","commands","blocks"]}}`
 Request: `{"v":1,"id":"1","op":"open_tab","allow_agent":true}` Response: `{"id":"1","ok":true,"result":{"tab_id":"t1","allow_agent":true}}`
@@ -52,11 +85,12 @@ Request: `{"v":1,"id":"1","op":"get_output","tab_id":"t0","command_id":"c1","off
 Request: `{"v":1,"id":"1","op":"list_blocks","tab_id":"t0","limit":64}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
 Request: `{"v":1,"id":"1","op":"close_tab","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
 
-`run` requires a nonempty argv and an existing absolute cwd. Use `wait` with a
-timeout up to 30,000 ms. `get_output` pages retained bytes using offset and a
-limit of 1–65,536 with `utf8` or `base64` encoding. `list_blocks` uses OSC 133
-markers and pages at most 64 blocks. A closed tab is not the same as a closed
-client connection.
+run takes explicit nonempty argv and an existing absolute cwd, without implicit
+shell interpolation. wait allows 0–30,000 ms and reports drained completion.
+get_output uses raw byte offset, limit 1–65,536 and utf8/base64 encoding; retained
+output is bounded to 8 MiB per command, with output_evicted on stale offsets.
+list_blocks accepts optional command_id/after and up to 64 OSC 133 blocks.
+Closing a terminal terminates its processes; closing a client does not.
 
 ### Version 2: block actions and tasks
 
@@ -72,12 +106,18 @@ Request: `{"v":2,"id":"1","op":"task_update","tab_id":"t0","task_id":"task1","st
 Request: `{"v":2,"id":"1","op":"tasks","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
 Request: `{"v":2,"id":"1","op":"task_get","tab_id":"t0","task_id":"task1"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
 
-Selections are UTF-8 byte ranges within retained block output. Copy returns bytes;
-collapse changes the view, not the output. Rerun creates a new terminal from
-explicit argv and cwd. Send queues a payload; it does not launch an agent.
-Task states are queued, running, done, failed and cancelled.
+view returns blocks/selection/task metadata, paged with after/limit. select uses
+ordered UTF-8 byte boundaries, at most 64 KiB. copy requires that selection and
+returns base64 bytes; collapse changes only presentation. rerun creates a new
+terminal from explicit argv/cwd. send queues selected bytes, not an agent process.
+Tasks have queued/running/done/failed/cancelled claimed states, separate from real
+command status; task_get includes payload, tasks lists metadata. Per-terminal
+limits include 128 tasks and 64 KiB per selected payload. See [block actions](design-m3.md).
 
-### Version 3: owner operations
+### Version 3: owner-only operations
+
+hello is public; auth attempts owner authentication. **Every other v3 operation
+below is owner-only**, including focus, metadata, search and clipboard operations.
 
 Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"]}}`
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
@@ -91,13 +131,110 @@ Request: `{"v":3,"id":"1","op":"input","tab_id":"t0","data":"aGVsbG8="}` Respons
 Request: `{"v":3,"id":"1","op":"resize","tab_id":"t0","rows":24,"cols":80}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_get","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_set","tab_id":"t0","allow_agent":true}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"terminal_cwd","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"terminal_info","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"block_events","tab_id":"t0","after":null,"limit":64}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"focus_set","tab_id":null}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"window_search","tab_id":"t0","query":"hello","after":null,"backwards":false}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"clipboard_events","tab_id":"t0","write":true,"read":false}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"data":"d29ybGQ="}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 
-Workspace updates use a revision; stale revisions produce a conflict. Snapshots
-may use a known generation and known image keys. History is paginated. Input is
-base64 and limited to 64 KiB per request. Permission changes apply per terminal.
+| Operation | Successful use / result |
+| --- | --- |
+| workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
+| shell_defaults | Server argv, startup cwd and home (home may be null) |
+| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers |
+| history | Raw retained history with offset/limit (at most 64), total and next_offset |
+| scroll | Signed delta; returns display_offset |
+| input | Base64 bytes, at most 64 KiB per request; returns {} |
+| resize | rows/cols in 1–1000, product at most 250,000; returns {} |
+| permission_get / permission_set | Read/set allow_agent on one terminal |
+| terminal_cwd | Absolute cwd or null; source osc7, proc or null; no guessed directory |
+| focus_set | tab_id string or null; publish/clear this owner's focus claim, cleared on disconnect |
+| terminal_info | Process cwd/exe and rows/cols; no process or unavailable data is an error |
+| block_events | Completion metadata, including duration/focus at completion; after/limit paging, no terminal text |
+| window_search | Literal query up to 256 bytes, optional after {row,col}/backwards; total, selected, snapshot and highlights; joins soft wraps |
+| clipboard_events | Drain at most one bounded event according to write/read booleans; write data is base64 |
+| clipboard_reply | Single-use request_id and base64 data, up to 64 KiB; bound to original command; returns {} |
 
-## M5 (in progress) — Coming in 1.0
+OSC 52 writes are capped at 1 MiB; reads require explicit window opt-in. The
+headless server does not invoke desktop clipboard helpers. Config and first-owner
+handling are described in [configuration](config.md). block_events cursors are
+block IDs; evicted cursors return not_found, not the v4 events gap format.
 
-Screen-text reads, input-wait detection, sending keys as an agent, events and an
-MCP server are not implemented as M5 features yet. The editor panel, compose box
-and agent secret masking are also coming in 1.0; they are not available now.
+### Version 4: agent control, events and owner safety controls
+
+input_state, wait_input, screen, send_key and paste require terminal permission.
+events is permission-filtered. **audit, revoke_all and resume_agents are owner-only**
+(after v3 authentication on the same connection); hello is public.
+
+Request: `{"v":4,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":4,"capabilities":["agent_control","events","masked_reads","audit","revoke"]}}`
+Request: `{"v":4,"id":"1","op":"input_state","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
+Request: `{"v":4,"id":"1","op":"wait_input","tab_id":"t0","timeout_ms":1000}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
+Request: `{"v":4,"id":"1","op":"screen","tab_id":"t0","history_offset":0,"history_limit":64}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
+Request: `{"v":4,"id":"1","op":"send_key","tab_id":"t0","key":"Enter"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
+Request: `{"v":4,"id":"1","op":"paste","tab_id":"t0","text":"hello"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
+Request: `{"v":4,"id":"1","op":"events","after":0,"limit":128,"timeout_ms":0}` Response: `{"id":"1","ok":true,"result":{"events":[],"next_cursor":0,"oldest_cursor":1,"gap":false}}`
+Request: `{"v":4,"id":"1","op":"audit","tab_id":"t0","after":0,"limit":128}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
+Request: `{"v":4,"id":"1","op":"revoke_all"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
+Request: `{"v":4,"id":"1","op":"resume_agents"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
+
+| Operation | Successful use / result |
+| --- | --- |
+| input_state | state running/waiting/exited, waiting boolean, evidence pty_read/prompt/none, command_id and bracketed_paste |
+| wait_input | Same state plus timed_out; timeout_ms 0–30,000; revocation cancels the wait |
+| screen | lines, cursor, rows, cols and history {total,offset,next_offset,lines}; optional history_offset and history_limit 1–64 |
+| send_key | key: Enter, Ctrl-C, Up, Down, Left, Right, Escape, Tab, Backspace, Home, End, Delete, PageUp or PageDown; returns sent byte count |
+| paste | UTF-8 text up to 64 KiB; bracketed only when terminal mode enables it; returns sent byte count |
+| events | Required after cursor; optional tab_id, limit 1–128, timeout_ms 0–30,000; returns events, next_cursor, oldest_cursor, gap |
+| audit | Required tab_id, optional after/limit 1–128; records, oldest_cursor, next_cursor, evicted |
+| revoke_all | Revoke current agent grants, cancel waits and latch agent tab creation; returns revoked count and epoch |
+| resume_agents | Clear creation latch only; returns resumed:true |
+
+Waiting is observed after a quiet period (200 ms), using a blocked foreground
+PTY read or OSC prompt evidence; silence/sleep alone is not proof of readiness.
+The event ring retains 1,024 entries with ordered cursors and kinds such as
+output_appended, command_finished, waiting_for_input and terminal_closed.
+Output events carry base64 data and offset; replay rechecks permissions. A gap
+means lost/invalid cursor history, never silently complete replay.
+
+Audit is memory-only: 512 records per terminal, bounded history of at most 64
+terminal rings plus an _connection ring. Records identify connection/peer ancestry,
+Unix-millisecond timestamp, operation, masked arguments and result code. Arguments
+are masked before the 8 KiB record limit; auth/capability fields are omitted.
+Revoke stops API access, not the underlying command. Owners may explicitly regrant
+individual terminals. These APIs are not authentication for a separate OS user.
+
+## Agent-only MCP
+
+Start `clanky mcp [--socket PATH]` as an MCP stdio server. It uses newline-delimited
+JSON-RPC, protocol 2024-11-05, initialize/ping/tools/list/tools/call and initialization
+notifications. Frames are bounded to 1 MiB. Initialize before listing/calling tools.
+Each tool opens a fresh agent connection; it never loads an owner capability.
+No owner, v2 block-action, resource or sampling tools are advertised.
+
+The tools are open_tab, run, wait, get_output, list_blocks, list_tabs, close_tab,
+input_state, wait_input, screen, send_key, paste and events. Arguments match their
+socket counterparts (without v/id/op). Screen/input/event tools use v4; the
+others use v1. tools/list exposes exact required fields, limits and key enums.
+
+The following pairs assume MCP initialization has completed and use the same
+fresh-server/t0 assumptions as above. Tool results wrap JSON as text content;
+socket failures set isError:true and retain a stable error code without echoing
+request-bearing diagnostics.
+
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"open_tab","arguments":{"allow_agent":true}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"allow_agent\":true,\"tab_id\":\"t1\"}"}],"isError":false}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run","arguments":{"tab_id":"t0","argv":["printf","hello"],"cwd":"/"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait","arguments":{"tab_id":"t0","command_id":"c1","timeout_ms":1000}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_output","arguments":{"tab_id":"t0","command_id":"c1","offset":0,"limit":64,"encoding":"utf8"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_blocks","arguments":{"tab_id":"t0","limit":64}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_tabs","arguments":{}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"tabs\":[]}"}],"isError":false}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"close_tab","arguments":{"tab_id":"t0"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"input_state","arguments":{"tab_id":"t0"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait_input","arguments":{"tab_id":"t0","timeout_ms":1000}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"screen","arguments":{"tab_id":"t0","history_offset":0,"history_limit":64}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"send_key","arguments":{"tab_id":"t0","key":"Enter"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"paste","arguments":{"tab_id":"t0","text":"hello"}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"Agent operation failed\"}}"}],"isError":true}}`
+Request: `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"events","arguments":{"after":0,"limit":128,"timeout_ms":0}}}` Response: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"events\":[],\"gap\":false,\"next_cursor\":0,\"oldest_cursor\":1}"}],"isError":false}}`
+
+For wire details and safety decisions, see [M5/M6 design](design-m5.md).
