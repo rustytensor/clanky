@@ -6,7 +6,12 @@ mod agent;
 mod events;
 #[path = "masking.rs"]
 mod masking;
+#[path = "status.rs"]
+mod status;
 use agent::optional_number;
+#[cfg(test)]
+#[path = "anchor_tests.rs"]
+mod anchor_tests;
 
 use crate::{
     TerminalSnapshot, Workspace,
@@ -142,7 +147,8 @@ impl Command {
         s.safe.extend(bytes);
         let excess = s.safe.len().saturating_sub(8 * 1024 * 1024);
         s.safe.drain(..excess);
-        self.safe_terminal.lock().unwrap().feed(&self.id, bytes);
+        self.safe_terminal.lock().unwrap().feed_masked(&self.id, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         self.safety
             .output(&self.tab_id, &self.allowed, &self.id, bytes, start);
     }
@@ -189,6 +195,7 @@ impl Command {
     }
 }
 struct Commands {
+    driver: Option<status::Driver>,
     current: Option<String>,
     all: BTreeMap<String, Arc<Command>>,
 }
@@ -232,6 +239,7 @@ impl Tab {
             lifecycle: Mutex::new(()),
             terminal: Mutex::new(terminal),
             commands: Mutex::new(Commands {
+                driver: None,
                 current: None,
                 all: BTreeMap::new(),
             }),
@@ -241,7 +249,8 @@ impl Tab {
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
         *self.last_output.lock().unwrap() = Instant::now();
-        let responses = self.terminal.lock().unwrap().feed(command, bytes);
+        let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
+            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
                 for r in responses {
@@ -265,6 +274,8 @@ impl Tab {
     fn close(&self) {
         let _guard = self.lifecycle.lock().unwrap();
         if !self.closed.swap(true, Ordering::AcqRel) {
+            self.commands.lock().unwrap().driver = None;
+            self.safety.status.close_tab(&self.id);
             self.safety
                 .publish(&self.id, &self.allowed, json!({"kind":"terminal_closed"}));
         }
@@ -448,7 +459,7 @@ impl Engine {
     /// Deliberately separate from the unprivileged v1/v2 dispatcher.
     pub fn owner_request(&self, op: &str, args: &Value) -> Result<Value, CoreError> {
         let allowed: &[&str] = match op {
-            "workspace_get" | "shell_defaults" => &[],
+            "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "snapshot" => &["tab_id", "known_generation", "known_images"],
             "history" => &["tab_id", "offset", "limit"],
@@ -464,6 +475,9 @@ impl Engine {
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
         fields(args, allowed)?;
+        if op == "look_state" {
+            return Ok(self.look_state());
+        }
         if op == "shell_defaults" {
             let shell = std::env::var("SHELL")
                 .ok()
@@ -575,6 +589,7 @@ impl Engine {
                 }
                 // Placements clone only Arc headers, never their RGBA buffers.
                 let snapshot = terminal.snapshot();
+                let block_anchors = terminal.card_metadata();
                 drop(terminal);
                 let mut pixels = Vec::new();
                 for image in &snapshot.images {
@@ -584,7 +599,8 @@ impl Engine {
                     }
                 }
                 Ok(
-                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels}),
+                    json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels,
+                        "block_anchors":block_anchors}),
                 )
             }
             "history" => {
@@ -806,6 +822,7 @@ impl Engine {
                         .map_err(|e| error("spawn_failed", e.to_string()))?;
                 *tab.process.lock().unwrap() = Some(process);
                 let mut commands = tab.commands.lock().unwrap();
+                commands.driver = None;
                 commands.current = Some(id.clone());
                 commands.all.insert(id.clone(), command);
                 Ok(json!({"command_id": id, "state": "running"}))

@@ -17,13 +17,21 @@ a missing explicit file, invalid value or unknown key is an error.
 | `osc52_read` | boolean | false | Explicitly allow clipboard reads, capped at 64 KiB |
 | `notify_after_seconds` | integer | 10 | Nonnegative u64 seconds; 0 disables command-finished notifications |
 | `restore_layout` | boolean | true | Save/restore local terminal layout and directories; existing server state wins |
+| `opacity` | number | 0.94 | Finite, 0.5–1.0; M11 scene background alpha |
+| `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
+| `rails` | boolean | true | Initially show both Studio rails |
+| `font_family` | string | `JetBrains Mono` | Bundled terminal default; otherwise name an installed family |
+| `ui_font_family` | string | `Inter` | Bundled UI default; otherwise name an installed family |
 
 ```json
 {"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}
 ```
 
 Settings are loaded at startup; zoom changes are window-local and do not rewrite
-this file. Headless terminals use their socket size defaults.
+this file. Headless terminals use their socket size defaults. Font family names
+must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
+The M11 settings are parsed now; scene rendering/window wiring is delivered with
+M11. Legacy M1/M2 offscreen fixtures retain DejaVu Sans Mono.
 
 Personal spelling words go in `compose-words.txt` beside the selected config file,
 or in the normal Clanky config directory. The file is created only on Add.
@@ -33,7 +41,7 @@ compose usable with a visible spelling error. Drafts are memory-only, at most
 
 Layout metadata goes in the normal `$XDG_CONFIG_HOME/clanky/layout.json` (or HOME
 fallback), even with an explicit config file. It stores directories, sizes and
-layout/focus, not commands, environment, output or editor drafts. Only a fresh
+layout/focus and split ratios, not commands, environment, output or editor drafts. Only a fresh
 local server is restored; SSH attachments do not import local layout state.
 
 Notifications need OSC 133 command blocks and a desktop notification helper.

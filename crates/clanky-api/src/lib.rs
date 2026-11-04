@@ -20,12 +20,17 @@ const MAX_LINE: usize = 1024 * 1024;
 const MAX_IDS: usize = 4096;
 static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
 const MAX_REPLY: usize = 128 * 1024 * 1024;
-struct FocusGuard { engine: Engine, connection: u64 }
-impl Drop for FocusGuard {
-    fn drop(&mut self) { self.engine.clear_window_focus(self.connection); }
+struct ConnectionGuard { engine: Engine, connection: u64 }
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.engine.agent_connection_closed(self.connection);
+        self.engine.clear_window_focus(self.connection);
+    }
 }
 mod client;
 pub use client::Client;
+#[cfg(test)]
+mod status_tests;
 
 /// Serve v1 terminal operations and additive v2 actions until `stop` is set.
 /// Platform owns socket security/cleanup.
@@ -163,7 +168,8 @@ fn client(
     connection_id: u64,
 ) {
     let connection = connection_id;
-    let _focus_guard = FocusGuard { engine: engine.clone(), connection };
+    let _connection_guard = ConnectionGuard { engine: engine.clone(), connection };
+    engine.agent_connection_role(connection, &peer, false);
     let mut reader = BufReader::new(stream);
     let mut ids = HashSet::new();
     let mut owner = false;
@@ -216,6 +222,7 @@ fn client(
         let response = match serde_json::from_slice::<Value>(&line) {
             Ok(request) => {
                 let was_owner = owner;
+                engine.agent_connection_busy(connection, true);
                 let mut response = dispatch(
                     &engine,
                     &request,
@@ -227,7 +234,20 @@ fn client(
                     token.as_deref().map(String::as_str),
                     reader.get_ref(),
                 );
+                if was_owner != owner {
+                    engine.agent_connection_role(connection, &peer, owner);
+                }
+                engine.agent_connection_busy(connection, false);
                 if !was_owner && !owner {
+                    // Only successful runs supply a real, generated command ID.
+                    let version = request["v"].as_u64().unwrap_or(0);
+                    let op = request["op"].as_str().unwrap_or("");
+                    if response["ok"] == true && ((version == 1 && op == "run") || (version == 2 && op == "rerun")) {
+                        let tab = if op == "rerun" { &response["result"]["tab_id"] } else { &request["tab_id"] };
+                        if let (Some(tab), Some(command)) = (tab.as_str(), response["result"]["command_id"].as_str()) {
+                            engine.agent_run_bound(connection, peer.pid, tab, command);
+                        }
+                    }
                     if let Some(message) = response["error"]["message"].as_str() {
                         let masked = engine.mask_message(message);
                         response["error"]["message"] = json!(masked);

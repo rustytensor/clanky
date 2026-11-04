@@ -57,10 +57,10 @@ fn validate(value: &Value) -> Result<(Vec<WorkspaceGroup>, usize, BTreeMap<Strin
     Ok((groups, active, terminals))
 }
 
-fn remap(layout: &Layout, ids: &BTreeMap<String, String>) -> Result<Layout, String> {
+pub(crate) fn remap(layout: &Layout, ids: &BTreeMap<String, String>) -> Result<Layout, String> {
     Ok(match layout {
         Layout::Leaf(id) => Layout::Leaf(ids.get(id).ok_or("missing restored ID")?.clone()),
-        Layout::Split { axis, first, second } => Layout::Split { axis: *axis, first: Box::new(remap(first, ids)?), second: Box::new(remap(second, ids)?) },
+        Layout::Split { axis, ratio, first, second } => Layout::Split { axis: *axis, ratio: *ratio, first: Box::new(remap(first, ids)?), second: Box::new(remap(second, ids)?) },
     })
 }
 

@@ -73,7 +73,8 @@ impl Workspace {
                             return false;
                         }
                     }
-                    Layout::Split { first, second, .. } => {
+                    Layout::Split { first, second, ratio, .. } => {
+                        if !ratio.is_finite() || !(0.0..=1.0).contains(ratio) { return false; }
                         pending.push((first, depth + 1));
                         pending.push((second, depth + 1));
                     }
