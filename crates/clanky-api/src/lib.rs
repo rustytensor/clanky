@@ -19,7 +19,8 @@ use std::{
 const MAX_LINE: usize = 1024 * 1024;
 const MAX_IDS: usize = 4096;
 
-/// Serve protocol v1 until `stop` is set. Platform owns socket security/cleanup.
+/// Serve v1 terminal operations and additive v2 actions until `stop` is set.
+/// Platform owns socket security/cleanup.
 pub fn serve(engine: Engine, path: &Path, stop: Arc<AtomicBool>) -> io::Result<()> {
     let listener = LocalListener::bind(path)?;
     let mut clients: Vec<(LocalStream, thread::JoinHandle<()>)> = Vec::new();
@@ -168,8 +169,13 @@ fn dispatch(engine: &Engine, request: Value, ids: &mut HashSet<String>) -> Value
     if !obj.get("v").is_some_and(|v| v.is_u64()) {
         return error(id, "invalid_request", "v must be an integer");
     }
-    if obj["v"].as_u64() != Some(1) {
-        return error(id, "unsupported_version", "Only protocol v1 is supported");
+    let version = obj["v"].as_u64().unwrap();
+    if !matches!(version, 1 | 2) {
+        return error(
+            id,
+            "unsupported_version",
+            "Supported protocol versions: 1, 2",
+        );
     }
     let Some(op) = obj.get("op").and_then(Value::as_str) else {
         return error(id, "invalid_request", "op must be a string");
@@ -178,8 +184,26 @@ fn dispatch(engine: &Engine, request: Value, ids: &mut HashSet<String>) -> Value
         if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op")) {
             return error(id, "invalid_request", "Unknown hello field");
         }
+        if version == 2 {
+            return json!({"id":id,"ok":true,"result":{"version":2,"capabilities":["block_actions","tasks","palette"]}});
+        }
         return json!({"id":id,"ok":true,"result":{"version":1,"capabilities":["tabs","commands","blocks"]}});
     }
+    // Namespaced core actions are exposed only by the explicit v2 envelope.
+    if version == 1 && op.starts_with("v2.") {
+        return error(
+            id,
+            "unknown_operation",
+            "Action operations require protocol v2",
+        );
+    }
+    let action;
+    let op = if version == 2 {
+        action = format!("v2.{op}");
+        action.as_str()
+    } else {
+        op
+    };
     match engine.request(op, &request, false) {
         Ok(result) => json!({"id":id,"ok":true,"result":result}),
         Err(err) => error(id, &err.code, &err.message),

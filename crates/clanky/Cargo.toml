@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = "=0.23.1"
 clanky-core = { path = "../clanky-core" }
 clanky-render = { path = "../clanky-render" }
 clanky-api = { path = "../clanky-api" }

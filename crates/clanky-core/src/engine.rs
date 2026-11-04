@@ -1,3 +1,6 @@
+#[path = "actions.rs"]
+mod actions;
+
 use crate::{
     TerminalSnapshot,
     platform::{self, Control, Process},
@@ -141,6 +144,7 @@ pub(crate) struct Tab {
     terminal: Mutex<Terminal>,
     commands: Mutex<Commands>,
     process: Mutex<Option<Process>>,
+    actions: Mutex<actions::ActionState>,
 }
 impl Tab {
     fn new(rows: usize, cols: usize, allowed: bool) -> Self {
@@ -154,6 +158,7 @@ impl Tab {
                 all: BTreeMap::new(),
             }),
             process: Mutex::new(None),
+            actions: Mutex::new(actions::ActionState::default()),
         }
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
@@ -291,6 +296,9 @@ impl Engine {
         }
     }
     pub fn request(&self, op: &str, args: &Value, trusted: bool) -> Result<Value, CoreError> {
+        if let Some(action) = op.strip_prefix("v2.") {
+            return self.palette_action(action, args, trusted);
+        }
         let allowed: &[&str] = match op {
             "open_tab" => &["rows", "cols", "allow_agent"],
             "list_tabs" => &[],

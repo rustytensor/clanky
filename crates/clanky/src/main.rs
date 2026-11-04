@@ -1,3 +1,5 @@
+mod panels;
+
 use clanky::{
     config::{Config, Metrics, Zoom},
     input::{InputState, key_bytes},
@@ -21,7 +23,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
@@ -46,7 +48,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--headless] [--socket PATH] [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access"
+                    "clanky [--headless] [--socket PATH] [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette; Ctrl+Shift+B: sidebar"
                 );
                 return Ok(());
             }
@@ -116,6 +118,7 @@ struct App {
     error: Option<String>,
     status: Option<String>,
     next_frame: Instant,
+    panels: panels::Panels,
 }
 
 fn run_window(engine: Engine, stop: Arc<AtomicBool>, config: Config) -> Result<(), String> {
@@ -138,6 +141,7 @@ fn run_window(engine: Engine, stop: Arc<AtomicBool>, config: Config) -> Result<(
         error: None,
         status: None,
         next_frame: Instant::now(),
+        panels: panels::Panels::default(),
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -150,7 +154,7 @@ impl App {
     fn metrics(&self) -> Result<Metrics, String> {
         self.zoom.metrics(self.scale)
     }
-    fn rect(&self) -> Result<Rect, String> {
+    fn full_rect(&self) -> Result<Rect, String> {
         let m = self.metrics()?;
         let size = self.window.as_ref().ok_or("window not ready")?.inner_size();
         let cols = ((size.width / m.cell_width) as usize).clamp(1, 1000);
@@ -162,6 +166,11 @@ impl App {
             cols,
             rows,
         })
+    }
+    fn rect(&self) -> Result<Rect, String> {
+        let mut r = self.full_rect()?;
+        r.cols -= self.panels.width(r.cols);
+        Ok(r)
     }
     fn focused(&self) -> Option<&str> {
         self.groups.get(self.active).map(|g| g.focus.as_str())
@@ -308,6 +317,33 @@ impl App {
     }
     fn key(&mut self, key: &Key, text: Option<&str>) -> Result<(), String> {
         let ctrl = self.modifiers.control_key();
+        if ctrl
+            && self.modifiers.shift_key()
+            && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("p"))
+        {
+            if !self.panels.open {
+                let focused = self.focused().map(str::to_owned);
+                self.panels.refresh(&self.engine, focused.as_deref());
+            }
+            self.panels.toggle();
+            self.reset_ime();
+            return Ok(());
+        }
+        if self.panels.open {
+            self.panels
+                .key(&self.engine, key, text, self.input.composing());
+            if !self.panels.open {
+                self.reset_ime();
+            }
+            return Ok(());
+        }
+        if ctrl
+            && self.modifiers.shift_key()
+            && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
+        {
+            self.panels.visible = !self.panels.visible;
+            return self.resize_panes();
+        }
         if ctrl {
             if let Key::Character(ch) = key {
                 let lower = ch.to_lowercase();
@@ -365,6 +401,18 @@ impl App {
         let m = self.metrics()?;
         let col = (self.mouse.0 / m.cell_width as f64) as usize;
         let row = (self.mouse.1 / m.cell_height as f64) as usize;
+        if self.panels.open {
+            return Ok(());
+        }
+        if row > 0 && col >= self.rect()?.cols {
+            if row < self.full_rect()?.rows {
+                self.panels.click(&self.engine, row);
+                if self.panels.open {
+                    self.reset_ime();
+                }
+            }
+            return Ok(());
+        }
         if row == 0 {
             let index = col / 16;
             if index < self.groups.len() {
@@ -385,16 +433,19 @@ impl App {
         }
         self.resize_panes()?;
         let r = self.rect()?;
+        let full = self.full_rect()?;
+        let focused = self.focused().map(str::to_owned);
+        self.panels.refresh(&self.engine, focused.as_deref());
         let mut frame = TerminalSnapshot {
             rows: r.rows + 1,
-            cols: r.cols,
+            cols: full.cols,
             cells: vec![
                 Cell {
                     ch: ' ',
                     fg: [220, 220, 220],
                     bg: [32, 32, 32]
                 };
-                (r.rows + 1) * r.cols
+                (r.rows + 1) * full.cols
             ],
             cursor: None,
             images: Vec::new(),
@@ -445,6 +496,7 @@ impl App {
                 }
             }
         }
+        self.panels.draw(&mut frame, self.panels.width(full.cols));
         if let Some(window) = &self.window {
             let id = self.focused().unwrap_or("no pane");
             let allowed = self.engine.agent_permission(id).unwrap_or(false);
@@ -518,8 +570,34 @@ impl ApplicationHandler for App {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
-            } => self.click(),
+            } => {
+                if let Err(e) = self.click() {
+                    self.status = Some(e);
+                }
+                Ok(())
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let m = self.metrics();
+                if let Ok(m) = m {
+                    if self.mouse.0 / m.cell_width as f64
+                        >= self.rect().map(|r| r.cols).unwrap_or(usize::MAX) as f64
+                    {
+                        let rows = match delta {
+                            MouseScrollDelta::LineDelta(_, y) => -y * 3.0,
+                            MouseScrollDelta::PixelDelta(p) => -p.y as f32 / m.cell_height as f32,
+                        };
+                        self.panels.scroll(rows.round() as i32);
+                    }
+                }
+                Ok(())
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if event.repeat
+                    && self.panels.open
+                    && event.logical_key == Key::Named(NamedKey::Enter)
+                {
+                    return;
+                }
                 self.status = None;
                 if let Err(e) = self.key(&event.logical_key, event.text.as_deref()) {
                     self.status = Some(e);
@@ -527,8 +605,22 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::Ime(event) => {
-                if let Some(bytes) = self.input.on_ime(&event) {
-                    self.send(&bytes)
+                if self.panels.open {
+                    match &event {
+                        Ime::Commit(text) => {
+                            self.panels.text(text);
+                            self.panels.preedit("");
+                        }
+                        Ime::Preedit(text, _) => self.panels.preedit(text),
+                        _ => {}
+                    }
+                    self.input.on_ime(&event);
+                    Ok(())
+                } else if let Some(bytes) = self.input.on_ime(&event) {
+                    if let Err(e) = self.send(&bytes) {
+                        self.status = Some(e);
+                    }
+                    Ok(())
                 } else {
                     Ok(())
                 }
