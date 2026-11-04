@@ -27,6 +27,19 @@ ui)` accepts bundled or installed families; default-family host duplicates are
 excluded so shipped faces win. Window metrics follow `set_metrics`. Offscreen
 scenes use bundled fonts only and fixed 16 px / 10x20 cells.
 
+`measure_text(&TextRun)` is GPU-free and deterministic with the bundled fonts.
+It reports the widest line's advance width (not ink bounds), maximum font ascent
+and descent, and baseline spacing `px * 1.25`, all in physical pixels.
+`Renderer::measure_text` uses the window's configured families instead. Both use
+the same cosmic-text shaping code as drawing. Empty or invalid runs measure zero.
+`TextRun::default()` sets `letter_spacing` to 0 and opacity to 1. Tracking uses
+cosmic-text's shaped glyph advances; measurement excludes the final tracking gap.
+Spacing must be finite and within -512..=512 px. Ligatures and combining clusters
+remain cosmic-text's responsibility; text is never split into separately shaped chars.
+The focused `scene::tests::text_metrics` check compares `Clanky` at 20 px with
+independent cosmic-text advances plus five 1.5 px gaps. `CLANKY_TEXT_METRICS_FAULT=1`
+removes tracking from the measured run and must fail that check.
+
 `supports_transparency()` reports premultiplied surface support. On an opaque
 fallback, scene clear alpha is ignored; the app should report that once and must
 request a transparent window when creating it. For an animated cursor drawn by
