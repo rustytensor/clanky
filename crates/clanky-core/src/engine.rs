@@ -324,7 +324,7 @@ impl Engine {
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
             "resize" => &["tab_id", "rows", "cols"],
-            "permission_get" => &["tab_id"],
+            "permission_get" | "terminal_cwd" => &["tab_id"],
             "permission_set" => &["tab_id", "allow_agent"],
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
@@ -362,6 +362,15 @@ impl Engine {
         let tab_id = string(args, "tab_id")?;
         let tab = self.tab(tab_id, true)?;
         match op {
+            "terminal_cwd" => {
+                // Release the terminal guard before touching the PTY or /proc.
+                let reported = { tab.terminal.lock().unwrap().cwd() };
+                if let Some(cwd) = reported {
+                    return Ok(json!({"cwd":cwd,"source":"osc7"}));
+                }
+                let cwd = tab.process.lock().unwrap().as_ref().and_then(Process::cwd);
+                Ok(json!({"source":cwd.as_ref().map(|_| "proc"),"cwd":cwd}))
+            }
             "snapshot" => {
                 let known_generation = match args.get("known_generation") {
                     None => None,
