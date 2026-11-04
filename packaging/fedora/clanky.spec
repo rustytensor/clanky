@@ -1,5 +1,5 @@
 Name:           clanky
-Version:        0.3.3
+Version:        0.4.4
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 License:        MIT OR Apache-2.0

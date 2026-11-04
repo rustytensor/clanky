@@ -13,6 +13,12 @@ The forked crates are declared as bundled at their actual versions: clanky-vt
 Run `scripts/gate-linux-packaging.sh`. It prints PASS only when all of these
 independent expectations hold:
 
+Before any build, the Cargo workspace version must equal the RPM spec Version,
+the current AppStream release version and the source tarball filename. With
+`CLANKY_GATE_FAULT=version`, a temporary spec says 0.0.0 and this comparison
+must fail before a build. The clean gate also builds an SRPM offline and checks
+its RPM version and its source-tarball filename against the workspace version.
+
 1. `desktop-file-validate` and `appstreamcli validate --no-net` succeed. Both
    the source desktop file and the desktop file extracted from the RPM contain
    exactly one each of `Exec=clanky`, `Icon=io.github.rustytensor.Clanky`, and
