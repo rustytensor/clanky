@@ -19,17 +19,34 @@ p = pathlib.Path(sys.argv[1])
 s = p.read_text()
 lines = s.splitlines(keepends=True)
 assert sum(line.startswith('Exec=') for line in lines) == 1
-p.write_text(''.join('Exec=\n' if line.startswith('Exec=') else line for line in lines))
+p.write_text(''.join('Exec=clanky-broken\n' if line.startswith('Exec=') else line for line in lines))
 PY
 fi
-desktop-file-validate "$work/desktop/clanky.desktop"
-appstreamcli validate --no-net packaging/linux/io.github.rustytensor.Clanky.metainfo.xml
-"$root/scripts/vendor-tarball.sh" "$work/rpmbuild/SOURCES/clanky-0.3.3.tar.gz"
-flock /srv/devops/build/clanky/.build.lock rpmbuild -bb \
+check_desktop() {
+    timeout 30 python3 - "$1" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text().splitlines()
+for expected in ('Exec=clanky', 'Icon=io.github.rustytensor.Clanky', 'Name=Clanky'):
+    key = expected.split('=', 1)[0] + '='
+    observed = [line for line in lines if line.startswith(key)]
+    if observed != [expected]:
+        print(f'FAIL: {path}: expected {expected!r}; observed {observed!r}', file=sys.stderr)
+        sys.exit(1)
+PY
+}
+timeout 30 desktop-file-validate "$work/desktop/clanky.desktop"
+check_desktop "$work/desktop/clanky.desktop"
+timeout 30 appstreamcli validate --no-net packaging/linux/io.github.rustytensor.Clanky.metainfo.xml
+timeout 1800 "$root/scripts/vendor-tarball.sh" "$work/rpmbuild/SOURCES/clanky-0.3.3.tar.gz"
+timeout 1800 flock /srv/devops/build/clanky/.build.lock rpmbuild -bb \
     --define "_topdir $work/rpmbuild" --define '_smp_mflags -j8' \
     packaging/fedora/clanky.spec
 mapfile -t rpms < <(find "$work/rpmbuild/RPMS" -type f -name '*.rpm' ! -name '*debuginfo*' ! -name '*debugsource*')
 [[ ${#rpms[@]} == 1 ]] || { echo 'Expected exactly one binary RPM' >&2; exit 1; }
+mkdir -p "$work/extracted"
+(cd "$work/extracted" && timeout 30 rpm2cpio "${rpms[0]}" | timeout 30 cpio -id --quiet ./usr/share/applications/clanky.desktop)
+check_desktop "$work/extracted/usr/share/applications/clanky.desktop"
 rpm -qlp "${rpms[0]}" | LC_ALL=C sort > "$work/actual-files"
 cat > "$work/expected-files" <<'EOF'
 /usr/bin/clanky
