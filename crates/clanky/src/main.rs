@@ -1,4 +1,6 @@
 mod studio;
+mod robot_window;
+mod hello;
 mod settings_window;
 mod panels;
 mod editor_workspace;
@@ -65,6 +67,7 @@ fn run() -> Result<(), String> {
     let (mut headless, mut socket, mut config_path) = (false, None, None);
     let mut stdio = false;
     let mut mcp = false;
+    let mut hello = false;
     let mut host = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -72,6 +75,7 @@ fn run() -> Result<(), String> {
             "--headless" | "--server" => headless = true,
             "--stdio" => stdio = true,
             "mcp" => mcp = true,
+            "+hello" => hello = true,
             "attach" => host = Some(args.next().ok_or("attach needs a host")?),
             "--socket" => socket = Some(PathBuf::from(args.next().ok_or("--socket needs a path")?)),
             "--config" => {
@@ -79,12 +83,18 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument: {arg}")),
         }
+    }
+    if hello {
+        if host.is_some() || socket.is_some() || headless || stdio || mcp {
+            return Err("+hello is a standalone window; it cannot use server, socket, attach, stdio or MCP mode".into());
+        }
+        return hello::run(Config::load(config_path.as_deref())?);
     }
     if host.is_some() && (socket.is_some() || headless || stdio || mcp) {
         return Err("attach cannot use --socket, --server, --headless, --stdio or mcp".into());
@@ -158,6 +168,7 @@ struct App {
     settings: Option<clanky::settings_panel::SettingsPanel>,
     settings_error: Option<String>,
     next_settings: Instant,
+    startup: Option<(Instant, clanky::robot::Animation)>,
 }
 
 fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>) -> Result<(), String> {
@@ -208,6 +219,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         persistence,
         studio: studio::Studio::default(),
         settings,settings_error,next_settings:Instant::now(),
+        startup: None,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -730,17 +742,19 @@ impl ApplicationHandler for App {
             self.renderer = Some(renderer);
             self.window = Some(window);
             self.metrics_changed()?;
-            if self.groups.is_empty() {
-                self.new_tab()
-            } else {
-                Ok(())
-            }
+            if self.groups.is_empty() { self.new_tab()?; }
+            self.start_robot();
+            Ok(())
         })();
         if let Err(e) = result {
             self.fail(event_loop, e);
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if matches!(&event, WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed)
+            || matches!(&event, WindowEvent::MouseInput { state: ElementState::Pressed, .. } | WindowEvent::Ime(Ime::Commit(_))) {
+            self.skip_robot(); // Do not return: the same event follows the normal input path below.
+        }
         let result = match event {
             WindowEvent::ThemeChanged(theme) => {
                 self.studio.theme = self.config.resolved_theme(clanky::platform::preference_is_light(Some(theme)));
@@ -942,6 +956,7 @@ impl ApplicationHandler for App {
             if let Err(e) = self.poll_session() { self.status = Some(e); }
             self.next_polish = Instant::now() + Duration::from_secs(1);
         }
+        if let Some(deadline) = self.robot_deadline() { self.next_frame = self.next_frame.min(deadline); }
         if Instant::now() >= self.next_frame {
             if self.url_opener.poll().is_err() {
                 self.status = Some("URL opener failed".into());
