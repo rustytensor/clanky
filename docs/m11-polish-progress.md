@@ -3,7 +3,7 @@
 Done: separate top/rail surfaces and borders; three-colour brand mark; removed Rails
 pill and unknown status labels; 380 px search field; uppercase dim headings; active
 panel-fill rows, dots and right-side counts; empty agent/file messages; centred
-line-box text as the approved stopgap; pane access labels; real duration formatting;
+font-metric-centred text; measured pill widths with 9 px side padding; pane access labels; real duration formatting;
 6 px focus/agent glows; chart fill/empty baseline; two-line timeline with real age
 labels; named access-switch cards.
 
@@ -24,9 +24,10 @@ Dark agent red minus green is 25 (minimum 20). Light agent blue minus green is 3
 glow colours and alpha are documented in design-m11-look.md. All other protected
 colour samples and geometry passed. App binaries compile.
 
-Still pending: renderer-measured pill widths, ascent/descent centring and letter
-spacing; adjacent shell/driver placement and full search placeholder depend on
-those metrics. The command prompt mark is not inserted over terminal cells: that
+Renderer f3b7a23 is integrated: measured advances, ascent/descent centring, 0.1 em
+heading tracking, measured ellipsis and adjacent title/driver placement. Live windows
+measure using their configured font families; offscreen scenes use bundled fonts.
+The command prompt mark is not inserted over terminal cells: that
 would overwrite or shift real command/output text. Coordinate its fixture content
 with the lead and gate team rather than guessing positions. Existing real command
 text keeps the terminal's 16 px sizing; no invented durations or shell names.

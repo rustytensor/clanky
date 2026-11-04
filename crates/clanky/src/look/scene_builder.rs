@@ -92,46 +92,66 @@ pub enum HitAction {
 pub struct Hotspot { pub rect: PixelRect, pub action: HitAction }
 #[derive(Clone, Debug)]
 pub struct Presentation { pub scene: Scene, pub hits: Vec<Hotspot> }
+struct Builder<'a> {
+    scene: Scene,
+    hits: Vec<Hotspot>,
+    measure: &'a mut dyn FnMut(&TextRun) -> clanky_render::TextMetrics,
+}
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> PixelRect {
     PixelRect { x, y, w: w.max(0.0), h: h.max(0.0) }
 }
-fn shape(out: &mut Presentation, r: PixelRect, radius: f32, fill: [u8; 4], border: Option<(f32, [u8; 4])>, shadow: Option<Shadow>) {
+fn shape(out: &mut Builder<'_>, r: PixelRect, radius: f32, fill: [u8; 4], border: Option<(f32, [u8; 4])>, shadow: Option<Shadow>) {
     if r.w > 0.0 && r.h > 0.0 {
         out.scene.layers.push(Layer::Shape(Shape { rect: r.array(), radius,
             fill: Fill::Solid(fill), border, shadow }));
     }
 }
-/// Inter's widest glyph fits inside one em, including the ellipsis. Reserve
-/// one em per scalar (two for non-ASCII); never rely on renderer text clipping.
-fn bounded(text: &str, width: f32, px: f32) -> String {
-    let budget = (width / px.max(1.0)).floor().max(0.0) as usize;
-    let chars: Vec<char> = text.split(['\n', '\r']).next().unwrap_or("").chars().take(8192).collect();
-    let cost = |c: char| if c.is_ascii() { 1 } else { 2 };
-    if chars.iter().map(|c| cost(*c)).sum::<usize>() <= budget { return chars.into_iter().collect(); }
-    if budget < 2 { return String::new(); }
-    let mut result = String::new();
-    let mut used = 0;
-    for c in chars { if used + cost(c) > budget - 2 { break; } used += cost(c); result.push(c); }
-    result.push('…'); result
+fn run(value: &str, px: f32, weight: u16, mono: bool, letter_spacing: f32) -> TextRun {
+    TextRun { text:value.split(['\n','\r']).next().unwrap_or("").chars().take(4096).collect(),
+        px,weight,mono,letter_spacing,..TextRun::default() }
 }
-fn text(out: &mut Presentation, r: PixelRect, value: &str, px: f32, color: [u8; 4], weight: u16) {
-    if r.h < px * 1.25 { return; }
-    let value = bounded(value, r.w, px);
-    if !value.is_empty() { out.scene.layers.push(Layer::Text(TextRun {
-        origin: [r.x, r.y+(r.h-px*1.25)/2.0], text: value, px, color, weight, mono: false, opacity: 1.0,
-    })); }
+fn text_width(out: &mut Builder<'_>, value: &str, px: f32, weight: u16, mono: bool, spacing: f32) -> f32 {
+    (out.measure)(&run(value,px,weight,mono,spacing)).width
 }
-fn hit(out: &mut Presentation, r: PixelRect, action: HitAction) {
+fn styled_text(out: &mut Builder<'_>, r: PixelRect, value: &str, px: f32, color: [u8;4], weight: u16, mono: bool, spacing: f32) {
+    if r.w<=0.0 || r.h<=0.0 {return;}
+    let mut run=run(value,px,weight,mono,spacing);
+    let mut metrics=(out.measure)(&run);
+    if metrics.width>r.w {
+        let chars:Vec<char>=run.text.chars().collect();
+        let (mut low,mut high)=(0,chars.len());
+        while low<high {
+            let mid=(low+high).div_ceil(2);
+            run.text=chars[..mid].iter().collect::<String>()+"…";
+            if (out.measure)(&run).width<=r.w {low=mid;}else{high=mid-1;}
+        }
+        run.text=chars[..low].iter().collect::<String>()+"…";
+        metrics=(out.measure)(&run);
+    }
+    if metrics.width>r.w || metrics.ascent+metrics.descent>r.h || run.text.is_empty(){return;}
+    let baseline=r.y+(r.h-metrics.ascent-metrics.descent)/2.0+metrics.ascent;
+    // cosmic-text's baseline includes half the line-box leading.
+    let baseline_in_box=(metrics.line_height-metrics.ascent-metrics.descent)/2.0+metrics.ascent;
+    run.origin=[r.x,baseline-baseline_in_box];run.color=color;
+    out.scene.layers.push(Layer::Text(run));
+}
+fn text(out: &mut Builder<'_>, r: PixelRect, value: &str, px: f32, color: [u8;4], weight: u16) {
+    styled_text(out,r,value,px,color,weight,false,0.0);
+}
+fn heading_text(out: &mut Builder<'_>, r: PixelRect, value: &str, px: f32, color: [u8;4]) {
+    styled_text(out,r,value,px,color,600,false,px*0.1);
+}
+fn hit(out: &mut Builder<'_>, r: PixelRect, action: HitAction) {
     if r.w > 0.0 && r.h > 0.0 { out.hits.push(Hotspot { rect: r, action }); }
 }
-fn chip(out: &mut Presentation, t: &Theme, m: &super::Metrics, r: PixelRect, label: &str, color: [u8; 4], action: Option<HitAction>) {
+fn chip(out: &mut Builder<'_>, t: &Theme, m: &super::Metrics, r: PixelRect, label: &str, color: [u8; 4], action: Option<HitAction>) {
     let pad = m.pill_padding as f32;
     shape(out, r, r.h / 2.0, t.panel, Some((m.border as f32, Theme::fade(color,0.35))), None);
     text(out, rect(r.x+pad, r.y, r.w-2.0*pad, r.h), label, m.small_font_px as f32, color, 600);
     if let Some(action) = action { hit(out, r, action); }
 }
-fn row(out: &mut Presentation, t: &Theme, m: &super::Metrics, r: PixelRect, label: &str, count: &str, active: bool, color: [u8;4], action: HitAction) {
+fn row(out: &mut Builder<'_>, t: &Theme, m: &super::Metrics, r: PixelRect, label: &str, count: &str, active: bool, color: [u8;4], action: HitAction) {
     let inset = m.control_gap as f32;
     if active {
         shape(out, r, m.item_radius as f32, t.panel, None, None);
@@ -140,22 +160,24 @@ fn row(out: &mut Presentation, t: &Theme, m: &super::Metrics, r: PixelRect, labe
     let dot=matches!(action,HitAction::Session(_) | HitAction::Agent{..});
     let left=if dot {3.0*inset} else {inset};
     if dot {shape(out,rect(r.x+inset,r.y+(r.h-inset)/2.0,inset,inset),inset/2.0,color,None,None);}
-    let count_width=count.chars().count() as f32*m.small_font_px as f32;
+    let count_width=text_width(out,count,m.small_font_px as f32,400,true,0.0);
     text(out,rect(r.x+left,r.y,(r.w-left-2.0*inset-count_width).max(0.0),r.h),label,m.small_font_px as f32,if active { t.ink } else { t.dim },500);
     if !count.is_empty() {
-        let start=out.scene.layers.len();
-        text(out,rect(r.x+r.w-inset-count_width,r.y,count_width,r.h),count,m.small_font_px as f32,t.dim,400);
-        for layer in &mut out.scene.layers[start..] {if let Layer::Text(run)=layer{run.mono=true;}}
+        styled_text(out,rect(r.x+r.w-inset-count_width,r.y,count_width,r.h),count,m.small_font_px as f32,t.dim,400,true,0.0);
     }
     hit(out,r,action);
 }
 pub fn scene(layout: &Layout, state: &LookState) -> Scene { presentation(layout,state).scene }
 
 pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
+    presentation_with_measure(layout,state,&mut clanky_render::measure_text)
+}
+pub fn presentation_with_measure(layout: &Layout, state: &LookState,
+    measure: &mut dyn FnMut(&TextRun) -> clanky_render::TextMetrics) -> Presentation {
     let t = &state.theme;
     let m = &layout.metrics;
     let p = m.pane_padding as f32;
-    let mut out = Presentation { scene: Scene { clear: Theme::fade(t.window,state.opacity),layers:vec![] },hits:vec![] };
+    let mut out = Builder { scene: Scene { clear: Theme::fade(t.window,state.opacity),layers:vec![] },hits:vec![],measure };
     chrome(&mut out,layout,state);
     for pane in &layout.panes {
         let data=state.panes.iter().find(|p| p.id==pane.id);
@@ -172,12 +194,15 @@ pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
         shape(&mut out,pane.rect,m.pane_radius as f32,t.panel,Some((m.border as f32,edge)),shadow);
         let Some(data)=data else { continue; };
         let access_label=if data.allow_agent { "read+run" } else { "agents off" };
-        let access_width=m.small_font_px as f32*access_label.len() as f32+2.0*m.pill_padding as f32;
+        let access_width=text_width(&mut out,access_label,m.small_font_px as f32,600,false,0.0)+2.0*m.pill_padding as f32;
         let access=rect(pane.rect.x+pane.rect.w-p-access_width,pane.rect.y+p,access_width,m.pane_header as f32);
         chip(&mut out,t,m,access,access_label,if data.allow_agent { t.violet } else { t.dim },Some(HitAction::Access(data.id.clone())));
         let title_width=(access.x-pane.rect.x-2.0*p-m.control_gap as f32).max(0.0);
-        text(&mut out,rect(pane.rect.x+p,pane.rect.y+p,title_width*0.62,m.pane_header as f32),&data.title,m.title_font_px as f32,t.ink,600);
-        text(&mut out,rect(pane.rect.x+p+title_width*0.64,pane.rect.y+p,title_width*0.34,m.pane_header as f32),&data.driver,m.small_font_px as f32,if agent { t.violet } else { t.dim },500);
+        let driver_width=text_width(&mut out,&data.driver,m.small_font_px as f32,500,false,0.0).min(title_width*0.4);
+        let title_width=text_width(&mut out,&data.title,m.title_font_px as f32,600,false,0.0)
+            .min((title_width-driver_width-m.control_gap as f32).max(0.0));
+        text(&mut out,rect(pane.rect.x+p,pane.rect.y+p,title_width,m.pane_header as f32),&data.title,m.title_font_px as f32,t.ink,600);
+        text(&mut out,rect(pane.rect.x+p+title_width+m.control_gap as f32,pane.rect.y+p,driver_width,m.pane_header as f32),&data.driver,m.small_font_px as f32,if agent { t.violet } else { t.dim },500);
         let scroll=if data.scroll_px.is_finite() { data.scroll_px } else { 0.0 };
         let origin=[pane.grid_origin[0],pane.grid_origin[1]-scroll];
         for block in &data.blocks { block_card(&mut out,layout,state,pane,data,block,origin); }
@@ -196,13 +221,13 @@ pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
         }
     }
     for panel in &state.panels { panel_card(&mut out,layout,state,panel); }
-    out
+    Presentation {scene:out.scene,hits:out.hits}
 }
 fn intersect(a: PixelRect,b: PixelRect) -> PixelRect {
     let x=a.x.max(b.x); let y=a.y.max(b.y);
     rect(x,y,(a.x+a.w).min(b.x+b.w)-x,(a.y+a.h).min(b.y+b.h)-y)
 }
-fn block_card(out: &mut Presentation,layout: &Layout,state: &LookState,pane: &super::PaneLayout,data: &PaneState,block: &BlockCard,origin:[f32;2]) {
+fn block_card(out: &mut Builder<'_>,layout: &Layout,state: &LookState,pane: &super::PaneLayout,data: &PaneState,block: &BlockCard,origin:[f32;2]) {
     if block.last_row<block.first_row || block.first_row>=data.snapshot.rows { return; }
     let t=&state.theme; let m=&layout.metrics;
     let last=block.last_row.min(data.snapshot.rows.saturating_sub(1));
@@ -219,7 +244,7 @@ fn block_card(out: &mut Presentation,layout: &Layout,state: &LookState,pane: &su
         let label=if code==0 { "✓ 0".into() } else { format!("✗ {code}") };
         let color=if code==0 { t.ok_ink } else { t.err_ink };
         let font=m.chip_font_px as f32;
-        let width=label.chars().map(|c| if c.is_ascii() { 1.0 } else { 2.0 }).sum::<f32>()*font+2.0*m.chip_padding_x as f32;
+        let width=text_width(out,&label,font,600,false,0.0)+2.0*m.chip_padding_x as f32;
         let pill=rect(right-width,y+dy,width,ch-2.0*dy);
         if pill.x>=card.x {
             shape(out,pill,pill.h/2.0,if code==0 { t.chip_ok } else { t.chip_err },None,None);
@@ -229,7 +254,7 @@ fn block_card(out: &mut Presentation,layout: &Layout,state: &LookState,pane: &su
     }
     if let Some(ms)=block.duration_ms {
         let duration=format!("{:.1}s",ms as f64/1000.0);
-        let width=m.small_font_px as f32*duration.len() as f32;
+        let width=text_width(out,&duration,m.small_font_px as f32,500,false,0.0);
         text(out,rect((right-width).max(card.x),y+dy,width,ch-2.0*dy),&duration,m.small_font_px as f32,t.dim,500);
         right-=width+m.control_gap as f32;
     }
@@ -250,7 +275,7 @@ fn block_card(out: &mut Presentation,layout: &Layout,state: &LookState,pane: &su
         }
     }
 }
-fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
+fn chrome(out: &mut Builder<'_>,layout: &Layout,state: &LookState) {
     let t=&state.theme; let m=&layout.metrics;
     let p=m.rail_padding as f32; let gap=m.control_gap as f32;
     let small=m.small_font_px as f32; let heading=10.5*(m.ui_font_px/14.0) as f32;
@@ -261,7 +286,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
     if let Some(r)=layout.left_rail { shape(out,r,0.0,t.rail,None,None); shape(out,rect(r.x+r.w-m.border as f32,r.y,m.border as f32,r.h),0.0,t.line,None,None); }
     if let Some(r)=layout.right_rail { shape(out,r,0.0,t.rail,None,None); shape(out,rect(r.x,r.y,m.border as f32,r.h),0.0,t.line,None,None); }
     let bar_y=(layout.top_bar.h-pill_h)/2.0;
-    let brand_w=m.brand_font_px as f32*6.0;
+    let brand_w=text_width(out,"Clanky",m.brand_font_px as f32,600,false,0.0);
     let mark=m.ui_font_px as f32;
     // Three-stop vertical gradient, clipped analytically to the 4 px rounded mark.
     let radius=m.card_inset as f32;
@@ -279,13 +304,13 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
     text(out,rect(p+mark+gap,bar_y,brand_w,pill_h),"Clanky",m.brand_font_px as f32,t.ink,600);
     let mut uptime_x=w-p;
     if state.masking_ready {
-        let label="masking on";let width=small*label.len() as f32+2.0*m.pill_padding as f32;
+        let label="masking on";let width=text_width(out,label,small,600,false,0.0)+2.0*m.pill_padding as f32;
         uptime_x-=width;
         chip(out,t,m,rect(uptime_x,bar_y,width,pill_h),label,t.dim,None);uptime_x-=gap;
     }
     if state.uptime_seconds>0 {
         let label=format!("● server up · {} h",state.uptime_seconds/3600);
-        let width=small*(label.chars().count()+2) as f32+2.0*m.pill_padding as f32;
+        let width=text_width(out,&label,small,600,false,0.0)+2.0*m.pill_padding as f32;
         uptime_x-=width;
         chip(out,t,m,rect(uptime_x,bar_y,width,pill_h),&label,t.ok,None);uptime_x-=gap;
     }
@@ -293,7 +318,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
     let search_w=if layout.rails_shown { m.search_width as f32 } else { small*6.0+2.0*m.pill_padding as f32 };
     let search=rect(search_x,(layout.top_bar.h-m.search_height as f32)/2.0,search_w.min(uptime_x-gap-search_x),m.search_height as f32);
     shape(out,search,m.control_gap as f32,t.panel,Some((m.border as f32,t.line)),None);
-    let shortcut="Ctrl+Shift+P";let shortcut_width=small*shortcut.len() as f32;
+    let shortcut="Ctrl+Shift+P";let shortcut_width=text_width(out,shortcut,small,400,false,0.0);
     text(out,rect(search.x+gap,search.y,(search.w-3.0*gap-shortcut_width).max(0.0),search.h),if layout.rails_shown { "Search commands, blocks, files…" } else { "Search" },small,t.dim,500);
     if layout.rails_shown && search.w>shortcut_width+4.0*gap { text(out,rect(search.x+search.w-gap-shortcut_width,search.y,shortcut_width,search.h),shortcut,small,t.dim,400); }
     hit(out,search,HitAction::Palette);
@@ -301,7 +326,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
         let bottom=r.y+r.h-p; let mut y=r.y+m.rail_section_gap as f32;
         for section in 0..3 {
             if y+line>bottom { break; }
-            text(out,rect(r.x+p,y,r.w-2.0*p,line),["SESSIONS","AGENTS","FILES"][section],heading,t.dim,600); y+=line+gap;
+            heading_text(out,rect(r.x+p,y,r.w-2.0*p,line),["SESSIONS","AGENTS","FILES"][section],heading,t.dim); y+=line+gap;
             match section {
                 0=>for item in &state.sessions {
                     if y+m.rail_row_height as f32>bottom { break; }
@@ -327,7 +352,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
     } else {
         let mut x=search.x+search.w+gap;
         for item in &state.sessions {
-            let width=small*8.0+2.0*m.pill_padding as f32;
+            let width=text_width(out,&item.title,small,600,false,0.0)+2.0*m.pill_padding as f32;
             let r=rect(x,bar_y,width,pill_h);
             if r.x+r.w>uptime_x-gap { break; }
             chip(out,t,m,r,&item.title,if item.active { t.accent } else { t.dim },Some(HitAction::Session(item.id.clone()))); x+=width+gap;
@@ -337,9 +362,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
         let x=r.x+p; let width=r.w-2.0*p; let bottom=r.y+r.h-p;
         let title_y=r.y+m.rail_section_gap as f32;
         let heading_line=m.panel_line_height as f32;
-        // Approved shorter heading; measured tracking follows the renderer metrics API.
-        out.scene.layers.push(Layer::Text(TextRun{origin:[x,title_y+(heading_line-heading*1.25)/2.0],
-            text:"AGENT COMMANDS / MIN · 30 MIN".into(),px:heading,color:t.dim,weight:600,mono:false,opacity:1.0}));
+        heading_text(out,rect(x,title_y,width,heading_line),"AGENT COMMANDS / MIN · 30 MIN",heading,t.dim);
         let chart=rect(x,title_y+heading_line+gap,width,m.sparkline_height as f32);
         shape(out,chart,m.item_radius as f32,t.panel,None,None);
         let samples: Vec<f32>=state.activity.iter().rev().take(30).copied().collect();
@@ -375,7 +398,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
         let timeline_height=2.0*m.panel_line_height as f32;
         let access_y=(timeline_y+line+gap+state.timeline.len().min(20) as f32*timeline_height+m.rail_section_gap as f32)
             .min(bottom-access_height).max(chart.y+chart.h+line+2.0*gap);
-        text(out,rect(x,timeline_y,width,line),"TIMELINE",heading,t.dim,600);
+        heading_text(out,rect(x,timeline_y,width,line),"TIMELINE",heading,t.dim);
         let mut y=timeline_y+line+gap;
         for (index,item) in state.timeline.iter().enumerate().rev().take(20) {
             if y+timeline_height>access_y-gap { break; }
@@ -383,16 +406,14 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
             shape(out,rect(x+diameter/2.0-m.border as f32,y,m.border as f32*2.0,timeline_height),0.0,t.line,None,None);
             shape(out,rect(x,y+gap,diameter,diameter),diameter/2.0,t.teal,None,None);
             let time=state.timeline_times.get(index).map(String::as_str).unwrap_or("");
-            let time_width=time.chars().count() as f32*small;
+            let time_width=text_width(out,time,small,400,true,0.0);
             text(out,rect(x+2.0*gap,y,width-3.0*gap-time_width,heading_line),&item.label,small,t.ink,500);
             text(out,rect(x+2.0*gap,y+heading_line,width-2.0*gap,heading_line),&item.detail,small,t.dim,400);
-            let start=out.scene.layers.len();
-            text(out,rect(x+width-time_width,y,time_width,heading_line),time,small,t.dim,400);
-            for layer in &mut out.scene.layers[start..]{if let Layer::Text(run)=layer{run.mono=true;}}
+            styled_text(out,rect(x+width-time_width,y,time_width,heading_line),time,small,t.dim,400,true,0.0);
             y+=timeline_height;
         }
         if access_y+line<bottom {
-            text(out,rect(x,access_y,width,line),"ACCESS",heading,t.dim,600); y=access_y+line+gap;
+            heading_text(out,rect(x,access_y,width,line),"ACCESS",heading,t.dim); y=access_y+line+gap;
             for item in &state.panes {
                 if y+m.access_switch_height as f32>bottom { break; }
                 let card=rect(x,y,width,m.rail_row_height as f32-gap/2.0);
@@ -408,7 +429,7 @@ fn chrome(out: &mut Presentation,layout: &Layout,state: &LookState) {
         }
     }
 }
-fn panel_card(out: &mut Presentation,layout: &Layout,state: &LookState,panel: &PanelState) {
+fn panel_card(out: &mut Builder<'_>,layout: &Layout,state: &LookState,panel: &PanelState) {
     let t=&state.theme; let m=&layout.metrics; let p=m.panel_padding as f32;
     let opacity=if state.animations { panel.opacity.clamp(0.0,1.0) } else { 1.0 };
     let rise=if state.animations { panel.rise_px } else { 0.0 };
