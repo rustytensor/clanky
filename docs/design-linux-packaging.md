@@ -14,7 +14,8 @@ Run `scripts/gate-linux-packaging.sh`. It prints PASS only when all of these
 independent expectations hold:
 
 Before any build, the Cargo workspace version must equal the RPM spec Version,
-the current AppStream release version and the source tarball filename. With
+the top RPM changelog version, the current AppStream release version and the
+source tarball filename. With
 `CLANKY_GATE_FAULT=version`, a temporary spec says 0.0.0 and this comparison
 must fail before a build. The clean gate also builds an SRPM offline and checks
 its RPM version and its source-tarball filename against the workspace version.

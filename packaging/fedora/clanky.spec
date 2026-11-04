@@ -50,5 +50,8 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.4.4-1
+- Update packaging for the current release.
+
 * Tue Nov 03 2026 Clanky contributors <noreply@github.com> - 0.3.3-1
 - Add Linux distribution packaging.
