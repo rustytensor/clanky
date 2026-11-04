@@ -1,9 +1,15 @@
 //! Startup configuration and session-only font sizing.
-use std::{env, fs, io::ErrorKind, path::{Path, PathBuf}};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::{Path, PathBuf}};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemePreference { Dark, Light, #[default] System }
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_size_pt: f32,
+    pub font_size: f32,
+    pub theme: ThemePreference,
+    pub colors: BTreeMap<String, crate::look::Color>,
     pub columns: usize,
     pub rows: usize,
     pub compose_dictionary: String,
@@ -25,6 +31,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             font_size_pt: 12.0,
+            font_size: 16.0,
+            theme: ThemePreference::System,
+            colors: BTreeMap::new(),
             columns: 80,
             rows: 24,
             compose_dictionary: "en_US".into(),
@@ -45,6 +54,18 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn resolved_theme(&self, system_light: bool) -> crate::look::Theme {
+        let light = match self.theme {
+            ThemePreference::Light => true, ThemePreference::Dark => false,
+            ThemePreference::System => system_light,
+        };
+        let mut theme = if light { crate::look::Theme::light() } else { crate::look::Theme::dark() };
+        for (token, color) in &self.colors {
+            // from_json has already validated each token.
+            let _ = theme.override_color(token, *color);
+        }
+        theme
+    }
     /// Straight alpha byte for scene clear; renderer reports opaque-only surfaces.
     pub fn opacity_alpha(&self) -> u8 {
         let opacity = if self.opacity.is_finite() { self.opacity.clamp(0.5, 1.0) } else { 0.94 };
@@ -56,18 +77,10 @@ impl Config {
         let path = match explicit {
             Some(path) => path,
             None => {
-                let base = env::var_os("XDG_CONFIG_HOME")
-                    .filter(|value| !value.is_empty())
-                    .map(std::path::PathBuf::from)
-                    .or_else(|| {
-                        env::var_os("HOME")
-                            .filter(|value| !value.is_empty())
-                            .map(|home| std::path::PathBuf::from(home).join(".config"))
-                    });
-                let Some(base) = base else {
+                let Some(path) = crate::platform::settings_path() else {
                     return Ok(Self::default());
                 };
-                default_path = base.join("clanky/config.json");
+                default_path = path;
                 &default_path
             }
         };
@@ -90,6 +103,34 @@ impl Config {
         let mut config = Self::default();
         for (key, value) in object {
             match key.as_str() {
+                "theme" => {
+                    config.theme = match value.as_str() {
+                        Some("dark") => ThemePreference::Dark,
+                        Some("light") => ThemePreference::Light,
+                        Some("system") => ThemePreference::System,
+                        _ => return Err("theme must be dark, light or system".into()),
+                    };
+                }
+                "colors" => {
+                    let colors = value.as_object().ok_or("colors must be an object")?;
+                    for (token, value) in colors {
+                        if !crate::look::COLOR_TOKENS.contains(&token.as_str()) {
+                            return Err(format!("unknown color token: {token}"));
+                        }
+                        let text = value.as_str().filter(|text| text.len() == 7 && text.starts_with('#')
+                            && text.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit))
+                            .ok_or_else(|| format!("colors.{token} must be #rrggbb"))?;
+                        let channel = |start| u8::from_str_radix(&text[start..start+2], 16).unwrap();
+                        config.colors.insert(token.clone(), [channel(1),channel(3),channel(5),255]);
+                    }
+                }
+                "font_size" => {
+                    let pixels = value.as_f64().ok_or("font_size must be a number")?;
+                    if !pixels.is_finite() || !(8.0..=32.0).contains(&pixels) {
+                        return Err("font_size must be finite and between 8 and 32".into());
+                    }
+                    config.font_size = pixels as f32;
+                }
                 "font_size_pt" => {
                     let points = value.as_f64().ok_or("font_size_pt must be a number")?;
                     if !points.is_finite() || !(6.0..=48.0).contains(&points) {
@@ -159,6 +200,9 @@ impl Config {
                 _ => return Err(format!("unknown config field: {key}")),
             }
         }
+        // The new logical-pixel key wins independent of JSON key order.
+        if object.contains_key("font_size") { config.font_size_pt = config.font_size * 0.75; }
+        else { config.font_size = config.font_size_pt * 4.0 / 3.0; }
         // Match the core's per-axis and total-cell limits.
         if config.columns * config.rows > 250_000 {
             return Err("terminal dimensions exceed 250000 cells".into());

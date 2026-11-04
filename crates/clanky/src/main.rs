@@ -681,6 +681,7 @@ impl ApplicationHandler for App {
                     .map_err(|e| e.to_string())?,
             );
             self.scale = window.scale_factor();
+            self.studio.theme = self.config.resolved_theme(clanky::platform::system_light(&window));
             window.set_ime_allowed(true);
             let mut renderer = block_on(Renderer::new(window.clone()))?;
             renderer.set_font_families(&self.config.font_family, &self.config.ui_font_family)
@@ -703,6 +704,11 @@ impl ApplicationHandler for App {
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let result = match event {
+            WindowEvent::ThemeChanged(theme) => {
+                self.studio.theme = self.config.resolved_theme(clanky::platform::preference_is_light(Some(theme)));
+                if let Some(window) = &self.window { window.request_redraw(); }
+                Ok(())
+            }
             WindowEvent::CloseRequested => {
                 if self.files.dirty() {
                     self.status = Some("Unsaved files: save or undo before closing the window".into());
