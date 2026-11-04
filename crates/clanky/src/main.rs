@@ -2,6 +2,7 @@ mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
 use clanky::editor::{EditorPane, location_at};
+mod tui;
 
 use clanky::{
     config::{Config, Metrics, Zoom},
@@ -10,6 +11,8 @@ use clanky::{
     scrollback_search::Search,
     window_tools,
     input::{InputState, key_bytes},
+    layout_store,
+    notifications::NotificationTracker,
 };
 use clanky_api::Client;
 use clanky_core::{
@@ -42,6 +45,21 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "edit") {
+        return tui::run(&args[1..]);
+    }
+    if args.first().is_some_and(|arg| arg == "--polish-offscreen-window") {
+        if std::env::var_os("CLANKY_GATE_OFFSCREEN").as_deref() != Some(std::ffi::OsStr::new("1")) || args.len() != 3 {
+            return Err("invalid offscreen gate invocation".into());
+        }
+        let client = clanky::session::prepare_window(std::path::Path::new(&args[1]), Some(std::path::Path::new(&args[2])))?;
+        println!("READY");
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).map_err(|e| e.to_string())?;
+        drop(client);
+        return Ok(());
+    }
     let (mut headless, mut socket, mut config_path) = (false, None, None);
     let mut stdio = false;
     let mut mcp = false;
@@ -59,7 +77,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
@@ -75,7 +93,7 @@ fn run() -> Result<(), String> {
     if let Some(host) = host {
         let config = Config::load(config_path.as_deref())?;
         let client = Client::connect_ssh(&host).map_err(|e| e.to_string())?;
-        return run_window(client, config, false);
+        return run_window(client, config, false, None);
     }
     let socket = match socket {
         Some(path) => path,
@@ -94,7 +112,9 @@ fn run() -> Result<(), String> {
         return clanky::mcp::serve(&socket);
     }
     let config = Config::load(config_path.as_deref())?;
-    run_window(clanky::session::connect_or_start(&socket)?, config, true)
+    let persistence = if config.restore_layout { layout_store::default_path().map(|path| (path, socket.clone())) } else { None };
+    let client = clanky::session::prepare_window(&socket, persistence.as_ref().map(|(path, _)| path.as_path()))?;
+    run_window(client, config, true, persistence)
 }
 
 struct App {
@@ -128,9 +148,14 @@ struct App {
     search: Search,
     url_opener: platform::UrlOpener,
     clipboard_bridge: ClipboardBridge,
+    notifications: NotificationTracker,
+    window_focused: bool,
+    published_focus: Option<Option<String>>,
+    next_polish: Instant,
+    persistence: Option<(PathBuf, PathBuf)>,
 }
 
-fn run_window(engine: Client, config: Config, local_files: bool) -> Result<(), String> {
+fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>) -> Result<(), String> {
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
@@ -166,6 +191,11 @@ fn run_window(engine: Client, config: Config, local_files: bool) -> Result<(), S
         files: EditorWorkspace::default(),
         local_files,
         palette_editor: None,
+        notifications: NotificationTracker::new(),
+        window_focused: false,
+        published_focus: None,
+        next_polish: Instant::now(),
+        persistence,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -308,6 +338,29 @@ impl App {
             }
         }
     }
+    fn persist_layout(&self) -> Result<(), String> {
+        if let Some((path, socket)) = &self.persistence {
+            let _guard = platform::StartupLock::acquire(socket).map_err(|e| e.to_string())?;
+            layout_store::save(&self.engine, path)?;
+        }
+        Ok(())
+    }
+    fn publish_focus(&mut self) -> Result<(), String> {
+        let focus = if self.window_focused { self.focused().map(str::to_owned) } else { None };
+        if self.published_focus.as_ref() != Some(&focus) {
+            self.call("v3.focus_set", json!({"tab_id":focus}))?;
+            self.published_focus = Some(focus);
+        }
+        Ok(())
+    }
+    fn poll_session(&mut self) -> Result<(), String> {
+        self.sync_groups()?;
+        self.publish_focus()?;
+        let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
+        let focused = self.focused().map(str::to_owned);
+        self.notifications.poll_client(&self.engine, &ids, self.config.notify_after_seconds, self.window_focused, focused.as_deref())?;
+        self.persist_layout()
+    }
     fn is_suspended(&self) -> bool {
         self.occluded
             || self.window.as_ref().is_none_or(|window| {
@@ -433,6 +486,7 @@ impl App {
             self.call("close_tab", json!({"tab_id":id}))?;
             if last {
                 // The final reply is followed by server exit; do not query it.
+                if let Err(e) = self.persist_layout() { self.status = Some(e); }
                 self.groups.clear();
                 self.sizes.clear();
                 self.clipboard_bridge.set_tabs(Vec::new());
@@ -1033,17 +1087,18 @@ impl ApplicationHandler for App {
                     Ok(())
                 }
             }
-            WindowEvent::Focused(false) => {
-                self.input.focus_lost();
-                self.compose.preedit("");
-                self.compose_dragging = false;
-                self.compose_enter_held = false;
-                self.files.dragging = None;
-                self.modifiers = ModifiersState::empty();
-                Ok(())
-            }
-            WindowEvent::Focused(true) => {
-                if let Some(pane) = self.files.editor() { let _ = pane.command("refresh", &json!({})); }
+            WindowEvent::Focused(focused) => {
+                self.window_focused = focused;
+                if focused {
+                    if let Some(pane) = self.files.editor() { let _ = pane.command("refresh", &json!({})); }
+                } else {
+                    self.input.focus_lost();
+                    self.compose.preedit("");
+                    self.compose_dragging = false;
+                    self.compose_enter_held = false;
+                    self.files.dragging = None;
+                    self.modifiers = ModifiersState::empty();
+                }
                 Ok(())
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -1076,6 +1131,8 @@ impl ApplicationHandler for App {
         };
         if let Err(e) = result {
             self.fail(event_loop, e);
+        } else if let Err(e) = self.publish_focus() {
+            self.status = Some(e);
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -1092,6 +1149,10 @@ impl ApplicationHandler for App {
             }
             event_loop.exit();
             return;
+        }
+        if Instant::now() >= self.next_polish {
+            if let Err(e) = self.poll_session() { self.status = Some(e); }
+            self.next_polish = Instant::now() + Duration::from_secs(1);
         }
         if Instant::now() >= self.next_frame {
             if self.url_opener.poll().is_err() {

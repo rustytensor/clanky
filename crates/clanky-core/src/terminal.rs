@@ -16,6 +16,7 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{Arc, Mutex, mpsc::{self, Receiver, SyncSender}},
+    time::Instant,
 };
 #[derive(Clone, Copy)]
 pub(crate) struct Size(pub usize, pub usize);
@@ -71,13 +72,27 @@ pub(crate) struct Block {
     pub output: String,
     pub complete: bool,
     pub exit_code: Option<i32>,
+    /// Monotonic C..D elapsed time; null for active or interrupted blocks.
+    pub duration_ms: Option<u64>,
+    #[serde(skip)]
+    pub focused_tab_at_completion: Option<String>,
     pub truncated: bool,
+}
+#[derive(Serialize)]
+pub(crate) struct BlockEvent {
+    pub block_id: String,
+    pub complete: bool,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+    pub focused_tab_at_completion: Option<String>,
 }
 #[derive(Default)]
 struct Observer {
     cwd: Option<String>,
     blocks: VecDeque<Block>,
     active: Option<Block>,
+    started: Option<Instant>,
+    focus: Option<Arc<Mutex<Option<(u64, String)>>>>,
     next: u64,
     evicted: u64,
     command_id: String,
@@ -90,12 +105,21 @@ struct Observer {
 }
 impl Observer {
     fn seal(&mut self, code: Option<i32>, complete: bool) {
+        let started = self.started.take();
         if let Some(mut b) = self.active.take() {
             if b.output.ends_with('\n') {
                 b.output.pop();
             }
             b.complete = complete;
             b.exit_code = code;
+            if complete {
+                b.focused_tab_at_completion = self.focus.as_ref().and_then(|focus| focus.lock().ok().and_then(|v| v.as_ref().map(|(_, tab)| tab.clone())));
+            }
+            b.duration_ms = if complete {
+                started.map(|start| start.elapsed().as_millis().min(u64::MAX as u128) as u64)
+            } else {
+                None
+            };
             self.blocks.push_back(b);
             while self.blocks.len() > 1024 {
                 self.blocks.pop_front();
@@ -174,8 +198,11 @@ impl vte::Perform for Observer {
                     output: String::new(),
                     complete: false,
                     exit_code: None,
+                    duration_ms: None,
+                    focused_tab_at_completion: None,
                     truncated: false,
                 });
+                self.started = Some(Instant::now());
             }
             Some(b"D") => {
                 self.prompt_waiting = false;
@@ -468,6 +495,15 @@ impl Terminal {
     }
     pub fn cwd(&self) -> Option<String> {
         self.observer.cwd.clone()
+    }
+    pub fn set_focus_tracker(&mut self, focus: Arc<Mutex<Option<(u64, String)>>>) {
+        self.observer.focus = Some(focus);
+    }
+    pub fn block_events(&self) -> Vec<BlockEvent> {
+        self.observer.blocks.iter().chain(self.observer.active.iter()).map(|b| BlockEvent {
+            block_id: b.block_id.clone(), complete: b.complete, exit_code: b.exit_code, duration_ms: b.duration_ms,
+            focused_tab_at_completion: b.focused_tab_at_completion.clone(),
+        }).collect()
     }
     pub fn blocks(&self) -> (Vec<Block>, u64) {
         let mut b: Vec<_> = self.observer.blocks.iter().cloned().collect();
