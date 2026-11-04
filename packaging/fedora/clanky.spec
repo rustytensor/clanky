@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        0.5.4
+Version:        0.5.5
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 License:        MIT OR Apache-2.0
@@ -53,6 +53,9 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.5.5-1
+- Start on systems whose runtime directory allows group search.
+
 * Wed Nov 04 2026 Clanky contributors <noreply@github.com> - 0.5.4-1
 - Document every merged feature, the agent API and masking limits.
 
