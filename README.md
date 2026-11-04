@@ -1,129 +1,43 @@
 # Clanky
 
-A GPU-rendered terminal for Linux, written in Rust, built for people who work alongside coding agents.
+Clanky is a GPU-rendered Linux terminal built for working alongside coding
+agents. It has tabs, split panes, images, and a permissioned local socket that
+lets agents run commands and read output. A background server keeps sessions
+alive when a window closes; they do not survive a server crash or reboot.
 
-> Status: Linux M4 automated gate passed, including M1–M3 regression checks.
-> See [M4 results](docs/m4-results.md). Interactive window and live SSH acceptance remain manual.
+**Safety:** agent output is not secret-masked in this version. Do not give an
+agent access to a terminal whose output contains secrets it should not see.
 
-## What it is
+## Install
 
-- **Fast:** drawn on the GPU with [wgpu](https://wgpu.rs); falls back to software rendering when no GPU is available.
-- **Tabs and splits:** selectable window tabs, each with independently focused terminal panes.
-- **Images:** a bounded Kitty direct-transfer subset for PNG, RGB and RGBA, clipped to each pane.
-- **Agent-ready:** a local socket API. An agent can open a tab, run a command, wait for it to finish, and read back
-  that command's exit code and output: no screen scraping, no tmux paste tricks. You decide per tab whether an agent
-  may drive it.
-
-## Built on
-
-- a fork of Alacritty's terminal core ([alacritty_terminal](https://crates.io/crates/alacritty_terminal)), in `crates/clanky-vt`
-- [wgpu](https://crates.io/crates/wgpu) for rendering
-- [cosmic-text](https://crates.io/crates/cosmic-text) for fonts and shaping
-- [winit](https://crates.io/crates/winit) for windows and input
-
-## Build and run
+On Fedora, install a Clanky RPM you have obtained with
+`sudo dnf install ./clanky-<version>.rpm`. Packaging exists, but a published Fedora repository is
+not yet available. To build from source, install Rust and Cargo, then:
 
 ```sh
 cargo build --workspace --bins -j 8
 "${CARGO_TARGET_DIR:-target}/debug/clanky"
 ```
 
-Linux only. The GUI needs a display. It connects to a private session server,
-starting one on demand at `$XDG_RUNTIME_DIR/clanky/server.sock` (or an existing
-private `/run/user/<uid>` runtime directory). `--socket PATH` selects another
-private socket. The directory must belong to the current user and have no
-group/other permissions. Existing sockets are never blindly removed.
+Clanky is Linux-first. A graphical display is required for its window.
 
-Closing or crashing a window leaves sessions running. Launch Clanky again to
-reattach to their tabs, split layout, history, blocks, tasks and permissions.
-Ctrl+Shift+W explicitly closes a pane; closing the last session ends the server.
-An exited command still has a session until its tab is closed. State survives
-client loss, **not server loss or reboot**.
+## First steps
 
-`clanky --server --socket PATH` runs the server in the foreground; `--headless`
-is also supported. New shells use the server's shell and directory defaults.
-`clanky attach HOST` uses key-based SSH and the remote `clanky --stdio` bridge;
-Clanky opens no TCP listener. The remote program must be installed and SSH login
-must already work. `clanky --stdio --socket PATH` exposes the same local pipe path.
+Start `clanky` and type in its shell. Ctrl+Shift+T opens a tab; Ctrl+Shift+D
+splits right and Ctrl+Shift+E splits below. Click a pane to focus it. Use
+Ctrl+Shift+A to allow or deny agent access to the focused terminal. Close the
+window and start Clanky again to reattach to running sessions.
 
-**Owner authority requires both outside-terminal ancestry and a private capability.**
-Connections from inside the server's terminals remain agents even with the real
-token; this also applies to stdio. Same-UID processes outside Clanky are not
-sandboxed. An agent with SSH access can attach as owner of that host's server.
-See [the M4 transport and security design](docs/design-m4.md).
+Read [getting started](docs/getting-started.md), [configuration](docs/config.md),
+[keyboard shortcuts](docs/shortcuts.md), and the [agent API](docs/agent-api.md).
+Clanky uses the forked Alacritty terminal core, wgpu, cosmic-text, and winit.
 
-Ctrl+Shift+T opens a tab. Ctrl+Shift+D splits right; Ctrl+Shift+E splits below.
-Click a pane to focus it; Ctrl+Shift+W closes that pane. Click the tab strip or
-use Ctrl+Tab to switch groups. Ctrl+Shift+A toggles agent permission for the
-focused terminal; new GUI terminals deny access by default. Socket terminal IDs
-and command routing remain unchanged; see [the socket design](docs/design-m1.md).
+## Coming in 1.0
 
-The default font is 12 pt, scaled for the display. Ctrl+=/- adjusts it by one
-point; Ctrl+0 resets it. Load JSON with `--config PATH`, otherwise from
-`$XDG_CONFIG_HOME/clanky/config.json` or `$HOME/.config/clanky/config.json`:
-
-```json
-{"font_size_pt":12,"columns":80,"rows":24}
-```
-
-Font sizes are 6–48 pt. Unknown or invalid settings are errors; a missing default
-file uses defaults. Zoom is window-local; split layout and terminal scrollback
-survive reattachment for the server's lifetime. Wheel over a pane to scroll its
-history. Headless operation keeps the socket's existing terminal-size defaults.
-
-Kitty images support direct data, chunked transfer, stored placement and deletion.
-File/shared-memory transport, cropping, compression controls, animation and
-z-order are rejected. Explicit cell dimensions are recommended; natural sizing
-uses 10x20 cells. See [M2 design](docs/design-m2.md) and the
-[parser patch note](crates/clanky-vte/CLANKY-PATCH.md).
-
-After building, `scripts/gate-m2.sh` checks image pixels, splits, PTYs, config,
-DPI/zoom and M1 regression. It needs no display; a software GPU adapter is allowed.
-
-## Command blocks and agent tasks
-
-The sidebar shows the focused terminal's OSC 133 command blocks and agent tasks.
-It needs a shell that emits those markers. Click a block to select its output,
-then Copy, Collapse, Rerun or Send. Collapse only hides the preview; retained
-output is unchanged. Large/truncated blocks require an explicit API byte range.
-Ctrl+Shift+B hides the sidebar; Ctrl+Shift+P opens the keyboard palette.
-
-Rerun asks for JSON such as `{"argv":["sh","-c","printf again"],"cwd":"/"}`.
-Edit it with typing/Backspace, then Enter to confirm a **new terminal**. No command
-is guessed from block text. Escape cancels. Open prompts keep their original
-IDs even if another client changes the focused terminal.
-
-Send queues selected bytes for an agent; it does not launch one. Task claimed
-states (queued/running/done/failed/cancelled) are shown separately from the source
-process's actual status. Select a task and use Mark done to update its claim.
-Scroll the sidebar and use its page controls for more blocks/tasks.
-
-Desktop copy uses an existing `wl-copy` on Wayland or `xclip` on X11. Missing
-helpers produce a visible error; none is installed automatically. Helpers are
-owned until replacement or app shutdown. A successful launch is not proof of
-clipboard ownership. The headless socket returns copy bytes without touching it.
-
-New socket operations use `v:2`; v1 `run` and routing stay unchanged. See
-[the M3 operation table and examples](docs/design-m3.md). `scripts/gate-m3.sh`
-checks socket and palette actions, then M2 (which includes M1), once each.
-`scripts/gate-m4.sh` adds real client-loss/reattachment and permission checks,
-then invokes M3 once. It uses a local stdio pipe, not a live SSH connection.
-
-## Editor core
-
-`clanky-edit` provides standalone UTF-8 editing, selections, undo/redo, source
-locations and per-hunk accept/reject review. Accepted edits stay in memory until
-explicit save. Saves detect external changes and atomically replace the resolved
-target, preserving symlinks. There is no editor panel or socket integration yet.
-See [the API and gate](docs/design-m7-core.md) and [results](docs/m7-core-results.md).
-
-## Masking core
-
-`clanky-mask` recognizes common credential shapes and caller-supplied secret
-values across output chunks. It returns named masks, bounds its trailing buffer,
-and wipes internal secret storage on drop. It is not yet wired into agent reads;
-the person's display is untouched. See [matching rules and API](docs/design-m6-masking.md)
-and [gate results](docs/m6-masking-results.md) for coverage and limits.
+The editor panel with agent-change review, masking of secrets before agents
+read output, the compose box, and additional M5 agent features are not yet
+integrated. The standalone editor and masking cores exist, but do not provide
+those window or agent protections today.
 
 ## Why "Clanky"
 
