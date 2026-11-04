@@ -184,6 +184,23 @@ fn run() -> Result<(), String> {
     require(calls == 1 && PASTE_ENTER.len() == 34 && wait_file(&observed_b)? == PASTE_ENTER,
         "PTY exact 34 bytes with one CR")?;
 
+    // A 100 KiB draft through the 64 KiB input path: sizes worked out by hand.
+    // 6 + 102400 + 6 = 102412 bytes = 65536 + 36876.
+    let mut big = b"\x1b[200~".to_vec();
+    big.extend(std::iter::repeat(b'a').take(100 * 1024));
+    big.extend_from_slice(b"\x1b[201~");
+    let mut pieces: Vec<Vec<u8>> = Vec::new();
+    clanky::compose::send_chunked(&big, 64 * 1024, |piece| { pieces.push(piece.to_vec()); Ok(()) })?;
+    require(pieces.iter().map(Vec::len).collect::<Vec<_>>() == [65536, 36876] && pieces.concat() == big,
+        "large draft splits into 65536 + 36876 bytes, in order, unchanged")?;
+    let mut sizes = Vec::new();
+    let refused = clanky::compose::send_chunked(&big, 64 * 1024, |piece| {
+        sizes.push(piece.len());
+        if sizes.len() == 2 { Err("fixture refused".into()) } else { Ok(()) }
+    });
+    require(refused.is_err() && sizes == [65536, 36876, 6],
+        "failed second piece is followed by the 6-byte paste end marker")?;
+
     let missing = root.0.join("missing-dictionary");
     let mut degraded = Compose::new(&missing, "en_US", Some(root.0.join("missing-words.txt")), false);
     require(degraded.spell_error().is_some(), "missing dictionary visible error")?;
