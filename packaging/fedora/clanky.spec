@@ -37,6 +37,9 @@ install -Dm644 packaging/linux/clanky.desktop %{buildroot}%{_datadir}/applicatio
 install -Dm644 packaging/linux/io.github.rustytensor.Clanky.metainfo.xml %{buildroot}%{_metainfodir}/io.github.rustytensor.Clanky.metainfo.xml
 install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
 install -Dm644 packaging/linux/clanky.1 %{buildroot}%{_mandir}/man1/clanky.1
+# A setgid build directory would otherwise pass its setgid bit to every directory here;
+# only a five-digit mode clears it (GNU chmod keeps it for 0755).
+find %{buildroot} -type d -exec chmod 00755 {} +
 
 %files
 %license LICENSE-MIT LICENSE-APACHE
