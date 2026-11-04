@@ -3,7 +3,7 @@ set -euo pipefail
 trap 'rc=$?; if (( rc != 0 )); then echo "FAIL: M11 look" >&2; fi' EXIT
 cd "$(dirname "$0")/.."
 export CARGO_HOME=/srv/devops/cache/clanky-cargo
-export CARGO_TARGET_DIR=/srv/devops/build/clanky-pkg/target
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-/srv/devops/build/clanky-pkg/target}
 export CLANKY_BUILD_LOCK=/srv/devops/build/clanky/.build.lock
 export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
 export VK_ICD_FILENAMES=$VK_DRIVER_FILES
