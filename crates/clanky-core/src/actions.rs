@@ -25,12 +25,10 @@ struct Selection {
 }
 struct Task {
     task_id: String,
-    label: String,
     state: String,
     tab_id: String,
     block_id: String,
     command_id: String,
-    payload: Vec<u8>,
     safe_payload: Vec<u8>,
     safe_label: String,
 }
@@ -69,20 +67,16 @@ impl ActionState {
 fn payload(bytes: &[u8]) -> Value {
     json!({"encoding":"base64", "data":base64::engine::general_purpose::STANDARD.encode(bytes), "bytes":bytes.len()})
 }
-fn task_value(task: &Task, tab: &Tab, detailed: bool, trusted: bool) -> Value {
+fn task_value(task: &Task, tab: &Tab, detailed: bool, _trusted: bool) -> Value {
     let process = tab
         .command(&task.command_id)
         .ok()
         .map(|c| c.state.lock().unwrap().status());
-    let mut result = json!({"task_id":task.task_id,"label":if trusted { &task.label } else { &task.safe_label },"state":task.state,
+    let mut result = json!({"task_id":task.task_id,"label":&task.safe_label,"state":task.state,
         "tab_id":task.tab_id,"block_id":task.block_id,"command_id":task.command_id,"process":process});
     if detailed {
         result.as_object_mut().unwrap().extend(
-            payload(if trusted {
-                &task.payload
-            } else {
-                &task.safe_payload
-            })
+            payload(&task.safe_payload)
             .as_object()
             .unwrap()
             .clone(),
@@ -149,8 +143,7 @@ impl Engine {
         let lease = self.lease(&tab);
         // Snapshot and release the terminal before locking metadata or calling run.
         let (blocks, _) = tab.terminal.lock().unwrap().blocks();
-        // Use the owner block for selection coordinates, but never mask only a
-        // selected substring: a selection can begin in the middle of a secret.
+        // Mask before selection for owners too: a range can start inside a secret.
         let (mirror, _) = tab.safe_terminal.lock().unwrap().blocks();
         let mut safe_blocks = blocks.clone();
         for block in &mut safe_blocks {
@@ -172,13 +165,7 @@ impl Engine {
                         .command(&block.command_id)
                         .ok()
                         .is_some_and(|c| c.state.lock().unwrap().done()));
-            if let Err(e) = self.0.1.policy.block(block, complete) {
-                if !trusted {
-                    return Err(e);
-                }
-                block.output.clear();
-                block.command = None;
-            }
+            self.0.1.policy.block(block, complete)?;
         }
         if action == "rerun" {
             validate_run(args)?;
@@ -243,7 +230,7 @@ impl Engine {
                 };
                 let mut page = Vec::new();
                 let mut budget = 256 * 1024;
-                let visible = if trusted { &blocks } else { &safe_blocks };
+                let visible = &safe_blocks;
                 for mut block in visible.iter().skip(start).take(limit).cloned() {
                     if budget == 0 {
                         break;
@@ -302,7 +289,7 @@ impl Engine {
             }
             _ => {
                 let block_id = string(args, "block_id")?;
-                let block = blocks
+                let block = safe_blocks
                     .iter()
                     .find(|b| b.block_id == block_id)
                     .ok_or_else(|| error("not_found", "unknown retained block"))?;
@@ -327,12 +314,7 @@ impl Engine {
                         Ok(json!({"selection":state.selection}))
                     }
                     "copy" => {
-                        let visible = if trusted {
-                            block
-                        } else {
-                            safe_blocks.iter().find(|b| b.block_id == block_id).unwrap()
-                        };
-                        Ok(payload(state.selected(visible)?))
+                        Ok(payload(state.selected(block)?))
                     }
                     "collapse" => {
                         let collapsed = args
@@ -354,16 +336,7 @@ impl Engine {
                         if state.tasks.len() >= 128 {
                             return Err(error("resource_limit", "task limit reached"));
                         }
-                        let bytes = state.selected(block)?.to_vec();
-                        let safe_block =
-                            safe_blocks.iter().find(|b| b.block_id == block_id).unwrap();
-                        let selection = state.selection.as_ref().unwrap();
-                        let safe_payload = safe_block
-                            .output
-                            .as_bytes()
-                            .get(selection.start..selection.end.min(safe_block.output.len()))
-                            .unwrap_or_default()
-                            .to_vec();
+                        let safe_payload = state.selected(block)?.to_vec();
                         let safe_label = self
                             .0
                             .1
@@ -373,12 +346,10 @@ impl Engine {
                         state.next_task += 1;
                         let task = Task {
                             task_id: format!("{}-task{}", tab_id, state.next_task),
-                            label: label.into(),
                             state: "queued".into(),
                             tab_id: tab_id.into(),
                             block_id: block_id.into(),
                             command_id: block.command_id.clone(),
-                            payload: bytes,
                             safe_payload,
                             safe_label,
                         };
