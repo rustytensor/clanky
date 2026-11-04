@@ -1,6 +1,7 @@
 //! Shared application configuration and input state.
 pub mod config;
 pub mod settings;
+pub mod settings_panel;
 pub mod platform;
 pub mod look;
 pub mod clipboard;
