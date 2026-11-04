@@ -8,6 +8,8 @@ mod events;
 mod masking;
 #[path = "status.rs"]
 mod status;
+#[path = "window_changes.rs"]
+mod window_changes;
 use agent::optional_number;
 #[cfg(test)]
 #[path = "anchor_tests.rs"]
@@ -251,6 +253,7 @@ impl Tab {
         *self.last_output.lock().unwrap() = Instant::now();
         let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
             &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
+        if !bytes.is_empty() {self.safety.window_signal.notify();}
         if !responses.is_empty() {
             if let Some(p) = &*self.process.lock().unwrap() {
                 for r in responses {
@@ -386,6 +389,7 @@ impl Engine {
         tab.allowed.store(allowed, Ordering::Release);
         tab.permission.fetch_add(1, Ordering::AcqRel);
         tab.safety.changed.notify_all();
+        tab.safety.window_signal.notify();
         for command in tab.commands.lock().unwrap().all.values() {
             command.changed.notify_all();
         }
@@ -427,11 +431,13 @@ impl Engine {
         }
         t.terminal.lock().unwrap().resize(rows, cols);
         t.safe_terminal.lock().unwrap().resize(rows, cols);
+        self.0.1.window_signal.notify();
         Ok(())
     }
     pub fn shutdown(&self) {
         self.0.1.stop.store(true, Ordering::Release);
         self.0.1.changed.notify_all();
+        self.0.1.window_signal.notify();
         let tabs = {
             let mut s = self.0.0.lock().unwrap();
             s.shutdown = true;
@@ -455,6 +461,7 @@ impl Engine {
         let tab = self.tab(tab_id, true)?;
         tab.terminal.lock().unwrap().scroll(delta);
         tab.safe_terminal.lock().unwrap().scroll(delta);
+        self.0.1.window_signal.notify();
         Ok(())
     }
 
@@ -464,6 +471,7 @@ impl Engine {
         let allowed: &[&str] = match op {
             "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
+            "window_changes" => &["after", "timeout_ms"],
             "snapshot" => &["tab_id", "known_generation", "known_images"],
             "history" => &["tab_id", "offset", "limit"],
             "scroll" => &["tab_id", "delta"],
@@ -478,6 +486,12 @@ impl Engine {
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
         fields(args, allowed)?;
+        if op == "window_changes" {
+            let after=number(args,"after",0,u64::MAX)?;
+            let timeout=optional_number(args,"timeout_ms",0,1000,1000)?;
+            let revision=self.0.1.window_signal.wait(after,Duration::from_millis(timeout));
+            return Ok(json!({"revision":revision,"changed":revision!=after}));
+        }
         if op == "look_state" {
             return Ok(self.look_state());
         }
@@ -510,6 +524,7 @@ impl Engine {
                 .checked_add(1)
                 .ok_or_else(|| error("resource_limit", "workspace revision exhausted"))?;
             s.workspace = workspace;
+            self.0.1.window_signal.notify();
             return Ok(json!(s.workspace));
         }
         let tab_id = string(args, "tab_id")?;

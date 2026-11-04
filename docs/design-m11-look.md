@@ -192,6 +192,12 @@ Rails shown. Opacity 0.94 (alpha 240).
 10. **Picture for review.** The gate writes the rendered scene to `$CARGO_TARGET_DIR/look/scene.png`. Marc judges
     the look from it and from the running app; that judgement is the acceptance, not the pixel checks.
 
+11. **Idle rendering.** After a real offscreen startup frame, the shared window
+    scheduler draws zero frames during 2 seconds without input. `CLANKY_GATE_FAULT=idle`
+    forces continuous redraw and must fail. `clanky-look-gate --idle-only` runs this
+    focused check without the earlier gates. CPU and key-to-present measurements
+    are recorded in [the idle fix report](design-m11-idle.md).
+
 ## Work split
 
 - Renderer (clanky-render): scene types, shape pipeline, premultiplied blending and transparent surface,

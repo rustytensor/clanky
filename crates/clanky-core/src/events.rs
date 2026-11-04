@@ -35,6 +35,7 @@ pub(super) struct Safety {
     pub stop: AtomicBool,
     events: Mutex<EventRing>,
     pub changed: Condvar,
+    pub window_signal: window_changes::WindowSignal,
     audit: Mutex<Audits>,
 }
 impl Safety {
@@ -48,6 +49,7 @@ impl Safety {
             stop: AtomicBool::new(false),
             events: Mutex::new(EventRing::default()),
             changed: Condvar::new(),
+            window_signal: window_changes::WindowSignal::new(),
             audit: Mutex::new(Audits::default()),
         }
     }
@@ -70,6 +72,9 @@ impl Safety {
         drop(self.changed.wait_timeout(ring, duration).unwrap());
     }
     pub fn publish(&self, tab_id: &str, allowed: &Arc<AtomicBool>, mut value: Value) {
+        // Raw PTY feed notifies only after the grid is updated; masked output
+        // can be buffered and must not be the window's typing wakeup source.
+        let window_change=value["kind"]!="output_appended";
         let mut ring = self.events.lock().unwrap();
         ring.next += 1;
         let seq = ring.next;
@@ -88,6 +93,8 @@ impl Safety {
             ring.items.pop_front();
         }
         self.changed.notify_all();
+        drop(ring);
+        if window_change{self.window_signal.notify();}
     }
     pub fn output(
         &self,

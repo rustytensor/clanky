@@ -311,6 +311,7 @@ pub(super) struct Painter {
     swash: SwashCache,
     glyphs: HashMap<CacheKey, Bitmap>,
     shaped: HashMap<TextKey, Vec<Placed>>,
+    measured: HashMap<TextKey, TextMetrics>,
     images: HashMap<ImageKey, Image>,
     next: [u32; 2],
     shelf: u32,
@@ -380,6 +381,7 @@ impl Painter {
             swash: SwashCache::new(),
             glyphs: HashMap::new(),
             shaped: HashMap::new(),
+            measured: HashMap::new(),
             images: HashMap::new(),
             next: [1, 1],
             shelf: 0,
@@ -400,6 +402,7 @@ impl Painter {
             atlas_binding(device, &self.glyph_pipeline, &self.atlas, &self.sampler);
         self.glyphs.clear();
         self.shaped.clear();
+        self.measured.clear();
         self.swash = SwashCache::new();
         self.next = [1, 1];
         self.shelf = 0;
@@ -432,12 +435,19 @@ impl Painter {
         Ok(())
     }
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
+        if !valid_text(text) || text.text.is_empty(){return TextMetrics::default();}
+        let key=TextKey{text:text.text.clone(),px:text.px.to_bits(),height:(text.px*1.25).to_bits(),
+            letter_spacing:text.letter_spacing.to_bits(),weight:text.weight,mono:text.mono};
+        if let Some(metrics)=self.measured.get(&key){return *metrics;}
         let name = if text.mono {
             &self.terminal_family
         } else {
             &self.ui_family
         };
-        measure_with_fonts(&mut self.fonts, text, name)
+        let metrics=measure_with_fonts(&mut self.fonts, text, name);
+        if self.measured.len()>=4096{self.measured.clear();}
+        self.measured.insert(key,metrics);
+        metrics
     }
     fn bitmap(&mut self, queue: &wgpu::Queue, key: CacheKey) -> Result<Bitmap, String> {
         if let Some(bitmap) = self.glyphs.get(&key) {

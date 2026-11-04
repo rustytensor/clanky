@@ -1,5 +1,6 @@
 mod studio;
 mod settings_window;
+mod window_events;
 mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
@@ -131,13 +132,21 @@ struct App {
     groups: Vec<Group>,
     active: usize,
     sizes: BTreeMap<String, (usize, usize)>,
+    minimum_window: Option<[u32;2]>,
     modifiers: ModifiersState,
     mouse: (f64, f64),
     input: InputState,
     occluded: bool,
     error: Option<String>,
     status: Option<String>,
-    next_frame: Instant,
+    frame_clock: clanky::frame_clock::FrameClock,
+    window_events: Option<window_events::WindowEvents>,
+    fallback_poll: bool,
+    terminal_dirty: bool,
+    persist_dirty: bool,
+    sent_input: bool,
+    file_stamps: BTreeMap<PathBuf,(Option<std::time::SystemTime>,u64)>,
+    frame_trace: clanky::frame_trace::FrameTrace,
     panels: panels::Panels,
     files: EditorWorkspace,
     local_files: bool,
@@ -167,7 +176,10 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         None=>(None,Some("No settings path is available".into())),
     };
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
-    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let event_loop = EventLoop::<window_events::WindowNotice>::with_user_event().build().map_err(|e| e.to_string())?;
+    let (window_events,feed_error)=match window_events::WindowEvents::start(&engine,event_loop.create_proxy()) {
+        Ok(events)=>(Some(events),None),Err(error)=>(None,Some(error)),
+    };let fallback_poll=feed_error.is_some();
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
     let rails = config.rails;
@@ -190,13 +202,16 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         groups: workspace.groups,
         active: workspace.active,
         sizes: BTreeMap::new(),
+        minimum_window: None,
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         input: InputState::default(),
         occluded: false,
         error: None,
-        status: None,
-        next_frame: Instant::now(),
+        status: feed_error,
+        frame_clock: clanky::frame_clock::FrameClock::default(),
+        window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
+        frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
         panels: panels::Panels::new(rails),
         files: EditorWorkspace::default(),
         local_files,
@@ -283,6 +298,7 @@ impl App {
         self.groups.get(self.active).map(|g| g.focus.as_str())
     }
     fn reset_ime(&mut self) {
+        self.reset_ime_position();
         self.input.focus_lost();
         self.compose.preedit("");
         if let Some(w) = &self.window {
@@ -291,6 +307,7 @@ impl App {
         }
     }
     fn load_workspace(&mut self, workspace: Workspace) {
+        self.frame_clock.invalidate();self.terminal_dirty=true;self.persist_dirty=true;
         let previous = self.focused().map(str::to_owned);
         if self.revision != workspace.revision { self.studio.drag = None; }
         self.revision = workspace.revision;
@@ -353,7 +370,8 @@ impl App {
         let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         let focused = self.focused().map(str::to_owned);
         self.notifications.poll_client(&self.engine, &ids, self.config.notify_after_seconds, self.window_focused, focused.as_deref())?;
-        self.persist_layout()
+        if self.persist_dirty {self.persist_layout()?;self.persist_dirty=false;}
+        Ok(())
     }
     fn is_suspended(&self) -> bool {
         self.occluded
@@ -367,8 +385,11 @@ impl App {
         self.sync_groups()?;
         let layout = self.pixel_layout()?;
         self.files.viewport = Some(layout.clone());
-        if let Some(window) = &self.window {
-            window.set_min_inner_size(Some(PhysicalSize::new(layout.minimum_window_px[0], layout.minimum_window_px[1])));
+        if self.minimum_window!=Some(layout.minimum_window_px) {
+            if let Some(window)=&self.window {
+                window.set_min_inner_size(Some(PhysicalSize::new(layout.minimum_window_px[0],layout.minimum_window_px[1])));
+                self.minimum_window=Some(layout.minimum_window_px);
+            }
         }
         let layouts=self.groups.iter().map(|g|self.pixel_layout_for(&g.layout)).collect::<Result<Vec<_>,_>>()?;
         for layout in layouts {
@@ -496,11 +517,12 @@ impl App {
         self.reset_ime();
         self.resize_panes()
     }
-    fn send(&self, bytes: &[u8]) -> Result<(), String> {
+    fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
         if self.search.active_target().is_some() || self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
         if !bytes.is_empty() {
             if let Some(id) = self.focused() {
                 self.engine.input(id, bytes).map_err(|e| e.message)?;
+                self.sent_input=true;
             }
         }
         Ok(())
@@ -698,7 +720,23 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<window_events::WindowNotice> for App {
+    fn user_event(&mut self,_event_loop:&ActiveEventLoop,event:window_events::WindowNotice){
+        match event {
+            window_events::WindowNotice::Changed=>{
+                if let Some(events)=&self.window_events{events.received();}
+                let revision=self.revision;
+                if let Err(error)=self.sync_groups(){self.status=Some(error);}
+                if revision!=self.revision{if let Err(error)=self.resize_panes(){self.status=Some(error);}}
+                self.terminal_dirty=true;self.persist_dirty=true;self.frame_clock.invalidate();
+            },
+            window_events::WindowNotice::Unavailable(error)=>{
+                self.fallback_poll=true;
+                self.status=Some(format!("Update/restart server for immediate output notifications: {error}"));
+                self.frame_clock.invalidate();
+            },
+        }
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -741,10 +779,17 @@ impl ApplicationHandler for App {
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        let visual_event=match &event {
+            WindowEvent::RedrawRequested=>false,
+            WindowEvent::KeyboardInput{event,..} if event.state==ElementState::Released=>false,
+            _=>true,
+        };
+        if matches!(event,WindowEvent::Resized(_)|WindowEvent::ScaleFactorChanged{..}){self.terminal_dirty=true;}
+        self.sent_input=false;
         let result = match event {
             WindowEvent::ThemeChanged(theme) => {
                 self.studio.theme = self.config.resolved_theme(clanky::platform::preference_is_light(Some(theme)));
-                if let Some(window) = &self.window { window.request_redraw(); }
+                self.frame_clock.invalidate();
                 Ok(())
             }
             WindowEvent::CloseRequested => {
@@ -790,6 +835,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.frame_trace.key_event();
                 if event.repeat && self.card_focused() { return; }
                 // Hold the consumed chord until release: releasing Ctrl first must
                 // not turn an auto-repeat after Send into ordinary PTY Enter.
@@ -818,6 +864,7 @@ impl ApplicationHandler for App {
                         _=>(),
                     }
                     let _=self.input.on_ime(&event);
+                    self.frame_clock.invalidate();
                     return;
                 }
                 if self.card_focused() { return; }
@@ -910,10 +957,15 @@ impl ApplicationHandler for App {
                 }
                 Ok(())
             }
-            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::RedrawRequested => {self.frame_clock.begin_frame();self.draw()},
             _ => Ok(()),
         };
+        if visual_event && (!self.sent_input || self.fallback_poll){
+            if self.sent_input{self.terminal_dirty=true;}
+            self.frame_clock.invalidate();
+        }
         if let Err(e) = result {
+            self.frame_clock.invalidate();
             self.fail(event_loop, e);
         } else if let Err(e) = self.publish_focus() {
             self.status = Some(e);
@@ -939,21 +991,30 @@ impl ApplicationHandler for App {
             self.next_settings=Instant::now()+Duration::from_millis(500);
         }
         if Instant::now() >= self.next_polish {
+            let old_status=self.status.clone();
             if let Err(e) = self.poll_session() { self.status = Some(e); }
+            if self.refresh_studio(){self.frame_clock.invalidate();}
+            let stamps=self.files.panes.values().filter_map(|pane|std::fs::metadata(pane.path()).ok()
+                .map(|metadata|(pane.path().to_owned(),(metadata.modified().ok(),metadata.len())))).collect::<BTreeMap<_,_>>();
+            if stamps!=self.file_stamps{self.file_stamps=stamps;self.frame_clock.invalidate();}
+            if self.fallback_poll {
+                let ids=self.groups.get(self.active).map(|g|g.layout.leaves()).unwrap_or_default();
+                for id in ids {
+                    let old=self.engine.cached_generation(&id);
+                    if self.engine.snapshot_with_blocks(&id).is_ok() && old!=self.engine.cached_generation(&id){self.frame_clock.invalidate();}
+                }
+            }
+            if self.url_opener.poll().is_err(){self.status=Some("URL opener failed".into());}
+            while let Some(error)=self.clipboard_bridge.take_error(){self.status=Some(error);}
+            if old_status!=self.status{self.frame_clock.invalidate();}
             self.next_polish = Instant::now() + Duration::from_secs(1);
         }
-        if Instant::now() >= self.next_frame {
-            if self.url_opener.poll().is_err() {
-                self.status = Some("URL opener failed".into());
-            }
-            while let Some(error) = self.clipboard_bridge.take_error() {
-                self.status = Some(error);
-            }
-            if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            self.next_frame = Instant::now() + Duration::from_millis(16);
+        let now=Instant::now();
+        let mut wake=self.next_settings.min(self.next_polish);
+        if !self.is_suspended(){
+            if self.frame_clock.request_due(now){if let Some(window)=&self.window{window.request_redraw();}}
+            if let Some(deadline)=self.frame_clock.deadline(now){wake=wake.min(deadline);}
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }
