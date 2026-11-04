@@ -139,7 +139,9 @@ Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","
 Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 
 For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
-agents, command drivers, the last 20 metadata-only events, and activity. **activity
+agents, command drivers, the last 20 metadata-only events, and activity. Each
+look event includes `age_ms`, its monotonic age at the time of the query; the UI
+shows relative seconds/minutes/hours rather than inventing wall-clock times. **activity
 is exactly 30 unsigned integer command counts, oldest to newest**, for the chart
 “Agent commands per minute · last 30 min”. Each bucket covers one 60-second
 interval of monotonic server uptime; the final bucket is the current, partial

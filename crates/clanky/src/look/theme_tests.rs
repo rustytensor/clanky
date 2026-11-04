@@ -26,10 +26,12 @@ fn light_theme_pixels_and_config() {
         assert!(got.iter().zip(expected).all(|(a,b)| (*a as i16-b as i16).abs()<=3),"({x},{y}) {got:?} expected {expected:?}");
     }
     let glow = pixel(&pixels,215,577);
+    println!("light focus (215,577): {glow:?}");
     assert!(glow[2] as i16-glow[0] as i16>=21,"focus glow {glow:?}");
     state.panes[0].allow_agent = true; state.panes[0].agent_running = true;
     let pixels = offscreen_scene(&scene(&layout,&state),1240,760).unwrap();
     let glow = pixel(&pixels,215,222);
+    println!("light agent (215,222): {glow:?}");
     assert!(glow[1]<=214 && glow[2] as i16-glow[1] as i16>=18,"agent glow {glow:?}");
 
     let system = Config::default();
