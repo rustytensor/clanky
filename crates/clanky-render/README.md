@@ -15,6 +15,13 @@ RGBA; blending and `offscreen_scene` readback are premultiplied RGBA8.
   runs with explicit newlines, without automatic wrapping. Glyph coverage uses
   linear sampling; text and images have separate blend-safe shaders.
 
+`GridLayer::opacity` and `TextRun::opacity` are finite values from 0 to 1.
+Use 1 for the previous output. The factor multiplies premultiplied RGB and alpha
+for each primitive, including grid backgrounds, glyphs, underlines, cursor and
+images. This is a per-primitive fade, not an offscreen group compositing pass.
+`scene::tests::scene_opacity` checks literal pixel values at 0, 0.5 and 1;
+`CLANKY_OPACITY_FAULT=1` plants a full-opacity fault in its half-opacity sample.
+
 Scene defaults are bundled JetBrains Mono and Inter. `set_font_families(terminal,
 ui)` accepts bundled or installed families; default-family host duplicates are
 excluded so shipped faces win. Window metrics follow `set_metrics`. Offscreen
