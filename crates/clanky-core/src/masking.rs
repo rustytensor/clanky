@@ -86,6 +86,18 @@ impl Policy {
     pub fn text(&self, text: &str, complete: bool) -> Result<String, CoreError> {
         Ok(String::from_utf8_lossy(&self.bytes(text.as_bytes(), complete)?).into_owned())
     }
+    /// Shared display/search context, masked before any pagination or selection.
+    pub fn terminal_lines(&self, terminal: &crate::terminal::Terminal) -> Result<Vec<String>, CoreError> {
+        let (_, _, mut lines, wraps, truncated) = terminal.text_context();
+        self.mask_lines(&mut lines, &wraps, terminal.text_cursor())?;
+        if truncated {
+            for (line, wrapped) in lines.iter_mut().zip(&wraps) {
+                *line = "*".repeat(line.len());
+                if !wrapped { break; }
+            }
+        }
+        Ok(lines)
+    }
     pub fn block(
         &self,
         block: &mut crate::terminal::Block,
