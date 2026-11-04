@@ -160,7 +160,14 @@ impl Engine {
                 ),
                 Err(e) => {
                     // Remove only the newly created terminal, even if permission changed.
-                    let removed = self.0.0.lock().unwrap().tabs.remove(new_id);
+                    let removed = {
+                        let mut state = self.0.0.lock().unwrap();
+                        let removed = state.tabs.remove(new_id);
+                        if removed.is_some() {
+                            state.workspace.remove(new_id);
+                        }
+                        removed
+                    };
                     if let Some(t) = removed {
                         t.close();
                     }

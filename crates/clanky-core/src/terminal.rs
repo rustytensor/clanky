@@ -2,7 +2,7 @@ use crate::{Cell, TerminalSnapshot};
 use clanky_vt::{
     Term,
     event::{Event, EventListener},
-    grid::Dimensions,
+    grid::{Dimensions, Scroll},
     index::{Column, Line, Point},
     term::{Config, TermMode, cell::Flags},
     vte::{
@@ -159,6 +159,7 @@ pub(crate) struct Terminal {
     parser: vte::Parser,
     observer: Observer,
     pub size: Size,
+    pub generation: u64,
     responses: Receiver<Vec<u8>>,
 }
 impl Terminal {
@@ -174,10 +175,14 @@ impl Terminal {
                 ..Observer::default()
             },
             size: Size(rows, cols),
+            generation: 0,
             responses,
         }
     }
     pub fn feed(&mut self, command: &str, bytes: &[u8]) -> Vec<Vec<u8>> {
+        if !bytes.is_empty() {
+            self.generation += 1;
+        }
         self.observer.command_id = command.into();
         // Keep the upstream ANSI processor and observer in lockstep. The APC
         // callback sees the cursor at its event, even with later text in this chunk.
@@ -194,6 +199,10 @@ impl Terminal {
         self.observer.seal(None, false);
     }
     pub fn resize(&mut self, rows: usize, cols: usize) {
+        if self.size.0 == rows && self.size.1 == cols {
+            return;
+        }
+        self.generation += 1;
         self.size = Size(rows, cols);
         self.term.resize(self.size);
         self.observer.viewport = (rows, cols);
@@ -205,11 +214,43 @@ impl Terminal {
         }
         (b, self.observer.evicted)
     }
+    pub fn scroll(&mut self, delta: i32) -> usize {
+        let before = self.term.grid().display_offset();
+        // Clamp first: the upstream Delta implementation adds using i32.
+        let target = (before as i64 + delta as i64).clamp(0, self.term.grid().history_size() as i64)
+            as usize;
+        self.term
+            .scroll_display(Scroll::Delta(target as i32 - before as i32));
+        if before != target {
+            self.generation += 1;
+        }
+        target
+    }
+    pub fn history(&self, offset: usize, limit: usize) -> (usize, Vec<String>) {
+        let total = self.term.grid().history_size();
+        let mut lines = Vec::new();
+        for index in offset..offset.saturating_add(limit).min(total) {
+            let row = Line(index as i32 - total as i32);
+            let mut text = String::new();
+            for col in 0..self.size.1 {
+                let cell = &self.term.grid()[Point::new(row, Column(col))];
+                if !cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                    text.push(cell.c);
+                    if let Some(extra) = cell.zerowidth() {
+                        text.extend(extra.iter().copied());
+                    }
+                }
+            }
+            lines.push(text.trim_end_matches(' ').to_owned());
+        }
+        (total, lines)
+    }
     pub fn snapshot(&self) -> TerminalSnapshot {
         let mut cells = Vec::with_capacity(self.size.0 * self.size.1);
+        let offset = self.term.grid().display_offset();
         for r in 0..self.size.0 {
             for c in 0..self.size.1 {
-                let cell = &self.term.grid()[Point::new(Line(r as i32), Column(c))];
+                let cell = &self.term.grid()[Point::new(Line(r as i32 - offset as i32), Column(c))];
                 let mut fg = color(cell.fg, true);
                 let mut bg = color(cell.bg, false);
                 if cell.flags.contains(Flags::INVERSE) {
@@ -230,17 +271,23 @@ impl Terminal {
             }
         }
         let point = self.term.grid().cursor.point;
-        let cursor = if self.term.mode().contains(TermMode::SHOW_CURSOR) && point.line.0 >= 0 {
-            Some((point.line.0 as usize, point.column.0))
-        } else {
-            None
-        };
+        let cursor =
+            if offset == 0 && self.term.mode().contains(TermMode::SHOW_CURSOR) && point.line.0 >= 0
+            {
+                Some((point.line.0 as usize, point.column.0))
+            } else {
+                None
+            };
         TerminalSnapshot {
             rows: self.size.0,
             cols: self.size.1,
             cells,
             cursor,
-            images: self.observer.kitty.snapshot(self.size.0, self.size.1),
+            images: if offset == 0 {
+                self.observer.kitty.snapshot(self.size.0, self.size.1)
+            } else {
+                Vec::new()
+            },
         }
     }
 }

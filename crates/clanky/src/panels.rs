@@ -1,6 +1,7 @@
 //! Cell-based controls drawn by the existing terminal renderer.
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use clanky_core::{Engine, TerminalSnapshot, platform::Clipboard};
+use clanky_api::Client;
+use clanky_core::{TerminalSnapshot, platform::Clipboard};
 use serde_json::{Value, json};
 use winit::keyboard::{Key, NamedKey};
 
@@ -68,12 +69,12 @@ impl Panels {
     pub fn width(&self, cols: usize) -> usize {
         if self.visible && cols >= 64 { 32 } else { 0 }
     }
-    fn call(engine: &Engine, action: &str, args: &Value) -> Result<Value, String> {
+    fn call(engine: &Client, action: &str, args: &Value) -> Result<Value, String> {
         engine
             .palette_action(action, args, true)
             .map_err(|e| e.message)
     }
-    pub fn refresh(&mut self, engine: &Engine, tab: Option<&str>) {
+    pub fn refresh(&mut self, engine: &Client, tab: Option<&str>) {
         // Pin the displayed target while a modal is open. A socket close or
         // focus change must never retarget an already offered action.
         if self.open {
@@ -109,7 +110,7 @@ impl Panels {
             .ok_or("Select a block first")?;
         Ok(json!({"tab_id":self.tab,"block_id":block}))
     }
-    fn action(&mut self, engine: &Engine, action: &'static str) -> Result<(), String> {
+    fn action(&mut self, engine: &Client, action: &'static str) -> Result<(), String> {
         let mut args = match action {
             "tasks" | "view" => json!({"tab_id":self.tab}),
             "task_update" | "task_get" => {
@@ -195,7 +196,7 @@ impl Panels {
     pub fn preedit(&mut self, text: &str) {
         self.preedit = text.chars().take(128).collect();
     }
-    pub fn key(&mut self, engine: &Engine, key: &Key, text: Option<&str>, composing: bool) {
+    pub fn key(&mut self, engine: &Client, key: &Key, text: Option<&str>, composing: bool) {
         if *key == Key::Named(NamedKey::Escape) {
             self.toggle();
             return;
@@ -264,7 +265,7 @@ impl Panels {
             .saturating_add_signed(delta as isize)
             .min(self.lines.len().saturating_sub(1));
     }
-    pub fn click(&mut self, engine: &Engine, row: usize) {
+    pub fn click(&mut self, engine: &Client, row: usize) {
         if self.open {
             return;
         }
