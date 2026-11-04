@@ -1,10 +1,12 @@
+mod search;
+
 use crate::{Cell, TerminalSnapshot};
 use clanky_vt::{
     Term,
     event::{Event, EventListener},
     grid::{Dimensions, Scroll},
     index::{Column, Line, Point},
-    term::{Config, TermMode, cell::Flags},
+    term::{ClipboardType, Config, Osc52, TermMode, cell::Flags},
     vte::{
         self,
         ansi::{self, Color},
@@ -12,8 +14,8 @@ use clanky_vt::{
 };
 use serde::Serialize;
 use std::{
-    collections::VecDeque,
-    sync::mpsc::{self, Receiver, SyncSender},
+    collections::{BTreeMap, VecDeque},
+    sync::{Arc, Mutex, mpsc::{self, Receiver, SyncSender}},
 };
 #[derive(Clone, Copy)]
 pub(crate) struct Size(pub usize, pub usize);
@@ -28,13 +30,37 @@ impl Dimensions for Size {
         self.1
     }
 }
+type ClipboardFormatter = Arc<dyn Fn(&str) -> String + Sync + Send + 'static>;
+enum ClipboardRequest {
+    Write(String),
+    Read(ClipboardFormatter),
+}
+#[derive(Default)]
+struct ClipboardState {
+    command: String,
+    next: u64,
+    queue: VecDeque<(u64, String, ClipboardRequest)>,
+    pending: BTreeMap<u64, (String, ClipboardFormatter)>,
+}
 #[derive(Clone)]
-struct Listener(SyncSender<Vec<u8>>);
+struct Listener(SyncSender<Vec<u8>>, Arc<Mutex<ClipboardState>>);
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {
-        if let Event::PtyWrite(s) = event {
-            let _ = self.0.try_send(s.into_bytes());
-        }
+        let request = match event {
+            Event::PtyWrite(s) => {
+                let _ = self.0.try_send(s.into_bytes());
+                return;
+            }
+            Event::ClipboardStore(ClipboardType::Clipboard, s) if s.len() <= 1024 * 1024 => ClipboardRequest::Write(s),
+            Event::ClipboardLoad(ClipboardType::Clipboard, formatter) => ClipboardRequest::Read(formatter),
+            _ => return,
+        };
+        let mut state = self.1.lock().unwrap();
+        if state.queue.len() >= 8 || state.command.is_empty() { return; }
+        let Some(id) = state.next.checked_add(1) else { return; };
+        state.next = id;
+        let command = state.command.clone();
+        state.queue.push_back((id, command, request));
     }
 }
 #[derive(Clone, Serialize)]
@@ -171,12 +197,14 @@ pub(crate) struct Terminal {
     pub size: Size,
     pub generation: u64,
     responses: Receiver<Vec<u8>>,
+    clipboard: Arc<Mutex<ClipboardState>>,
 }
 impl Terminal {
     pub fn new(rows: usize, cols: usize) -> Self {
         let (tx, responses) = mpsc::sync_channel(64);
+        let clipboard = Arc::new(Mutex::new(ClipboardState::default()));
         Self {
-            term: Term::new(Config::default(), &Size(rows, cols), Listener(tx.clone())),
+            term: Term::new(Config { osc52: Osc52::CopyPaste, ..Config::default() }, &Size(rows, cols), Listener(tx.clone(), clipboard.clone())),
             processor: ansi::Processor::new(),
             parser: vte::Parser::new(),
             observer: Observer {
@@ -187,13 +215,62 @@ impl Terminal {
             size: Size(rows, cols),
             generation: 0,
             responses,
+            clipboard,
         }
+    }
+    pub fn clipboard_events(&mut self, current: Option<&str>, write: bool, read: bool) -> serde_json::Value {
+        use base64::Engine as _;
+        let mut state = self.clipboard.lock().unwrap();
+        state.pending.retain(|_, (origin, _)| Some(origin.as_str()) == current);
+        while let Some((id, origin, request)) = state.queue.pop_front() {
+            if Some(origin.as_str()) != current { continue; }
+            let event = match request {
+                ClipboardRequest::Write(data) if write => serde_json::json!({"id":id,"kind":"write","data":base64::engine::general_purpose::STANDARD.encode(data.as_bytes())}),
+                ClipboardRequest::Read(formatter) if read => {
+                    // A missing desktop helper must not permanently fill the queue.
+                    if state.pending.len() >= 8 {
+                        if let Some(oldest) = state.pending.keys().next().copied() {
+                            state.pending.remove(&oldest);
+                        }
+                    }
+                    state.pending.insert(id, (origin, formatter));
+                    serde_json::json!({"id":id,"kind":"read"})
+                }
+                _ => continue,
+            };
+            return serde_json::json!({"events":[event]});
+        }
+        serde_json::json!({"events":[]})
+    }
+    pub fn clipboard_reply(&mut self, current: Option<&str>, id: u64, data: &str) -> Result<Vec<u8>, String> {
+        use base64::Engine as _;
+        // Consume before validation: even malformed or expired replies are one-use.
+        let (origin, formatter) = self.clipboard.lock().unwrap().pending.remove(&id)
+            .ok_or_else(|| "Unknown or expired clipboard request".to_owned())?;
+        if Some(origin.as_str()) != current { return Err("Clipboard command changed".into()); }
+        if data.len() > 65536usize.div_ceil(3) * 4 { return Err("Clipboard reply exceeds 64 KiB".into()); }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data)
+            .map_err(|_| "Invalid clipboard reply base64".to_owned())?;
+        if bytes.len() > 65536 { return Err("Clipboard reply exceeds 64 KiB".into()); }
+        let text = std::str::from_utf8(&bytes).map_err(|_| "Clipboard reply is not UTF-8".to_owned())?;
+        Ok(formatter(text).into_bytes())
     }
     pub fn feed(&mut self, command: &str, bytes: &[u8]) -> Vec<Vec<u8>> {
         if !bytes.is_empty() {
             self.generation += 1;
         }
         self.observer.command_id = command.into();
+        {
+            let mut state = self.clipboard.lock().unwrap();
+            if state.command != command {
+                // Do not complete a previous process's partial escape sequence.
+                self.processor = ansi::Processor::new();
+                self.parser = vte::Parser::new();
+                state.queue.clear();
+                state.pending.clear();
+                state.command = command.into();
+            }
+        }
         // Keep the upstream ANSI processor and observer in lockstep. The APC
         // callback sees the cursor at its event, even with later text in this chunk.
         for byte in bytes {

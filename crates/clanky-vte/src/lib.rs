@@ -45,6 +45,8 @@ pub use params::{Params, ParamsIter};
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
 const MAX_OSC_RAW: usize = 1024;
+// Base64 for 1 MiB decoded plus a bounded OSC header.
+const MAX_OSC_STD: usize = (1024 * 1024 + 2) / 3 * 4 + 64;
 const MAX_APC_RAW: usize = 16 * 1024 * 1024;
 
 /// Parser for raw _VTE_ protocol which delegates actions to a [`Perform`]
@@ -66,6 +68,9 @@ pub struct Parser<const OSC_RAW_BUF_SIZE: usize = MAX_OSC_RAW> {
     osc_raw: Vec<u8>,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
+    osc_bytes: usize,
+    osc_overflow: bool,
+    osc_escape: bool,
     #[cfg(feature = "std")]
     apc_raw: Vec<u8>,
     #[cfg(not(feature = "std"))]
@@ -388,6 +393,9 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             0x5D => {
                 self.osc_raw.clear();
                 self.osc_num_params = 0;
+                self.osc_bytes = 0;
+                self.osc_overflow = false;
+                self.osc_escape = false;
                 self.state = State::OscString
             },
             0x5E => self.state = State::SosPmApcString,
@@ -453,6 +461,29 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
 
     #[inline(always)]
     fn advance_osc_string<P: Perform>(&mut self, performer: &mut P, byte: u8) {
+        if self.osc_overflow {
+            // Overflow is an indivisible discarded OSC, including embedded ESCs.
+            // Do not interpret a valid-looking prefix or resume before BEL/ST.
+            if byte == 0x07 || (self.osc_escape && byte == b'\\') {
+                self.osc_raw.clear();
+                self.osc_num_params = 0;
+                self.state = State::Ground;
+            }
+            self.osc_escape = byte == 0x1B;
+            return;
+        }
+        #[cfg(feature = "std")]
+        let limit = MAX_OSC_STD;
+        #[cfg(not(feature = "std"))]
+        let limit = OSC_RAW_BUF_SIZE;
+        if !matches!(byte, 0x07 | 0x18 | 0x1A | 0x1B) {
+            if self.osc_bytes == limit {
+                self.osc_overflow = true;
+                self.osc_raw.clear();
+                return;
+            }
+            self.osc_bytes += 1;
+        }
         match byte {
             0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1C..=0x1F => (),
             0x07 => {
@@ -470,12 +501,6 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                 self.state = State::Escape
             },
             0x3B => {
-                #[cfg(not(feature = "std"))]
-                {
-                    if self.osc_raw.is_full() {
-                        return;
-                    }
-                }
                 self.action_osc_put_param()
             },
             _ => self.action_osc_put(byte),
@@ -593,6 +618,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
         #[cfg(not(feature = "std"))]
         {
             if self.osc_raw.is_full() {
+                self.osc_overflow = true;
+                self.osc_raw.clear();
                 return;
             }
         }

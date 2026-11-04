@@ -64,7 +64,7 @@ RPC `clipboard_events {tab_id,write:bool,read:bool}` drains at most ONE event:
 `{events:[{id:u64,kind:"write",data:<base64>} | {id:u64,kind:"read"}]}`.
 Disabled kinds are discarded without a helper call. For an allowed read, retain
 its callback until the single-use reply; cap pending reads too.
-RPC `clipboard_reply {tab_id,id,data:<base64>}` permits at most 64 KiB, validates
+RPC `clipboard_reply {tab_id,request_id,data:<base64>}` permits at most 64 KiB, validates
 originating command still current, formats and enqueues its response once. Return
 {}; expired/unknown/reused IDs fail. Only the clipboard selection is supported,
 not primary-selection side effects. Plain headless operation has no clipboard IO.

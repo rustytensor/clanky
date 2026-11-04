@@ -1715,7 +1715,11 @@ impl<T: EventListener> Handler for Term<T> {
             _ => return,
         };
 
+        if clipboard != b'c' || base64.len() > (1024 * 1024usize).div_ceil(3) * 4 {
+            return;
+        }
         if let Ok(bytes) = Base64.decode(base64) {
+            if bytes.len() > 1024 * 1024 { return; }
             if let Ok(text) = String::from_utf8(bytes) {
                 self.event_proxy.send_event(Event::ClipboardStore(clipboard_type, text));
             }
@@ -1736,6 +1740,7 @@ impl<T: EventListener> Handler for Term<T> {
             _ => return,
         };
 
+        if clipboard != b'c' { return; }
         let terminator = terminator.to_owned();
 
         self.event_proxy.send_event(Event::ClipboardLoad(

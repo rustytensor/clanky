@@ -10,6 +10,8 @@ pub struct Config {
     pub compose_dictionary_dir: PathBuf,
     pub compose_send_enter: bool,
     pub compose_words: Option<PathBuf>,
+    pub osc52_write: bool,
+    pub osc52_read: bool,
 }
 
 impl Default for Config {
@@ -22,6 +24,8 @@ impl Default for Config {
             compose_dictionary_dir: PathBuf::from("/usr/share/hunspell"),
             compose_send_enter: false,
             compose_words: None,
+            osc52_write: true,
+            osc52_read: false,
         }
     }
 }
@@ -98,6 +102,12 @@ impl Config {
                     let dir = PathBuf::from(value.as_str().ok_or("compose_dictionary_dir must be a string")?);
                     if !dir.is_absolute() { return Err("compose_dictionary_dir must be absolute".into()); }
                     config.compose_dictionary_dir = dir;
+                }
+                "osc52_write" => {
+                    config.osc52_write = value.as_bool().ok_or("osc52_write must be a boolean")?;
+                }
+                "osc52_read" => {
+                    config.osc52_read = value.as_bool().ok_or("osc52_read must be a boolean")?;
                 }
                 "compose_send_enter" => {
                     config.compose_send_enter = value.as_bool().ok_or("compose_send_enter must be a boolean")?;

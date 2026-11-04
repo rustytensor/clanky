@@ -326,6 +326,9 @@ impl Engine {
             "resize" => &["tab_id", "rows", "cols"],
             "permission_get" | "terminal_cwd" => &["tab_id"],
             "permission_set" => &["tab_id", "allow_agent"],
+            "window_search" => &["tab_id", "query", "after", "backwards"],
+            "clipboard_events" => &["tab_id", "write", "read"],
+            "clipboard_reply" => &["tab_id", "request_id", "data"],
             _ => return Err(error("unknown_operation", "unknown operation")),
         };
         fields(args, allowed)?;
@@ -335,7 +338,8 @@ impl Engine {
                 .filter(|s| Path::new(s).is_absolute() && Path::new(s).is_file())
                 .unwrap_or_else(|| "/bin/sh".into());
             let cwd = std::env::current_dir().map_err(|e| error("io_error", e.to_string()))?;
-            return Ok(json!({"argv":[shell],"cwd":cwd}));
+            let home = platform::home_dir().and_then(|path| path.to_str().map(str::to_owned));
+            return Ok(json!({"argv":[shell],"cwd":cwd,"home":home}));
         }
         if op == "workspace_get" {
             return Ok(json!(self.0.0.lock().unwrap().workspace));
@@ -362,6 +366,49 @@ impl Engine {
         let tab_id = string(args, "tab_id")?;
         let tab = self.tab(tab_id, true)?;
         match op {
+            "window_search" => {
+                let query = string(args, "query")?;
+                let after = match args.get("after") {
+                    None | Some(Value::Null) => None,
+                    Some(value) => {
+                        fields(value, &["row", "col"])?;
+                        Some((number(value, "row", 0, usize::MAX as u64)? as usize,
+                            number(value, "col", 0, usize::MAX as u64)? as usize))
+                    }
+                };
+                let backwards = match args.get("backwards") {
+                    None => false,
+                    Some(value) => value.as_bool().ok_or_else(|| invalid("backwards must be boolean"))?,
+                };
+                tab.terminal.lock().unwrap().window_search(query, after, backwards)
+                    .map_err(|message| error("invalid_request", message))
+            }
+            "clipboard_events" => {
+                let write = args.get("write").and_then(Value::as_bool).ok_or_else(|| invalid("write must be boolean"))?;
+                let read = args.get("read").and_then(Value::as_bool).ok_or_else(|| invalid("read must be boolean"))?;
+                let _guard = tab.lifecycle.lock().unwrap();
+                let commands = tab.commands.lock().unwrap();
+                let current = commands.current.as_deref();
+                Ok(tab.terminal.lock().unwrap().clipboard_events(current, write, read))
+            }
+            "clipboard_reply" => {
+                // `id` belongs to the RPC envelope, not the clipboard request.
+                let id = number(args, "request_id", 1, u64::MAX)?;
+                let data = string(args, "data")?;
+                // The lifecycle lock excludes run/close through enqueueing the response.
+                let _guard = tab.lifecycle.lock().unwrap();
+                let commands = tab.commands.lock().unwrap();
+                let current = commands.current.as_deref().filter(|id| {
+                    !tab.closed.load(Ordering::Acquire) && commands.all.get(*id)
+                        .is_some_and(|c| !c.state.lock().unwrap().exited)
+                });
+                let response = tab.terminal.lock().unwrap().clipboard_reply(current, id, data)
+                    .map_err(|_| invalid("Invalid, expired or oversized clipboard reply"))?;
+                let process = tab.process.lock().unwrap();
+                process.as_ref().ok_or_else(|| error("not_found", "no active process"))?
+                    .input(response).map_err(|_| error("resource_limit", "Clipboard response queue unavailable"))?;
+                Ok(json!({}))
+            }
             "terminal_cwd" => {
                 // Release the terminal guard before touching the PTY or /proc.
                 let reported = { tab.terminal.lock().unwrap().cwd() };
