@@ -83,31 +83,59 @@ inset 4.
 
 ## Theme tokens (fixed for the gate)
 
-| token | colour | use |
-|---|---|---|
-| window | #0f1522 at the configured opacity | window background |
-| rail | #0b111c | top bar and both rails |
-| panel | #131b2b | pane cards |
-| line | #1f2a3f | dividers, card borders |
-| ink | #dbe4f3 | text |
-| dim | #7685a3 | secondary text |
-| accent | #ff9f5a | prompt mark, cursor, active rail item |
-| violet | #a78bfa | agent edge, agent glow, masked text |
-| teal | #4fd1c5 | hashes, secondary accent |
-| ok | #5fd38d | exit 0 |
-| err | #ff6b7a | non-zero exit |
-| focus | #8fb4ff | focused pane edge and glow |
+| token | dark | light | use |
+|---|---|---|---|
+| window | #0f1522 | #e9eef6 | window background, at the configured opacity |
+| rail | #0b111c | #f3f6fb | top bar and both rails |
+| panel | #131b2b | #ffffff | pane cards |
+| line | #1f2a3f | #d6deea | dividers, card borders |
+| ink | #dbe4f3 | #1a2233 | text |
+| dim | #8d9bb8 | #4f5c76 | secondary text |
+| accent | #ff9f5a | #b54f0b | prompt mark, cursor, active rail item |
+| violet | #a78bfa | #6d4fd8 | agent edge, agent glow, masked text |
+| teal | #4fd1c5 | #0b7f78 | hashes, secondary accent |
+| ok | #5fd38d | #1d8048 | exit 0 |
+| err | #ff6b7a | #c8303f | non-zero exit |
+| focus | #8fb4ff | #2f63d6 | focused pane edge and glow |
+| ok_ink | #5fd38d | #166a3b | text on an exit-0 chip |
+| err_ink | #ff6b7a | #a8222f | text on a non-zero chip |
 
-Block card fill: white at 3 % over panel; the card spans the block's rows plus the 4 px card inset on every side.
+Light was approved by Marc on 2026-11-04 (mockup "Clanky Studio: dark and light"). Dim was raised from #7685a3
+to #8d9bb8 after a review (contrast on panel 4.6 -> 6.2). Every text colour is at least 4.5:1 on its surface
+(WCAG AA). All colours come from one `Theme` value; scene code holds no colour literals.
+
+Block card fill: dark, white at 3 % over panel; light, ink at 4 % over panel. The card spans the block's rows plus the 4 px card inset on every side.
 Exit chip: a pill on the command row, from 2 px below the row's top to 2 px above its bottom, its right edge 6 px
-inside the card, 8 px padding around its text, filled ok or err at 18 % over the card.
-Only the focused pane and agent-driven panes get a shadow or glow; other panes have none.
+inside the card, 8 px padding around its text, filled ok or err over the card (dark 18 %, light 10 %), its text
+in ok_ink or err_ink.
+Only the focused pane and agent-driven panes get a shadow or glow, in both themes; other panes have none.
 
 ## Config (new keys)
 
-`opacity` (0.5 to 1.0, default 0.94), `animations` (default true), `rails` (default true),
-`font_family` (terminal font family, default bundled JetBrains Mono), `ui_font_family` (default bundled Inter).
-Unknown keys stay errors.
+`theme` ("dark", "light" or "system"; default "system"), `colors` (an object overriding any token above for the
+active theme, values "#rrggbb"), `opacity` (0.5 to 1.0, default 0.94), `animations` (default true), `rails`
+(default true), `font_family` (terminal font family, default bundled JetBrains Mono), `ui_font_family` (default
+bundled Inter), `font_size` (8 to 32, default 16). Unknown keys stay errors.
+
+"system" follows the desktop's light or dark preference as the windowing library reports it, and switches live
+when it changes. Where the system reports nothing, it means dark. All operating-system lookups (theme, settings
+location, transparency, fonts) go through the platform layer, so the Windows and macOS ports add code there only.
+
+## Settings panel (point and click)
+
+Settings stay a readable text file: the existing config file, in the platform's usual settings location. The panel
+is a view of that file; there is no second store.
+
+- Opens with Ctrl+, or from the top bar. A rounded card over the window with sections: Appearance (theme, the 14
+  colours with a picker and a reset per colour, opacity slider, fonts and size, rails, animations), Terminal,
+  Agents and access, Keys (read-only list of bindings).
+- Every change applies at once and is written to the file atomically (write to a temporary file, then rename).
+  An invalid value is refused in the panel with the same message the config loader gives; the file is unchanged.
+- Editing the file by hand applies live too (the app watches it). A file that fails to load keeps the last good
+  settings and shows the error once.
+- Export writes the settings to a file the person picks; import reads one, checks it with the same loader, and
+  applies it only when valid. "Open settings file" opens it in the person's editor.
+- The file stays JSON. A panel write keeps the key order of a hand-edited file and changes only the keys it sets.
 
 ## Gate: `scripts/gate-m11-look.sh`
 
@@ -143,6 +171,20 @@ Rails shown. Opacity 0.94 (alpha 240).
    With `animations: false`: 200 and 1.0 at 0 ms.
 7. **Config.** `{"opacity":0.3}` and `{"rails":"yes"}` are configuration errors; `{"opacity":1}` gives alpha 255 at
    (590, 44).
+7b. **Light theme pixels** (same state, `theme: "light"`, premultiplied RGBA, tolerance 3):
+   - (590, 44): window = (219, 224, 232, 240).
+   - (950, 380): panel = (255, 255, 255, 255).
+   - (221, 51): window (219, 224, 232, 240); (226, 56): panel (255, 255, 255, 255).
+   - (100, 700) and (1100, 700): rail = (243, 246, 251, 255).
+   - (230, 451): card = (246, 246, 247, 255).
+   - (936, 451): chip = (224, 234, 229, 255).
+   - Focus glow at (215, 577): blue minus red at least 21 (the window gives 13).
+   - Agent glow at (215, 222), agent state as in check 5: green at most 214 and blue at least 18 above green.
+7c. **Settings.** Through the panel's own functions, not the UI: setting opacity 0.8 writes a file that the
+   config loader reads back as 0.8 and gives alpha 204 at (590, 44); setting opacity 0.3 is refused with the
+   loader's message and leaves the file byte-for-byte unchanged; a colour override `{"colors":{"panel":"#202020"}}`
+   gives (32, 32, 32, 255) at (950, 380); export then import gives an identical file; a hand-written key order
+   survives a panel write.
 8. **Planted fault.** `CLANKY_GATE_FAULT=look` renders pane corners with radius 0 in the harness only. The gate
    must fail at the rounded-corner check, (221, 51): expected window colour, observed panel colour.
 9. **Regression.** The gate then runs `scripts/gate-rc.sh` once (all earlier gates, unchanged expected values).
