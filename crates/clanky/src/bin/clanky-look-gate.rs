@@ -71,12 +71,22 @@ fn run() -> Result<(), String> {
     state.opacity = Config::from_json("{\"opacity\":1}")?.opacity;
     state.panes[0].allow_agent = false; state.panes[0].agent_running = false;
     let opaque = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    state.opacity = 0.94;
+    state.theme = Config::from_json("{\"theme\":\"light\"}")?.resolved_theme(false);
+    let light = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
+    let mut light_pixels = serde_json::Map::new();
+    for (x,y) in [(590,44),(950,380),(221,51),(226,56),(100,700),(1100,700),(230,451),(936,451),(215,577)] {
+        light_pixels.insert(format!("{x},{y}"),json!(sample(&light,x,y)));
+    }
+    state.panes[0].allow_agent = true; state.panes[0].agent_running = true;
+    let light_agent = offscreen_scene(&look::scene(&shown,&state),1240,760)?;
     let ease = look::ease_out_cubic;
     println!("{}",json!({
         "layout":{"content":shown.content.array(),"a":pane(&shown,"A"),"b":pane(&shown,"B"),"pty_a":pty_a,"pty_b":pty_b},
         "rails_hidden":{"a":pane(&hidden,"A"),"b":pane(&hidden,"B")},
         "drag":{"a":pane(&dragged.layout,"A"),"b":pane(&dragged.layout,"B"),"restored_a":pane(&restored,"A"),"restored_b":pane(&restored,"B")},
         "pixels":pixels,"agent_glow":sample(&agent,215,222),
+        "light_pixels":light_pixels,"light_agent_glow":sample(&light_agent,215,222),
         "motion":{"cursor":[ease(100.,200.,0.,80.,true),ease(100.,200.,40.,80.,true),ease(100.,200.,80.,80.,true),ease(100.,200.,120.,80.,true)],"panel_60ms":ease(0.,1.,60.,120.,true),"cursor_disabled_0ms":ease(100.,200.,0.,80.,false),"panel_disabled_0ms":ease(0.,1.,0.,120.,false)},
         "config":{"opacity_0_3_error":Config::from_json("{\"opacity\":0.3}").is_err(),"rails_yes_error":Config::from_json("{\"rails\":\"yes\"}").is_err(),"opacity_one_pixel":sample(&opaque,590,44)}
     }));
