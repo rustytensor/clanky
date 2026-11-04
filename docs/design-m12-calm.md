@@ -97,40 +97,50 @@ tabs and splits. No agents, no AI features. For coding and AI purists." Config `
 
 ## Clanky the robot (start-up animation)
 
-Marc approved the robot on 2026-11-04. The reference animation is
-/srv/devops/build/clanky/mockups/robot4.html; its shapes, timings and easings are the spec. Use its "Slow motion"
+Marc approved the robot on 2026-11-04 ("I love it"), at half the speed of the first draft. The reference animation is
+/srv/devops/build/clanky/mockups/robot5.html: its shapes, timings and easings are the spec. Use its "Slow motion"
 button, or `?t=<ms>` to freeze a frame.
 
-- **What it does, about 2.4 s:**
-  1. Clanky rolls in side-on, wheels spinning, and brakes with a forward rock.
-  2. **The turn (800–1400 ms):** the tread base turns 90° to face the viewer. It is a box of six faces (192 × 58 × 120)
-     projected with a perspective of 640 px. During the turn the view tilts down to 22° and back, the side face
-     darkens up to 55 %, the front face brightens from 45 %, and the shadow narrows. Before and after the turn it
-     is flat 2D.
-  3. The neck rises, the head tilts −7°, the shutters open and the irises focus.
-  4. The charge bars light up one by one, it blinks, and the right arm waves with an elbow bend and a double claw
-     snap.
-  5. "Clanky" fades up with a blinking cursor in the agent colour.
-- **When:** it plays centred in the first pane of every new window, over the pane, while the shell starts
-  underneath.
+- **The first meeting, about 8 s:**
+
+  | time (s) | what happens |
+  |---|---|
+  | 0.0–1.9 | He rolls in side-on, looking where he is going (lens barrel forward). Wheels and belt turn; he bobs slightly. |
+  | 1.8–2.4 | He brakes with a forward rock, and dust puffs from under the treads. |
+  | 2.3–2.8 | A beat of stillness, then the head twitches: he has noticed you. |
+  | 2.7–4.3 | The torso turns 90° to you in 3D, with a slight overshoot. The head follows 200 ms later with more overshoot. The camera pushes in from 1.0 to 1.07. |
+  | 4.1–4.8 | The frown: lids at 0.72, angled 19° inwards, eyes dark, head tilted 5°. |
+  | 4.8–5.6 | He lights up. The lids snap open, the eyes flash on and focus, the antenna pings, the charge bars fill one by one, a warm glow blooms behind him, and his head tilts happily (−7°). |
+  | 5.5–6.7 | The tread base turns 90° to you in 3D, the view dipping 20° to show the tread tops. Then he is flat 2D, facing you. |
+  | 6.0 | A blink. |
+  | 6.8–8.0 | The wave, with an elbow bend and a double claw snap. "Clanky" fades in with a blinking cursor in the agent colour. |
+
+- **When it plays:**
+  - the full scene, the first time Clanky starts on a machine (a marker file in the state directory);
+  - on every later window, a short greeting of about 1.2 s: he is already facing you, lights up, blinks and waves;
+  - `clanky +hello` replays the full scene in its own window.
+- **Where:** centred in the first pane, drawn over it, while the shell starts underneath.
 - **Skipping:** any key or click skips it at once, and that key or click goes to the shell or the control as normal.
   Nothing is ever delayed or swallowed.
 - **Turning it off:** config `startup_animation` (default true), or `animations: false`.
-- **Colour:** every colour comes from the theme: metal = the muted greys, paint = a theme token `robot_paint` (Stone:
-  dark #6b5236, light #e3c08e), glow parts = agent. Every built-in theme defines `robot_paint`.
-- **`clanky +hello`** plays it large, in its own window, for fun.
-- **Renderer:** filled and stroked paths with anti-aliasing for the curves (arms, claws, chest wave and the
+- **Colour:** every colour comes from the theme:
+  - metal = the muted greys;
+  - paint = a theme token `robot_paint` (Stone: dark #6b5236, light #e3c08e), which every built-in theme defines;
+  - glowing parts = agent.
+- **Renderer:** filled and stroked paths with anti-aliasing for the curves (arms, claws, chest wave, and the
   sidebar's line icons), using the lyon crate (MIT OR Apache-2.0, on the licence list; name it in the commit
-  message). The 3D turn is six flat panels through a 4 × 4 perspective matrix: no 3D engine.
-- **Gate (check 15):**
-  - with the clock driven by the harness, frames are drawn only from 0 to 2400 ms; then 0 frames over the next
-    2 s;
-  - a key at 300 ms ends the animation within one frame, and the shell receives that key's bytes;
-  - at 2400 ms, the antenna light's centre pixel in Stone dark is the agent colour (210, 164, 118, 255),
-    tolerance 3;
-  - at 1100 ms, the tread base's front face and side face are both visible: the pixel at the base's centre-left
-    differs from both the pre-turn and the post-turn frames;
-  - planted fault `robot` (never stops): must fail the zero-frame check.
+  message). Three 3D boxes (base, torso, head) are flat panels through one 4 × 4 perspective matrix (perspective
+  700 px); the rest are 2D layers. No 3D engine.
+- **Gate (check 15),** with the clock driven by the harness:
+  - Full scene: frames only from 0 to 8000 ms, then 0 frames over the next 2 s. The short greeting: frames only
+    from 0 to 1200 ms.
+  - A key at 300 ms ends the animation within one frame, and the shell receives that key's bytes.
+  - At 8000 ms, the antenna light's centre pixel in Stone dark is the agent colour (210, 164, 118, 255),
+    tolerance 3.
+  - At 6100 ms, the tread base is mid-turn: the pixel at the base's centre-left differs from both the 5500 ms and
+    the 6700 ms frames. At 3500 ms, the same holds for the torso against 2700 ms and 4300 ms.
+  - The full scene plays once per machine: a second start shows the short greeting.
+  - Planted fault `robot` (never stops) must fail the zero-frame check.
 
 ## Layout numbers
 
