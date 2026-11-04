@@ -100,7 +100,11 @@ cat > "$work/expected-files" <<'EOF'
 /usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
 /usr/share/licenses/clanky
 /usr/share/licenses/clanky/LICENSE-APACHE
+/usr/share/licenses/clanky/LICENSE-DejaVu.txt
 /usr/share/licenses/clanky/LICENSE-MIT
+/usr/share/licenses/clanky/NOTICE
+/usr/share/licenses/clanky/OFL-Inter.txt
+/usr/share/licenses/clanky/OFL-JetBrainsMono.txt
 /usr/share/man/man1/clanky.1.gz
 /usr/share/metainfo/io.github.rustytensor.Clanky.metainfo.xml
 EOF
