@@ -67,9 +67,51 @@ pub struct TextRun {
     pub color: [u8; 4],
     pub weight: u16,
     pub mono: bool,
+    /// Additional tracking in physical pixels; zero preserves normal shaping.
+    pub letter_spacing: f32,
+}
+
+impl Default for TextRun {
+    fn default() -> Self {
+        Self {
+            opacity: 1.0,
+            origin: [0.0; 2],
+            text: String::new(),
+            px: 16.0,
+            color: [255; 4],
+            weight: 400,
+            mono: false,
+            letter_spacing: 0.0,
+        }
+    }
+}
+
+/// Advance width of the widest line and maximum font ascent/descent, in pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextMetrics {
+    pub width: f32,
+    pub ascent: f32,
+    pub descent: f32,
+    /// Baseline spacing, not the total height of a multiline run.
+    pub line_height: f32,
+}
+
+/// Deterministic, GPU-free measurement with the bundled scene fonts.
+/// Invalid size, weight or spacing returns zero metrics, as does empty text.
+/// For configured window fonts, use Renderer::measure_text instead.
+pub fn measure_text(text: &TextRun) -> TextMetrics {
+    crate::scene_gpu::measure_text(text)
 }
 
 impl Renderer {
+    /// Measure using this window's configured font families, without drawing.
+    pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
+        let painter = self.scene.get_or_insert_with(|| {
+            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+        });
+        painter.measure_text(text)
+    }
+
     /// Whether the compositor accepts premultiplied window transparency.
     /// When false, draw_scene ignores clear alpha; the app can report this once.
     pub fn supports_transparency(&self) -> bool {
