@@ -121,6 +121,9 @@ an editable JSON prompt; a labelled Send prompt may default to `Review block`.
 Palette text must not leak into the PTY, including IME commits. Ctrl+Shift+B
 shows/hides the sidebar. The same shared dispatcher backs buttons and palette.
 A missing selection is a visible error, not an action on whichever output is last.
+An open modal pins its displayed target IDs until it closes; a socket close cannot
+retarget it. Whole-block selection rejects truncated previews rather than copying
+an incomplete block as though it were complete.
 
 Copy also sends the returned bytes to the desktop clipboard through a Linux
 platform wrapper, using an available `wl-copy` (Wayland) or `xclip` (X11).

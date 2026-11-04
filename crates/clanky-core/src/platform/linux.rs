@@ -4,17 +4,18 @@ use alacritty_terminal::{
 };
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, Read, Seek, Write},
     net::Shutdown,
     os::{
         fd::AsRawFd,
         unix::{
-            fs::{DirBuilderExt, MetadataExt, PermissionsExt},
+            fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
             net::{UnixListener, UnixStream},
             process::ExitStatusExt,
         },
     },
     path::{Path, PathBuf},
+    process::{Child, Command as HelperCommand, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -23,6 +24,106 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+/// Owns the foreground Linux clipboard helper until replacement or shutdown.
+#[derive(Default)]
+pub struct Clipboard {
+    child: Option<Child>,
+}
+
+impl Clipboard {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Copies at most 64 KiB without writing into a potentially blocked pipe.
+    /// Success means the helper was spawned, not that the display accepted it.
+    pub fn copy(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if bytes.len() > 64 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "clipboard input exceeds 64 KiB",
+            ));
+        }
+        let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            let mut command = HelperCommand::new("wl-copy");
+            command.args(["--foreground", "--type", "text/plain;charset=utf-8"]);
+            command
+        } else {
+            let mut command = HelperCommand::new("xclip");
+            command.args(["-selection", "clipboard", "-in", "-quiet"]);
+            command
+        };
+
+        // Unlink before writing any clipboard bytes. create_new rejects existing
+        // files and symlinks; mode 0600 also protects the brief named lifetime.
+        static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
+        let mut input = None;
+        for _ in 0..32 {
+            let path = std::env::temp_dir().join(format!(
+                ".clanky-clipboard-{}-{}",
+                std::process::id(),
+                NEXT_FILE.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+            {
+                Ok(file) => {
+                    fs::remove_file(&path)?;
+                    input = Some(file);
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        let mut input = input.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "could not create private clipboard input",
+            )
+        })?;
+        input.write_all(bytes)?;
+        input.rewind()?;
+
+        self.stop()?;
+        self.child = Some(
+            command
+                .stdin(Stdio::from(input))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|error| {
+                    io::Error::new(
+                        error.kind(),
+                        format!("clipboard helper unavailable: {error}"),
+                    )
+                })?,
+        );
+        Ok(())
+    }
+
+    fn stop(&mut self) -> io::Result<()> {
+        if let Some(child) = self.child.as_mut() {
+            if child.try_wait()?.is_none() {
+                child.kill()?;
+                child.wait()?;
+            }
+            self.child = None;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Clipboard {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
 
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 extern "C" fn signal_shutdown(_: libc::c_int) {
