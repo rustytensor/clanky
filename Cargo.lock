@@ -284,7 +284,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clanky"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-api"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "clanky-core",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-core"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "clanky-mask",
@@ -323,15 +323,15 @@ dependencies = [
 
 [[package]]
 name = "clanky-edit"
-version = "0.5.5"
+version = "0.6.0"
 
 [[package]]
 name = "clanky-mask"
-version = "0.5.5"
+version = "0.6.0"
 
 [[package]]
 name = "clanky-render"
-version = "0.5.5"
+version = "0.6.0"
 dependencies = [
  "clanky-core",
  "cosmic-text",
