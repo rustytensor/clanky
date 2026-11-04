@@ -2,7 +2,9 @@
 use clanky_core::layout::{Axis, Layout as WorkspaceLayout, MIN_COLUMNS, MIN_ROWS, stable_floor};
 
 mod theme;
-pub use theme::{Color, Metrics, Theme};
+#[cfg(test)]
+mod theme_tests;
+pub use theme::{Color, Metrics, Theme, COLOR_TOKENS};
 mod scene_builder;
 pub use scene_builder::*;
 
