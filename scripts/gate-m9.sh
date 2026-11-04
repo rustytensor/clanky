@@ -8,5 +8,7 @@ export CLANKY_BUILD_LOCK=/srv/devops/build/clanky/.build.lock
 case ${CLANKY_GATE_FAULT:-} in ''|tui) ;; *) echo 'FAIL: unknown fault' >&2; exit 1;; esac
 flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky -j 8
 python3 scripts/gate-m9.py "$CARGO_TARGET_DIR/debug/clanky"
-env -u CLANKY_GATE_FAULT scripts/gate-m7-core.sh
+if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
+    env -u CLANKY_GATE_FAULT scripts/gate-m7-core.sh
+fi
 echo 'PASS: M9 TUI'
