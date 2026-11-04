@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.rustytensor.Clanky</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Clanky</name>
+  <summary>GPU-rendered terminal for working with coding agents</summary>
+  <description>
+    <p>Clanky is a terminal for Linux with tabs, split panes, and GPU rendering.</p>
+    <p>Its local socket API lets permitted coding agents run commands and read their output.</p>
+  </description>
+  <launchable type="desktop-id">clanky.desktop</launchable>
+  <url type="homepage">https://github.com/rustytensor/clanky</url>
+  <releases>
+    <release version="0.3.3" date="2026-11-03"/>
+  </releases>
+</component>
