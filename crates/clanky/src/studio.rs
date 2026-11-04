@@ -29,6 +29,10 @@ pub struct Studio {
     blocks: BTreeMap<String, Value>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
+    card_clocks: BTreeMap<(String,String),Instant>,
+    card_keys: Vec<(String,String)>,
+    card_focus: Option<(String,String)>,
+    card_action: usize,
     snapshots: BTreeMap<String, TerminalSnapshot>,
     shown: BTreeMap<String, (TerminalSnapshot, f32)>,
     reviews: BTreeMap<String, Review>,
@@ -41,6 +45,7 @@ impl Default for Studio {
     fn default() -> Self {
         Self { drag: None, theme: look::Theme::default(), hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
+            card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
             activity: Vec::new(), started: Instant::now() }
     }
@@ -168,6 +173,49 @@ impl App {
         let focused = self.focused().map(str::to_owned);
         if !self.engine.is_closed() { self.panels.refresh(&self.engine, focused.as_deref()); }
     }
+    fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
+        self.studio.card_keys.clear();
+        let modal=self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some();
+        let mut shown=Vec::new();
+        for pane in &layout.panes {
+            let Some(data)=state.panes.iter().find(|data|data.id==pane.id) else{continue;};
+            for block in &data.blocks {
+                let origin=[pane.grid_origin[0],pane.grid_origin[1]-data.scroll_px];
+                let Some(rect)=look::block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{continue;};
+                let key=(data.id.clone(),block.id.clone());
+                self.studio.card_keys.push(key.clone());
+                if !modal && (rect.contains(self.mouse.0,self.mouse.1) || self.studio.card_focus.as_ref()==Some(&key)) {
+                    let start=self.studio.card_clocks.entry(key.clone()).or_insert(now);
+                    let opacity=look::ease_out_cubic(0.0,1.0,start.elapsed().as_secs_f32()*1000.0,120.0,self.config.animations);
+                    state.block_actions.insert(key.clone(),opacity);
+                    shown.push(key);
+                }
+            }
+        }
+        self.studio.card_clocks.retain(|key,_|shown.contains(key));
+        if self.studio.card_focus.as_ref().is_some_and(|key|!self.studio.card_keys.contains(key)) || modal {self.studio.card_focus=None;}
+        state.block_action_focus=self.studio.card_focus.as_ref().map(|(tab,id)|(tab.clone(),id.clone(),self.studio.card_action));
+    }
+    pub fn card_focused(&self)->bool {self.studio.card_focus.is_some()}
+    pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
+        if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return Ok(false);}
+        if *key==Key::Named(NamedKey::F6) {
+            if !self.studio.card_keys.is_empty() {
+                let next=self.studio.card_focus.as_ref().and_then(|key|self.studio.card_keys.iter().position(|k|k==key)).map_or(0,|i|(i+1)%self.studio.card_keys.len());
+                self.studio.card_focus=Some(self.studio.card_keys[next].clone());self.studio.card_action=0;self.reset_ime();
+            }
+            return Ok(true);
+        }
+        let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
+        match key {
+            Key::Named(NamedKey::Escape)=>{self.studio.card_focus=None;self.reset_ime();},
+            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+3)%4,
+            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%4,
+            Key::Named(NamedKey::Enter)=>{self.panels.block_action(&self.engine,&tab,&id,["copy","rerun","send","collapse"][self.studio.card_action])?;self.local_request()?;},
+            _=>(),
+        }
+        Ok(true)
+    }
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
             HitAction::Palette => {
@@ -206,6 +254,7 @@ impl App {
         Ok(())
     }
     pub(super) fn click_studio(&mut self) -> Result<(), String> {
+        self.studio.card_focus=None;
         self.files.dragging = None; self.studio.drag = None;
         let layout = self.pixel_layout()?;
         if self.compose.active_target().is_some() {
@@ -354,6 +403,10 @@ impl App {
         if let Some(agents) = self.studio.metadata["agents"].as_array() {
             for agent in agents {
                 if let (Some(connection_id),Some(peer_pid)) = (agent["connection_id"].as_u64(),agent["peer_pid"].as_u64().and_then(|n|u32::try_from(n).ok())) {
+                    if let Some(name)=agent["client_name"].as_str().filter(|s|!s.is_empty()) {
+                        let label=agent["model"].as_str().filter(|s|!s.is_empty()).map(|model|format!("{name} · {model}")).unwrap_or_else(||name.into());
+                        state.agent_labels.insert(connection_id,label);
+                    }
                     state.agents.push(look::AgentItem { connection_id, peer_pid, tab_id: agent["tab_id"].as_str().map(str::to_owned), running: agent["running"].as_bool().unwrap_or(false) });
                 }
             }
@@ -563,6 +616,7 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
+        self.update_card_actions(&layout,&mut state,now);
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
         let mut presentation = look::presentation_with_measure(&layout,&state,&mut |run| renderer.measure_text(run));
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {

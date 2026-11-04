@@ -338,8 +338,18 @@ fn dispatch(
         return error(id, "invalid_request", "op must be a string");
     };
     if op == "hello" {
-        if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op")) {
+        if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op" | "client_name" | "model")) {
             return error(id, "invalid_request", "Unknown hello field");
+        }
+        for field in ["client_name", "model"] {
+            if let Some(value)=obj.get(field) {
+                if !value.as_str().is_some_and(|s| !s.trim().is_empty() && s.len()<=128 && !s.chars().any(char::is_control)) {
+                    return error(id,"invalid_request","Hello labels must be nonempty strings of at most 128 bytes without controls");
+                }
+            }
+        }
+        if !*owner {
+            engine.agent_connection_identity(connection,obj.get("client_name").and_then(Value::as_str),obj.get("model").and_then(Value::as_str));
         }
         if version == 4 {
             return json!({"id":id,"ok":true,"result":{"version":4,"capabilities":["agent_control","events","masked_reads","audit","revoke"]}});
