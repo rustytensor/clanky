@@ -11,6 +11,7 @@ use winit::keyboard::{Key,NamedKey};
 pub enum Command {
     NewTab, SplitRight, SplitDown, ClosePane, ToggleAgentAccess, ToggleSidebars,
     ZoomIn, ZoomOut, ZoomReset, Settings, StopAgents, Session(String), Run(String),
+    OpenFile, LoadChanges,
 }
 
 #[derive(Clone,Debug,PartialEq)]
@@ -24,6 +25,8 @@ pub struct Context {
     pub post_ai:bool,
     /// Label of the focused terminal pane, when a terminal has focus.
     pub terminal:Option<String>,
+    /// A file editor has focus (Load changes applies to it).
+    pub editor:bool,
 }
 
 pub enum Effect { None, Close, Run(Command) }
@@ -53,7 +56,9 @@ fn base(context:&Context)->Vec<Entry>{
         e("Terminal","Split right",&["Ctrl","Shift","D"],Command::SplitRight),
         e("Terminal","Split down",&["Ctrl","Shift","E"],Command::SplitDown),
         e("Terminal","Close pane",&["Ctrl","Shift","W"],Command::ClosePane),
+        e("Files","Open file…",&["Ctrl","Shift","O"],Command::OpenFile),
     ];
+    if context.editor { out.push(e("Files","Load proposed changes…",&[],Command::LoadChanges)); }
     if !context.post_ai && context.terminal.is_some() {
         out.push(e("Agents","Allow or block agents in this pane",&["Ctrl","Shift","A"],Command::ToggleAgentAccess));
     }
@@ -220,7 +225,7 @@ mod tests{
     fn labels(context:&Context,query:&str)->Vec<String>{entries(context,query).into_iter().map(|e|e.label).collect()}
     #[test]
     fn typing_finds_commands_and_offers_to_run_the_rest(){
-        let context=Context{sessions:vec![("a".into(),"clanky".into(),true),("b".into(),"larra".into(),false)],post_ai:false,terminal:Some("clanky · pane 1".into())};
+        let context=Context{sessions:vec![("a".into(),"clanky".into(),true),("b".into(),"larra".into(),false)],post_ai:false,terminal:Some("clanky · pane 1".into()),editor:false};
         // Worked out by hand from the command list: prefix matches first, then word starts.
         assert_eq!(labels(&context,"spl"),["Split right","Split down","Run “spl” in clanky · pane 1"]);
         assert_eq!(labels(&context,"zoom"),["Zoom in","Zoom out","Reset zoom","Run “zoom” in clanky · pane 1"]);
