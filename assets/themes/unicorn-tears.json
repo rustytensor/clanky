@@ -1,0 +1,49 @@
+{
+  "name": "Unicorn Tears",
+  "appearance": "light",
+  "colors": {
+    "sidebar": "#fde2f3",
+    "background": "#fff7fc",
+    "card": "#ffffff",
+    "muted": "#f4ebfa",
+    "foreground": "#3b2a4d",
+    "muted_foreground": "#60476e",
+    "accent": "#dcf5e9",
+    "pressed": "#d6eafa",
+    "border": "#d6bfdc",
+    "input": "#c8aed1",
+    "ring": "#8b6a9c",
+    "primary": "#3b2a4d",
+    "primary_foreground": "#fff7fc",
+    "sidebar_accent": "#f8dfd0",
+    "ok": "#285641",
+    "err": "#85384f",
+    "agent": "#794025",
+    "robot_paint": "#f8c9ae",
+    "primary_pressed": "#4b3a5b"
+  },
+  "ansi": [
+    "#3b2a4d",
+    "#85384f",
+    "#285641",
+    "#72521d",
+    "#345572",
+    "#6a4675",
+    "#285965",
+    "#60476e",
+    "#685373",
+    "#97334e",
+    "#316245",
+    "#7e571b",
+    "#3c6081",
+    "#7a467b",
+    "#316572",
+    "#3b2a4d"
+  ],
+  "window_gradient": [
+    "#fde2f3",
+    "#e4dcff"
+  ],
+  "glow": true,
+  "description": "Soft, dreamy, a little sad. Like a unicorn who just watched a sad film."
+}

@@ -1,0 +1,53 @@
+{
+  "name": "Unicorn Vomit",
+  "appearance": "dark",
+  "colors": {
+    "sidebar": "#160519",
+    "background": "#120416",
+    "card": "#210a28",
+    "muted": "#2b1034",
+    "foreground": "#fff4ff",
+    "muted_foreground": "#ff99ee",
+    "accent": "#8a00ff",
+    "pressed": "#d000ff",
+    "border": "#00ffff",
+    "input": "#ffff00",
+    "ring": "#00ff00",
+    "primary": "#ff00aa",
+    "primary_foreground": "#120416",
+    "sidebar_accent": "#46005c",
+    "ok": "#00ff00",
+    "err": "#ff3344",
+    "agent": "#00ffff",
+    "robot_paint": "#ff00aa",
+    "primary_pressed": "#ec009e"
+  },
+  "ansi": [
+    "#331144",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0088ff",
+    "#ff00ff",
+    "#00ffff",
+    "#ffffff",
+    "#aa55cc",
+    "#ff5577",
+    "#99ff00",
+    "#ffff88",
+    "#55aaff",
+    "#ff66ff",
+    "#88ffff",
+    "#ffffff"
+  ],
+  "window_gradient": [
+    "#ff0000",
+    "#ff8000",
+    "#ffff00",
+    "#00ff00",
+    "#0000ff",
+    "#8000ff"
+  ],
+  "glow": true,
+  "description": "Every colour at once. You were warned."
+}
