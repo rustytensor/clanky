@@ -34,7 +34,8 @@ column, agent badges and access switches; terminal panes use the freed width.
 At the 1240×760 reference size, pane A is 952 pixels wide with 116 columns.
 Settings → Agents provides explicit Resume and per-pane grants after leaving the mode.
 
-Tabs, splits, Settings, themes and masking remain available. Unconverted palette,
-search, compose and editor entries stay hidden in this review build in either mode.
+Tabs, splits, Settings, themes, search, compose, the editor and masking remain available.
+The command palette leaves out its agent entries, and command cards offer Copy and Rerun
+but not Ask agent.
 
 See [verification results](m12-postai-results.md) and [agent access](getting-started.md#agents-and-safety).

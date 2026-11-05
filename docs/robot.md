@@ -36,4 +36,4 @@ It is shared by your windows on that machine, not stored on an attached SSH host
 Disabled startup animation does not create it.
 
 The robot takes its paint and light colours from the theme: `robot_paint` and `agent`.
-See [themes](themes.md) for theme selection's current integration limits.
+See [themes](themes.md) to choose a theme.
