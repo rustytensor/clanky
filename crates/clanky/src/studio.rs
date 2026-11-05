@@ -254,18 +254,64 @@ impl App {
         }
         Ok(true)
     }
+    pub(super) fn open_palette(&mut self) {
+        if self.settings_open() { let _ = self.toggle_settings(); }
+        self.palette.show();
+    }
+    /// The commands a person can run from here, named as the sidebar names them.
+    pub(super) fn palette_context(&self) -> clanky::calm::palette::Context {
+        let sessions = self.groups.iter().enumerate().filter_map(|(index, group)| {
+            let id = group.layout.leaves().first()?.clone();
+            let title = self.studio.terminal_info.get(&group.focus).and_then(|info| info["cwd"].as_str())
+                .and_then(|cwd| std::path::Path::new(cwd).file_name()).map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("Session {}", index + 1));
+            Some((id, title, index == self.active))
+        }).collect();
+        let terminal = (self.files.focus == TERMINALS).then(|| self.focused()).flatten()
+            .map(|id| self.studio.pane_labels.get(id).cloned().unwrap_or_else(|| "this pane".into()));
+        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal }
+    }
+    pub(super) fn palette_effect(&mut self, effect: clanky::calm::palette::Effect) -> Result<(), String> {
+        use clanky::calm::palette::{Command, Effect};
+        let Effect::Run(command) = effect else { self.reset_ime(); return Ok(()); };
+        self.reset_ime();
+        match command {
+            Command::NewTab => self.new_tab(),
+            Command::SplitRight => self.split(Axis::Columns),
+            Command::SplitDown => self.split(Axis::Rows),
+            Command::ClosePane => self.close_pane(),
+            Command::ToggleAgentAccess => {
+                let id = self.focused().ok_or("No terminal has focus")?.to_owned();
+                let old = self.engine.agent_permission(&id).map_err(|e| e.message)?;
+                self.engine.set_agent_permission(&id, !old).map_err(|e| e.message)?;
+                self.studio.permissions.insert(id, !old);
+                Ok(())
+            }
+            Command::StopAgents => {
+                self.call("v4.revoke_all", json!({}))?;
+                self.status = Some("Agent access revoked; pending waits cancelled".into());
+                Ok(())
+            }
+            Command::ToggleSidebars => { self.panels.visible = !self.panels.visible; self.studio.drag = None; self.resize_panes() }
+            Command::ZoomIn => { self.zoom.adjust(1.0); self.metrics_changed() }
+            Command::ZoomOut => { self.zoom.adjust(-1.0); self.metrics_changed() }
+            Command::ZoomReset => { self.zoom.reset(); self.metrics_changed() }
+            Command::Settings => self.toggle_settings(),
+            Command::Session(id) => self.activate_studio(HitAction::Session(id)),
+            Command::Run(text) => {
+                let id = self.focused().ok_or("No terminal has focus")?.to_owned();
+                self.engine.input(&id, format!("{text}\r").as_bytes()).map_err(|e| e.message)?;
+                self.sent_input = true;
+                Ok(())
+            }
+        }
+    }
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
             HitAction::Settings=>{self.toggle_settings()?;},
             HitAction::NewTab=>{self.new_tab()?;},
             HitAction::Split=>{self.split(Axis::Columns)?;},
-            HitAction::Palette => {
-                self.palette_editor = Some(self.files.focus.clone());
-                let focused = self.focused().map(str::to_owned);
-                self.panels.refresh(&self.engine, focused.as_deref());
-                if !self.panels.open { self.panels.toggle(); }
-                self.reset_ime();
-            }
+            HitAction::Palette => { self.open_palette(); self.reset_ime(); }
             HitAction::ToggleRails => { self.panels.visible = !self.panels.visible; self.studio.drag = None; self.resize_panes()?; }
             HitAction::Session(id) => {
                 let index = self.groups.iter().position(|g| g.layout.contains(&id)).ok_or("Session was closed")?;
@@ -426,6 +472,7 @@ impl App {
             focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
             ..LookState::default() };
+        state.palette_open = self.palette.open;
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
         state.masking_ready = self.studio.metadata["masking_ready"].as_bool().unwrap_or(false);
         state.activity = self.studio.activity.clone();
@@ -677,6 +724,7 @@ impl App {
         for pane in &mut state.panes{pane.blocks.clear();}
         self.update_card_actions(&layout,&mut state,now);
         let terminal_px=self.metrics()?.font_px;
+        let palette_context=self.palette_context();
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
         let trace_state=Instant::now();
         let mut presentation = clanky::calm::presentation(&layout,&state,&self.studio.calm_theme,terminal_px,self.mouse,self.pointer_pressed,&mut |run| renderer.measure_text(run));
@@ -740,6 +788,10 @@ impl App {
             let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
             presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,&access,state.masking_ready,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             if panel.open{ime=panel.ime_position();}
+        }
+        if self.palette.open {
+            presentation.scene.layers.extend(self.palette.draw(&layout,&self.studio.calm_theme,&palette_context,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
+            ime = self.palette.ime_position();
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {

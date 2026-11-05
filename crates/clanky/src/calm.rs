@@ -3,6 +3,7 @@ use crate::look::{self,Layout,Metrics,PixelRect};
 use clanky_core::layout::Layout as Tree;
 
 mod scene;
+pub mod palette;
 mod recent;
 pub mod settings_frame;
 pub mod settings_panel;

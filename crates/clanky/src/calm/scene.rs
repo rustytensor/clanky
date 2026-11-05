@@ -7,6 +7,7 @@ use clanky_render::vector::lyon::{math::point,path::Path};
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w:w.max(0.0),h:h.max(0.0)}}
 fn rgb(c:Color)->[u8;3]{[c[0],c[1],c[2]]}
 fn alpha(mut c:Color,f:f32)->Color{c[3]=(c[3] as f32*f.clamp(0.0,1.0)).round() as u8;c}
+fn shadow_color(theme:&Theme)->Color{match theme.appearance{Appearance::Dark=>[0,0,0,89],Appearance::Light=>[60,40,20,15]}}
 fn blend(a:Color,b:Color,t:f32)->Color{std::array::from_fn(|i|(a[i] as f32*(1.0-t)+b[i] as f32*t).round() as u8)}
 /// Adapter for existing palette/search/editor panels while their calm components land.
 pub fn legacy_palette(theme:&Theme)->look::Theme{
@@ -155,9 +156,21 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let split_width=p.width("Split",14.0*s,500)+24.0*s;
     let split=r(new_tab.x-8.0*s-split_width,by,split_width,32.0*s);
     p.button(split,"Split",HitAction::Split,false);
-    // Palette entry stays hidden until its calm replacement is ready.
+    // Search and run field (sheets: 300 x 32, radius 8, 14 px, kbd chip); it opens the palette.
+    let field=r(split.x-8.0*s-300.0*s,by,300.0*s,32.0*s);
+    if field.x>toggle.x+160.0*s{
+        let over=field.contains(pointer.0,pointer.1);
+        if state.palette_open{p.shape(r(field.x-4.0*s,field.y-4.0*s,field.w+8.0*s,field.h+8.0*s),12.0*s,[0;4],Some(c.ring));p.shape(r(field.x-3.0*s,field.y-3.0*s,field.w+6.0*s,field.h+6.0*s),11.0*s,[0;4],Some(c.ring));}
+        p.out.scene.layers.push(Layer::Shape(Shape{rect:field.array(),radius:8.0*s,fill:Fill::Solid(c.background),border:None,shadow:Some(clanky_render::Shadow{offset:[0.0,s],blur:2.0*s,spread:0.0,color:shadow_color(theme)})}));
+        p.shape(field,8.0*s,c.background,Some(if over{blend(c.input,c.foreground,0.2)}else{c.input}));
+        p.icon("search",field.x+10.0*s,field.y+9.0*s,c.muted_foreground);
+        let hint=p.kbd(field.x+field.w-8.0*s,field.y+6.0*s,&["Ctrl⇧P"]);
+        p.text(r(field.x+32.0*s,field.y,(hint-field.x-40.0*s).max(0.0),field.h),"Search or run a command…",14.0*s,c.muted_foreground,400,false);
+        p.hit(field,HitAction::Palette);
+    }
+    let title_right=if field.x>toggle.x+160.0*s{field.x-16.0*s}else{split.x-16.0*s};
     let title=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.as_str()).unwrap_or("Clanky");
-    p.text(r(toggle.x+48.0*s,bar.y,(split.x-toggle.x-64.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
+    p.text(r(toggle.x+48.0*s,bar.y,(title_right-toggle.x-48.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
     p.shape(r(bar.x+s,bar.y+bar.h-s,bar.w-2.0*s,s),0.0,c.border,None);
     for pane in &layout.panes{
         let data=state.panes.iter().find(|data|data.id==pane.id);let focus=state.focused.as_ref()==Some(&pane.id);
