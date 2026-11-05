@@ -366,7 +366,8 @@ fn dispatch(
             return json!({"id":id,"ok":true,"result":{"version":4,"capabilities":["agent_control","events","masked_reads","audit","revoke"]}});
         }
         if version == 3 {
-            return json!({"id":id,"ok":true,"result":{"version":3,"server_pid":std::process::id(),"capabilities":["sessions","owner"]}});
+            return json!({"id":id,"ok":true,"result":{"version":3,"server_pid":std::process::id(),"capabilities":["sessions","owner"],
+                "build":{"version":env!("CARGO_PKG_VERSION"),"executable":clanky_core::platform::executable_identity()},"row_delta":true}});
         }
         if version == 2 {
             return json!({"id":id,"ok":true,"result":{"version":2,"capabilities":["block_actions","tasks","palette"]}});

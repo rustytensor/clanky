@@ -110,6 +110,18 @@ pub fn prepare_window_configured(socket: &Path, layout: Option<&Path>, config: O
     Ok(client)
 }
 
+/// A window attached to a session server that runs another executable (an older
+/// build kept alive by its shells) gets that server's fixes and bugs, not its own.
+/// Returns a status line for the window, or None when both run the same file.
+pub fn server_build_notice(client: &Client) -> Option<String> {
+    let hello = client.exchange(3, "hello", &json!({})).ok()?;
+    let ours = platform::executable_identity()?;
+    let build = &hello["build"];
+    if build["executable"].as_str() == Some(ours.as_str()) { return None; }
+    let version = build["version"].as_str().map_or_else(|| "an older build".to_owned(), |v| format!("another v{v} build"));
+    Some(format!("Session server is {version}. Restart it to update; that closes its shells."))
+}
+
 pub fn run_server(socket: &Path) -> Result<(), String> {
     run_server_configured(socket, None, crate::config::StartupOverrides::default())
 }

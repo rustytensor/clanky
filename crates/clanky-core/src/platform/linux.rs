@@ -858,6 +858,26 @@ struct ProcessIdentity {
     session: i32,
     start: u64,
 }
+/// The account's full name from the password file's comment field, else its login name.
+pub fn user_display_name() -> Option<String> {
+    let uid = unsafe { libc::getuid() };
+    let text = fs::read_to_string("/etc/passwd").ok()?;
+    let fields: Vec<&str> = text.lines().map(|line| line.split(':').collect::<Vec<_>>())
+        .find(|fields| fields.len() >= 7 && fields[2].parse::<u32>().ok() == Some(uid))?;
+    let full = fields[4].split(',').next().unwrap_or("").trim();
+    let name = if full.is_empty() { fields[0] } else { full };
+    (!name.is_empty() && !name.chars().any(char::is_control)).then(|| name.to_owned())
+}
+
+/// Device and inode of this process's own executable. A rebuilt or reinstalled
+/// binary has a new inode, so two processes compare equal only when they run
+/// the very same file.
+pub fn executable_identity() -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata("/proc/self/exe").ok()?;
+    Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+}
+
 fn process_identity(pid: i32) -> io::Result<ProcessIdentity> {
     if pid < 1 {
         return Err(io::Error::other("invalid process identity"));

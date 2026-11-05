@@ -25,6 +25,7 @@ pub struct Studio {
     pub(crate) theme: look::Theme,
     calm_theme: clanky::themes::Theme,
     terminal_info:BTreeMap<String,Value>,
+    user_name:Option<String>,
     pane_labels:BTreeMap<String,String>,
     seen_files:std::collections::BTreeSet<String>,
     local_recent:std::collections::VecDeque<(Instant,look::TimelineItem)>,
@@ -51,7 +52,7 @@ pub struct Studio {
 }
 impl Default for Studio {
     fn default() -> Self {
-        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
+        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), user_name:None, pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
@@ -245,27 +246,95 @@ impl App {
             return Ok(true);
         }
         let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
+        let count=if self.applied_post_ai{2}else{3};
         match key {
             Key::Named(NamedKey::Escape)=>{self.studio.card_focus=None;self.reset_ime();},
-            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+3)%4,
-            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%4,
-            Key::Named(NamedKey::Enter)=>{self.panels.block_action(&self.engine,&tab,&id,["copy","rerun","send","collapse"][self.studio.card_action])?;self.local_request()?;},
+            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+count-1)%count,
+            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%count,
+            Key::Named(NamedKey::Enter)=>{let action=["copy","rerun","send"][self.studio.card_action%count];self.card_action(&tab,&id,action)?;},
             _=>(),
         }
         Ok(true)
+    }
+    /// Card actions from the Command card sheet: Copy, Rerun, Ask agent.
+    fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
+        match action {
+            // Copy keeps the owner palette's masked selection path.
+            "copy" => { self.panels.block_action(&self.engine, tab, block, "copy")?; self.status = Some("Output copied".into()); }
+            "rerun" => {
+                let command = self.studio.blocks.get(tab).and_then(|view| view["blocks"].as_array())
+                    .and_then(|blocks| blocks.iter().find(|b| b["block_id"].as_str() == Some(block)))
+                    .and_then(|b| b["command"].as_str()).ok_or("This command is no longer on screen")?.to_owned();
+                if command.trim().is_empty() || command.chars().any(|c| c.is_control()) { return Err("This command cannot be typed again".into()); }
+                self.engine.input(tab, format!("{command}\r").as_bytes()).map_err(|e| e.message)?;
+                self.sent_input = true;
+            }
+            "send" if !self.applied_post_ai => {
+                self.panels.send_block(&self.engine, tab, block, "Look at this command and its output")?;
+                self.status = Some("Sent to the agent queue".into());
+            }
+            _ => return Err("Unknown card action".into()),
+        }
+        Ok(())
+    }
+    pub(super) fn open_palette(&mut self) {
+        if self.settings_open() { let _ = self.toggle_settings(); }
+        self.palette.show();
+    }
+    /// The commands a person can run from here, named as the sidebar names them.
+    pub(super) fn palette_context(&self) -> clanky::calm::palette::Context {
+        let sessions = self.groups.iter().enumerate().filter_map(|(index, group)| {
+            let id = group.layout.leaves().first()?.clone();
+            let title = self.studio.terminal_info.get(&group.focus).and_then(|info| info["cwd"].as_str())
+                .and_then(|cwd| std::path::Path::new(cwd).file_name()).map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("Session {}", index + 1));
+            Some((id, title, index == self.active))
+        }).collect();
+        let terminal = (self.files.focus == TERMINALS).then(|| self.focused()).flatten()
+            .map(|id| self.studio.pane_labels.get(id).cloned().unwrap_or_else(|| "this pane".into()));
+        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal }
+    }
+    pub(super) fn palette_effect(&mut self, effect: clanky::calm::palette::Effect) -> Result<(), String> {
+        use clanky::calm::palette::{Command, Effect};
+        let Effect::Run(command) = effect else { self.reset_ime(); return Ok(()); };
+        self.reset_ime();
+        match command {
+            Command::NewTab => self.new_tab(),
+            Command::SplitRight => self.split(Axis::Columns),
+            Command::SplitDown => self.split(Axis::Rows),
+            Command::ClosePane => self.close_pane(),
+            Command::ToggleAgentAccess => {
+                let id = self.focused().ok_or("No terminal has focus")?.to_owned();
+                let old = self.engine.agent_permission(&id).map_err(|e| e.message)?;
+                self.engine.set_agent_permission(&id, !old).map_err(|e| e.message)?;
+                self.studio.permissions.insert(id, !old);
+                Ok(())
+            }
+            Command::StopAgents => {
+                self.call("v4.revoke_all", json!({}))?;
+                self.status = Some("Agent access revoked; pending waits cancelled".into());
+                Ok(())
+            }
+            Command::ToggleSidebars => { self.panels.visible = !self.panels.visible; self.studio.drag = None; self.resize_panes() }
+            Command::ZoomIn => { self.zoom.adjust(1.0); self.metrics_changed() }
+            Command::ZoomOut => { self.zoom.adjust(-1.0); self.metrics_changed() }
+            Command::ZoomReset => { self.zoom.reset(); self.metrics_changed() }
+            Command::Settings => self.toggle_settings(),
+            Command::Session(id) => self.activate_studio(HitAction::Session(id)),
+            Command::Run(text) => {
+                let id = self.focused().ok_or("No terminal has focus")?.to_owned();
+                self.engine.input(&id, format!("{text}\r").as_bytes()).map_err(|e| e.message)?;
+                self.sent_input = true;
+                Ok(())
+            }
+        }
     }
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
             HitAction::Settings=>{self.toggle_settings()?;},
             HitAction::NewTab=>{self.new_tab()?;},
             HitAction::Split=>{self.split(Axis::Columns)?;},
-            HitAction::Palette => {
-                self.palette_editor = Some(self.files.focus.clone());
-                let focused = self.focused().map(str::to_owned);
-                self.panels.refresh(&self.engine, focused.as_deref());
-                if !self.panels.open { self.panels.toggle(); }
-                self.reset_ime();
-            }
+            HitAction::Palette => { self.open_palette(); self.reset_ime(); }
             HitAction::ToggleRails => { self.panels.visible = !self.panels.visible; self.studio.drag = None; self.resize_panes()?; }
             HitAction::Session(id) => {
                 let index = self.groups.iter().position(|g| g.layout.contains(&id)).ok_or("Session was closed")?;
@@ -286,11 +355,9 @@ impl App {
                 self.studio.permissions.insert(id, !old);
             }
             HitAction::PaletteChoice(index) => { self.panels.choose(&self.engine, index); self.local_request()?; self.reset_ime(); }
-            HitAction::Block { tab_id, block_id, action } => {
-                // Existing owner palette permissions and explicit selection semantics remain authoritative.
-                self.panels.block_action(&self.engine, &tab_id, &block_id, &action)?;
-                if self.panels.open { self.reset_ime(); }
-            }
+            HitAction::Block { tab_id, block_id, action } => self.card_action(&tab_id, &block_id, &action)?,
+            HitAction::Find(0) => { self.search.close(); self.reset_ime(); }
+            HitAction::Find(direction) => self.search.step(&self.engine, direction < 0)?,
         }
         Ok(())
     }
@@ -307,7 +374,12 @@ impl App {
             }
             return Ok(());
         }
-        if self.files.modal() || self.search.active_target().is_some() { return Ok(()); }
+        if self.search.active_target().is_some() {
+            // Only the find bar takes clicks while the pinned view is shown.
+            if let Some(action) = self.studio.hits.iter().rev().find(|h| h.rect.contains(self.mouse.0, self.mouse.1) && matches!(h.action, HitAction::Find(_))).map(|h| h.action.clone()) { return self.activate_studio(action); }
+            return Ok(());
+        }
+        if self.files.modal() { return Ok(()); }
         if let Some(action) = self.studio.hits.iter().rev().find(|h| h.rect.contains(self.mouse.0, self.mouse.1)).map(|h| h.action.clone()) {
             if !self.panels.open || matches!(action, HitAction::PaletteChoice(_)) { return self.activate_studio(action); }
         }
@@ -426,6 +498,8 @@ impl App {
             focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
             ..LookState::default() };
+        state.palette_open = self.palette.open;
+        state.user_name = self.studio.user_name.get_or_insert_with(|| clanky_core::platform::user_display_name().unwrap_or_default()).clone();
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
         state.masking_ready = self.studio.metadata["masking_ready"].as_bool().unwrap_or(false);
         state.activity = self.studio.activity.clone();
@@ -464,9 +538,14 @@ impl App {
             }
         }
         let mut recent=clanky::calm::human_recent(&self.studio.metadata["recent"],&state.pane_labels,&self.studio.metadata["agents"]);
-        recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone())));
-        recent.sort_by_key(|(age,_)|std::cmp::Reverse(*age));
-        for (age,item) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
+        recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone(),None)));
+        recent.sort_by_key(|(age,_,_)|std::cmp::Reverse(*age));
+        for (age,item,command) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
+            // The newest finished card in that pane with the same command gives the exit code.
+            let exit=command.and_then(|(tab,command)|self.studio.blocks.get(&tab).and_then(|view|view["blocks"].as_array())
+                .and_then(|blocks|blocks.iter().rev().find(|b|b["command"].as_str().map(str::trim)==Some(command.as_str()) && b["complete"]==true))
+                .and_then(|b|b["exit_code"].as_i64()).and_then(|code|i32::try_from(code).ok()));
+            state.timeline_exits.push(exit);
             let seconds=age/1000;
             state.timeline_times.push(if seconds<60{format!("{seconds}s")}else if seconds<3600{format!("{}m",seconds/60)}else{format!("{}h",seconds/3600)});
             state.timeline.push(item);
@@ -478,7 +557,7 @@ impl App {
         for pane in &layout.panes {
             if pane.rows == 0 || pane.cols == 0 { continue; }
             let mut snapshot;
-            let mut title = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).unwrap_or(&pane.id).to_owned();
+            let mut title = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).map(home_short).unwrap_or_else(||pane.id.clone());
             let mut editor_rows = None;
             if self.files.panes.contains_key(&pane.id) {
                 snapshot = cells(pane.rows, pane.cols, &state.theme);
@@ -534,14 +613,11 @@ impl App {
                 self.studio.blocks.insert(pane.id.clone(), anchors);
             }
             if self.search.active_target() == Some(pane.id.as_str()) {
-                let mut search = cells(pane.rows+1,pane.cols,&state.theme);
-                self.search.draw(&mut search,&Rect { row: 1,col: 0,rows: pane.rows,cols:pane.cols });
-                let prompt = row_text(&search,0);
-                snapshot = cells(pane.rows,pane.cols,&state.theme);
-                snapshot.cells.clone_from_slice(&search.cells[pane.cols..]);
-                let mut card = panel("search", modal_rect(&layout,4), "Search retained terminal text", vec![line(prompt)]);
-                card.lines.push(line("Snapshot is pinned to the captured terminal · Escape closes"));
-                state.panels.push(card);
+                // The pinned search view replaces the live grid; matches use calm stone tints.
+                let c=&self.studio.calm_theme.colors;let mix=|t:f32|std::array::from_fn(|i|(c.background[i] as f32*(1.0-t)+c.foreground[i] as f32*t).round() as u8);
+                let blank=clanky_core::Cell{ch:' ',fg:[c.foreground[0],c.foreground[1],c.foreground[2]],bg:[c.background[0],c.background[1],c.background[2]],color_source:None};
+                if let Some(pinned)=self.search.pinned(pane.rows,pane.cols,blank,mix(0.16),mix(0.34)) { snapshot = pinned; }
+                state.find = Some((pane.id.clone(),self.search.query().to_owned(),self.search.total()));
             }
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
@@ -600,20 +676,21 @@ impl App {
         self.studio.shown.retain(|id,_| layout.pane(id).is_some());
         self.studio.cursors.retain(|id,_| layout.pane(id).is_some() || (id == "compose" && self.compose.active_target().is_some()));
         if let Some(card) = self.panels.card(modal_rect(&layout,24),&layout.metrics) { state.panels.push(card); }
-        if let Some(card) = self.files.prompt_card(modal_rect(&layout,5),&layout.metrics) { state.panels.push(card); }
+        if let Some(card) = self.files.prompt_card(modal_rect(&layout,3),&layout.metrics) { state.panels.push(card); }
         if let Some((rect, grid)) = self.dock(&layout) {
             let mut snapshot = cells(grid.rows,grid.cols,&state.theme);
             let mut underlines = self.compose.draw(&mut snapshot,&grid);
-            for row in [0,grid.rows.saturating_sub(2),grid.rows-1] {
-                let text=row_text(&snapshot,row);
-                ui_rows.push((PixelRect { x:rect.x+layout.metrics.panel_padding as f32,y:rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+row as f32*layout.cell_px[1] as f32,
-                    w:(rect.w-2.0*layout.metrics.panel_padding as f32).max(0.0),h:layout.cell_px[1] as f32 },text,Some("compose".into())));
-                for cell in &mut snapshot.cells[row*grid.cols..(row+1)*grid.cols] { cell.ch=' '; }
-            }
+            // The editor's own header and status rows are replaced by the card's title and
+            // one calm hint; the rows stay blank so the editor's geometry is unchanged.
+            // Errors and IME text arrive on the last row; otherwise the hint names the keys.
+            let status=row_text(&snapshot,grid.rows-1).trim().to_owned();
+            for cell in &mut snapshot.cells[(grid.rows-1)*grid.cols..grid.rows*grid.cols] { cell.ch=' '; }
+            ui_rows.push((PixelRect { x:rect.x+layout.metrics.panel_padding as f32,y:rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+grid.rows.saturating_sub(1) as f32*layout.cell_px[1] as f32,
+                w:(rect.w-2.0*layout.metrics.panel_padding as f32).max(0.0),h:layout.cell_px[1] as f32 },if status.is_empty(){"Ctrl+Enter sends · Esc closes".into()}else{status},Some("compose-hint".into())));
             for underline in &mut underlines { underline.color = rgb(state.theme.spelling); }
             widget(&mut snapshot,&state.theme);
             if let Some((row,col)) = snapshot.cursor { ime = Some([rect.x+layout.metrics.panel_padding as f32+col as f32*layout.cell_px[0] as f32,rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+row as f32*layout.cell_px[1] as f32]); }
-            state.panels.push(PanelState { id:"compose".into(),rect,title:format!("Compose → {} · memory-only",self.compose.active_target().unwrap_or("")),lines:Vec::new(),snapshot:Some(snapshot),underlines,opacity:1.0,rise_px:0.0 });
+            state.panels.push(PanelState { id:"compose".into(),rect,title:format!("Compose for {}",self.compose.active_target().and_then(|id|state.pane_labels.get(id)).cloned().unwrap_or_else(||"this pane".into())),lines:Vec::new(),snapshot:Some(snapshot),underlines,opacity:1.0,rise_px:0.0 });
         } else if self.compose.active_target().is_some() {
             state.panels.push(panel("compose-hidden",modal_rect(&layout,4),"Compose target is not visible",vec![line("Draft retained. Escape closes; Send never retargets another terminal.")]));
         }
@@ -672,11 +749,9 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
-        // The first calm slice keeps the live grid intact; command-card controls
-        // return with their separate header layout in the next component pass.
-        for pane in &mut state.panes{pane.blocks.clear();}
         self.update_card_actions(&layout,&mut state,now);
         let terminal_px=self.metrics()?.font_px;
+        let palette_context=self.palette_context();
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
         let trace_state=Instant::now();
         let mut presentation = clanky::calm::presentation(&layout,&state,&self.studio.calm_theme,terminal_px,self.mouse,self.pointer_pressed,&mut |run| renderer.measure_text(run));
@@ -729,18 +804,24 @@ impl App {
             let card=card_id.as_ref().and_then(|id|state.panels.iter().find(|p|p.id==*id));
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
-            let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
+            let hint=card_id.as_deref()==Some("compose-hint");
+            let card=if hint{state.panels.iter().find(|p|p.id=="compose")}else{card};let rise=card.map_or(rise,|p|p.rise_px);let opacity=card.map_or(opacity,|p|p.opacity);
+            let px=if hint || card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
+            let color=if hint{self.studio.calm_theme.colors.muted_foreground}else{state.theme.ink};
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.55}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
-        if let Some(status) = &self.status {
-            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
-        }
+        let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {
             panel.forced_post_ai=self.startup_flags.post_ai;
             let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
             presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,&access,state.masking_ready,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             if panel.open{ime=panel.ime_position();}
         }
+        if self.palette.open {
+            presentation.scene.layers.extend(self.palette.draw(&layout,&self.studio.calm_theme,&palette_context,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
+            ime = self.palette.ime_position();
+        }
+        if let Some(layers) = status_layers { presentation.scene.layers.extend(layers); }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {
             let title=format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points());
@@ -771,6 +852,14 @@ impl App {
         Ok(())
     }
 }
+/// Mockup pane titles name the home folder "~" (~/git/clanky).
+fn home_short(cwd: &str) -> String {
+    match clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned)) {
+        Some(home) if cwd == home => "~".into(),
+        Some(home) if cwd.starts_with(&(home.clone() + "/")) => format!("~{}", &cwd[home.len()..]),
+        _ => cwd.into(),
+    }
+}
 fn truncate(text: &str, chars: f32) -> String {
     let mut budget = chars.max(0.0) as usize;
     text.chars().map(|c|if c.is_control(){' '}else{c}).take_while(|c| {
@@ -794,10 +883,14 @@ fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockC
     let Some(blocks) = view["blocks"].as_array() else { return cards; };
     for block in blocks {
         let (Some(id), Some(command), Some(line)) = (block["block_id"].as_str(), block["command"].as_str(), block["command_line"].as_u64()) else { continue; };
-        if block["prompt_line"].as_u64().is_none() { continue; }
-        let Some(first) = line.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
-        let last = block["end_line"].as_u64().unwrap_or(line).saturating_sub(top)
-            .min(snapshot.rows.saturating_sub(1) as u64) as usize;
+        let Some(prompt) = block["prompt_line"].as_u64() else { continue; };
+        // Server lines (fish, measured): the command is typed on the line before output
+        // starts (command_line), and the finish mark sits on the next prompt's line.
+        let typed = if line > prompt { line - 1 } else { prompt };
+        let Some(first) = typed.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
+        let complete = block["complete"] == true;
+        let end = match block["end_line"].as_u64() { Some(end) if complete => end.saturating_sub(1).max(typed), _ => top + snapshot.rows as u64 - 1 };
+        let last = end.saturating_sub(top).min(snapshot.rows.saturating_sub(1) as u64) as usize;
         if last < first || cards.iter().any(|c: &look::BlockCard| first <= c.last_row && last >= c.first_row) { continue; }
         cards.push(look::BlockCard { id:id.into(), first_row:first, last_row:last, command:command.into(),
             exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()), duration_ms:block["duration_ms"].as_u64(), running:block["complete"] != true });

@@ -296,14 +296,14 @@ impl Compose {
     pub fn draw(&mut self, frame: &mut TerminalSnapshot, rect: &Rect) -> Vec<Underline> {
         if self.target.is_none() { return Vec::new(); }
         let editor_rect = self.editor_rect(rect);
-        let target_label = self.target.clone().unwrap_or_default();
         frame.cursor = None;
         let mut underlines: Vec<Underline> = Vec::new();
         if let Ok(draft) = self.active_mut() {
             draft.editor.draw(frame, &editor_rect, true);
+            // The card's title and hint replace the editor core's own header and status rows.
             if editor_rect.rows > 0 && !draft.editor.find_active() {
-                paint(frame, &editor_rect, editor_rect.row.saturating_add(editor_rect.rows - 1),
-                    "Memory draft | Ctrl+F find | Ctrl+Z undo | Ctrl+Shift+Z redo");
+                paint(frame, &editor_rect, editor_rect.row, "");
+                paint(frame, &editor_rect, editor_rect.row.saturating_add(editor_rect.rows - 1), "");
             }
             for cell in draft.editor.visible_byte_cells(&editor_rect) {
                 if cell.row >= frame.rows || cell.col >= frame.cols { continue; }
@@ -314,18 +314,12 @@ impl Compose {
                 underlines.push(Underline { row: cell.row, start_col: cell.col, end_col: cell.col + 1, color: [255, 96, 96] });
             }
         }
-        if editor_rect.rows > 0 {
-            paint(frame, &editor_rect, editor_rect.row, &format!("Compose → {target_label} | memory-only draft"));
-        }
         let first = rect.row.saturating_add(editor_rect.rows);
         if let Some(popup) = &self.popup {
             let start = popup.selected.saturating_sub(4);
             for (line, (index, word)) in popup.words.iter().enumerate().skip(start).take(5).enumerate() {
                 paint(frame, rect, first.saturating_add(line), &format!("{} {}", if index == popup.selected { ">" } else { " " }, word));
             }
-        }
-        if rect.rows >= 2 {
-            paint(frame, rect, rect.row.saturating_add(rect.rows - 2), "Ctrl+Enter send | Esc close | F7 suggestions | Up/Down, Enter replace | Ctrl+Alt+A add");
         }
         if rect.rows > 0 {
             let mut status = Vec::new();

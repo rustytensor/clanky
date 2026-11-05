@@ -413,7 +413,7 @@ impl Engine {
     pub fn snapshot(&self, tab_id: &str) -> Result<TerminalSnapshot, CoreError> {
         let tab = self.tab(tab_id, true)?;
         let terminal = tab.terminal.lock().unwrap();
-        let lines = self.0.1.policy.terminal_lines(&terminal)?;
+        let lines = self.0.1.policy.display_lines(&terminal)?;
         Ok(terminal.masked_snapshot(&lines))
     }
     pub fn input(&self, tab_id: &str, bytes: &[u8]) -> Result<(), CoreError> {
@@ -490,7 +490,7 @@ impl Engine {
             "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "window_changes" => &["after", "timeout_ms"],
-            "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows"],
+            "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows", "known_cols"],
             "history" => &["tab_id", "offset", "limit"],
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
@@ -628,8 +628,9 @@ impl Engine {
                 if known_generation == Some(generation) {
                     return Ok(json!({"generation":generation,"unchanged":true}));
                 }
+                // Owner live view only: show provisional text, hide recognized secrets.
                 // Placements clone only Arc headers, never their RGBA buffers.
-                let lines = self.0.1.policy.terminal_lines(&terminal)?;
+                let lines = self.0.1.policy.display_lines(&terminal)?;
                 let snapshot = terminal.masked_snapshot(&lines);
                 let block_anchors = terminal.card_metadata();
                 drop(terminal);
@@ -655,7 +656,9 @@ impl Engine {
                         Some(hashes)
                     }
                 };
-                if let Some(known) = known_rows.filter(|known| known.len() == snapshot.rows) {
+                let known_cols = match args.get("known_cols") { None => None, Some(v) => Some(v.as_u64().ok_or_else(|| invalid("invalid known_cols"))?) };
+                // Deltas only for a window holding exactly these dimensions.
+                if let Some(known) = known_rows.filter(|known| known.len() == snapshot.rows && known_cols == Some(snapshot.cols as u64)) {
                     let cols = snapshot.cols;
                     let changed: Vec<Value> = snapshot
                         .cells
