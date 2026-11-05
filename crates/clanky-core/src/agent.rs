@@ -307,6 +307,17 @@ impl super::masking::Policy {
         wraps: &[bool],
         cursor: Option<(usize, usize)>,
     ) -> Result<(), CoreError> {
+        self.mask_lines_mode(lines, wraps, cursor, false)
+    }
+    pub(super) fn mask_display_lines(
+        &self, lines: &mut [String], wraps: &[bool], cursor: Option<(usize, usize)>,
+    ) -> Result<(), CoreError> {
+        self.mask_lines_mode(lines, wraps, cursor, true)
+    }
+    fn mask_lines_mode(
+        &self, lines: &mut [String], wraps: &[bool], cursor: Option<(usize, usize)>, display: bool,
+    ) -> Result<(), CoreError> {
+        let mask = |bytes: &[u8]| if display { self.display_bytes(bytes) } else { self.bytes(bytes, false) };
         let original = lines.to_vec();
         let mut merged: Vec<Vec<u8>> = original.iter().map(|s| s.as_bytes().to_vec()).collect();
         // Consider both literal trailing spaces and terminal padding. Wrapped
@@ -328,13 +339,13 @@ impl super::masking::Policy {
                     context.push('\n');
                 }
             }
-            let safe = self.bytes(context.as_bytes(), false)?;
+            let safe = mask(context.as_bytes())?;
             // Blank cells after the live cursor are not received delimiters:
             // do not release an undecided prefix just because they are present.
             let cut =
                 cursor.and_then(|(row, byte)| ranges.get(row).map(|r| r.start + byte.min(r.len())));
             let prefix = cut
-                .map(|cut| self.bytes(&context.as_bytes()[..cut], false))
+                .map(|cut| mask(&context.as_bytes()[..cut]))
                 .transpose()?;
             for ((out, original), range) in merged.iter_mut().zip(&original).zip(ranges) {
                 for index in 0..range.len() {

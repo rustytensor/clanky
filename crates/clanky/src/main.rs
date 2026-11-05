@@ -179,6 +179,7 @@ struct App {
     persistence: Option<(PathBuf, PathBuf)>,
     studio: studio::Studio,
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
+    palette: clanky::calm::palette::Palette,
     settings_error: Option<String>,
     next_settings: Instant,
     startup_flags: clanky::config::StartupOverrides,
@@ -202,6 +203,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         None=>(None,Some("No settings path is available".into())),
     };
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
+    // Only a local server can run the same executable as this window.
+    let build_notice = if local_files { clanky::session::server_build_notice(&engine) } else { None };
     let event_loop = EventLoop::<window_events::WindowNotice>::with_user_event().build().map_err(|e| e.to_string())?;
     let (window_events,feed_error)=match window_events::WindowEvents::start(&engine,event_loop.create_proxy()) {
         Ok(events)=>(Some(events),None),Err(error)=>(None,Some(error)),
@@ -237,7 +240,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         input: InputState::default(),
         occluded: false,
         error: None,
-        status: feed_error.or(theme_error),
+        status: feed_error.or(theme_error).or(build_notice),
         frame_clock: clanky::frame_clock::FrameClock::new(force_redraw),
         window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
         frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
@@ -251,7 +254,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
-        settings,settings_error,next_settings:Instant::now(),
+        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
         gate_clock,
@@ -577,6 +580,7 @@ impl App {
         Ok(())
     }
     fn key(&mut self, key: &Key, text: Option<&str>) -> Result<(), String> {
+
         // The stop key comes first: no panel, prompt or draft may swallow it.
         if self.modifiers.control_key() && self.modifiers.shift_key()
             && *key == Key::Named(NamedKey::Escape)
@@ -601,10 +605,14 @@ impl App {
             let effect=self.settings.as_mut().unwrap().key(key,text,composing);
             return self.settings_effect(effect);
         }
-        // No legacy dialogs in the calm review build, including keyboard routes.
-        if self.modifiers.control_key() && self.modifiers.shift_key()
-            && (*key==Key::Named(NamedKey::Enter) || matches!(key,Key::Character(ch) if ["p","f","o"].contains(&ch.to_lowercase().as_str()))) {
-            self.status=Some("This screen is being rebuilt.".into());return Ok(());
+        if self.modifiers.control_key() && self.modifiers.shift_key() && matches!(key,Key::Character(ch) if ch.eq_ignore_ascii_case("p")) {
+            if self.palette.open {self.palette.close();} else {self.open_palette();}
+            self.reset_ime();return Ok(());
+        }
+        if self.palette.open {
+            let context=self.palette_context();
+            let effect=self.palette.key(key,text,self.input.composing(),&context);
+            return self.palette_effect(effect);
         }
         if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
@@ -754,6 +762,11 @@ impl App {
         ))
     }
     fn click(&mut self) -> Result<(), String> {
+        if self.palette.open {
+            let context=self.palette_context();
+            let effect=self.palette.click(self.mouse.0,self.mouse.1,&context);
+            return self.palette_effect(effect);
+        }
         if self.settings_open() && self.settings_button_hit(){return self.toggle_settings();}
         if self.settings_open() {let effect=self.settings.as_mut().unwrap().click(self.mouse.0,self.mouse.1);self.settings_effect(effect)} else {self.click_studio()}
     }
@@ -761,6 +774,10 @@ impl App {
         if self.settings_open() {let effect=self.settings.as_mut().unwrap().drag(self.mouse.0);self.settings_effect(effect)} else {self.drag_studio()}
     }
     fn scroll(&mut self, delta: MouseScrollDelta) -> Result<(), String> {
+        if self.palette.open {
+            let lines=match delta {MouseScrollDelta::LineDelta(_,y)=>y.round() as i32,MouseScrollDelta::PixelDelta(p)=>(p.y/32.0).round() as i32};
+            self.palette.wheel(lines);return Ok(());
+        }
         if self.settings_open() {
             let lines=match delta {MouseScrollDelta::LineDelta(_,y)=>y.round() as i32,MouseScrollDelta::PixelDelta(p)=>(p.y/20.0).round() as i32};
             self.settings.as_mut().unwrap().wheel(lines);Ok(())
@@ -865,6 +882,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             WindowEvent::CursorLeft { .. } => { self.pointer_pressed=false; self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
+                if self.palette.open { self.palette.pointer(position.x, position.y); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
                 Ok(())
             }
@@ -919,6 +937,17 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 Ok(())
             }
             WindowEvent::Ime(event) => {
+                if self.palette.open {
+                    match &event {
+                        Ime::Commit(text)=>self.palette.insert(text),
+                        Ime::Preedit(text,_)=>self.palette.preedit(text),
+                        Ime::Disabled=>self.palette.preedit(""),
+                        _=>(),
+                    }
+                    let _=self.input.on_ime(&event);
+                    self.frame_clock.invalidate();
+                    return;
+                }
                 if self.settings_open() {
                     match &event {
                         Ime::Commit(text)=>self.settings.as_mut().unwrap().insert(text),

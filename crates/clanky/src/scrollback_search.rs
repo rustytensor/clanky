@@ -123,6 +123,33 @@ impl Search {
         }
     }
 
+    pub fn query(&self) -> &str { &self.query }
+    pub fn total(&self) -> usize { self.view.as_ref().map_or(0, |v| v.total) }
+    /// Next (or previous) match, as Enter and Shift+Enter do.
+    pub fn step(&mut self, client: &Client, backwards: bool) -> Result<(), String> {
+        if self.target.is_none() { return Err("search is closed".into()); }
+        self.change(client, self.query.clone(), true, backwards)
+    }
+    /// The pinned view for a rows x cols pane, matches filled with the given colours.
+    /// Cells outside the server's view are blank in the pane's own colours.
+    pub fn pinned(&self, rows: usize, cols: usize, blank: Cell, matched: [u8; 3], selected: [u8; 3]) -> Option<TerminalSnapshot> {
+        let view = self.view.as_ref().filter(|_| self.target.is_some())?;
+        let source = &view.snapshot;
+        let mut out = TerminalSnapshot { rows, cols, cells: vec![blank; rows * cols], cursor: None, images: Vec::new() };
+        for row in 0..rows.min(source.rows) { for col in 0..cols.min(source.cols) {
+            out.cells[row * cols + col] = source.cells[row * source.cols + col].clone();
+        } }
+        for h in &view.highlights {
+            if h.row < rows && h.col < cols {
+                let cell = &mut out.cells[h.row * cols + h.col];
+                if let Some(source) = &mut cell.color_source {
+                    if source.inverse { source.fg = clanky_core::ColorSource::Truecolor; cell.fg = if h.selected { selected } else { matched }; }
+                    else { source.bg = clanky_core::ColorSource::Truecolor; cell.bg = if h.selected { selected } else { matched }; }
+                } else { cell.bg = if h.selected { selected } else { matched }; }
+            }
+        }
+        Some(out)
+    }
     pub fn draw(&self, frame: &mut TerminalSnapshot, rect: &Rect) {
         let Some(view) = &self.view else { return; };
         if self.target.is_none() || frame.cols == 0 || frame.rows == 0

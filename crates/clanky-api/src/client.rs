@@ -63,6 +63,8 @@ impl Control {
 }
 #[derive(Default)]
 struct Cache {
+    /// Whether the server answers known_rows with row deltas; asked once with hello.
+    row_delta: Option<bool>,
     snapshots: HashMap<String, (u64, TerminalSnapshot)>,
     block_anchors: HashMap<String, Value>,
     pixels: HashMap<u64, Arc<Vec<u8>>>,
@@ -419,11 +421,16 @@ impl Client {
         if let Some(generation) = generation {
             args["known_generation"] = json!(generation);
         }
+        // Older servers reject unknown arguments: ask once whether row deltas are understood.
+        if cache.row_delta.is_none() {
+            cache.row_delta = Some(self.exchange(3, "hello", &json!({})).is_ok_and(|hello| hello["row_delta"] == true));
+        }
         // Name the rows already held, so the server sends only rows that changed.
         let held = cache.snapshots.get(tab).map(|(_, s)| (s.rows, s.cols));
-        if let Some((_, s)) = cache.snapshots.get(tab).filter(|(_, s)| s.cols > 0) {
+        if let Some((_, s)) = cache.snapshots.get(tab).filter(|(_, s)| s.cols > 0 && cache.row_delta == Some(true)) {
             let hashes: Vec<u64> = s.cells.chunks(s.cols).map(clanky_core::row_hash).collect();
             args["known_rows"] = json!(hashes);
+            args["known_cols"] = json!(s.cols);
         }
         let mut result = self.exchange(3, "snapshot", &args)?;
         let generation = result["generation"]
@@ -449,8 +456,13 @@ impl Client {
                 .snapshots
                 .get(tab)
                 .map(|(_, s)| s)
-                .filter(|s| held == Some((rows, cols)) && s.cells.len() == rows * cols)
-                .ok_or_else(|| fail("transport_error", "Row delta without held rows"))?;
+                .filter(|s| held == Some((rows, cols)) && s.cells.len() == rows * cols);
+            // A delta for other dimensions cannot be applied: forget this pane and fetch it whole.
+            let Some(base) = base else {
+                cache.snapshots.remove(tab);
+                drop(cache);
+                return self.snapshot_with_blocks(tab);
+            };
             snapshot.cells = base.cells.clone();
             let changed = result["changed_rows"]
                 .as_array_mut()

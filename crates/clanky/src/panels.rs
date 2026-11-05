@@ -93,6 +93,14 @@ impl Panels {
         self.view["selection"] = json!({"block_id":block});
         self.action(engine, action)
     }
+    /// Queue a visible block for agents with a fixed label (the card's "Ask agent").
+    pub fn send_block(&mut self, engine: &Client, tab: &str, block: &str, label: &str) -> Result<(), String> {
+        let view = Self::call(engine, "view", &json!({"tab_id":tab,"limit":64}))?;
+        if !view["blocks"].as_array().is_some_and(|blocks| blocks.iter().any(|b|b["block_id"].as_str()==Some(block))) {
+            return Err("Block is no longer on the visible page".into());
+        }
+        Self::call(engine, "send", &json!({"tab_id":tab,"block_id":block,"label":label})).map(|_| ())
+    }
     pub fn choose(&mut self, engine: &Client, index: usize) {
         if self.open && self.prompt.is_none() && index >= ACTIONS.len() {
             self.open=false;
