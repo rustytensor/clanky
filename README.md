@@ -45,8 +45,8 @@ Any key or click skips it and still acts normally. `clanky +hello` replays it in
 window; [robot settings](docs/robot.md) can turn it off.
 
 M12 includes 13 [built-in themes and a JSON theme format](docs/themes.md), plus
-[Post-AI mode](docs/post-ai.md) for a plain terminal. **The theme controls and Post-AI
-behaviour are still being connected on this branch; those pages state the limits.**
+[Post-AI mode](docs/post-ai.md) for a plain terminal. Post-AI server enforcement is active.
+**Theme controls and the plain-terminal window view are still being connected; those pages state the limits.**
 
 ## First steps
 

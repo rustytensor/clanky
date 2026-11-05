@@ -249,8 +249,9 @@ RGB-only cells are never classified by matching their colour values.
 ### Version 4: agent control, events and owner safety controls
 
 input_state, wait_input, screen, send_key and paste require terminal permission.
-events is permission-filtered. **audit, revoke_all and resume_agents are owner-only**
-(after v3 authentication on the same connection); hello is public.
+events is permission-filtered. **audit, revoke_all, resume_agents and post_ai are owner-only**
+(after v3 authentication on the same connection). In Post-AI mode, agents are refused,
+including at hello; owners authenticate before hello and keep access.
 
 Request: `{"v":4,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":4,"capabilities":["agent_control","events","masked_reads","audit","revoke"]}}`
 Request: `{"v":4,"id":"1","op":"input_state","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"not_found","message":"unknown tab"}}`
@@ -262,6 +263,7 @@ Request: `{"v":4,"id":"1","op":"events","after":0,"limit":128,"timeout_ms":0}` R
 Request: `{"v":4,"id":"1","op":"audit","tab_id":"t0","after":0,"limit":128}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
 Request: `{"v":4,"id":"1","op":"revoke_all"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
 Request: `{"v":4,"id":"1","op":"resume_agents"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
+Request: `{"v":4,"id":"1","op":"post_ai","enabled":true}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"owner operation"}}`
 
 | Operation | Successful use / result |
 | --- | --- |
@@ -273,7 +275,15 @@ Request: `{"v":4,"id":"1","op":"resume_agents"}` Response: `{"id":"1","ok":false
 | events | Required after cursor; optional tab_id, limit 1–128, timeout_ms 0–30,000; returns events, next_cursor, oldest_cursor, gap |
 | audit | Required tab_id, optional after/limit 1–128; records, oldest_cursor, next_cursor, evicted |
 | revoke_all | Revoke current agent grants, cancel waits and latch agent tab creation; returns revoked count and epoch |
-| resume_agents | Clear creation latch only; returns resumed:true |
+| resume_agents | Clear creation latch only; returns resumed:true; refused while Post-AI mode is on |
+| post_ai | Required boolean enabled; optional boolean force (default false); returns effective post_ai boolean |
+
+An authenticated owner setting `enabled:true` receives `{"post_ai":true}`. Enabling
+Post-AI revokes agent grants, cancels waits and disconnects agent sockets; shells and
+owner connections stay alive. `force:true` forces the mode on until the server restarts,
+even with `enabled:false`. Later `force:false` or config changes cannot clear that force.
+Turning ordinary Post-AI off does not restore permissions or clear the revoke latch:
+call `resume_agents`, then explicitly grant the needed tab permissions. See [Post-AI mode](post-ai.md).
 
 Waiting is observed after a quiet period (200 ms), using a blocked foreground
 PTY read or OSC prompt evidence; silence/sleep alone is not proof of readiness.

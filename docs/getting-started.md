@@ -15,7 +15,8 @@ Open [Settings](settings.md) from the sidebar or with Ctrl+,.
 [Clanky the robot](robot.md) greets you once for 7 seconds, then for 1.2 seconds on later windows.
 Any key or click skips it and still acts normally. [Themes](themes.md) describe the built-in
 palettes and user files; [Post-AI mode](post-ai.md) describes the plain-terminal option.
-Those two pages flag features whose window/server integration is still pending.
+Post-AI server enforcement is active. Theme controls and the plain-terminal window view
+are still being connected; those pages state the remaining limits.
 
 ## Agents and safety
 
