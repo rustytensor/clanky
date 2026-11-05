@@ -34,5 +34,11 @@ Native 2× crops: `/srv/devops/build/clanky-editor-m12-reference/`
 `settings-terminal-light-live-2x.png`. The approved browser reference is unchanged.
 Keyboard rings are 2 pixels; ordinary mouse clicks do not show keyboard focus.
 
+Review follow-up: Catppuccin cards show the flavour above a 12 px muted family
+label. Other built-ins remain one line. The focused label check passed for all
+13 built-ins, including space for the selected checkmark. Updated native crops:
+`settings-appearance-{dark,light}-labels-live-2x.png` in the same folder.
+
+Next UI task: rebuild the palette, then restore the top-bar search entry with it.
 The lead still owns the 2× comparison and full regression. Unconverted palette,
 search, compose and editor entries remain hidden in either mode.
