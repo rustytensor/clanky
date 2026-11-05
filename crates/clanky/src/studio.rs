@@ -25,6 +25,7 @@ pub struct Studio {
     pub(crate) theme: look::Theme,
     calm_theme: clanky::themes::Theme,
     terminal_info:BTreeMap<String,Value>,
+    user_name:Option<String>,
     pane_labels:BTreeMap<String,String>,
     seen_files:std::collections::BTreeSet<String>,
     local_recent:std::collections::VecDeque<(Instant,look::TimelineItem)>,
@@ -51,7 +52,7 @@ pub struct Studio {
 }
 impl Default for Studio {
     fn default() -> Self {
-        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
+        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), user_name:None, pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
@@ -491,6 +492,7 @@ impl App {
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
             ..LookState::default() };
         state.palette_open = self.palette.open;
+        state.user_name = self.studio.user_name.get_or_insert_with(|| clanky_core::platform::user_display_name().unwrap_or_default()).clone();
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
         state.masking_ready = self.studio.metadata["masking_ready"].as_bool().unwrap_or(false);
         state.activity = self.studio.activity.clone();

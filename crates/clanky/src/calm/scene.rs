@@ -122,10 +122,12 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.shape(r(side.x+16.0*s,16.0*s,32.0*s,32.0*s),8.0*s,c.primary,None);
         let cw=p.width("C",15.0*s,600);
         p.text(r(side.x+16.0*s+(32.0*s-cw)/2.0,16.0*s,cw,32.0*s),"C",15.0*s,c.primary_foreground,600,false);
-        p.text(r(side.x+58.0*s,14.0*s,side.w-74.0*s,20.0*s),"Clanky",14.0*s,c.foreground,600,false);
-        p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&super::uptime_label(state.uptime_seconds),12.0*s,c.muted_foreground,400,false);
-        let mut y=72.0*s;let bottom=h-92.0*s;
-        for section in 0..if state.post_ai{1}else{2}{
+        // calm.html .sb-head .t: two 16 px lines beside the 32 px logo.
+        p.text(r(side.x+58.0*s,16.0*s,side.w-74.0*s,16.0*s),"Clanky",14.0*s,c.foreground,600,false);
+        p.text(r(side.x+58.0*s,32.0*s,side.w-74.0*s,16.0*s),&super::uptime_label(state.uptime_seconds),12.0*s,c.muted_foreground,400,false);
+        let mut y=72.0*s;let bottom=h-108.0*s;
+        for section in 0..3{
+            if state.post_ai && section==1{continue;}
             if y+32.0*s>bottom{break;}
             p.text(r(side.x+16.0*s,y,side.w-32.0*s,32.0*s),["Sessions","Agents","Files"][section],12.0*s,c.muted_foreground,500,false);y+=32.0*s;
             match section{
@@ -134,7 +136,12 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
                     p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&item.title,&format!("{n} {}",if n==1{"pane"}else{"panes"}),item.active,HitAction::Session(item.id.clone()),Some("terminal"),None);y+=34.0*s;},
                 1=>for item in &state.agents{if y+32.0*s>bottom{break;}
                     let name=state.agent_labels.get(&item.connection_id).cloned().unwrap_or_else(||"Agent".into());
-                    p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&name,if item.running{"running"}else{"idle"},false,HitAction::Agent{connection_id:item.connection_id,tab_id:item.tab_id.clone()},None,Some(if item.running{c.agent}else{c.muted_foreground}));y+=34.0*s;},
+                    let row=r(side.x+8.0*s,y,side.w-16.0*s,32.0*s);
+                    p.item(row,&name,if item.running{""}else{"idle"},false,HitAction::Agent{connection_id:item.connection_id,tab_id:item.tab_id.clone()},None,Some(if item.running{c.agent}else{c.muted_foreground}));
+                    // calm.html: a running agent shows the clay badge instead of plain text.
+                    if item.running{let bw=(p.width("running",12.0*s,500)+16.0*s).ceil();let badge=r(row.x+row.w-8.0*s-bw,row.y+5.0*s,bw,22.0*s);
+                        p.shape(badge,6.0*s,alpha(c.agent,0.1),Some(alpha(c.agent,0.35)));p.text(r(badge.x+8.0*s,badge.y,bw-16.0*s,badge.h),"running",12.0*s,c.agent,500,false);}
+                    y+=34.0*s;},
                 _=>for item in &state.files{if y+32.0*s>bottom{break;}
                     let count=if item.pending>0{format!("{} changes",item.pending)}else{String::new()};
                     p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&item.title,&count,item.active,HitAction::File(item.id.clone()),Some("file"),None);y+=34.0*s;},
@@ -144,9 +151,19 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             }
             y+=12.0*s;
         }
-        p.item(r(side.x+8.0*s,h-80.0*s,side.w-16.0*s,32.0*s),"Settings","",false,HitAction::Settings,Some("settings"),None);
-        p.kbd(side.x+side.w-16.0*s,h-74.0*s,&["Ctrl",","]);
-        p.text(r(side.x+16.0*s,h-40.0*s,side.w-32.0*s,32.0*s),if state.masking_ready{"masking on"}else{"checking masking"},12.0*s,c.muted_foreground,400,false);
+        p.item(r(side.x+8.0*s,h-96.0*s,side.w-16.0*s,32.0*s),"Settings","",false,HitAction::Settings,Some("settings"),None);
+        p.kbd(side.x+side.w-16.0*s,h-90.0*s,&["Ctrl",","]);
+        // calm.html user block: padding 8, radius 8, 32 px avatar (radius 8, muted, 12 px / 600 initials), gap 10.
+        let user=r(side.x+8.0*s,h-60.0*s,side.w-16.0*s,48.0*s);
+        if user.contains(pointer.0,pointer.1){p.shape(user,8.0*s,if pressed{c.pressed}else{c.sidebar_accent},None);}
+        let avatar=r(user.x+8.0*s,user.y+8.0*s,32.0*s,32.0*s);p.shape(avatar,8.0*s,c.muted,None);
+        let initials:String=state.user_name.split_whitespace().filter_map(|word|word.chars().next()).take(2).flat_map(char::to_uppercase).collect();
+        let initials=if initials.is_empty(){"·".to_string()}else{initials};let iw=p.width(&initials,12.0*s,600);
+        p.text(r(avatar.x+(avatar.w-iw)/2.0,avatar.y,iw,avatar.h),&initials,12.0*s,c.foreground,600,false);
+        let name=state.user_name.split_whitespace().next().unwrap_or("You").to_string();
+        p.text(r(avatar.x+42.0*s,user.y+8.0*s,user.w-58.0*s,16.0*s),&name,14.0*s,c.foreground,500,false);
+        p.text(r(avatar.x+42.0*s,user.y+24.0*s,user.w-58.0*s,16.0*s),if state.masking_ready{"masking on"}else{"checking masking"},12.0*s,c.muted_foreground,400,false);
+        p.hit(user,HitAction::Settings);
     }
     let bar=layout.top_bar;let by=bar.y+12.0*s;
     let toggle=r(bar.x+16.0*s,by,32.0*s,32.0*s);
