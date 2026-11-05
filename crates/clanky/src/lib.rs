@@ -7,6 +7,7 @@ pub mod calm;
 pub mod theme_store;
 pub mod theme_runtime;
 pub mod robot;
+pub mod robot_gate_clock;
 pub mod settings;
 pub mod settings_panel;
 #[cfg(test)]
