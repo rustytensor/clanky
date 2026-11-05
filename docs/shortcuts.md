@@ -6,7 +6,8 @@ agent access and cancels waits, but does not kill running commands.
 
 During the [startup greeting](robot.md), any key or click skips the robot **and still acts
 normally**. In the standalone `clanky +hello` window, a key or click closes the replay.
-[Post-AI mode](post-ai.md) is not enforced on this branch yet; do not assume agent shortcuts are disabled.
+[Post-AI mode](post-ai.md) blocks agent requests at the server. Agent controls may remain visible
+until the window's plain-terminal view is connected.
 
 ## Window
 
