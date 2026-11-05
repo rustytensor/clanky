@@ -56,6 +56,7 @@ impl Alphabet {
 enum Tail {
     None,
     Run(Alphabet),
+    AwsBody(usize),
     Private { end: &'static [u8], position: usize },
 }
 
@@ -207,6 +208,7 @@ pub struct Masker {
     tail: Tail,
     finished: bool,
     fixed_width: bool,
+    display_headers: bool,
 }
 
 impl Masker {
@@ -224,6 +226,18 @@ impl Masker {
     /// Errors never include configuration values; callers must fail closed.
     pub fn new_fixed_width(env: &[(&str, &str)], extra: &[(&str, &str)]) -> Result<Self, Error> {
         Self::configured(env, extra, true)
+    }
+
+    /// Mask one complete snapshot for an authenticated owner's live display.
+    /// Unconfirmed prefixes are shown; a complete built-in header starts masking
+    /// immediately, even before its normal agent-stream minimum body length.
+    /// Never use this for agent reads: new/new_fixed_width retain strict hold-back.
+    pub fn mask_display(env: &[(&str, &str)], extra: &[(&str, &str)], input: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut masker = Self::configured(env, extra, true)?;
+        masker.display_headers = true;
+        let mut output = masker.push(input)?;
+        output.extend(masker.finish()?);
+        Ok(output)
     }
 
     fn configured(
@@ -314,6 +328,7 @@ impl Masker {
             tail: Tail::None,
             finished: false,
             fixed_width,
+            display_headers: false,
         })
     }
 
@@ -377,6 +392,15 @@ impl Masker {
                     }
                     self.tail = Tail::None;
                 }
+                Tail::AwsBody(remaining) => {
+                    if byte.is_ascii_uppercase() || byte.is_ascii_digit() {
+                        output.push(b'*');
+                        self.tail = if remaining == 1 { Tail::None } else { Tail::AwsBody(remaining - 1) };
+                        self.consume(1);
+                        continue;
+                    }
+                    self.tail = Tail::None;
+                }
                 Tail::Private { end, mut position } => {
                     // Only public delimiter positions are retained, never body
                     // bytes. Prefix fallback handles overlapping hyphen runs.
@@ -418,11 +442,12 @@ impl Masker {
                 }
             }
             for (i, builtin) in BUILTINS.iter().enumerate() {
+                let trigger = if self.display_headers { builtin.prefix.len() } else { builtin.len() };
                 if builtin.matches(bytes) {
-                    if bytes.len() < builtin.len() {
+                    if bytes.len() < trigger {
                         pending = true;
-                    } else if builtin.len() > best_len {
-                        best_len = builtin.len();
+                    } else if trigger > best_len {
+                        best_len = trigger;
                         best_builtin = Some(i);
                         best_literal = None;
                     }
@@ -444,7 +469,9 @@ impl Masker {
                 } else {
                     output.extend_from_slice(BUILTINS[i].marker);
                 }
-                self.tail = BUILTINS[i].tail;
+                self.tail = if self.display_headers && BUILTINS[i].body > 0 && matches!(BUILTINS[i].tail, Tail::None) {
+                    Tail::AwsBody(BUILTINS[i].body)
+                } else { BUILTINS[i].tail };
                 self.consume(best_len);
             } else {
                 output.push(byte);
