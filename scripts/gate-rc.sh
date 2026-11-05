@@ -94,5 +94,9 @@ done
 if [[ ${CLANKY_M11_PARENT:-0} != 1 ]]; then
     run_gate scripts/gate-m11-look.sh
 fi
+# M12 invokes the regression gate with this marker; never recurse into itself.
+if [[ ${CLANKY_M12_PARENT:-0} != 1 ]]; then
+    run_gate scripts/gate-m12-calm.sh
+fi
 if (( failed )); then echo 'FAIL: release-candidate gate'; exit 1; fi
 echo 'PASS: release-candidate gate'
