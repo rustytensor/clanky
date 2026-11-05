@@ -3,6 +3,7 @@ pub mod config;
 pub mod frame_trace;
 pub mod frame_clock;
 pub mod themes;
+pub mod theme_scene;
 pub mod calm;
 pub mod theme_store;
 pub mod theme_runtime;
