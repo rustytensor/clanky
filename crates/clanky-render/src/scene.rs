@@ -3,6 +3,16 @@
 use crate::{Renderer, Underline};
 use clanky_core::TerminalSnapshot;
 
+#[cfg(test)]
+#[test]
+fn flat_scene_clip(){
+    let fill=|rect,color|Layer::Shape(Shape{rect,radius:0.0,fill:Fill::Solid(color),border:None,shadow:None});
+    let clip=if std::env::var_os("CLANKY_CLIP_FAULT").is_some(){None}else{Some([8.0,8.0,8.0,8.0])};
+    let scene=Scene{clear:[255;4],layers:vec![Layer::Clip(clip),fill([0.0,0.0,32.0,32.0],[255,0,0,255]),Layer::Clip(None),fill([0.0,0.0,4.0,4.0],[0,0,255,255])]};
+    let pixels=offscreen_scene(&scene,32,32).unwrap();
+    for(x,y,color,label)in[(9,9,[255,0,0,255],"inside clip"),(7,9,[255;4],"outside clip"),(16,9,[255;4],"right clip edge"),(1,1,[0,0,255,255],"clip reset")]{let i=(y*32+x)*4;assert_eq!(&pixels[i..i+4],&color,"{label}");}
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
     pub clear: [u8; 4],
@@ -11,6 +21,9 @@ pub struct Scene {
 
 #[derive(Clone, Debug)]
 pub enum Layer {
+    /// Clip subsequent layers to x/y/width/height. None restores the viewport.
+    /// Flat and non-nesting; each scene starts with the full viewport.
+    Clip(Option<[f32; 4]>),
     Shape(Shape),
     Grid(GridLayer),
     Text(TextRun),

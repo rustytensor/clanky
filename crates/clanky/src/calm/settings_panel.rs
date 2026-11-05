@@ -4,19 +4,25 @@ use crate::{config::Config,look::{Layout,PixelRect},settings::Settings,themes::T
 use clanky_render::{Layer,TextMetrics,TextRun};
 use serde_json::json;
 use winit::keyboard::{Key,NamedKey};
-pub use crate::settings_panel::Effect;
+use super::settings_appearance::{self,Editor,EditKind};
+use crate::theme_store::ThemeStore;
+use std::path::PathBuf;
+pub enum ThemeAction{Save{slug:String,theme:Theme},Import{path:PathBuf,slug:String},Export{id:String,path:PathBuf}}
+pub enum Effect{None,Changed,Open(PathBuf),Access(String),Theme(ThemeAction)}
 pub struct SettingsPanel {
     pub store:Settings,pub open:bool,pub error:Option<String>,
     section:Section,hits:Vec<Hit>,focus:Option<usize>,menu:bool,slider:Option<PixelRect>,effective:Config,
+    editor:Option<Editor>,scroll:f32,max_scroll:f32,active_theme:Option<Theme>,system_light:bool,
 }
 impl SettingsPanel{
-    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,section:Section::General,hits:vec![],focus:None,menu:false,slider:None,effective}}
-    pub fn toggle(&mut self){self.open=!self.open;self.menu=false;self.focus=None;self.slider=None;}
+    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,section:Section::General,hits:vec![],focus:None,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false}}
+    pub fn toggle(&mut self){self.open=!self.open;self.menu=false;self.focus=None;self.slider=None;self.editor=None;}
+    pub fn theme_complete(&mut self){self.editor=None;self.error=None;}
     fn save(&mut self,key:&str,value:serde_json::Value)->Effect{
         match self.store.set(key,value){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
     }
     fn activate(&mut self,action:Action,x:f64)->Effect{match action{
-        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;Effect::None},
+        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;Effect::None},
         Action::Close=>{self.open=false;self.menu=false;Effect::None},
         Action::OpenFile=>Effect::Open(self.store.path().to_owned()),
         Action::FontMenu=>{self.menu=!self.menu;self.focus=None;Effect::None},
@@ -24,7 +30,26 @@ impl SettingsPanel{
         Action::FontSize(delta)=>self.save("font_size",json!((self.effective.font_size+delta).clamp(8.0,32.0))),
         Action::Toggle(key,on)=>self.save(key,json!(on)),
         Action::Opacity=>{self.slider=self.hits.iter().find(|h|h.action==Action::Opacity).map(|h|h.rect);self.drag(x)},
+        Action::Mode(value)=>{self.scroll=0.0;self.save("theme",json!(value))},
+        Action::Theme(id)=>{let key=if self.active_theme.as_ref().is_some_and(|t|t.appearance==crate::themes::Appearance::Light){"theme_light"}else{"theme_dark"};self.save(key,json!(id))},
+        Action::Color(token)=>{if let Some(color)=self.active_theme.as_ref().and_then(|t|t.colors.get(token)){self.editor=Some(Editor::new(EditKind::Color(token),vec![settings_appearance::hex(color)]));self.error=None;}Effect::None},
+        Action::ResetColor(token)=>{match self.store.set_color(token,None){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
+        Action::SaveTheme=>{self.editor=Some(Editor::new(EditKind::Save,vec!["My theme".into(),"my-theme".into()]));self.error=None;Effect::None},
+        Action::ImportTheme|Action::ExportTheme=>{let path=self.store.path().parent().unwrap_or(std::path::Path::new(".")).join("theme-export.json").to_string_lossy().into_owned();let importing=action==Action::ImportTheme;self.editor=Some(Editor::new(if importing{EditKind::Import}else{EditKind::Export},if importing{vec![path,"imported-theme".into()]}else{vec![path]}));self.error=None;Effect::None},
+        Action::Field(i)=>{if let Some(editor)=&mut self.editor{editor.field(i);}Effect::None},
+        Action::Cancel=>{self.editor=None;self.error=None;Effect::None},
+        Action::Confirm=>self.submit(),
+        Action::PickColor(value)=>{if let Some(editor)=&mut self.editor{editor.field(0);editor.insert(&value);}Effect::None},
     }}
+    fn submit(&mut self)->Effect{
+        let Some(editor)=&self.editor else{return Effect::None;};
+        match &editor.kind{
+            EditKind::Color(token)=>{match self.store.set_color(token,Some(editor.values[0].trim())){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
+            EditKind::Save=>{let Some(mut theme)=self.active_theme.clone()else{return Effect::None;};theme.name=editor.values[0].trim().into();Effect::Theme(ThemeAction::Save{slug:editor.values[1].trim().into(),theme})},
+            EditKind::Import=>Effect::Theme(ThemeAction::Import{path:editor.values[0].trim().into(),slug:editor.values[1].trim().into()}),
+            EditKind::Export=>{if self.effective.colors.keys().any(|key|crate::themes::COLOR_TOKENS.contains(&key.as_str())){self.error=Some("Save as a new theme before exporting colour changes.".into());Effect::None}else{Effect::Theme(ThemeAction::Export{id:self.effective.selected_theme_id(self.system_light).into(),path:editor.values[0].trim().into()})}},
+        }
+    }
     pub fn click(&mut self,x:f64,y:f64)->Effect{
         let hit=self.hits.iter().rposition(|h|h.rect.contains(x,y));
         if let Some(i)=hit{let action=self.hits[i].action.clone();if self.menu && !matches!(action,Action::FontChoice(_)|Action::FontMenu){self.menu=false;return Effect::None;}
@@ -42,6 +67,11 @@ impl SettingsPanel{
     pub fn release(&mut self){self.slider=None;}
     pub fn key(&mut self,key:&Key,_text:Option<&str>,composing:bool)->Effect{
         if composing{return Effect::None;}
+        if let Some(editor)=&mut self.editor{
+            if *key==Key::Named(NamedKey::Escape){self.editor=None;self.error=None;return Effect::None;}
+            if *key==Key::Named(NamedKey::Enter){if editor.focus==editor.values.len(){self.editor=None;return Effect::None;}return self.submit();}
+            editor.key(key,_text);return Effect::None;
+        }
         match key{
             Key::Named(NamedKey::Escape)=>{if self.menu{self.menu=false;}else{self.open=false;}Effect::None},
             Key::Named(NamedKey::Tab)=>{if !self.hits.is_empty(){self.focus=Some(self.focus.map_or(0,|i|(i+1)%self.hits.len()));}Effect::None},
@@ -53,15 +83,16 @@ impl SettingsPanel{
         }
     }
     // These pages contain no text-entry controls. IME/paste cannot reach a shell.
-    pub fn insert(&mut self,_text:&str){}
+    pub fn insert(&mut self,text:&str){if let Some(editor)=&mut self.editor{editor.insert(text);}}
     pub fn preedit(&mut self,_text:&str){}
-    pub fn select_all(&mut self){}
-    pub fn wheel(&mut self,_lines:i32){}
+    pub fn select_all(&mut self){if let Some(editor)=&mut self.editor{editor.select_all();}}
+    pub fn wheel(&mut self,lines:i32){if self.editor.is_none() && self.section==Section::Appearance{self.scroll=(self.scroll-lines as f32*48.0).clamp(0.0,self.max_scroll);self.focus=None;}}
     pub fn ime_position(&self)->Option<[f32;2]>{None}
     pub fn animation_deadline(&self)->Option<std::time::Instant>{None}
-    pub fn draw(&mut self,layout:&Layout,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
-        if !self.open{return vec![];}self.effective=config.clone();
+    pub fn draw(&mut self,layout:&Layout,theme:&Theme,config:&Config,themes:Option<&ThemeStore>,system_light:bool,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
+        if !self.open{return vec![];}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
         let s=layout.scale as f32;let mut frame=settings_frame::draw_live(layout.window_px,s,self.section,theme,config,pointer,pressed,measure);
+        if self.section==Section::Appearance{if let Some(store)=themes{match settings_appearance::page(layout.window_px,&frame.geometry,theme,config,store,system_light,self.scroll,pointer,pressed,measure){Ok((layers,hits,max))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
         let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);
         if self.menu {
             if let Some(anchor)=frame.hits.iter().find(|h|h.action==Action::FontMenu).map(|h|h.rect){
@@ -75,6 +106,8 @@ impl SettingsPanel{
         }
         if let Some(error)=&self.error{p.text(frame.geometry.local(229.0,505.0,522.0,32.0),error,13.0*s,theme.colors.err,400,false);}
         if let Some(rect)=self.focus.and_then(|i|frame.hits.get(i)).map(|h|h.rect){p.shape(PixelRect{x:rect.x-4.0*s,y:rect.y-4.0*s,w:rect.w+8.0*s,h:rect.h+8.0*s},8.0*s,[0;4],Some(theme.colors.ring));}
-        self.hits=frame.hits;frame.scene.layers.extend(p.out.scene.layers);frame.scene.layers
+        self.hits=frame.hits;frame.scene.layers.extend(p.out.scene.layers);
+        if let Some(editor)=&self.editor{let(layers,hits)=editor.draw(layout.window_px,&frame.geometry,theme,self.error.as_deref(),pointer,pressed,measure);frame.scene.layers.extend(layers);self.hits=hits;}
+        frame.scene.layers
     }
 }

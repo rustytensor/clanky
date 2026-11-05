@@ -248,6 +248,7 @@ impl SettingsPanel {
                 },
                 Layer::Grid(grid)=>grid.opacity*=opacity,
                 Layer::Vector(vector)=>vector.opacity*=opacity,
+                Layer::Clip(_)=>(),
             }
         }
         out.layers
