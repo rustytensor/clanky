@@ -413,7 +413,7 @@ impl Engine {
     pub fn snapshot(&self, tab_id: &str) -> Result<TerminalSnapshot, CoreError> {
         let tab = self.tab(tab_id, true)?;
         let terminal = tab.terminal.lock().unwrap();
-        let lines = self.0.1.policy.terminal_lines(&terminal)?;
+        let lines = self.0.1.policy.display_lines(&terminal)?;
         Ok(terminal.masked_snapshot(&lines))
     }
     pub fn input(&self, tab_id: &str, bytes: &[u8]) -> Result<(), CoreError> {
@@ -628,8 +628,9 @@ impl Engine {
                 if known_generation == Some(generation) {
                     return Ok(json!({"generation":generation,"unchanged":true}));
                 }
+                // Owner live view only: show provisional text, hide recognized secrets.
                 // Placements clone only Arc headers, never their RGBA buffers.
-                let lines = self.0.1.policy.terminal_lines(&terminal)?;
+                let lines = self.0.1.policy.display_lines(&terminal)?;
                 let snapshot = terminal.masked_snapshot(&lines);
                 let block_anchors = terminal.card_metadata();
                 drop(terminal);

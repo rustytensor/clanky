@@ -10,7 +10,10 @@ they do not restore old processes, output or unsaved editor/compose text.
 reads are secret-masked, including through MCP. Recognized bytes become fixed-width
 `*` characters, preserving raw byte offsets; undecided streaming suffixes are held
 back. The person's terminal view, copy, block text, search and OSC 52 clipboard
-text are masked too. Owner raw-output archives remain available through the socket. Detection
+text are masked too. Only the owner's live view shows unconfirmed prefixes as typed;
+complete secret headers start masking immediately and complete known values stay hidden.
+Agent reads and copy/search keep strict hold-back. Owner raw-output archives remain
+available through the socket. Detection
 covers common OpenAI/OpenRouter, GitHub, AWS access-ID, Slack, Hugging Face and
 RunPod token shapes, Bearer headers, private-key blocks and eligible secret values
 captured from the server's startup environment. It is not universal secret discovery:

@@ -26,9 +26,13 @@ copy and task payloads/labels (including send/task_get/task_update/tasks); v4
 screen text/history and output_appended event replay. MCP uses the same agent
 paths. Audit arguments are masked even for the owner's audit reader, with auth
 arguments omitted. Agent-facing transport error messages are sanitized too.
-The person's terminal display, block views, selection/copy, task payloads,
-screen/history and scrollback search use the same masking policy. Search matches
-masked text, never raw cells. OSC 52 writes and replies mask decoded text before
+The person's block views, selection/copy, task payloads, screen/history and
+scrollback search keep the strict masking policy. Search matches masked text,
+never raw cells. The authenticated owner's live display is different (approved
+by the lead): unconfirmed prefixes are shown as typed. Complete built-in headers
+start masking immediately, even below the agent recognizer's minimum body length;
+complete known literals stay masked. This display-only exception never reaches
+agent screen reads, output, event replay, copy, or search. OSC 52 writes and replies mask decoded text before
 encoding. Owner v1 get_output remains a raw archive interface; owner event output
 refers back to raw retained archives, or reports
 `data_unavailable` when those bytes are no longer available.
@@ -205,7 +209,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
 | window_changes | Owner-only change revision; after/timeout_ms (0–1000); no terminal payload |
-| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; known_rows (one `clanky_core::row_hash` per held row, same row count) gets `delta: true` with empty `snapshot.cells` and `changed_rows` as `[row, cells]` pairs; block_anchors accompanies changed snapshots |
+| snapshot | Owner-display-masked cells/cursor/images; unconfirmed prefixes remain visible; known_generation/known_images avoid retransfers; known_rows (one `clanky_core::row_hash` per held row, same row count) gets `delta: true` with empty `snapshot.cells` and `changed_rows` as `[row, cells]` pairs; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |
