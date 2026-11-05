@@ -9,6 +9,7 @@ origin (where specified), cols and rows. pixels {dark, light, bedazzled} maps
 "x,y" to premultiplied RGBA. ui_text_px is the scene's full UI text-run size
 list. idle {no_input_frames, key_echo_frames} comes from the real redraw path.
 """
+import argparse
 import json
 import math
 import sys
@@ -37,7 +38,7 @@ def pixels(actual, expected, name):
             raise Mismatch(f'{name} {xy}: expected {wanted!r} ±3, observed {value!r}')
 
 
-def compare(data):
+def compare(data, scene_only=False):
     layout = data['layout']
     exact(layout['inset'], [256, 8, 976, 744], 'inset')
     for key, rect, origin in [('a', [268, 76, 672, 326], [280, 126]),
@@ -46,7 +47,8 @@ def compare(data):
         exact(pane['rect'], rect, f'pane {key}')
         exact(pane['origin'], origin, f'grid {key} origin')
         exact([pane['cols'], pane['rows']], [81, 13], f'grid {key} size')
-        exact(layout['pty_' + key], [13, 81], f'PTY {key} size')
+        if not scene_only:
+            exact(layout['pty_' + key], [13, 81], f'PTY {key} size')
     hidden = data['hidden']
     exact(hidden['inset'], [8, 8, 1224, 744], 'hidden inset')
     exact(hidden['a']['rect'], [20, 76, 1200, 326], 'hidden pane')
@@ -56,7 +58,8 @@ def compare(data):
                             ('b', [268, 306, 672, 434], 18)]:
         exact(drag[key]['rect'], rect, f'drag pane {key}')
         exact(drag[key]['rows'], rows, f'drag rows {key}')
-        exact(drag['restored_' + key]['rect'], rect, f'restored pane {key}')
+        if not scene_only:
+            exact(drag['restored_' + key]['rect'], rect, f'restored pane {key}')
     pane = data['post_ai']['a']
     exact(pane['rect'], [268, 76, 952, 326], 'Post-AI pane')
     exact(pane['cols'], 116, 'Post-AI columns')
@@ -71,6 +74,8 @@ def compare(data):
     sizes = data['ui_text_px']
     if not isinstance(sizes, list) or not sizes or not all(type(x) in (int, float) and math.isfinite(x) and x >= 12 for x in sizes):
         raise Mismatch('UI text runs: expected nonempty list of finite sizes >= 12 px')
+    if scene_only:
+        return
     idle = data['idle']
     exact(idle['no_input_frames'], 0, 'idle frames')
     frames = idle['key_echo_frames']
@@ -79,12 +84,18 @@ def compare(data):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--scene-only', action='store_true')
+    args = parser.parse_args()
     try:
-        compare(json.load(sys.stdin))
+        compare(json.load(sys.stdin), args.scene_only)
     except (Mismatch, KeyError, TypeError, ValueError) as error:
         print(f'FAIL: M12 partial comparisons: {error}', file=sys.stderr)
         return 1
-    print('PASS: M12 partial comparisons only (clicks, themes and Post-AI API not checked)')
+    if args.scene_only:
+        print('PASS: M12 scene comparisons only (PTYs, restore, idle and other checks not run)')
+    else:
+        print('PASS: M12 partial comparisons only (clicks, themes and Post-AI API not checked)')
     return 0
 
 
