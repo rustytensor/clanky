@@ -19,6 +19,11 @@ files carry a notice on their first line.
 
 Thank you to the Alacritty project and its contributors.
 
+Vector paths use lyon (https://github.com/nical/lyon), Copyright Nicolas Silva
+and contributors, licensed under MIT OR Apache-2.0. Its lyon_algorithms,
+lyon_geom, lyon_path and lyon_tessellation components use the same licences.
+Supporting geometry uses euclid (MIT OR Apache-2.0) and float_next_after (MIT).
+
 Bundled fonts (assets/fonts), compiled into the clanky binary:
 
 - JetBrains Mono 2.304 (Regular, Bold), Copyright 2020 The JetBrains Mono

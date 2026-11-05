@@ -88,7 +88,7 @@ pub struct PanelState {
 pub struct PanelLine { pub text: String, pub selected: bool, pub action: Option<HitAction> }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HitAction {
-    Palette, Settings, ToggleRails, Session(String), File(String),
+    Palette, Settings, ToggleRails, NewTab, Split, Session(String), File(String),
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
 }
@@ -199,6 +199,11 @@ fn row(out: &mut Builder<'_>, t: &Theme, m: &super::Metrics, r: PixelRect, label
 }
 pub fn scene(layout: &Layout, state: &LookState) -> Scene { presentation(layout,state).scene }
 
+pub fn panel_presentation(layout:&Layout,state:&LookState,measure:&mut dyn FnMut(&TextRun)->clanky_render::TextMetrics)->Presentation {
+    let mut out=Builder{scene:Scene{clear:[0;4],layers:vec![]},hits:vec![],measure};
+    for panel in &state.panels{panel_card(&mut out,layout,state,panel);}
+    Presentation{scene:out.scene,hits:out.hits}
+}
 pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
     presentation_with_measure(layout,state,&mut clanky_render::measure_text)
 }

@@ -1,0 +1,27 @@
+{
+  "name": "Stone",
+  "appearance": "dark",
+  "colors": {
+    "sidebar": "#141210",
+    "background": "#1a1816",
+    "card": "#201d1a",
+    "muted": "#26221f",
+    "foreground": "#ebe6df",
+    "muted_foreground": "#a0978d",
+    "accent": "#2b2724",
+    "pressed": "#332e2a",
+    "border": "#fff0e114",
+    "input": "#fff0e11f",
+    "ring": "#8a8178",
+    "primary": "#ebe6df",
+    "primary_foreground": "#1a1816",
+    "sidebar_accent": "#221f1c",
+    "ok": "#93b89a",
+    "err": "#d98b7e",
+    "agent": "#d2a476",
+    "robot_paint": "#6b5236"
+  },
+  "ansi": ["#a0978d", "#d98b7e", "#93b89a", "#d6b27c", "#9faeb8", "#c5a39b", "#95b8ae", "#ebe6df", "#b3aaa0", "#e8a194", "#a8c9ae", "#e4c596", "#b5c2ca", "#d8b8af", "#accdc3", "#f5f0e9"],
+  "window_gradient": null,
+  "glow": false
+}
