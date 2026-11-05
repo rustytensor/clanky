@@ -242,6 +242,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             if ch!=' ' {p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&ch.to_string(),font_px,c.background,400,true);}
         }}
     }
+    for panel in &state.panels{if panel.id!="palette" && panel.id!="search"{calm_panel(&mut p,layout,panel,font_px);}}
     if let Some((id,query,total))=&state.find{if let Some(pane)=layout.panes.iter().find(|pane|pane.id==*id){find_bar(&mut p,pane,query,*total);}}
     if let Some(side)=layout.right_rail{
         p.shape(r(side.x,side.y,s,side.h),0.0,c.border,None);
@@ -283,9 +284,11 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             p.text(r(x+width-12.0*s-tw,ey,tw,18.0*s),time,12.0*s,c.muted_foreground,400,false);
         }y+=height+12.0*s;
         // Sheets card: padding 12, grid gap 8, title 22, rows 32 with the switch centred.
-        let height=(46.0+40.0*state.panes.len() as f32)*s;
+        // Agents reach terminals only; local editor panes have no access row.
+        let terminals:Vec<_>=state.panes.iter().filter(|pane|pane.driver!="Local editor").collect();
+        let height=(46.0+40.0*terminals.len() as f32)*s;
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Agent access",14.0*s,c.foreground,500,false);
-        for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(42.0+40.0*index as f32)*s,width-24.0*s,32.0*s);
+        for (index,pane)in terminals.into_iter().enumerate(){let row=r(x+12.0*s,y+(42.0+40.0*index as f32)*s,width-24.0*s,32.0*s);
             if row.y+row.h>side.y+side.h-8.0*s{break;}
             let over=row.contains(pointer.0,pointer.1);
             if over{p.shape(r(row.x-6.0*s,row.y-4.0*s,row.w+12.0*s,row.h+8.0*s),6.0*s,if pressed{c.pressed}else{c.accent},None);}
@@ -435,4 +438,57 @@ fn find_bar(p:&mut Paint,pane:&look::PaneLayout,query:&str,total:usize){
     let text=r(bar.x+36.0*s,bar.y,(x-8.0*s-bar.x-36.0*s).max(0.0),bar.h);
     if query.is_empty(){p.text(text,"Find in this pane",14.0*s,c.muted_foreground,400,false);p.shape(r(text.x,bar.y+12.0*s,s,16.0*s),0.0,c.foreground,None);}
     else{p.text(text,query,14.0*s,c.foreground,400,false);let qw=p.width(query,14.0*s,400).min(text.w);p.shape(r((text.x+qw+2.0*s).round(),bar.y+12.0*s,s,16.0*s),0.0,c.foreground,None);}
+}
+
+/// Dialogs and docks that still use the panel model (open file, compose, editor review)
+/// drawn as calm cards: radius 12, background, hairline border, the dialog shadow, a
+/// 14 / 500 title, 14 px lines with the accent fill on the selected one. Text rows and
+/// the editor grid sit exactly where the panel's keyboard and mouse code expects them.
+fn calm_panel(p:&mut Paint,layout:&Layout,panel:&look::PanelState,font_px:f32){
+    let theme=p.theme;let c=&theme.colors;let s=p.scale;let m=&layout.metrics;
+    let rect=r(panel.rect.x,panel.rect.y+panel.rise_px,panel.rect.w,panel.rect.h);if rect.w<=0.0||rect.h<=0.0{return;}
+    let fade=|color:Color|alpha(color,panel.opacity);
+    let (tint,strength)=match theme.appearance{Appearance::Dark=>([0,0,0],[89u8,51u8]),Appearance::Light=>([60,40,20],[26,15])};
+    for ((offset,blur),a) in [(16.0,48.0),(2.0,6.0)].into_iter().zip(strength){
+        p.out.scene.layers.push(Layer::Shape(Shape{rect:rect.array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:None,
+            shadow:Some(clanky_render::Shadow{offset:[0.0,offset*s],blur:blur*s,spread:0.0,color:[tint[0],tint[1],tint[2],(a as f32*panel.opacity) as u8]})}));
+    }
+    p.shape(rect,12.0*s,fade(c.background),Some(fade(c.border)));
+    let pad=m.panel_padding as f32;let header=m.panel_header as f32;let line=m.panel_line_height as f32;
+    p.text(r(rect.x+pad,rect.y+pad,rect.w-2.0*pad,header),&panel.title,14.0*s,fade(c.foreground),500,false);
+    let top=rect.y+pad+header;
+    if panel.id=="file-prompt"{
+        // The sheets' input: 32 tall, radius 8, input border, 14 px text, 1 px caret.
+        let field=r(rect.x+pad,top+4.0*s,rect.w-2.0*pad,32.0*s);
+        p.shape(field,8.0*s,fade(c.background),Some(fade(c.ring)));
+        let text=panel.lines.first().map(|l|l.text.as_str()).unwrap_or("");let inner=r(field.x+10.0*s,field.y,field.w-20.0*s,field.h);
+        // Long paths keep their end visible, where the file name is.
+        let mut shown:String=text.into();while !shown.is_empty() && p.width(&shown,14.0*s,400)>inner.w-4.0*s{shown.remove(0);}
+        if shown.is_empty(){p.text(inner,"~/git/clanky/README.md",14.0*s,fade(c.muted_foreground),400,false);}
+        else{p.text(inner,&shown,14.0*s,fade(c.foreground),400,false);}
+        let caret=if shown.is_empty(){inner.x}else{inner.x+p.width(&shown,14.0*s,400)+1.0*s};
+        p.shape(r(caret.round(),field.y+8.0*s,s,16.0*s),0.0,fade(c.foreground),None);
+        if let Some(hint)=panel.lines.get(1){p.text(r(rect.x+pad,field.y+field.h+8.0*s,rect.w-2.0*pad,16.0*s),&hint.text,12.0*s,fade(c.muted_foreground),400,false);}
+        return;
+    }
+    if let Some(snapshot)=&panel.snapshot{
+        let mut grid=snapshot.clone();let cursor=grid.cursor;grid.cursor=None;
+        for cell in &mut grid.cells{terminal(theme,cell);if cell.color_source.is_none(){cell.fg=rgb(c.foreground);cell.bg=rgb(c.background);}}
+        let cw=layout.cell_px[0] as f32;let ch=layout.cell_px[1] as f32;
+        let clip=r(rect.x+pad,top,(rect.w-2.0*pad).max(0.0),(rect.h-pad-header-pad).max(0.0));
+        p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[rect.x+pad,top],clip:clip.array(),snapshot:grid,underlines:panel.underlines.clone(),opacity:panel.opacity}));
+        if let Some((row,col))=cursor{let x=rect.x+pad+col as f32*cw;let y=top+row as f32*ch;
+            if y+ch<=clip.y+clip.h{p.shape(r(x,y+2.0*s,1.5*s,(ch-4.0*s).max(0.0)),0.0,fade(c.foreground),None);}}
+        let _=font_px;
+    }else{
+        for (index,item) in panel.lines.iter().enumerate(){
+            let row=r(rect.x+pad-4.0*s,top+index as f32*line,rect.w-2.0*pad+8.0*s,line);
+            if row.y+row.h>rect.y+rect.h-pad{break;}
+            let over=item.action.is_some()&&row.contains(p.pointer.0,p.pointer.1);
+            if item.selected||over{p.shape(row,6.0*s,fade(if over&&p.pressed{c.pressed}else{c.accent}),None);}
+            let muted=index>0&&item.action.is_none()&&!item.selected;
+            p.text(r(row.x+4.0*s,row.y,row.w-8.0*s,row.h),&item.text,14.0*s,fade(if muted{c.muted_foreground}else{c.foreground}),400,false);
+            if let Some(action)=&item.action{p.hit(row,action.clone());}
+        }
+    }
 }
