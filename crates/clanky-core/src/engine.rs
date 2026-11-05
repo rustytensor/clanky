@@ -490,7 +490,7 @@ impl Engine {
             "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "window_changes" => &["after", "timeout_ms"],
-            "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows"],
+            "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows", "known_cols"],
             "history" => &["tab_id", "offset", "limit"],
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
@@ -656,7 +656,9 @@ impl Engine {
                         Some(hashes)
                     }
                 };
-                if let Some(known) = known_rows.filter(|known| known.len() == snapshot.rows) {
+                let known_cols = match args.get("known_cols") { None => None, Some(v) => Some(v.as_u64().ok_or_else(|| invalid("invalid known_cols"))?) };
+                // Deltas only for a window holding exactly these dimensions.
+                if let Some(known) = known_rows.filter(|known| known.len() == snapshot.rows && known_cols == Some(snapshot.cols as u64)) {
                     let cols = snapshot.cols;
                     let changed: Vec<Value> = snapshot
                         .cells
