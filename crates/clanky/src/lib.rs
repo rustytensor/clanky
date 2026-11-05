@@ -4,6 +4,7 @@ pub mod frame_trace;
 pub mod frame_clock;
 pub mod themes;
 pub mod calm;
+pub mod theme_store;
 pub mod settings;
 pub mod settings_panel;
 #[cfg(test)]

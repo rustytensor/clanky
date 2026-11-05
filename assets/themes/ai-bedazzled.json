@@ -1,0 +1,49 @@
+{
+  "name": "AI Bedazzled",
+  "appearance": "dark",
+  "colors": {
+    "sidebar": "#160d29",
+    "background": "#130f23",
+    "card": "#211536",
+    "muted": "#291c42",
+    "foreground": "#faf5ff",
+    "muted_foreground": "#c4b5fd",
+    "accent": "#6d28d9",
+    "pressed": "#7c3aed",
+    "border": "#8b5cf680",
+    "input": "#a78bfa80",
+    "ring": "#22d3ee",
+    "primary": "#a78bfa",
+    "primary_foreground": "#130f23",
+    "sidebar_accent": "#4c1d95",
+    "ok": "#4ade80",
+    "err": "#fb7185",
+    "agent": "#22d3ee",
+    "robot_paint": "#8b5cf6",
+    "primary_pressed": "#9b81e9"
+  },
+  "ansi": [
+    "#29203d",
+    "#fb7185",
+    "#4ade80",
+    "#fde047",
+    "#60a5fa",
+    "#c084fc",
+    "#22d3ee",
+    "#faf5ff",
+    "#a78bfa",
+    "#fda4af",
+    "#86efac",
+    "#fef08a",
+    "#93c5fd",
+    "#e879f9",
+    "#67e8f9",
+    "#ffffff"
+  ],
+  "window_gradient": [
+    "#7c3aed",
+    "#2563eb"
+  ],
+  "glow": true,
+  "description": "Every AI cliché, lovingly assembled. For the rare person who wants it."
+}

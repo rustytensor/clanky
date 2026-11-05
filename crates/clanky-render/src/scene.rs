@@ -80,7 +80,7 @@ impl Default for TextRun {
             opacity: 1.0,
             origin: [0.0; 2],
             text: String::new(),
-            px: 16.0,
+            px: 14.0,
             color: [255; 4],
             weight: 400,
             mono: false,
@@ -172,7 +172,7 @@ impl Renderer {
 }
 
 /// Top-left row-major premultiplied RGBA8, exactly width * height * 4 bytes.
-/// Uses only bundled fonts, at 16 px and 10x20 cells. Legacy fixtures are unchanged.
+/// Uses bundled Geist Mono at 13 px and 8x20 cells. Legacy fixtures are unchanged.
 pub fn offscreen_scene(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, String> {
     crate::block_on(offscreen(scene, width, height))
 }
@@ -205,7 +205,7 @@ async fn offscreen(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, St
         &view,
         width,
         height,
-        (16.0, 10, 20),
+        (13.0, 8, 20),
         false,
     )?;
     let stride = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
