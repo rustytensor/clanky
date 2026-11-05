@@ -746,9 +746,11 @@ impl App {
         }
         self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
         self.frame_trace.presented();
+        self.frame_trace.gate_frame(self.gate_clock.as_ref().map(|clock| clock.elapsed_ms()));
         self.terminal_dirty=false;
         let animation_end=self.animation_deadline(&state).into_iter().chain(self.robot_deadline()).max();
-        self.frame_clock.presented(Instant::now(),animation_end);
+        let presented_at=self.clock_now();
+        self.frame_clock.presented(presented_at,animation_end);
         Ok(())
     }
 }

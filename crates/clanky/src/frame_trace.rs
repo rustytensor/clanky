@@ -13,6 +13,11 @@ impl FrameTrace {
             OpenOptions::new().create_new(true).write(true).open(path).map_err(|e|e.to_string())).transpose()?;
         Ok(Self{file,started:Instant::now(),sequence:0,pending:Vec::new()})
     }
+    pub fn gate_frame(&mut self,elapsed_ms:Option<u64>){
+        if let (Some(file),Some(time))=(&mut self.file,elapsed_ms){
+            let _=writeln!(file,"gate_frame,{time},{}",self.started.elapsed().as_micros());
+        }
+    }
     pub fn robot_started(&mut self,duration_ms:u64){
         if let Some(file)=&mut self.file{
             let _=writeln!(file,"robot_start,{duration_ms},{}",self.started.elapsed().as_micros());

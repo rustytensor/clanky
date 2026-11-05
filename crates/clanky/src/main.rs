@@ -186,6 +186,7 @@ struct App {
     applied_post_ai: bool,
     theme_runtime: Option<clanky::theme_runtime::ThemeRuntime>,
     startup: Option<clanky::robot::Startup>,
+    gate_clock: Option<clanky::robot_gate_clock::RobotGateClock>,
 }
 
 fn run_window(engine: Client, mut config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>, startup_flags: clanky::config::StartupOverrides) -> Result<(), String> {
@@ -209,6 +210,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
     let rails = config.rails;
+    let gate_clock = clanky::robot_gate_clock::RobotGateClock::from_env()?;
+    let force_redraw = gate_clock.as_ref().is_some_and(|clock| clock.force_redraw());
     let mut app = App {
         engine,
         search: Search::default(),
@@ -236,7 +239,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         occluded: false,
         error: None,
         status: feed_error.or(theme_error),
-        frame_clock: clanky::frame_clock::FrameClock::default(),
+        frame_clock: clanky::frame_clock::FrameClock::new(force_redraw),
         window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
         frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
         panels: panels::Panels::new(rails),
@@ -252,6 +255,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         settings,settings_error,next_settings:Instant::now(),
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
+        gate_clock,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -1029,6 +1033,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(clock) = &mut self.gate_clock {
+            if let Err(error) = clock.poll() { self.fail(event_loop, error); return; }
+        }
         if self.engine.is_closed() && self.has_local_work() {
             self.groups.clear();
             self.sizes.clear();
@@ -1074,12 +1081,15 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             if old_status!=self.status{self.frame_clock.invalidate();}
             self.next_polish = Instant::now() + Duration::from_secs(1);
         }
-        let now=Instant::now();
+        let now=self.clock_now();
         let mut wake=self.next_settings.min(self.next_polish);
         if !self.is_suspended(){
             if self.frame_clock.request_due(now){if let Some(window)=&self.window{window.request_redraw();}}
-            if let Some(deadline)=self.frame_clock.deadline(now){wake=wake.min(deadline);}
+            if self.gate_clock.is_none() {
+                if let Some(deadline)=self.frame_clock.deadline(now){wake=wake.min(deadline);}
+            }
         }
+        if self.gate_clock.is_some() { wake=wake.min(clanky::robot_gate_clock::RobotGateClock::poll_deadline()); }
         event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }
