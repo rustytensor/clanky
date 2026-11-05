@@ -523,7 +523,9 @@ impl App {
                 self.studio.local_recent.push_back((now,look::TimelineItem{label:"File opened".into(),detail:format!("{name} · editor pane {}",index+1)}));
                 while self.studio.local_recent.len()>20{self.studio.local_recent.pop_front();}
             }
-            state.files.push(look::FileItem { id: id.clone(), title: format!("{}{}", editor.path().display(), if editor.dirty() { " *" } else { "" }),
+            // calm.html lists files by name ("compose.rs"); unsaved work is said in words.
+            let name=editor.path().file_name().map(|name|name.to_string_lossy().into_owned()).unwrap_or_else(||editor.path().display().to_string());
+            state.files.push(look::FileItem { id: id.clone(), title: format!("{name}{}", if editor.dirty() { " · unsaved" } else { "" }),
                 pending: editor.pending_count(), active: self.files.focus == *id });
         }
         if let Some(agents) = self.studio.metadata["agents"].as_array() {
@@ -562,7 +564,7 @@ impl App {
             if self.files.panes.contains_key(&pane.id) {
                 snapshot = cells(pane.rows, pane.cols, &state.theme);
                 editor_rows = self.files.draw_pane(&pane.id, &mut snapshot, local_rect(pane));
-                title = self.files.panes[&pane.id].path().display().to_string();
+                title = self.files.panes[&pane.id].path().to_str().map(home_short).unwrap_or_else(||self.files.panes[&pane.id].path().display().to_string());
                 // UI rows keep the editor controller's geometry; source and real diff previews stay mono.
                 let mut rows = vec![0, pane.rows-1];
                 if let Some(text_rows) = editor_rows {
@@ -596,10 +598,18 @@ impl App {
                         rows.retain(|r|*r<start);
                     }
                 }
+                // The pane header names the file; the editor core's own title row stays blank,
+                // and its status row becomes one muted hint (find prompts and errors still show).
                 for row in rows {
-                    let text = row_text(&snapshot,row);
-                    ui_rows.push((PixelRect { x: pane.grid_origin[0], y: pane.grid_origin[1]+row as f32*layout.cell_px[1] as f32,
-                        w: pane.grid_clip.w, h: layout.cell_px[1] as f32 }, text, None));
+                    let text = row_text(&snapshot,row).trim().to_owned();
+                    if row > 0 {
+                        let dirty = self.files.panes[&pane.id].dirty();
+                        let hint = if text.starts_with("Ctrl+S save") || text.is_empty() {
+                            if dirty { "Unsaved changes · Ctrl+S saves · Ctrl+F finds".to_owned() } else { "Ctrl+S saves · Ctrl+F finds".to_owned() }
+                        } else { text.replace(" | ", " · ") };
+                        ui_rows.push((PixelRect { x: pane.grid_origin[0], y: pane.grid_origin[1]+row as f32*layout.cell_px[1] as f32,
+                            w: pane.grid_clip.w, h: layout.cell_px[1] as f32 }, hint, Some("editor-hint".into())));
+                    }
                     for cell in &mut snapshot.cells[row*pane.cols..(row+1)*pane.cols] { cell.ch = ' '; }
                 }
                 widget(&mut snapshot,&state.theme);
@@ -622,7 +632,7 @@ impl App {
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
-            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else {
+            view.driver = if let Some(editor) = self.files.panes.get(&pane.id) { if editor.dirty() { "Local editor · unsaved".into() } else { "Local editor".into() } } else {
                 self.studio.terminal_info.get(&pane.id).and_then(|info|info["program"].as_str()).map(str::to_owned).unwrap_or_default()
             };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
@@ -804,11 +814,11 @@ impl App {
             let card=card_id.as_ref().and_then(|id|state.panels.iter().find(|p|p.id==*id));
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
-            let hint=card_id.as_deref()==Some("compose-hint");
-            let card=if hint{state.panels.iter().find(|p|p.id=="compose")}else{card};let rise=card.map_or(rise,|p|p.rise_px);let opacity=card.map_or(opacity,|p|p.opacity);
+            let hint=matches!(card_id.as_deref(),Some("compose-hint"|"editor-hint"));
+            let card=if card_id.as_deref()==Some("compose-hint"){state.panels.iter().find(|p|p.id=="compose")}else{card};let rise=card.map_or(rise,|p|p.rise_px);let opacity=card.map_or(opacity,|p|p.opacity);
             let px=if hint || card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
             let color=if hint{self.studio.calm_theme.colors.muted_foreground}else{state.theme.ink};
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.55}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.5}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
         let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {

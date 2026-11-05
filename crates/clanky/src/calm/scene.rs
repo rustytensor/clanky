@@ -215,16 +215,17 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.shape(pane.rect,10.0*s,c.background,Some(if driving{blend(c.border,c.agent,0.45)}else if focus{c.ring}else{c.border}));
         p.shape(r(pane.rect.x+s,pane.rect.y+40.0*s-s,pane.rect.w-2.0*s,s),0.0,c.border,None);
         let Some(data)=data else{continue;};
-        let access=if data.allow_agent{"read + run"}else{"agents off"};let badge_width=if state.post_ai{0.0}else{p.width(access,12.0*s,500)+16.0*s};
+        let editor=data.driver.starts_with("Local editor");
+        let access=if data.allow_agent{"read + run"}else{"agents off"};let badge_width=if state.post_ai||editor{0.0}else{p.width(access,12.0*s,500)+16.0*s};
         let badge=r(pane.rect.x+pane.rect.w-8.0*s-badge_width,pane.rect.y+9.0*s,badge_width,22.0*s);
         // Sheets: off is the plain badge, allowed the neutral solid badge; clay only while an agent drives.
-        if !state.post_ai {
+        if !state.post_ai && !editor {
             let (fill,border,ink)=if data.agent_running{(alpha(c.agent,0.1),Some(alpha(c.agent,0.35)),c.agent)}
                 else if data.allow_agent{(c.muted,None,c.foreground)}else{([0;4],Some(c.border),c.muted_foreground)};
             p.shape(badge,6.0*s,fill,border);
             p.text(r(badge.x+8.0*s,badge.y,badge.w-16.0*s,badge.h),access,12.0*s,ink,500,false);
         }
-        let available=(badge.x-pane.rect.x-24.0*s).max(0.0);let driver_width=p.width(&data.driver,12.0*s,400).min(available*0.3);
+        let available=(badge.x-pane.rect.x-24.0*s).max(0.0);let driver_width=p.width(&data.driver,12.0*s,400).min((available-p.width(&data.title,14.0*s,500)-8.0*s).max(available*0.3));
         let title_width=p.width(&data.title,14.0*s,500).min((available-driver_width-8.0*s).max(0.0));
         p.text(r(pane.rect.x+12.0*s,pane.rect.y,title_width,40.0*s),&data.title,14.0*s,c.foreground,500,false);
         p.text(r(pane.rect.x+20.0*s+title_width,pane.rect.y,driver_width,40.0*s),&data.driver,12.0*s,c.muted_foreground,400,false);
@@ -285,7 +286,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         }y+=height+12.0*s;
         // Sheets card: padding 12, grid gap 8, title 22, rows 32 with the switch centred.
         // Agents reach terminals only; local editor panes have no access row.
-        let terminals:Vec<_>=state.panes.iter().filter(|pane|pane.driver!="Local editor").collect();
+        let terminals:Vec<_>=state.panes.iter().filter(|pane|!pane.driver.starts_with("Local editor")).collect();
         let height=(46.0+40.0*terminals.len() as f32)*s;
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Agent access",14.0*s,c.foreground,500,false);
         for (index,pane)in terminals.into_iter().enumerate(){let row=r(x+12.0*s,y+(42.0+40.0*index as f32)*s,width-24.0*s,32.0*s);
