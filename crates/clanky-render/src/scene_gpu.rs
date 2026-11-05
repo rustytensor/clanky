@@ -727,10 +727,6 @@ impl Painter {
         if !width.is_finite() || width < 0.0 {
             return Err("Invalid scene border".into());
         }
-        let (top, bottom) = match shape.fill {
-            Fill::Solid(c) => (c, c),
-            Fill::Vertical(a, b) => (a, b),
-        };
         let Some(bounds) = intersection(
             [
                 shape.rect[0] - 1.0,
@@ -742,20 +738,37 @@ impl Painter {
         ) else {
             return Ok(());
         };
-        frame.shape(
-            shape.rect,
-            [
-                radius,
-                width.min(shape.rect[2].min(shape.rect[3]) * 0.5),
-                0.0,
-                0.0,
-            ],
-            premul(top),
-            premul(bottom),
-            premul(border),
-            clip,
-            bounds,
-        )
+        let metrics = [radius, width.min(shape.rect[2].min(shape.rect[3]) * 0.5), 0.0, 0.0];
+        if let Fill::VerticalStops(stops) = &shape.fill {
+            if !(2..=8).contains(&stops.len()) {
+                return Err("Scene gradient must have 2 to 8 stops".into());
+            }
+            let segments = (stops.len() - 1) as f32;
+            for (index, pair) in stops.windows(2).enumerate() {
+                let start = index as f32 / segments;
+                let end = (index + 1) as f32 / segments;
+                let y0 = shape.rect[1] + shape.rect[3] * start;
+                let y1 = shape.rect[1] + shape.rect[3] * end;
+                let Some(band) = intersection(clip, [clip[0], y0, clip[2], y1 - y0]) else { continue; };
+                let Some(band_bounds) = intersection(bounds, band) else { continue; };
+                // Keep the original rectangle for edge coverage and gradient t.
+                // Clip each segment instead of drawing adjacent antialiased boxes:
+                // fractional stop positions must not introduce translucent seams.
+                let a = premul(pair[0]);
+                let b = premul(pair[1]);
+                let slope: [f32; 4] = std::array::from_fn(|i| (b[i] - a[i]) * segments);
+                let top: [f32; 4] = std::array::from_fn(|i| a[i] - slope[i] * start);
+                let bottom = std::array::from_fn(|i| top[i] + slope[i]);
+                frame.shape(shape.rect, metrics, top, bottom, premul(border), band, band_bounds)?;
+            }
+            return Ok(());
+        }
+        let (top, bottom) = match &shape.fill {
+            Fill::Solid(c) => (*c, *c),
+            Fill::Vertical(a, b) => (*a, *b),
+            Fill::VerticalStops(_) => unreachable!(),
+        };
+        frame.shape(shape.rect, metrics, premul(top), premul(bottom), premul(border), clip, bounds)
     }
     fn grid(
         &mut self,

@@ -238,7 +238,11 @@ impl SettingsPanel {
             match layer {
                 Layer::Text(run)=>run.opacity*=opacity,
                 Layer::Shape(shape)=>{
-                    shape.fill=match shape.fill {Fill::Solid(color)=>Fill::Solid(Theme::fade(color,opacity)),Fill::Vertical(a,b)=>Fill::Vertical(Theme::fade(a,opacity),Theme::fade(b,opacity))};
+                    shape.fill=match &shape.fill {
+                        Fill::Solid(color)=>Fill::Solid(Theme::fade(*color,opacity)),
+                        Fill::Vertical(a,b)=>Fill::Vertical(Theme::fade(*a,opacity),Theme::fade(*b,opacity)),
+                        Fill::VerticalStops(stops)=>Fill::VerticalStops(stops.iter().map(|color|Theme::fade(*color,opacity)).collect()),
+                    };
                     if let Some((_,color))=&mut shape.border{*color=Theme::fade(*color,opacity);}
                     if let Some(shadow)=&mut shape.shadow{shadow.color=Theme::fade(shadow.color,opacity);}
                 },
