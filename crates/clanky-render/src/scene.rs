@@ -29,11 +29,13 @@ pub struct Shape {
     pub shadow: Option<Shadow>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Fill {
     Solid([u8; 4]),
     /// Top and bottom straight RGBA colours.
     Vertical([u8; 4], [u8; 4]),
+    /// Two to eight straight RGBA stops, evenly spaced over the full rectangle.
+    VerticalStops(Vec<[u8; 4]>),
 }
 
 #[derive(Clone, Copy, Debug)]

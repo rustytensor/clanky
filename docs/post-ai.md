@@ -1,25 +1,37 @@
 # Post-AI mode
 
-**Not enforced on this branch yet.** The config loader accepts `post_ai`, but the window,
-server refusal and MCP exit behaviour are not connected. The main command line does not yet
-accept `--post-ai`. Do not rely on this setting to block agents; use the existing access
-controls and Ctrl+Shift+Escape instead.
+Post-AI mode blocks agents while keeping your terminals, shells, owner API and secret
+masking available. Server enforcement, command-line startup and MCP refusal are connected.
 
-## M12 behaviour
+## Turn it on
 
-Post-AI mode is a plain terminal with tabs and splits, without agent features.
-The intended controls are **Settings → General → Post-AI mode**, `{"post_ai":true}` in
-the config file, or `clanky --post-ai`.
+Set `{"post_ai":true}` in your [config file](config.md), or start with:
 
-- Keep tabs, splits, command cards, search, Settings, the editor and themes.
-- Keep secret masking: it is a safety feature, not an agent feature.
-- Hide Agents, the activity column, agent badges, access switches, Take over, Ask agent,
-  agent compose and pending-change review.
-- Refuse new agents and disconnect existing agents when the mode is enabled.
-- Refuse agent `hello` with `agents are off (Post-AI mode)`.
-- Make `clanky mcp` exit with status 2 and the same message; keep the owner API available.
+```sh
+clanky --post-ai
+```
 
-The command-line switch is intended to stay on for that process even if the config file
-changes. Without that switch, `post_ai: false` turns the mode off.
+The server applies config changes live. An authenticated owner can also use the
+[v4 post_ai operation](agent-api.md#version-4-agent-control-events-and-owner-safety-controls).
 
-See [agent access and masking](getting-started.md#agents-and-safety) for the controls that work now.
+- New agent connections and requests are refused, including requests that skip hello.
+- Existing agents are disconnected and pending waits are cancelled.
+- Agent hello reports `agents are off (Post-AI mode)`.
+- `clanky mcp` exits with status 2 and that message, even if its own config says false
+  but the target server has the mode enabled.
+- Existing shells and owner connections stay alive.
+
+**`--post-ai` forces the target server on until it restarts**, including when attaching to
+an existing server. Config edits and owner RPC cannot turn off that forced mode.
+
+Without a force, set `post_ai` to false to turn it off. Revoked permissions are not restored:
+the owner must explicitly resume agents and grant the required tab permissions again.
+
+## Window controls
+
+The Settings → General switch and hiding agent-only controls are still being connected.
+You may still see agent controls, but server refusal is enforced. The completed plain-terminal
+view keeps tabs, splits, command cards, search, Settings, editing, themes and masking; it hides
+Agents, activity, agent badges/access controls, Take over, Ask agent, agent compose and change review.
+
+See [verification results](m12-postai-results.md) and [agent access](getting-started.md#agents-and-safety).

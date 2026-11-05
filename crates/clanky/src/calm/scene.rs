@@ -105,7 +105,7 @@ impl<'a> Paint<'a>{
 
 pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Presentation{
     let c=&theme.colors;let s=layout.scale as f32;let [w,h]=layout.window_px.map(|n|n as f32);let inset=super::inset(layout);
-    let mut p=Paint{out:Presentation{scene:Scene{clear:alpha(c.sidebar,state.opacity),layers:vec![]},hits:vec![]},theme,measure,scale:s,pointer,pressed,clip:[0.0,0.0,w,h]};
+    let mut p=Paint{out:Presentation{scene:crate::theme_scene::window_background(theme,layout.window_px,state.opacity),hits:vec![]},theme,measure,scale:s,pointer,pressed,clip:[0.0,0.0,w,h]};
     p.shape(inset,12.0*s,c.background,Some(c.border));
     if let Some(side)=layout.left_rail{
         p.shape(r(side.x+16.0*s,16.0*s,32.0*s,32.0*s),8.0*s,c.primary,None);
