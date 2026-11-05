@@ -31,8 +31,15 @@ fn masked_command_anchors() {
     assert_eq!(wrapped.blocks().0[0].command_line, None);
     assert!(wrapped.card_metadata()["blocks"].as_array().unwrap().is_empty());
 
+    // Resizing keeps anchors on their logical lines (worked out by hand): at 40 columns
+    // the 54-character command line wraps onto two rows, so "ok" and the end move to
+    // line 2; widening back to 80 joins them again.
     terminal.resize(3, 40);
-    assert_eq!(terminal.blocks().0[0].command_line, None);
+    let b = &terminal.blocks().0[0];
+    assert_eq!((b.prompt_line, b.command_line, b.end_line), (Some(0), Some(0), Some(2)));
+    terminal.resize(3, 80);
+    let b = &terminal.blocks().0[0];
+    assert_eq!((b.prompt_line, b.command_line, b.end_line), (Some(0), Some(0), Some(1)));
     terminal.feed_masked("shell", b"\r\n\x1b]133;A\x07\x1b]133;B\x07echo ok\x1b]133;C\x07", &mask);
     assert!(terminal.blocks().0.last().unwrap().command_line.is_some());
     let mut plain = Terminal::new(3, 80);
