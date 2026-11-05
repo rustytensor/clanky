@@ -676,20 +676,21 @@ impl App {
         self.studio.shown.retain(|id,_| layout.pane(id).is_some());
         self.studio.cursors.retain(|id,_| layout.pane(id).is_some() || (id == "compose" && self.compose.active_target().is_some()));
         if let Some(card) = self.panels.card(modal_rect(&layout,24),&layout.metrics) { state.panels.push(card); }
-        if let Some(card) = self.files.prompt_card(modal_rect(&layout,5),&layout.metrics) { state.panels.push(card); }
+        if let Some(card) = self.files.prompt_card(modal_rect(&layout,3),&layout.metrics) { state.panels.push(card); }
         if let Some((rect, grid)) = self.dock(&layout) {
             let mut snapshot = cells(grid.rows,grid.cols,&state.theme);
             let mut underlines = self.compose.draw(&mut snapshot,&grid);
-            for row in [0,grid.rows.saturating_sub(2),grid.rows-1] {
-                let text=row_text(&snapshot,row);
-                ui_rows.push((PixelRect { x:rect.x+layout.metrics.panel_padding as f32,y:rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+row as f32*layout.cell_px[1] as f32,
-                    w:(rect.w-2.0*layout.metrics.panel_padding as f32).max(0.0),h:layout.cell_px[1] as f32 },text,Some("compose".into())));
-                for cell in &mut snapshot.cells[row*grid.cols..(row+1)*grid.cols] { cell.ch=' '; }
-            }
+            // The editor's own header and status rows are replaced by the card's title and
+            // one calm hint; the rows stay blank so the editor's geometry is unchanged.
+            // Errors and IME text arrive on the last row; otherwise the hint names the keys.
+            let status=row_text(&snapshot,grid.rows-1).trim().to_owned();
+            for cell in &mut snapshot.cells[(grid.rows-1)*grid.cols..grid.rows*grid.cols] { cell.ch=' '; }
+            ui_rows.push((PixelRect { x:rect.x+layout.metrics.panel_padding as f32,y:rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+grid.rows.saturating_sub(1) as f32*layout.cell_px[1] as f32,
+                w:(rect.w-2.0*layout.metrics.panel_padding as f32).max(0.0),h:layout.cell_px[1] as f32 },if status.is_empty(){"Ctrl+Enter sends · Esc closes".into()}else{status},Some("compose-hint".into())));
             for underline in &mut underlines { underline.color = rgb(state.theme.spelling); }
             widget(&mut snapshot,&state.theme);
             if let Some((row,col)) = snapshot.cursor { ime = Some([rect.x+layout.metrics.panel_padding as f32+col as f32*layout.cell_px[0] as f32,rect.y+(layout.metrics.panel_padding+layout.metrics.panel_header) as f32+row as f32*layout.cell_px[1] as f32]); }
-            state.panels.push(PanelState { id:"compose".into(),rect,title:format!("Compose → {} · memory-only",self.compose.active_target().unwrap_or("")),lines:Vec::new(),snapshot:Some(snapshot),underlines,opacity:1.0,rise_px:0.0 });
+            state.panels.push(PanelState { id:"compose".into(),rect,title:format!("Compose for {}",self.compose.active_target().and_then(|id|state.pane_labels.get(id)).cloned().unwrap_or_else(||"this pane".into())),lines:Vec::new(),snapshot:Some(snapshot),underlines,opacity:1.0,rise_px:0.0 });
         } else if self.compose.active_target().is_some() {
             state.panels.push(panel("compose-hidden",modal_rect(&layout,4),"Compose target is not visible",vec![line("Draft retained. Escape closes; Send never retargets another terminal.")]));
         }
@@ -803,8 +804,11 @@ impl App {
             let card=card_id.as_ref().and_then(|id|state.panels.iter().find(|p|p.id==*id));
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
-            let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
+            let hint=card_id.as_deref()==Some("compose-hint");
+            let card=if hint{state.panels.iter().find(|p|p.id=="compose")}else{card};let rise=card.map_or(rise,|p|p.rise_px);let opacity=card.map_or(opacity,|p|p.opacity);
+            let px=if hint || card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
+            let color=if hint{self.studio.calm_theme.colors.muted_foreground}else{state.theme.ink};
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.55}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
         let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {

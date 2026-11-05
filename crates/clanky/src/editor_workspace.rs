@@ -34,10 +34,12 @@ impl EditorWorkspace {
     pub fn prompt_card(&self, rect: clanky::look::PixelRect, metrics: &clanky::look::Metrics) -> Option<clanky::look::PanelState> {
         use clanky::look::{PanelState, PanelLine};
         let prompt = self.prompt.as_ref()?;
-        let title = if prompt.import { "Load changes JSON path" } else { "Open local file path[:line[:col]]" };
-        let tail: String=prompt.text.chars().rev().take(((rect.w-2.0*metrics.panel_padding as f32)/metrics.ui_font_px as f32).max(0.0) as usize/2).collect::<Vec<_>>().into_iter().rev().collect();
-        let lines = [format!("Target {} · Enter confirms · Escape cancels", prompt.target),
-            format!("{tail}▏"), self.preedit.clone()].into_iter()
+        let title = if prompt.import { "Load changes" } else { "Open file" };
+        let _ = (rect, metrics);
+        // Line 0 is the field's text (the calm card draws it as an input), line 1 the hint.
+        let hint = if prompt.import { "Path to a changes JSON file · Enter loads · Esc closes" }
+            else { "path, path:line or path:line:col · Enter opens · Esc closes" };
+        let lines = [prompt.text.clone() + &self.preedit, hint.to_owned()].into_iter()
             .map(|text| PanelLine { text, selected: false, action: None }).collect();
         Some(PanelState { id: "file-prompt".into(), rect, title: title.into(), lines,
             snapshot: None, underlines: Vec::new(), opacity: 1.0, rise_px: 0.0 })
