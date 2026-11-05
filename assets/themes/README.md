@@ -9,8 +9,9 @@ The app imports `clanky::themes::{Theme, Colors, Appearance, builtin, BUILTINS}`
 - `theme.ansi` holds 16 straight RGBA colours in ANSI order. Truecolour terminal data is not a theme token.
 - `window_gradient` is `Option<Vec<Color>>`: 2–8 evenly spaced stops, or none. `glow` is explicit.
 - `with_overrides` returns a changed copy without altering a built-in. `to_json` writes canonical JSON.
-- User-folder storage and import/export will follow this first API commit. This module does not yet replace
-  the M11 `look::Theme`; the app team owns that integration.
+- `clanky::theme_store::ThemeStore` supplies user-folder loading/reload, picker previews, save-as-new,
+  byte-preserving export/import and per-file errors. See [the Settings API](../../docs/theme-settings-api.md).
+  The app team owns UI integration and replacing the M11 `look::Theme`.
 
 Stone UI values come from the approved component sheets. The sheets' dark border/input base is #fff0e1,
 not the design example's #ffefe1. `robot_paint` is required: Stone dark #6b5236 and light #e3c08e. Alpha is rounded to RGBA8 (20 and 31). `primary_pressed` is required too: Stone dark #d6d0c8, light #3d3832. Other built-ins move primary about 8% toward background.

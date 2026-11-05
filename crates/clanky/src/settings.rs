@@ -59,7 +59,9 @@ impl Settings {
     }
     /// None resets just this colour to the selected palette's default.
     pub fn set_color(&mut self, token: &str, color: Option<&str>) -> Result<&Config, String> {
-        if !crate::look::COLOR_TOKENS.contains(&token) { return Err(format!("unknown color token: {token}")); }
+        if !crate::look::COLOR_TOKENS.contains(&token) && !crate::themes::COLOR_TOKENS.contains(&token) {
+            return Err(format!("unknown color token: {token}"));
+        }
         self.change(|document| {
             if document.get("colors").is_none() { document["colors"] = serde_json::json!({}); }
             let colors = document["colors"].as_object_mut().ok_or("colors must be an object")?;
