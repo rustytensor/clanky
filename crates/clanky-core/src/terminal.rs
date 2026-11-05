@@ -591,11 +591,54 @@ impl Terminal {
             return;
         }
         self.generation += 1;
-        // Reflow and height changes can relocate rows: never approximate anchors.
+        // Reflow re-wraps rows but keeps logical lines and the cursor: carry each anchor
+        // as "n logical lines above the cursor's line" and find that line again after.
+        // Anchors that are not at the start of a logical line cannot be carried exactly
+        // and are dropped, as every anchor was before.
+        let alternate = self.term.mode().contains(TermMode::ALT_SCREEN);
+        let before = (!alternate).then(|| self.logical_layout());
+        let mut carried = Vec::new();
+        if let Some(layout) = &before {
+            let distance = |line: Option<u64>| line.and_then(|line| layout.distance_above_cursor(line));
+            for block in self.observer.blocks.iter().chain(self.observer.active.iter()) {
+                carried.push([distance(block.prompt_line), distance(block.command_line), distance(block.end_line)]);
+            }
+            carried.push([distance(self.observer.prompt_start), distance(self.observer.command_start.map(|(line, _)| line)), None]);
+        }
+        let command_column = self.observer.command_start.map(|(_, column)| column);
         self.invalidate_anchors();
         self.size = Size(rows, cols);
         self.term.resize(self.size);
         self.observer.viewport = (rows, cols);
+        if before.is_some() && !self.term.mode().contains(TermMode::ALT_SCREEN) {
+            let after = self.logical_layout();
+            let mut carried = carried.into_iter();
+            for block in self.observer.blocks.iter_mut().chain(self.observer.active.iter_mut()) {
+                let Some([prompt, command, end]) = carried.next() else { break; };
+                block.prompt_line = prompt.and_then(|d| after.line_above_cursor(d));
+                block.command_line = command.and_then(|d| after.line_above_cursor(d));
+                block.end_line = end.and_then(|d| after.line_above_cursor(d));
+            }
+            if let Some([prompt, command, _]) = carried.next() {
+                self.observer.prompt_start = prompt.and_then(|d| after.line_above_cursor(d));
+                self.observer.command_start = command.and_then(|d| after.line_above_cursor(d)).zip(command_column);
+            }
+        }
+    }
+    /// Where logical lines start in the retained grid, and the cursor's logical line.
+    fn logical_layout(&self) -> LogicalLayout {
+        let grid = self.term.grid();
+        let history = grid.history_size();
+        let cols = self.size.1;
+        let mut starts = Vec::new();
+        let mut wrapped_before = false;
+        for row in -(history as i32)..self.size.0 as i32 {
+            if !wrapped_before { starts.push((row + history as i32) as u64); }
+            wrapped_before = cols > 0 && grid[Point::new(Line(row), Column(cols - 1))].flags.contains(Flags::WRAPLINE);
+        }
+        let cursor_row = history as u64 + grid.cursor.point.line.0.max(0) as u64;
+        let cursor = starts.partition_point(|start| *start <= cursor_row).saturating_sub(1);
+        LogicalLayout { evicted: grid.evicted_lines(), starts, cursor }
     }
     pub fn cwd(&self) -> Option<String> {
         self.observer.cwd.clone()
@@ -817,4 +860,20 @@ pub fn fixture() -> TerminalSnapshot {
     let mut t = Terminal::new(24, 80);
     t.feed("", "\x1b[31m█\x1b[?25l".as_bytes());
     t.snapshot()
+}
+
+/// Logical-line view of the retained grid used to carry anchors across a resize.
+struct LogicalLayout { evicted: u64, starts: Vec<u64>, cursor: usize }
+impl LogicalLayout {
+    /// Logical lines between an anchor's line and the cursor's, if the anchor starts a
+    /// logical line that is still retained and not below the cursor.
+    fn distance_above_cursor(&self, line: u64) -> Option<usize> {
+        let row = line.checked_sub(self.evicted)?;
+        let index = self.starts.binary_search(&row).ok()?;
+        self.cursor.checked_sub(index)
+    }
+    fn line_above_cursor(&self, distance: usize) -> Option<u64> {
+        let index = self.cursor.checked_sub(distance)?;
+        self.starts.get(index).map(|row| self.evicted + row)
+    }
 }
