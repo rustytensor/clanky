@@ -245,14 +245,36 @@ impl App {
             return Ok(true);
         }
         let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
+        let count=if self.applied_post_ai{2}else{3};
         match key {
             Key::Named(NamedKey::Escape)=>{self.studio.card_focus=None;self.reset_ime();},
-            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+3)%4,
-            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%4,
-            Key::Named(NamedKey::Enter)=>{self.panels.block_action(&self.engine,&tab,&id,["copy","rerun","send","collapse"][self.studio.card_action])?;self.local_request()?;},
+            Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+count-1)%count,
+            Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%count,
+            Key::Named(NamedKey::Enter)=>{let action=["copy","rerun","send"][self.studio.card_action%count];self.card_action(&tab,&id,action)?;},
             _=>(),
         }
         Ok(true)
+    }
+    /// Card actions from the Command card sheet: Copy, Rerun, Ask agent.
+    fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
+        match action {
+            // Copy keeps the owner palette's masked selection path.
+            "copy" => { self.panels.block_action(&self.engine, tab, block, "copy")?; self.status = Some("Output copied".into()); }
+            "rerun" => {
+                let command = self.studio.blocks.get(tab).and_then(|view| view["blocks"].as_array())
+                    .and_then(|blocks| blocks.iter().find(|b| b["block_id"].as_str() == Some(block)))
+                    .and_then(|b| b["command"].as_str()).ok_or("This command is no longer on screen")?.to_owned();
+                if command.trim().is_empty() || command.chars().any(|c| c.is_control()) { return Err("This command cannot be typed again".into()); }
+                self.engine.input(tab, format!("{command}\r").as_bytes()).map_err(|e| e.message)?;
+                self.sent_input = true;
+            }
+            "send" if !self.applied_post_ai => {
+                self.panels.send_block(&self.engine, tab, block, "Look at this command and its output")?;
+                self.status = Some("Sent to the agent queue".into());
+            }
+            _ => return Err("Unknown card action".into()),
+        }
+        Ok(())
     }
     pub(super) fn open_palette(&mut self) {
         if self.settings_open() { let _ = self.toggle_settings(); }
@@ -332,11 +354,7 @@ impl App {
                 self.studio.permissions.insert(id, !old);
             }
             HitAction::PaletteChoice(index) => { self.panels.choose(&self.engine, index); self.local_request()?; self.reset_ime(); }
-            HitAction::Block { tab_id, block_id, action } => {
-                // Existing owner palette permissions and explicit selection semantics remain authoritative.
-                self.panels.block_action(&self.engine, &tab_id, &block_id, &action)?;
-                if self.panels.open { self.reset_ime(); }
-            }
+            HitAction::Block { tab_id, block_id, action } => self.card_action(&tab_id, &block_id, &action)?,
         }
         Ok(())
     }
@@ -719,9 +737,6 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
-        // The first calm slice keeps the live grid intact; command-card controls
-        // return with their separate header layout in the next component pass.
-        for pane in &mut state.panes{pane.blocks.clear();}
         self.update_card_actions(&layout,&mut state,now);
         let terminal_px=self.metrics()?.font_px;
         let palette_context=self.palette_context();
@@ -851,10 +866,14 @@ fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockC
     let Some(blocks) = view["blocks"].as_array() else { return cards; };
     for block in blocks {
         let (Some(id), Some(command), Some(line)) = (block["block_id"].as_str(), block["command"].as_str(), block["command_line"].as_u64()) else { continue; };
-        if block["prompt_line"].as_u64().is_none() { continue; }
-        let Some(first) = line.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
-        let last = block["end_line"].as_u64().unwrap_or(line).saturating_sub(top)
-            .min(snapshot.rows.saturating_sub(1) as u64) as usize;
+        let Some(prompt) = block["prompt_line"].as_u64() else { continue; };
+        // Server lines (fish, measured): the command is typed on the line before output
+        // starts (command_line), and the finish mark sits on the next prompt's line.
+        let typed = if line > prompt { line - 1 } else { prompt };
+        let Some(first) = typed.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
+        let complete = block["complete"] == true;
+        let end = match block["end_line"].as_u64() { Some(end) if complete => end.saturating_sub(1).max(typed), _ => top + snapshot.rows as u64 - 1 };
+        let last = end.saturating_sub(top).min(snapshot.rows.saturating_sub(1) as u64) as usize;
         if last < first || cards.iter().any(|c: &look::BlockCard| first <= c.last_row && last >= c.first_row) { continue; }
         cards.push(look::BlockCard { id:id.into(), first_row:first, last_row:last, command:command.into(),
             exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()), duration_ms:block["duration_ms"].as_u64(), running:block["complete"] != true });
