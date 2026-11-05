@@ -38,7 +38,7 @@ def pixels(actual, expected, name):
             raise Mismatch(f'{name} {xy}: expected {wanted!r} ±3, observed {value!r}')
 
 
-def compare(data, scene_only=False):
+def compare(data, scene_only=False, no_idle=False):
     layout = data['layout']
     exact(layout['inset'], [256, 8, 976, 744], 'inset')
     for key, rect, origin in [('a', [268, 76, 672, 326], [280, 126]),
@@ -74,7 +74,7 @@ def compare(data, scene_only=False):
     sizes = data['ui_text_px']
     if not isinstance(sizes, list) or not sizes or not all(type(x) in (int, float) and math.isfinite(x) and x >= 12 for x in sizes):
         raise Mismatch('UI text runs: expected nonempty list of finite sizes >= 12 px')
-    if scene_only:
+    if scene_only or no_idle:
         return
     idle = data['idle']
     exact(idle['no_input_frames'], 0, 'idle frames')
@@ -86,14 +86,17 @@ def compare(data, scene_only=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scene-only', action='store_true')
+    parser.add_argument('--no-idle', action='store_true')
     args = parser.parse_args()
     try:
-        compare(json.load(sys.stdin), args.scene_only)
+        compare(json.load(sys.stdin), args.scene_only, args.no_idle)
     except (Mismatch, KeyError, TypeError, ValueError) as error:
         print(f'FAIL: M12 partial comparisons: {error}', file=sys.stderr)
         return 1
     if args.scene_only:
         print('PASS: M12 scene comparisons only (PTYs, restore, idle and other checks not run)')
+    elif args.no_idle:
+        print('PASS: M12 layout, PTY, restore and scene comparisons only')
     else:
         print('PASS: M12 partial comparisons only (clicks, themes and Post-AI API not checked)')
     return 0

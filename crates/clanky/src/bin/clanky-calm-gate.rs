@@ -1,9 +1,74 @@
 //! M12 observation harness. Incomplete checks remain absent, never fabricated.
-use clanky::{calm, look::{BlockCard, LookState, PaneState}, themes};
-use clanky_core::{layout::{Axis, Layout as Tree}, snapshot_from_chunks};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use clanky::{calm, layout_store, look::{self, BlockCard, LookState, PaneState}, themes};
+use clanky_api::Client;
+use clanky_core::{Engine, layout::{Axis, Layout as Tree}, snapshot_from_chunks};
 use clanky_render::{Layer, offscreen_scene};
 use serde_json::{Value, json};
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, process::{Child, Command, Stdio}, thread, time::{Duration, Instant}};
+
+struct Session(Engine);
+impl Drop for Session { fn drop(&mut self) { self.0.shutdown(); } }
+fn pty_size(engine: &Engine, pane: &look::PaneLayout) -> Result<Vec<usize>, String> {
+    let call = |op: &str, args: Value| engine.request(op, &args, true).map_err(|e| e.message);
+    let tab = call("open_tab", json!({"rows":pane.rows,"cols":pane.cols,"allow_agent":false}))?["tab_id"].as_str().ok_or("missing tab")?.to_owned();
+    let command = call("run", json!({"tab_id":tab,"argv":["sh","-c","stty size"],"cwd":"/"}))?["command_id"].as_str().ok_or("missing command")?.to_owned();
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        if call("wait",json!({"tab_id":tab,"command_id":command,"timeout_ms":1000}))?["done"] == true { break; }
+        if Instant::now() > end { return Err("PTY wait timed out".into()); }
+    }
+    let output = call("get_output",json!({"tab_id":tab,"command_id":command,"offset":0,"limit":1024,"encoding":"base64"}))?;
+    let bytes = STANDARD.decode(output["data"].as_str().ok_or("missing PTY data")?).map_err(|e| e.to_string())?;
+    let size = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?.split_whitespace().map(|s|s.parse::<usize>().map_err(|e|e.to_string())).collect::<Result<Vec<_>,_>>()?;
+    call("close_tab",json!({"tab_id":tab}))?;
+    Ok(size)
+}
+struct StoreServer { child: Child, client: Client }
+impl StoreServer {
+    fn start(socket: &Path) -> Result<Self, String> {
+        let app = env::current_exe().map_err(|e|e.to_string())?.with_file_name("clanky");
+        let mut child = Command::new(app).arg("--server").arg("--socket").arg(socket).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let client = loop {
+            if let Ok(client) = Client::connect_owner(socket) { break client; }
+            if Instant::now() >= deadline || child.try_wait().map_err(|e|e.to_string())?.is_some() {
+                let _ = child.kill(); let _ = child.wait(); return Err("store server startup failed".into());
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        Ok(Self { child, client })
+    }
+}
+impl Drop for StoreServer {
+    fn drop(&mut self) {
+        let _ = Command::new("kill").arg("-TERM").arg(self.child.id().to_string()).status();
+        let _ = self.child.wait();
+    }
+}
+fn restored_layout(dir: &Path, ratio: f64) -> Result<(look::Layout,String,String), String> {
+    let path=dir.join("config/clanky/layout.json");
+    let first=StoreServer::start(&dir.join("save.sock"))?;
+    let call=|op:&str,args:Value|first.client.exchange(1,op,&args).map_err(|e|e.message);
+    let mut ids=Vec::new();
+    for _ in 0..2 {
+        let id=call("open_tab",json!({"rows":13,"cols":81,"allow_agent":false}))?["tab_id"].as_str().ok_or("missing store tab")?.to_owned();
+        call("run",json!({"tab_id":id,"argv":["sh","-c","sleep 600"],"cwd":"/"}))?;
+        ids.push(id);
+    }
+    let mut tree=Tree::branch(Axis::Rows,Tree::leaf(&ids[0]),Tree::leaf(&ids[1]));
+    tree.set_ratio(&[],ratio)?;
+    let mut workspace=first.client.workspace_get().map_err(|e|e.message)?;
+    workspace.groups=vec![clanky_core::WorkspaceGroup{layout:tree,focus:ids[1].clone()}]; workspace.active=0;
+    first.client.workspace_set(&workspace).map_err(|e|e.message)?;
+    layout_store::save(&first.client,&path)?; drop(first);
+    let second=StoreServer::start(&dir.join("restore.sock"))?;
+    if !layout_store::restore(&second.client,&path,true)? { return Err("store did not restore".into()); }
+    let workspace=second.client.workspace_get().map_err(|e|e.message)?;
+    let tree=&workspace.groups.first().ok_or("missing restored group")?.layout;
+    let ids=tree.leaves(); if ids.len()!=2 { return Err("wrong restored pane count".into()); }
+    Ok((calm::layout([1240,760],1.0,true,false,tree,[8,20]),ids[0].clone(),ids[1].clone()))
+}
 
 fn pane(layout: &clanky::look::Layout, id: &str) -> Result<Value, String> {
     let p = layout.pane(id).ok_or("missing fixture pane")?;
@@ -40,6 +105,10 @@ fn run() -> Result<(), String> {
     let hidden = calm::layout([1240,760],1.0,false,false,&tree,[8,20]);
     let plain = calm::layout([1240,760],1.0,true,true,&tree,[8,20]);
     let moved = calm::drag_divider(&shown,0,300.0)?;
+    let engine = Session(Engine::new());
+    let pty_a = pty_size(&engine.0,shown.pane("A").ok_or("pane A")?)?;
+    let pty_b = pty_size(&engine.0,shown.pane("B").ok_or("pane B")?)?;
+    let (restored,restored_a,restored_b) = restored_layout(output,moved.ratio)?;
     let mut a = PaneState::new("A",snapshot_from_chunks(13,81,&[]).map_err(|e| e.message)?);
     a.title = "~/git/clanky".into();
     let mut b = PaneState::new("B",snapshot_from_chunks(13,81,&[b"cargo build"]).map_err(|e| e.message)?);
@@ -51,9 +120,9 @@ fn run() -> Result<(), String> {
     let (light,_) = render(&shown,&state,"stone-light",output,false)?;
     let (bedazzled,_) = render(&shown,&state,"ai-bedazzled",output,false)?;
     println!("{}",json!({
-        "layout":{"inset":calm::inset(&shown).array(),"a":pane(&shown,"A")?,"b":pane(&shown,"B")?},
+        "layout":{"inset":calm::inset(&shown).array(),"a":pane(&shown,"A")?,"b":pane(&shown,"B")?,"pty_a":pty_a,"pty_b":pty_b},
         "hidden":{"inset":calm::inset(&hidden).array(),"a":pane(&hidden,"A")?},
-        "drag":{"a":pane(&moved.layout,"A")?,"b":pane(&moved.layout,"B")?},
+        "drag":{"a":pane(&moved.layout,"A")?,"b":pane(&moved.layout,"B")?,"restored_a":pane(&restored,&restored_a)?,"restored_b":pane(&restored,&restored_b)?},
         "post_ai":{"a":pane(&plain,"A")?},
         "pixels":{"dark":dark,"light":light,"bedazzled":bedazzled},"ui_text_px":sizes
     }));
