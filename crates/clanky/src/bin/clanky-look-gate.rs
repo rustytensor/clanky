@@ -84,10 +84,31 @@ fn pane(layout: &look::Layout, id: &str) -> Value {
     json!({"rect":p.rect.array(),"origin":p.grid_origin,"cols":p.cols,"rows":p.rows})
 }
 fn sample(bytes: &[u8], x: usize, y: usize) -> &[u8] { &bytes[(y*1240+x)*4..][..4] }
+fn idle_frames() -> Result<u64,String> {
+    let force=env::var("CLANKY_GATE_FAULT").as_deref()==Ok("idle");
+    let mut clock=clanky::frame_clock::FrameClock::new(force);
+    let scene=clanky_render::Scene{clear:[0,0,0,255],layers:Vec::new()};
+    let now=Instant::now();
+    if clock.request_due(now){clock.begin_frame();offscreen_scene(&scene,32,32)?;clock.presented(Instant::now(),None);}
+    let startup=clock.frames();let end=Instant::now()+Duration::from_secs(2);
+    while Instant::now()<end {
+        let now=Instant::now();let wake=clock.deadline(now).unwrap_or(end).min(end);
+        thread::sleep(wake.saturating_duration_since(now));
+        if Instant::now()<end && clock.request_due(Instant::now()) {
+            clock.begin_frame();offscreen_scene(&scene,32,32)?;clock.presented(Instant::now(),None);
+        }
+    }
+    Ok(clock.frames()-startup)
+}
 fn main() {
     if let Err(error) = run() { eprintln!("FAIL: M11 observation: {error}"); std::process::exit(1); }
 }
 fn run() -> Result<(), String> {
+    if env::args().nth(1).as_deref()==Some("--idle-only") {
+        let frames=idle_frames()?;
+        if frames!=0{return Err(format!("idle frames over 2 s: expected 0, observed {frames}"));}
+        println!("PASS: idle frames over 2 s: 0");return Ok(());
+    }
     let output = env::args().nth(1).ok_or("missing raw image path")?;
     let tree = Tree::branch(Axis::Rows, Tree::leaf("A"), Tree::leaf("B"));
     let shown = look::layout([1240,760],1.0,true,&tree,[10,20]);
@@ -191,7 +212,9 @@ fn run() -> Result<(), String> {
     let mut opacity_pixel = sample(&opacity_image,590,44).to_vec();
     if env::var("CLANKY_GATE_FAULT").as_deref() == Ok("settings") { opacity_pixel[3] = 255; }
     let ease = look::ease_out_cubic;
+    let idle=idle_frames()?;
     println!("{}",json!({
+        "idle_frames":idle,
         "layout":{"content":shown.content.array(),"a":pane(&shown,"A"),"b":pane(&shown,"B"),"pty_a":pty_a,"pty_b":pty_b},
         "rails_hidden":{"a":pane(&hidden,"A"),"b":pane(&hidden,"B")},
         "drag":{"a":pane(&dragged.layout,"A"),"b":pane(&dragged.layout,"B"),"restored_a":pane(&restored,&restored_a),"restored_b":pane(&restored,&restored_b)},

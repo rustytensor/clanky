@@ -42,12 +42,14 @@ impl App {
     fn apply_settings(&mut self)->Result<(),String> {
         let Some(panel)=&self.settings else{return Ok(());};
         let config=panel.store.config().clone();
+        self.frame_clock.invalidate();
         let font_changed=config.font_size_pt!=self.config.font_size_pt;
         let geometry_changed=config.columns!=self.config.columns || config.rows!=self.config.rows;
         if config.font_family!=self.config.font_family || config.ui_font_family!=self.config.ui_font_family {
             if let Some(renderer)=&mut self.renderer {
                 renderer.set_font_families(&config.font_family,&config.ui_font_family)?;
             }
+            self.invalidate_scene_fonts();
         }
         if config.compose_dictionary!=self.config.compose_dictionary || config.compose_dictionary_dir!=self.config.compose_dictionary_dir
             || config.compose_words!=self.config.compose_words || config.compose_send_enter!=self.config.compose_send_enter {
@@ -75,12 +77,13 @@ impl App {
         let result=self.settings.as_mut().map(|panel|panel.store.reload());
         match result {
             Some(Ok(true))=>{
+                self.frame_clock.invalidate();
                 if let Some(panel)=&mut self.settings {
                     if panel.error.is_some() && self.status==panel.error {self.status=None;}
                     panel.error=None;
                 }
                 if let Err(error)=self.apply_settings(){self.status=Some(error.clone());if let Some(panel)=&mut self.settings{panel.error=Some(error);}}},
-            Some(Err(error))=>{self.status=Some(error.clone());if let Some(panel)=&mut self.settings{panel.error=Some(error);}},
+            Some(Err(error))=>{self.frame_clock.invalidate();self.status=Some(error.clone());if let Some(panel)=&mut self.settings{panel.error=Some(error);}},
             _=>(),
         }
     }

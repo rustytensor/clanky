@@ -23,6 +23,11 @@ struct Scroll {
 pub struct Studio {
     pub drag: Option<Capture>,
     pub(crate) theme: look::Theme,
+    calm_theme: clanky::themes::Theme,
+    terminal_info:BTreeMap<String,Value>,
+    scene_cache:look::SceneCache,
+    title:Option<String>,
+    ime:Option<([u32;2],[u32;2])>,
     hits: Vec<Hotspot>,
     metadata: Value,
     permissions: BTreeMap<String, bool>,
@@ -43,7 +48,7 @@ pub struct Studio {
 }
 impl Default for Studio {
     fn default() -> Self {
-        Self { drag: None, theme: look::Theme::default(), hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
+        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
@@ -101,7 +106,7 @@ impl App {
     pub(super) fn layout_with(&self, server: &Tree) -> Result<look::Layout, String> {
         let m = self.metrics()?;
         let size = self.window.as_ref().ok_or("window not ready")?.inner_size();
-        Ok(look::layout([size.width, size.height], self.scale, self.panels.visible,
+        Ok(clanky::calm::layout([size.width, size.height], self.scale, self.panels.visible,false,
             &expand(&self.files.layout, server), [m.cell_width, m.cell_height]))
     }
     pub(super) fn pixel_layout(&self) -> Result<look::Layout, String> {
@@ -146,32 +151,56 @@ impl App {
         let (col, row) = point(&pane, self.mouse, layout.cell_px, clamp)?;
         Some((grid, col, row))
     }
-    fn refresh_studio(&mut self) {
+    pub(super) fn refresh_studio(&mut self) -> bool {
         let now = Instant::now();
-        if now < self.studio.next_metadata { return; }
-        self.studio.next_metadata = now + Duration::from_millis(250);
+        if now < self.studio.next_metadata { return false; }
+        self.studio.next_metadata = now + Duration::from_secs(1);
+        let stable=|value:&Value| {let mut value=value.clone();
+            if let Some(object)=value.as_object_mut(){object.remove("uptime_ms");}
+            if let Some(events)=value.get_mut("events").and_then(Value::as_array_mut){for event in events{if let Some(object)=event.as_object_mut(){object.remove("age_ms");}}}
+            value
+        };
+        let before=stable(&self.studio.metadata);
+        let old_permissions=self.studio.permissions.clone();
+        let old_info=self.studio.terminal_info.clone();
         self.studio.metadata = if self.engine.is_closed() { Value::Null } else {
             self.engine.exchange(3, "look_state", &json!({})).unwrap_or(Value::Null)
         };
         let ids: Vec<_> = self.groups.get(self.active).map(|g| g.layout.leaves()).unwrap_or_default();
         self.studio.permissions.retain(|id, _| ids.contains(id));
         self.studio.blocks.retain(|id, _| ids.contains(id));
+        let all:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
+        self.studio.terminal_info.retain(|id,_|all.contains(id));
         for id in ids {
+            if let Ok(info)=self.engine.exchange(3,"terminal_info",&json!({"tab_id":id})){self.studio.terminal_info.insert(id.clone(),info);}
             match self.engine.agent_permission(&id) {
                 Ok(allowed) => { self.studio.permissions.insert(id.clone(), allowed); }
                 Err(_) => { self.studio.permissions.remove(&id); }
             }
-            if let Ok(view) = self.engine.palette_action("view", &json!({"tab_id":id,"limit":64}), true) {
-                self.studio.blocks.insert(id, view);
-            } else { self.studio.blocks.remove(&id); }
         }
         // Server-owned minute buckets count successful agent run/rerun operations,
         // never output-event frequency or the timing of GUI polling.
         self.studio.activity = self.studio.metadata["activity"].as_array()
             .map(|values| values.iter().take(30).filter_map(Value::as_u64).map(|n| n as f32).collect())
             .unwrap_or_default();
-        let focused = self.focused().map(str::to_owned);
-        if !self.engine.is_closed() { self.panels.refresh(&self.engine, focused.as_deref()); }
+        before!=stable(&self.studio.metadata) || old_permissions!=self.studio.permissions || old_info!=self.studio.terminal_info
+    }
+    fn animation_deadline(&self,state:&LookState)->Option<Instant>{
+        if !self.config.animations{return None;}
+        let now=Instant::now();let m=look::Metrics::DEFAULT;
+        let mut deadlines=Vec::new();
+        for (id,cursor) in &self.studio.cursors {
+            let visible=id=="compose" && self.compose.active_target().is_some();
+            if visible && cursor.from!=cursor.to{deadlines.push(cursor.start+Duration::from_secs_f32(m.cursor_ms/1000.0));}
+        }
+        deadlines.extend(self.studio.scrolls.values().map(|scroll|scroll.start+Duration::from_secs_f32(m.scroll_ms/1000.0)));
+        deadlines.extend(self.studio.panels.values().map(|start|*start+Duration::from_secs_f32(m.panel_ms/1000.0)));
+        deadlines.extend(self.studio.card_clocks.values().map(|start|*start+Duration::from_millis(120)));
+        if let Some(end)=self.settings.as_ref().and_then(|panel|panel.animation_deadline()){deadlines.push(end);}
+        if state.panes.iter().any(|pane|pane.blocks.iter().any(|block|block.running && block.first_row<pane.snapshot.rows)){
+            deadlines.push(now+clanky::frame_clock::FRAME_INTERVAL*2);
+        }
+        deadlines.into_iter().filter(|end|*end>now).max()
     }
     fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
         self.studio.card_keys.clear();
@@ -199,6 +228,8 @@ impl App {
     pub fn settings_button_hit(&self)->bool {
         self.studio.hits.iter().any(|hit|hit.action==HitAction::Settings && hit.rect.contains(self.mouse.0,self.mouse.1))
     }
+    pub(super) fn reset_ime_position(&mut self){self.studio.ime=None;}
+    pub(super) fn invalidate_scene_fonts(&mut self){self.studio.scene_cache.clear();}
     pub fn clear_card_focus(&mut self) {self.studio.card_focus=None;}
     pub fn card_focused(&self)->bool {self.studio.card_focus.is_some()}
     pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
@@ -223,6 +254,8 @@ impl App {
     fn activate_studio(&mut self, action: HitAction) -> Result<(), String> {
         match action {
             HitAction::Settings=>{self.toggle_settings()?;},
+            HitAction::NewTab=>{self.new_tab()?;},
+            HitAction::Split=>{self.split(Axis::Columns)?;},
             HitAction::Palette => {
                 self.palette_editor = Some(self.files.focus.clone());
                 let focused = self.focused().map(str::to_owned);
@@ -326,7 +359,7 @@ impl App {
             if self.revision != capture.revision || self.files.layout != capture.local { return Ok(()); }
             let divider = &capture.layout.dividers[capture.index];
             let pointer = if divider.axis == Axis::Rows { self.mouse.1 } else { self.mouse.0 };
-            let moved = look::drag_divider(&capture.layout, capture.index, pointer)?;
+            let moved = clanky::calm::drag_divider(&capture.layout, capture.index, pointer)?;
             let mut prefix = Vec::new();
             terminal_path(&self.files.layout, &mut prefix);
             if divider.path.starts_with(&prefix) {
@@ -383,9 +416,8 @@ impl App {
 
     pub(super) fn draw_studio(&mut self) -> Result<(), String> {
         if self.stop || self.is_suspended() { return Ok(()); }
-        self.resize_panes()?;
-        self.refresh_studio();
         let layout = self.pixel_layout()?;
+        self.studio.theme=clanky::calm::legacy_palette(&self.studio.calm_theme);
         self.files.viewport = Some(layout.clone());
         let now = Instant::now();
         let mut state = LookState { theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
@@ -399,7 +431,7 @@ impl App {
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(id) = group.layout.leaves().first() {
                 state.session_counts.insert(id.clone(),group.layout.leaves().len());
-                state.sessions.push(look::SessionItem { id: id.clone(), title: format!("Session {} · {}", index+1, group.focus), active: index == self.active });
+                state.sessions.push(look::SessionItem { id: id.clone(), title: self.studio.terminal_info.get(&group.focus).and_then(|info|info["cwd"].as_str()).and_then(|cwd|std::path::Path::new(cwd).file_name()).map(|name|name.to_string_lossy().into_owned()).unwrap_or_else(||format!("Session {}",index+1)), active: index == self.active });
             }
         }
         for (id, editor) in &self.files.panes {
@@ -434,7 +466,7 @@ impl App {
         for pane in &layout.panes {
             if pane.rows == 0 || pane.cols == 0 { continue; }
             let mut snapshot;
-            let mut title = pane.id.clone();
+            let mut title = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).unwrap_or(&pane.id).to_owned();
             let mut editor_rows = None;
             if self.files.panes.contains_key(&pane.id) {
                 snapshot = cells(pane.rows, pane.cols, &state.theme);
@@ -481,7 +513,8 @@ impl App {
                 }
                 widget(&mut snapshot,&state.theme);
             } else {
-                let (current, anchors) = match self.engine.snapshot_with_blocks(&pane.id) { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
+                let cached=if self.terminal_dirty{None}else{self.engine.cached_snapshot_with_blocks(&pane.id)};
+                let (current, anchors) = match cached.map(Ok).unwrap_or_else(||self.engine.snapshot_with_blocks(&pane.id)) { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
                 snapshot = current;
                 self.studio.blocks.insert(pane.id.clone(), anchors);
             }
@@ -498,12 +531,14 @@ impl App {
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
-            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else { String::new() };
+            view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else {
+                self.studio.terminal_info.get(&pane.id).and_then(|info|info["exe"].as_str()).and_then(|exe|std::path::Path::new(exe).file_name()).map(|name|name.to_string_lossy().into_owned()).unwrap_or_default()
+            };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
                 if let Some(driver) = drivers.iter().find(|d| d["tab_id"].as_str() == Some(pane.id.as_str()) && d["running"] == true) {
                     view.agent_running = true;
-                    view.driver = format!("Agent {} · PID {}",driver["connection_id"],driver["peer_pid"]);
-                } else if !self.studio.metadata.is_null() { view.driver = "Terminal".into(); }
+                    view.driver = driver["connection_id"].as_u64().and_then(|id|state.agent_labels.get(&id)).cloned().unwrap_or_else(||format!("agent {}",driver["peer_pid"]));
+                } else if view.driver.is_empty() && !self.studio.metadata.is_null() { view.driver = "Terminal".into(); }
             }
             if state.focused.as_deref() == Some(pane.id.as_str()) {
                 if let Some((row,col)) = snapshot.cursor.filter(|(r,c)| *r<pane.rows && *c<pane.cols) {
@@ -622,9 +657,13 @@ impl App {
                 self.studio.snapshots.insert("compose".into(),snapshot.clone());
             }
         }
+        // The first calm slice keeps the live grid intact; command-card controls
+        // return with their separate header layout in the next component pass.
+        for pane in &mut state.panes{pane.blocks.clear();}
         self.update_card_actions(&layout,&mut state,now);
+        let terminal_px=self.metrics()?.font_px;
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
-        let mut presentation = look::presentation_with_measure(&layout,&state,&mut |run| renderer.measure_text(run));
+        let mut presentation = clanky::calm::presentation(&layout,&state,&self.studio.calm_theme,terminal_px,self.mouse,self.pointer_pressed,&mut |run| renderer.measure_text(run));
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
@@ -673,7 +712,7 @@ impl App {
             let card=card_id.as_ref().and_then(|id|state.panels.iter().find(|p|p.id==*id));
             let rise=card.map_or(0.0,|p|p.rise_px);
             let opacity=card.map_or(1.0,|p|p.opacity);
-            let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { (layout.metrics.small_font_px as f32).min(layout.cell_px[0] as f32) } else { layout.metrics.ui_font_px as f32 };
+            let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
             if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
         if let Some(status) = &self.status {
@@ -686,10 +725,22 @@ impl App {
         }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {
-            window.set_title(&format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points()));
-            if let Some([x,y]) = ime { window.set_ime_cursor_area(PhysicalPosition::new(x.max(0.0) as u32,y.max(0.0) as u32),PhysicalSize::new(layout.cell_px[0],layout.cell_px[1])); }
+            let title=format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points());
+            if self.studio.title.as_ref()!=Some(&title){window.set_title(&title);self.studio.title=Some(title);}
+            if let Some([x,y])=ime {
+                let area=([x.max(0.0) as u32,y.max(0.0) as u32],layout.cell_px);
+                if self.studio.ime!=Some(area){window.set_ime_cursor_area(PhysicalPosition::new(area.0[0],area.0[1]),PhysicalSize::new(area.1[0],area.1[1]));self.studio.ime=Some(area);}
+            }
         }
-        self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)
+        if let Some(pane) = layout.panes.first() {
+            self.draw_robot(&mut presentation.scene, pane.rect.array())?;
+        }
+        self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
+        self.frame_trace.presented();
+        self.terminal_dirty=false;
+        let animation_end=self.animation_deadline(&state).into_iter().chain(self.robot_deadline()).max();
+        self.frame_clock.presented(Instant::now(),animation_end);
+        Ok(())
     }
 }
 fn truncate(text: &str, chars: f32) -> String {

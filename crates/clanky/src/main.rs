@@ -1,5 +1,8 @@
 mod studio;
+mod robot_window;
+mod hello;
 mod settings_window;
+mod window_events;
 mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
@@ -65,6 +68,7 @@ fn run() -> Result<(), String> {
     let (mut headless, mut socket, mut config_path) = (false, None, None);
     let mut stdio = false;
     let mut mcp = false;
+    let mut hello = false;
     let mut host = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -72,6 +76,7 @@ fn run() -> Result<(), String> {
             "--headless" | "--server" => headless = true,
             "--stdio" => stdio = true,
             "mcp" => mcp = true,
+            "+hello" => hello = true,
             "attach" => host = Some(args.next().ok_or("attach needs a host")?),
             "--socket" => socket = Some(PathBuf::from(args.next().ok_or("--socket needs a path")?)),
             "--config" => {
@@ -79,12 +84,18 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument: {arg}")),
         }
+    }
+    if hello {
+        if host.is_some() || socket.is_some() || headless || stdio || mcp {
+            return Err("+hello is a standalone window; it cannot use server, socket, attach, stdio or MCP mode".into());
+        }
+        return hello::run(Config::load(config_path.as_deref())?);
     }
     if host.is_some() && (socket.is_some() || headless || stdio || mcp) {
         return Err("attach cannot use --socket, --server, --headless, --stdio or mcp".into());
@@ -131,13 +142,22 @@ struct App {
     groups: Vec<Group>,
     active: usize,
     sizes: BTreeMap<String, (usize, usize)>,
+    minimum_window: Option<[u32;2]>,
     modifiers: ModifiersState,
     mouse: (f64, f64),
+    pointer_pressed: bool,
     input: InputState,
     occluded: bool,
     error: Option<String>,
     status: Option<String>,
-    next_frame: Instant,
+    frame_clock: clanky::frame_clock::FrameClock,
+    window_events: Option<window_events::WindowEvents>,
+    fallback_poll: bool,
+    terminal_dirty: bool,
+    persist_dirty: bool,
+    sent_input: bool,
+    file_stamps: BTreeMap<PathBuf,(Option<std::time::SystemTime>,u64)>,
+    frame_trace: clanky::frame_trace::FrameTrace,
     panels: panels::Panels,
     files: EditorWorkspace,
     local_files: bool,
@@ -158,6 +178,7 @@ struct App {
     settings: Option<clanky::settings_panel::SettingsPanel>,
     settings_error: Option<String>,
     next_settings: Instant,
+    startup: Option<(Instant, clanky::robot::Animation)>,
 }
 
 fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>) -> Result<(), String> {
@@ -167,7 +188,10 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         None=>(None,Some("No settings path is available".into())),
     };
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
-    let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
+    let event_loop = EventLoop::<window_events::WindowNotice>::with_user_event().build().map_err(|e| e.to_string())?;
+    let (window_events,feed_error)=match window_events::WindowEvents::start(&engine,event_loop.create_proxy()) {
+        Ok(events)=>(Some(events),None),Err(error)=>(None,Some(error)),
+    };let fallback_poll=feed_error.is_some();
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
     let rails = config.rails;
@@ -190,13 +214,17 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         groups: workspace.groups,
         active: workspace.active,
         sizes: BTreeMap::new(),
+        minimum_window: None,
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
+        pointer_pressed: false,
         input: InputState::default(),
         occluded: false,
         error: None,
-        status: None,
-        next_frame: Instant::now(),
+        status: feed_error,
+        frame_clock: clanky::frame_clock::FrameClock::default(),
+        window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
+        frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
         panels: panels::Panels::new(rails),
         files: EditorWorkspace::default(),
         local_files,
@@ -208,6 +236,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         persistence,
         studio: studio::Studio::default(),
         settings,settings_error,next_settings:Instant::now(),
+        startup: None,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -218,7 +247,7 @@ impl App {
         self.engine.request(op, &args, true).map_err(|e| e.message)
     }
     fn metrics(&self) -> Result<Metrics, String> {
-        self.zoom.metrics(self.scale)
+        clanky::calm::font_metrics(&self.zoom,self.scale)
     }
     fn full_rect(&self) -> Result<Rect, String> {
         let m = self.metrics()?;
@@ -283,6 +312,7 @@ impl App {
         self.groups.get(self.active).map(|g| g.focus.as_str())
     }
     fn reset_ime(&mut self) {
+        self.reset_ime_position();
         self.input.focus_lost();
         self.compose.preedit("");
         if let Some(w) = &self.window {
@@ -291,6 +321,7 @@ impl App {
         }
     }
     fn load_workspace(&mut self, workspace: Workspace) {
+        self.frame_clock.invalidate();self.terminal_dirty=true;self.persist_dirty=true;
         let previous = self.focused().map(str::to_owned);
         if self.revision != workspace.revision { self.studio.drag = None; }
         self.revision = workspace.revision;
@@ -353,7 +384,8 @@ impl App {
         let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         let focused = self.focused().map(str::to_owned);
         self.notifications.poll_client(&self.engine, &ids, self.config.notify_after_seconds, self.window_focused, focused.as_deref())?;
-        self.persist_layout()
+        if self.persist_dirty {self.persist_layout()?;self.persist_dirty=false;}
+        Ok(())
     }
     fn is_suspended(&self) -> bool {
         self.occluded
@@ -367,8 +399,11 @@ impl App {
         self.sync_groups()?;
         let layout = self.pixel_layout()?;
         self.files.viewport = Some(layout.clone());
-        if let Some(window) = &self.window {
-            window.set_min_inner_size(Some(PhysicalSize::new(layout.minimum_window_px[0], layout.minimum_window_px[1])));
+        if self.minimum_window!=Some(layout.minimum_window_px) {
+            if let Some(window)=&self.window {
+                window.set_min_inner_size(Some(PhysicalSize::new(layout.minimum_window_px[0],layout.minimum_window_px[1])));
+                self.minimum_window=Some(layout.minimum_window_px);
+            }
         }
         let layouts=self.groups.iter().map(|g|self.pixel_layout_for(&g.layout)).collect::<Result<Vec<_>,_>>()?;
         for layout in layouts {
@@ -496,11 +531,12 @@ impl App {
         self.reset_ime();
         self.resize_panes()
     }
-    fn send(&self, bytes: &[u8]) -> Result<(), String> {
+    fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
         if self.search.active_target().is_some() || self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
         if !bytes.is_empty() {
             if let Some(id) = self.focused() {
                 self.engine.input(id, bytes).map_err(|e| e.message)?;
+                self.sent_input=true;
             }
         }
         Ok(())
@@ -698,13 +734,29 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<window_events::WindowNotice> for App {
+    fn user_event(&mut self,_event_loop:&ActiveEventLoop,event:window_events::WindowNotice){
+        match event {
+            window_events::WindowNotice::Changed=>{
+                if let Some(events)=&self.window_events{events.received();}
+                let revision=self.revision;
+                if let Err(error)=self.sync_groups(){self.status=Some(error);}
+                if revision!=self.revision{if let Err(error)=self.resize_panes(){self.status=Some(error);}}
+                self.terminal_dirty=true;self.persist_dirty=true;self.frame_clock.invalidate();
+            },
+            window_events::WindowNotice::Unavailable(error)=>{
+                self.fallback_poll=true;
+                self.status=Some(format!("Update/restart server for immediate output notifications: {error}"));
+                self.frame_clock.invalidate();
+            },
+        }
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
         let result = (|| {
-            let base = self.zoom.metrics(1.0)?;
+            let base = clanky::calm::font_metrics(&self.zoom,1.0)?;
             let window = Arc::new(
                 event_loop
                     .create_window(
@@ -712,8 +764,8 @@ impl ApplicationHandler for App {
                             .with_title("Clanky")
                             .with_transparent(true)
                             .with_inner_size(LogicalSize::new(
-                                self.config.columns as f64 * base.cell_width as f64,
-                                (self.config.rows + 1) as f64 * base.cell_height as f64,
+                                (self.config.columns as f64 * base.cell_width as f64 + 592.0).max(1240.0),
+                                (self.config.rows as f64 * base.cell_height as f64 + 228.0).max(760.0),
                             )),
                     )
                     .map_err(|e| e.to_string())?,
@@ -731,20 +783,32 @@ impl ApplicationHandler for App {
             self.window = Some(window);
             self.metrics_changed()?;
             if self.groups.is_empty() {
-                self.new_tab()
-            } else {
-                Ok(())
+                self.new_tab()?;
+                self.split(Axis::Rows)?;
             }
+            self.start_robot();
+            Ok(())
         })();
         if let Err(e) = result {
             self.fail(event_loop, e);
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if matches!(&event, WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed)
+            || matches!(&event, WindowEvent::MouseInput { state: ElementState::Pressed, .. } | WindowEvent::Ime(Ime::Commit(_))) {
+            self.skip_robot(); // Do not return: the same event follows the normal input path below.
+        }
+        let visual_event=match &event {
+            WindowEvent::RedrawRequested=>false,
+            WindowEvent::KeyboardInput{event,..} if event.state==ElementState::Released=>false,
+            _=>true,
+        };
+        if matches!(event,WindowEvent::Resized(_)|WindowEvent::ScaleFactorChanged{..}){self.terminal_dirty=true;}
+        self.sent_input=false;
         let result = match event {
             WindowEvent::ThemeChanged(theme) => {
                 self.studio.theme = self.config.resolved_theme(clanky::platform::preference_is_light(Some(theme)));
-                if let Some(window) = &self.window { window.request_redraw(); }
+                self.frame_clock.invalidate();
                 Ok(())
             }
             WindowEvent::CloseRequested => {
@@ -757,7 +821,7 @@ impl ApplicationHandler for App {
                 self.modifiers = m.state();
                 Ok(())
             }
-            WindowEvent::CursorLeft { .. } => { self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
+            WindowEvent::CursorLeft { .. } => { self.pointer_pressed=false; self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if let Err(e) = self.drag() { self.status = Some(e); }
@@ -768,12 +832,14 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                self.pointer_pressed=true;
                 if let Err(e) = self.click() {
                     self.status = Some(e);
                 }
                 Ok(())
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                self.pointer_pressed=false;
                 if let Some(panel)=&mut self.settings {panel.release();}
                 self.files.dragging = None;
                 self.compose_dragging = false;
@@ -790,6 +856,7 @@ impl ApplicationHandler for App {
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.frame_trace.key_event();
                 if event.repeat && self.card_focused() { return; }
                 // Hold the consumed chord until release: releasing Ctrl first must
                 // not turn an auto-repeat after Send into ordinary PTY Enter.
@@ -818,6 +885,7 @@ impl ApplicationHandler for App {
                         _=>(),
                     }
                     let _=self.input.on_ime(&event);
+                    self.frame_clock.invalidate();
                     return;
                 }
                 if self.card_focused() { return; }
@@ -871,6 +939,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Focused(focused) => {
+                if !focused{self.pointer_pressed=false;}
                 self.window_focused = focused;
                 if focused {
                     if let Some(pane) = self.files.editor() { let _ = pane.command("refresh", &json!({})); }
@@ -910,10 +979,15 @@ impl ApplicationHandler for App {
                 }
                 Ok(())
             }
-            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::RedrawRequested => {self.frame_clock.begin_frame();self.draw()},
             _ => Ok(()),
         };
+        if visual_event && (!self.sent_input || self.fallback_poll){
+            if self.sent_input{self.terminal_dirty=true;}
+            self.frame_clock.invalidate();
+        }
         if let Err(e) = result {
+            self.frame_clock.invalidate();
             self.fail(event_loop, e);
         } else if let Err(e) = self.publish_focus() {
             self.status = Some(e);
@@ -939,21 +1013,30 @@ impl ApplicationHandler for App {
             self.next_settings=Instant::now()+Duration::from_millis(500);
         }
         if Instant::now() >= self.next_polish {
+            let old_status=self.status.clone();
             if let Err(e) = self.poll_session() { self.status = Some(e); }
+            if self.refresh_studio(){self.frame_clock.invalidate();}
+            let stamps=self.files.panes.values().filter_map(|pane|std::fs::metadata(pane.path()).ok()
+                .map(|metadata|(pane.path().to_owned(),(metadata.modified().ok(),metadata.len())))).collect::<BTreeMap<_,_>>();
+            if stamps!=self.file_stamps{self.file_stamps=stamps;self.frame_clock.invalidate();}
+            if self.fallback_poll {
+                let ids=self.groups.get(self.active).map(|g|g.layout.leaves()).unwrap_or_default();
+                for id in ids {
+                    let old=self.engine.cached_generation(&id);
+                    if self.engine.snapshot_with_blocks(&id).is_ok() && old!=self.engine.cached_generation(&id){self.frame_clock.invalidate();}
+                }
+            }
+            if self.url_opener.poll().is_err(){self.status=Some("URL opener failed".into());}
+            while let Some(error)=self.clipboard_bridge.take_error(){self.status=Some(error);}
+            if old_status!=self.status{self.frame_clock.invalidate();}
             self.next_polish = Instant::now() + Duration::from_secs(1);
         }
-        if Instant::now() >= self.next_frame {
-            if self.url_opener.poll().is_err() {
-                self.status = Some("URL opener failed".into());
-            }
-            while let Some(error) = self.clipboard_bridge.take_error() {
-                self.status = Some(error);
-            }
-            if let Some(w) = &self.window {
-                w.request_redraw();
-            }
-            self.next_frame = Instant::now() + Duration::from_millis(16);
+        let now=Instant::now();
+        let mut wake=self.next_settings.min(self.next_polish);
+        if !self.is_suspended(){
+            if self.frame_clock.request_due(now){if let Some(window)=&self.window{window.request_redraw();}}
+            if let Some(deadline)=self.frame_clock.deadline(now){wake=wake.min(deadline);}
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }

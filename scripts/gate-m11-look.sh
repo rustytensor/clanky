@@ -9,7 +9,7 @@ export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
 export VK_ICD_FILENAMES=$VK_DRIVER_FILES
 export LIBGL_ALWAYS_SOFTWARE=1
 export WGPU_BACKEND=vulkan
-case ${CLANKY_GATE_FAULT:-} in ''|look|store|settings) ;; *) echo 'FAIL: unknown look fault' >&2; exit 1;; esac
+case ${CLANKY_GATE_FAULT:-} in ''|look|store|settings|idle) ;; *) echo 'FAIL: unknown look fault' >&2; exit 1;; esac
 mkdir -p "$CARGO_TARGET_DIR/look"
 work=$(mktemp -d "$CARGO_TARGET_DIR/look/gate.XXXXXXXX")
 trap 'rc=$?; rm -rf -- "$work"; if (( rc != 0 )); then echo "FAIL: M11 look" >&2; fi' EXIT

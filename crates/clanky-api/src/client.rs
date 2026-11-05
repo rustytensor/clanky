@@ -67,7 +67,10 @@ struct Cache {
     block_anchors: HashMap<String, Value>,
     pixels: HashMap<u64, Arc<Vec<u8>>>,
 }
+#[derive(Clone)]
+enum OwnerEndpoint { Local(std::path::PathBuf), Ssh(String) }
 struct Inner {
+    endpoint: Mutex<Option<OwnerEndpoint>>,
     sender: Option<SyncSender<Call>>,
     control: Arc<Control>,
     worker: Option<thread::JoinHandle<()>>,
@@ -113,6 +116,7 @@ impl Client {
                 "Owner authentication denied",
             ));
         }
+        *client.0.endpoint.lock().unwrap()=Some(OwnerEndpoint::Local(path.to_owned()));
         Ok(client)
     }
     pub fn from_child(mut child: Child) -> io::Result<Self> {
@@ -135,7 +139,24 @@ impl Client {
         Ok(client)
     }
     pub fn connect_ssh(host: &str) -> io::Result<Self> {
-        Self::from_child(platform::spawn_ssh(host)?)
+        let client=Self::from_child(platform::spawn_ssh(host)?)?;
+        *client.0.endpoint.lock().unwrap()=Some(OwnerEndpoint::Ssh(host.into()));
+        Ok(client)
+    }
+    /// A separate authenticated lane so long waits cannot delay input RPCs.
+    pub fn fork_owner(&self)->io::Result<Self>{
+        let endpoint=self.0.endpoint.lock().unwrap().clone();
+        match endpoint {
+            Some(OwnerEndpoint::Local(path))=>Self::connect_owner(&path),
+            Some(OwnerEndpoint::Ssh(host))=>Self::connect_ssh(&host),
+            None=>Err(io::Error::new(io::ErrorKind::PermissionDenied,"No owner endpoint")),
+        }
+    }
+    pub fn disconnect(&self){self.0.control.close();}
+    pub fn cached_generation(&self,tab:&str)->Option<u64>{self.0.cache.lock().unwrap().snapshots.get(tab).map(|(generation,_)|*generation)}
+    pub fn cached_snapshot_with_blocks(&self,tab:&str)->Option<(TerminalSnapshot,Value)>{
+        let cache=self.0.cache.lock().unwrap();
+        cache.snapshots.get(tab).map(|(_,snapshot)|(snapshot.clone(),cache.block_anchors.get(tab).cloned().unwrap_or(Value::Null)))
     }
     fn start(
         reader: Box<dyn Read + Send>,
@@ -244,6 +265,7 @@ impl Client {
             }
         };
         Ok(Self(Arc::new(Inner {
+            endpoint: Mutex::new(None),
             sender: Some(tx),
             control,
             worker: Some(worker),
