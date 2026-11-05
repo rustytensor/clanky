@@ -103,6 +103,7 @@ cat > "$work/expected-files" <<'EOF'
 /usr/share/licenses/clanky/LICENSE-DejaVu.txt
 /usr/share/licenses/clanky/LICENSE-MIT
 /usr/share/licenses/clanky/NOTICE
+/usr/share/licenses/clanky/OFL-Geist.txt
 /usr/share/licenses/clanky/OFL-Inter.txt
 /usr/share/licenses/clanky/OFL-JetBrainsMono.txt
 /usr/share/man/man1/clanky.1.gz
