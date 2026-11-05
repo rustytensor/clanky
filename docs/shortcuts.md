@@ -4,14 +4,18 @@ These are Clanky controls, not shell bindings. Prefixes below name the input
 context. **Ctrl+Shift+Escape is handled before every window modal**: it revokes
 agent access and cancels waits, but does not kill running commands.
 
+During the [startup greeting](robot.md), any key or click skips the robot **and still acts
+normally**. In the standalone `clanky +hello` window, a key or click closes the replay.
+[Post-AI mode](post-ai.md) is not enforced on this branch yet; do not assume agent shortcuts are disabled.
+
 ## Window
 
 | Key | Action |
 | --- | --- |
 | `Ctrl+Shift+Escape` | Revoke all agents, including while a panel, search or compose prompt is open |
 | `Ctrl+Shift+P` | Toggle palette |
-| `Ctrl+,` | Open/close Settings; top-bar Settings button does the same |
-| `Ctrl+Shift+B` | Toggle sidebar |
+| `Ctrl+,` | Open/close Settings; the sidebar Settings item does the same |
+| `Ctrl+Shift+B` | Show/hide the sidebar and activity column |
 | `Ctrl+Shift+T` | New terminal tab in the focused terminal folder, or server home when unknown |
 | `Ctrl+Shift+D` | Split right; with editor focus, prompt for another file |
 | `Ctrl+Shift+E` | Split below; with editor focus, prompt for another file |
@@ -19,7 +23,7 @@ agent access and cancels waits, but does not kill running commands.
 | `Ctrl+Shift+A` | Toggle agent access to the focused terminal |
 | `Ctrl+Shift+O` | Open local file prompt |
 | `Ctrl+Shift+F` | Search retained terminal text, including soft wraps |
-| `Ctrl+Shift+Enter` | Open compose over focused terminal; does not send a draft |
+| `Ctrl+Shift+Enter` | Open compose docked to the focused terminal; does not send a draft |
 | `Ctrl+=` | Zoom in |
 | `Ctrl++` | Zoom in |
 | `Ctrl+-` | Zoom out |
@@ -31,6 +35,9 @@ agent access and cancels waits, but does not kill running commands.
 | `Card:Tab` | Choose the next card action |
 | `Card:Enter` | Activate the chosen block action |
 | `Card:Escape` | Return keyboard input to the pane |
+
+The top-bar New tab, Split and search controls are mouse alternatives to these shortcuts.
+Drag a pane divider to resize it; click anywhere on an agent-access row to toggle it.
 
 Block actions appear only while the card is hovered or keyboard-focused. They
 fade in over 120 ms; animations off makes them immediate. Card focus consumes

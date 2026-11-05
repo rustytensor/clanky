@@ -5,22 +5,37 @@ Ctrl+Shift+D/E splits right/below. Click a pane to focus it. New terminals use
 the focused terminal's folder, falling back to the server's home only when unknown.
 See [shortcuts](shortcuts.md) and [configuration](config.md).
 
+## The calm window
+
+Sessions and files are in the left sidebar. Click New tab or Split in the top bar;
+drag the gap between panes to resize them. The right column shows agent activity and access.
+Click an access row, not just its switch, to toggle permission. Ctrl+Shift+B hides both side areas.
+Open [Settings](settings.md) from the sidebar or with Ctrl+,.
+
+[Clanky the robot](robot.md) greets you once for 7 seconds, then for 1.2 seconds on later windows.
+Any key or click skips it and still acts normally. [Themes](themes.md) describe the built-in
+palettes and user files; [Post-AI mode](post-ai.md) describes the plain-terminal option.
+Those two pages flag features whose window/server integration is still pending.
+
 ## Agents and safety
 
 GUI terminals deny agents by default. Ctrl+Shift+A grants/revokes the focused
 terminal; Ctrl+Shift+Escape revokes all agents and cancels pending agent waits,
 even in a prompt. It does not kill running commands. Agent output reads are
-masked; your own view is not. [Read the limits](agent-api.md#masking-and-its-limits)
+masked, as are your terminal view, block copies, scrollback search and OSC 52 text.
+Owner raw-output archives remain available through the socket.
+[Read the limits](agent-api.md#masking-and-its-limits)
 before allowing access to sensitive sessions. `clanky mcp [--socket PATH]` is an
 agent-only MCP server; the [socket API](agent-api.md) also supports direct clients.
 
 ## Blocks, images and links
 
-Use a shell that emits OSC 133 markers to get command blocks in the sidebar.
-Copy, Collapse, Rerun and Send act on selected blocks. Copy uses `wl-copy` or
-`xclip`; rerun asks for explicit argv/cwd and opens a new terminal. Send queues
-selected bytes as an agent task; it does not launch an agent. Large/truncated
-blocks need an explicit API selection. Ctrl+Shift+P opens the palette.
+Use a shell that emits OSC 133 markers to get command cards inside the panes.
+Hover a card, or focus it with F6, to show Copy, Rerun and Ask agent. Copy gives the
+masked text, including stars. Rerun opens a new terminal; Ask agent queues selected
+text as a task, not a new agent process. The palette also offers block selection
+and collapse. Large/truncated blocks need an explicit API selection.
+Ctrl+Shift+P or the search field opens the palette.
 
 Kitty direct-transfer PNG/RGB/RGBA images are clipped to panes. File/shared-memory
 transport, cropping, animation and z-order are not supported. See [image details](design-m2.md).
