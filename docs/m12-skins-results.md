@@ -34,6 +34,7 @@ A separate WCAG calculation over foreground, secondary and semantic text on the 
 normal/hover/pressed surfaces, plus primary labels on both button fills, found minimums:
 Paper dark 5.87, Paper light 4.92, Graphite dark 5.23, Graphite light 6.11, Tears 6.15.
 
-Full contrast is not claimed as passed: upstream Latte peach/green values conflict with
-4.5:1. The lead has that conflict; no expected value or exemption was changed.
+Lead decision: keep exact upstream Catppuccin colours as the theme's identity.
+The 4.5:1 requirement applies to our own themes only, not Catppuccin.
+Latte peach/green remain 2.64:1 and 2.96:1 on base; no colour values were changed.
 The app's theme-specific sparkle/badge, rainbow borders and cursor remain app-team work.

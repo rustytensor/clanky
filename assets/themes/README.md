@@ -45,9 +45,9 @@ The 16 ANSI slots are upstream `ansiColors` by `code`, including distinct bright
 No mauve/lavender UI accents, gradients or glows. Catppuccin uses upstream subtext1 for
 primary_pressed rather than mixing a new colour, to preserve exact upstream values.
 
-**Unresolved design conflict:** upstream Latte peach on base is 2.64:1 and green is
-2.96:1. Exact upstream values and 4.5:1 text contrast cannot both hold. Values are
-preserved and the conflict is with the lead; no exemption or lowered limit was added.
+**Contrast policy (lead decision):** preserve exact upstream Catppuccin colours;
+they define the theme's identity. The 4.5:1 rule applies to our own themes only,
+not Catppuccin. For reference, Latte peach on base is 2.64:1 and green is 2.96:1.
 The app team owns the joke themes' sparkle/badge, rainbow pane borders and hot-pink
 cursor; these have no separate fields in the approved theme format.
 
