@@ -858,6 +858,15 @@ struct ProcessIdentity {
     session: i32,
     start: u64,
 }
+/// Device and inode of this process's own executable. A rebuilt or reinstalled
+/// binary has a new inode, so two processes compare equal only when they run
+/// the very same file.
+pub fn executable_identity() -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata("/proc/self/exe").ok()?;
+    Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+}
+
 fn process_identity(pid: i32) -> io::Result<ProcessIdentity> {
     if pid < 1 {
         return Err(io::Error::other("invalid process identity"));

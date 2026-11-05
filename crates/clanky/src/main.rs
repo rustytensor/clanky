@@ -201,6 +201,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         None=>(None,Some("No settings path is available".into())),
     };
     let workspace = engine.workspace_get().map_err(|e| e.message)?;
+    // Only a local server can run the same executable as this window.
+    let build_notice = if local_files { clanky::session::server_build_notice(&engine) } else { None };
     let event_loop = EventLoop::<window_events::WindowNotice>::with_user_event().build().map_err(|e| e.to_string())?;
     let (window_events,feed_error)=match window_events::WindowEvents::start(&engine,event_loop.create_proxy()) {
         Ok(events)=>(Some(events),None),Err(error)=>(None,Some(error)),
@@ -234,7 +236,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         input: InputState::default(),
         occluded: false,
         error: None,
-        status: feed_error.or(theme_error),
+        status: feed_error.or(theme_error).or(build_notice),
         frame_clock: clanky::frame_clock::FrameClock::default(),
         window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
         frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
