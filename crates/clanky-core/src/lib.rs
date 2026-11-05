@@ -7,6 +7,7 @@ mod session;
 mod terminal;
 pub(crate) use engine::{Command, Tab};
 pub use engine::{CoreError, Engine};
+pub const POST_AI_REASON: &str = "agents are off (Post-AI mode)";
 use serde::{Deserialize, Serialize};
 pub use session::{Workspace, WorkspaceGroup};
 /// Original SGR colour selection, before inverse-video swaps foreground/background.
