@@ -255,6 +255,13 @@ impl Data {
     fn run(&self, fault: bool) -> Check {
         for (index, case) in self.cases.iter().enumerate() {
             let input = &case.input.0;
+            // The owner-only snapshot mode must still hide each complete
+            // generated credential, exactly one star per raw byte.
+            let display = Secret::from(self.value(Masker::mask_display(&self.env()?, &self.extra()?, input))?);
+            self.safe(&display.0)?;
+            if display.0.len() != input.len() || display.0.iter().any(|b| *b != b'*') {
+                return Err("FAIL: owner display exposed a complete secret");
+            }
             let wrapped = join(&[b"before ", input, b" after"]);
             let expected = join(&[b"before ", case.marker, b" after"]);
             self.chunks(self.masker()?, &wrapped.0, &[], &expected.0)?;

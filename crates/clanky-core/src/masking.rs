@@ -83,13 +83,30 @@ impl Policy {
         }
         Ok(safe)
     }
+    /// Only authenticated owner snapshots may show unconfirmed prefixes.
+    pub(super) fn display_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, CoreError> {
+        if self.invalid_environment { return Err(error("masking_unavailable", "invalid masking policy")); }
+        let env: Vec<_> = self.environment.iter().map(|(k,v)| (k.as_str(),v.as_str())).collect();
+        let extra = self.extra.lock().unwrap();
+        let extra: Vec<_> = extra.iter().map(|(k,v)| (k.as_str(),v.as_str())).collect();
+        Masker::mask_display(&env, &extra, bytes)
+            .map_err(|_| error("masking_unavailable", "masking failed"))
+    }
     pub fn text(&self, text: &str, complete: bool) -> Result<String, CoreError> {
         Ok(String::from_utf8_lossy(&self.bytes(text.as_bytes(), complete)?).into_owned())
     }
-    /// Shared display/search context, masked before any pagination or selection.
+    /// Strict screen/history/search context, masked before pagination or selection.
     pub fn terminal_lines(&self, terminal: &crate::terminal::Terminal) -> Result<Vec<String>, CoreError> {
+        self.terminal_lines_mode(terminal, false)
+    }
+    /// Owner live display only; history/search/copy/agent projections stay strict.
+    pub fn display_lines(&self, terminal: &crate::terminal::Terminal) -> Result<Vec<String>, CoreError> {
+        self.terminal_lines_mode(terminal, true)
+    }
+    fn terminal_lines_mode(&self, terminal: &crate::terminal::Terminal, display: bool) -> Result<Vec<String>, CoreError> {
         let (_, _, mut lines, wraps, truncated) = terminal.text_context();
-        self.mask_lines(&mut lines, &wraps, terminal.text_cursor())?;
+        if display { self.mask_display_lines(&mut lines, &wraps, terminal.text_cursor())?; }
+        else { self.mask_lines(&mut lines, &wraps, terminal.text_cursor())?; }
         if truncated {
             for (line, wrapped) in lines.iter_mut().zip(&wraps) {
                 *line = "*".repeat(line.len());
@@ -151,6 +168,38 @@ impl Policy {
         })
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_claude_stays_readable() {
+        // Synthetic owner capability, never a machine credential. Its prefix
+        // overlaps ordinary typed text; neither Claud nor Claude is a secret.
+        let policy = Policy { environment: Vec::new(), invalid_environment: false, extra: Mutex::new(Vec::new()) };
+        policy.add_literal("CLANKY_OWNER_TOKEN", &format!("de{}", "0".repeat(62))).unwrap();
+        let mut terminal = crate::terminal::Terminal::new(2, 80);
+        for expected in ["C", "Cl", "Cla", "Clau", "Claud", "Claude"] {
+            terminal.feed("bash", &expected.as_bytes()[expected.len()-1..]);
+            let visible = policy.display_lines(&terminal).unwrap();
+            assert_eq!(visible[0].trim_end(), expected);
+        }
+        assert_eq!(policy.display_lines(&terminal).unwrap()[0].trim_end(), "Claude");
+        assert_eq!(policy.terminal_lines(&terminal).unwrap()[0].trim_end(), "Clau**");
+        assert_eq!(policy.bytes(b"Claude", false).unwrap(), b"Clau");
+        // Header-complete values are hidden even below the agent trigger length.
+        let mut token = crate::terminal::Terminal::new(2, 80);
+        token.feed("bash", b"sk-A");
+        assert!(policy.display_lines(&token).unwrap()[0].trim_end() == "****");
+        assert!(policy.bytes(b"sk-A", false).unwrap().is_empty());
+        let mut known = crate::terminal::Terminal::new(2, 80);
+        let generated = format!("de{}", "0".repeat(62));
+        known.feed("bash", generated.as_bytes());
+        assert!(policy.display_lines(&known).unwrap()[0].trim_end() == "*".repeat(64));
+        assert!(policy.terminal_lines(&known).unwrap()[0].trim_end() == "*".repeat(64));
+    }
+}
+
 impl Drop for Policy {
     fn drop(&mut self) {
         for (_, value) in self
