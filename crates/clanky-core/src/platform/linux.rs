@@ -498,6 +498,25 @@ impl Process {
         Ok(cwd)
     }
 
+    /// Invocation name of the foreground group leader, not the resolved binary
+    /// symlink (for example, sh may execute the bash binary).
+    pub fn foreground_program(&self) -> io::Result<String> {
+        let root=self.identity.ok_or_else(||io::Error::other("process identity unavailable"))?;
+        let group=unsafe{libc::tcgetpgrp(self.master.as_raw_fd())};
+        if group<=1{return Err(io::Error::other("foreground process unavailable"));}
+        let identity=process_identity(group)?;
+        if identity.group!=group || identity.session!=root.session || identity.start<root.start{return Err(io::Error::other("foreground process changed"));}
+        let file=File::open(format!("/proc/{group}/cmdline"))?;
+        let mut first=Vec::new();
+        std::io::BufRead::read_until(&mut std::io::BufReader::new(file.take(4096)),0,&mut first)?;
+        if first.pop()!=Some(0){return Err(io::Error::other("foreground program unavailable"));}
+        let argument=std::str::from_utf8(&first).map_err(|_|io::Error::other("foreground program is not UTF-8"))?;
+        let name=Path::new(argument).file_name().and_then(OsStr::to_str).unwrap_or("").trim_start_matches('-');
+        if name.is_empty() || name.len()>256 || name.chars().any(char::is_control){return Err(io::Error::other("foreground program unavailable"));}
+        if process_identity(group)?!=identity || unsafe{libc::tcgetpgrp(self.master.as_raw_fd())}!=group{return Err(io::Error::other("foreground process changed"));}
+        Ok(name.into())
+    }
+
     pub fn current_exe(&self) -> io::Result<PathBuf> {
         let shell = self.identity.ok_or_else(|| io::Error::other("shell identity unavailable"))?;
         let verify = || -> io::Result<()> {

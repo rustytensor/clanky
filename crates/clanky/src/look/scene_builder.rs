@@ -12,6 +12,7 @@ pub struct LookState {
     pub elapsed_ms: f32,
     pub focused: Option<String>,
     pub panes: Vec<PaneState>,
+    pub pane_labels: std::collections::BTreeMap<String,String>,
     pub sessions: Vec<SessionItem>,
     pub session_counts: std::collections::BTreeMap<String, usize>,
     /// Optional age labels (or labelled Eastern times), parallel to timeline.
@@ -31,7 +32,7 @@ pub struct LookState {
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
-            panes: vec![], sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
+            panes: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
             masking_ready: false, panels: vec![] }
     }

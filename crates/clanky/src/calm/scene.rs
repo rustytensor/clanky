@@ -62,6 +62,17 @@ impl Paint<'_>{
         self.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:p.build(),fill:None,stroke:Some(PathStroke{width:1.5,color}),
             transform:Matrix4::scale(self.scale,self.scale,1.0).then(Matrix4::translate(x,y,0.0))}],clip:self.clip,opacity:1.0}));
     }
+    fn kbd(&mut self,right:f32,y:f32,keys:&[&str])->f32{
+        let mut edge=right;let c=&self.theme.colors;
+        for key in keys.iter().rev(){
+            let width=(self.measure)(&TextRun{text:(*key).into(),px:12.0*self.scale,mono:true,..TextRun::default()}).width+10.0*self.scale;
+            let chip=r(edge-width,y,width,20.0*self.scale);
+            self.shape(chip,4.0*self.scale,c.muted,None);
+            self.text(r(chip.x+5.0*self.scale,chip.y,chip.w-10.0*self.scale,chip.h),key,12.0*self.scale,c.muted_foreground,400,true);
+            edge=chip.x-4.0*self.scale;
+        }
+        edge+4.0*self.scale
+    }
     fn button(&mut self,rect:PixelRect,label:&str,action:HitAction,primary:bool){
         let c=&self.theme.colors;let hovered=rect.contains(self.pointer.0,self.pointer.1);
         let fill=if primary {
@@ -97,7 +108,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         let cw=p.width("C",15.0*s,600);
         p.text(r(side.x+16.0*s+(32.0*s-cw)/2.0,16.0*s,cw,32.0*s),"C",15.0*s,c.primary_foreground,600,false);
         p.text(r(side.x+58.0*s,14.0*s,side.w-74.0*s,20.0*s),"Clanky",14.0*s,c.foreground,600,false);
-        p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&format!("server up · {} h",state.uptime_seconds/3600),12.0*s,c.muted_foreground,400,false);
+        p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&super::uptime_label(state.uptime_seconds),12.0*s,c.muted_foreground,400,false);
         let mut y=72.0*s;let bottom=h-92.0*s;
         for section in 0..3{
             if y+32.0*s>bottom{break;}
@@ -118,7 +129,8 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             }
             y+=12.0*s;
         }
-        p.item(r(side.x+8.0*s,h-80.0*s,side.w-16.0*s,32.0*s),"Settings","Ctrl+,",false,HitAction::Settings,Some("settings"),None);
+        p.item(r(side.x+8.0*s,h-80.0*s,side.w-16.0*s,32.0*s),"Settings","",false,HitAction::Settings,Some("settings"),None);
+        p.kbd(side.x+side.w-16.0*s,h-74.0*s,&["Ctrl",","]);
         p.text(r(side.x+16.0*s,h-40.0*s,side.w-32.0*s,32.0*s),if state.masking_ready{"masking on"}else{"checking masking"},12.0*s,c.muted_foreground,400,false);
     }
     let bar=layout.top_bar;let by=bar.y+12.0*s;
@@ -134,10 +146,8 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let search=r((split.x-308.0*s).max(toggle.x+64.0*s),by,(split.x-8.0*s-(split.x-308.0*s).max(toggle.x+64.0*s)).max(0.0),32.0*s);
     p.shape(search,8.0*s,c.background,Some(if search.contains(pointer.0,pointer.1){c.ring}else{c.input}));
     p.icon("search",search.x+10.0*s,search.y+8.0*s,c.muted_foreground);
-    let hint_width=(p.measure)(&TextRun{text:"Ctrl⇧P".into(),px:12.0*s,mono:true,..TextRun::default()}).width+10.0*s;
-    let hint=r(search.x+search.w-8.0*s-hint_width,search.y+6.0*s,hint_width,20.0*s);
-    p.shape(hint,4.0*s,c.muted,None);p.text(r(hint.x+5.0*s,hint.y,hint.w-10.0*s,hint.h),"Ctrl⇧P",12.0*s,c.muted_foreground,400,true);
-    p.text(r(search.x+32.0*s,search.y,(hint.x-search.x-40.0*s).max(0.0),search.h),"Search or run a command…",14.0*s,c.muted_foreground,400,false);p.hit(search,HitAction::Palette);
+    let hint_left=p.kbd(search.x+search.w-8.0*s,search.y+6.0*s,&["Ctrl","Shift","P"]);
+    p.text(r(search.x+32.0*s,search.y,(hint_left-search.x-40.0*s).max(0.0),search.h),"Search or run a command…",14.0*s,c.muted_foreground,400,false);p.hit(search,HitAction::Palette);
     let title=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.as_str()).unwrap_or("Clanky");
     p.text(r(toggle.x+48.0*s,bar.y,(search.x-toggle.x-64.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
     p.shape(r(bar.x+s,bar.y+bar.h-s,bar.w-2.0*s,s),0.0,c.border,None);
@@ -176,9 +186,11 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.text(r(x+84.0*s,y+48.0*s,width-96.0*s,22.0*s),"commands",12.0*s,c.muted_foreground,400,false);
         let chart=r(x+12.0*s,y+82.0*s,width-24.0*s,40.0*s);let mut path=Path::builder();
         let samples:Vec<_>=state.activity.iter().rev().take(30).copied().collect();let max=samples.iter().filter(|v|v.is_finite()).copied().fold(1.0_f32,f32::max);
-        if samples.is_empty(){path.begin(point(chart.x,chart.y+chart.h));path.line_to(point(chart.x+chart.w,chart.y+chart.h));}
+        let has_commands=samples.iter().any(|value|value.is_finite() && *value>0.0);
+        if !has_commands{path.begin(point(chart.x,chart.y+chart.h-s));path.line_to(point(chart.x+chart.w,chart.y+chart.h-s));}
         else{for(i,value)in samples.iter().rev().enumerate(){let px=chart.x+i as f32*chart.w/samples.len().saturating_sub(1).max(1) as f32;let py=chart.y+chart.h-(if value.is_finite(){(*value/max).clamp(0.0,1.0)}else{0.0})*chart.h;if i==0{path.begin(point(px,py));}else{path.line_to(point(px,py));}}}path.end(false);
         p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.5*s,color:c.muted_foreground}),transform:Matrix4::IDENTITY}],clip:chart.array(),opacity:1.0}));
+        if !has_commands{p.text(r(chart.x,chart.y,chart.w,chart.h-8.0*s),"No agent commands yet",12.0*s,c.muted_foreground,400,false);}
         p.text(r(x+12.0*s,y+132.0*s,width-24.0*s,20.0*s),"Commands agents ran per minute",12.0*s,c.muted_foreground,400,false);y+=176.0*s;
         let count=state.timeline.len().min(4);let height=(48.0+36.0*count.max(1) as f32)*s;
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Recent",14.0*s,c.foreground,500,false);
@@ -195,9 +207,9 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(40.0+32.0*index as f32)*s,width-24.0*s,32.0*s);
             if row.y+row.h>side.y+side.h-8.0*s{break;}
             if row.contains(pointer.0,pointer.1){p.shape(row,6.0*s,c.accent,None);}
-            p.text(r(row.x,row.y,row.w-44.0*s,18.0*s),&pane.title,14.0*s,c.foreground,400,false);
+            p.text(r(row.x,row.y,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400,false);
             p.text(r(row.x,row.y+18.0*s,row.w-44.0*s,14.0*s),if pane.allow_agent{"read + run"}else{"off"},12.0*s,c.muted_foreground,400,false);
-            let sw=r(row.x+row.w-32.0*s,row.y+7.0*s,32.0*s,18.0*s);
+            let sw=r(row.x+row.w-32.0*s,row.y,32.0*s,18.0*s);
             p.shape(sw,9.0*s,if pane.allow_agent{c.primary}else{c.input},None);
             p.shape(r(sw.x+if pane.allow_agent{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if pane.allow_agent{c.primary_foreground}else{c.background},None);
             p.hit(row,HitAction::Access(pane.id.clone()));

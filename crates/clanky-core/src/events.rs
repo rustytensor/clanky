@@ -15,6 +15,9 @@ struct EventRing {
     next: u64,
     items: VecDeque<Event>,
 }
+struct RecentEvent { recorded:Instant, value:Value }
+#[derive(Default)]
+struct RecentRing { next:u64, items:VecDeque<RecentEvent> }
 #[derive(Default)]
 struct AuditRing {
     records: VecDeque<Value>,
@@ -34,6 +37,7 @@ pub(super) struct Safety {
     pub latched: AtomicBool,
     pub stop: AtomicBool,
     events: Mutex<EventRing>,
+    recent: Mutex<RecentRing>,
     pub changed: Condvar,
     pub window_signal: window_changes::WindowSignal,
     pub readiness: readiness::ReadinessSchedule,
@@ -49,6 +53,7 @@ impl Safety {
             latched: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             events: Mutex::new(EventRing::default()),
+            recent: Mutex::new(RecentRing::default()),
             changed: Condvar::new(),
             window_signal: window_changes::WindowSignal::new(),
             readiness: readiness::ReadinessSchedule::new(),
@@ -61,6 +66,18 @@ impl Safety {
         ring.items.iter().skip(ring.items.len().saturating_sub(20)).map(|event| {
             json!({"seq":event.seq,"kind":event.value["kind"],"age_ms":event.recorded.elapsed().as_millis().min(u64::MAX as u128) as u64,
                 "tab_id":event.tab_id,"command_id":event.value["command_id"]})
+        }).collect()
+    }
+    /// Owner-only human activity, separate from the high-volume replay stream.
+    pub fn record_recent(&self,kind:&str,tab_id:&str,mut value:Value){
+        let mut ring=self.recent.lock().unwrap();ring.next+=1;
+        value["seq"]=json!(ring.next);value["kind"]=json!(kind);value["tab_id"]=json!(tab_id);
+        ring.items.push_back(RecentEvent{recorded:Instant::now(),value});
+        while ring.items.len()>20{ring.items.pop_front();}
+    }
+    pub fn look_recent(&self)->Vec<Value>{
+        self.recent.lock().unwrap().items.iter().map(|event|{
+            let mut value=event.value.clone();value["age_ms"]=json!(event.recorded.elapsed().as_millis().min(u64::MAX as u128) as u64);value
         }).collect()
     }
     pub fn deny_retained_events(&self) {
@@ -77,7 +94,11 @@ impl Safety {
         // Raw PTY feed notifies only after the grid is updated; masked output
         // can be buffered and must not be the window's typing wakeup source.
         let window_change=!matches!(value["kind"].as_str(),Some("output_appended"|"waiting_for_input"));
-        if value["kind"]=="command_finished"{self.readiness.activity(tab_id);}
+        if value["kind"]=="command_finished"{
+            self.readiness.activity(tab_id);
+            self.record_recent("command_finished",tab_id,json!({"exit_code":value["exit_code"]}));
+        }
+        if value["kind"]=="terminal_closed"{self.record_recent("pane_closed",tab_id,json!({}));}
         let mut ring = self.events.lock().unwrap();
         ring.next += 1;
         let seq = ring.next;

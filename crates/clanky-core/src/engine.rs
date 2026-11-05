@@ -256,8 +256,12 @@ impl Tab {
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
         *self.last_output.lock().unwrap() = Instant::now();
-        let responses = self.terminal.lock().unwrap().feed_masked(command, bytes,
-            &|lines, wraps, cursor| self.safety.policy.mask_lines(lines, wraps, cursor).is_ok());
+        let (responses,starts)={
+            let mut terminal=self.terminal.lock().unwrap();
+            let responses=terminal.feed_masked(command,bytes,&|lines,wraps,cursor|self.safety.policy.mask_lines(lines,wraps,cursor).is_ok());
+            (responses,terminal.take_command_starts())
+        };
+        for command in starts{self.safety.record_recent("command_run",&self.id,json!({"program":command}));}
         if !bytes.is_empty() {
             *self.last_output.lock().unwrap()=Instant::now();
             self.safety.readiness.activity(&self.id);
@@ -713,16 +717,16 @@ impl Engine {
                 Ok(json!({"blocks":page,"has_more":blocks.len().saturating_sub(start)>page.len(),"next_after":next}))
             }
             "terminal_info" => {
-                let (cwd, exe) = {
+                let (cwd, exe, program) = {
                     let guard = tab.process.lock().unwrap();
                     let process = guard.as_ref().ok_or_else(|| error("not_found", "terminal has no process"))?;
                     (process.current_cwd().map_err(|e| error("io_error", e.to_string()))?,
-                     process.current_exe().map_err(|e| error("io_error", e.to_string()))?)
+                     process.current_exe().map_err(|e| error("io_error", e.to_string()))?, process.foreground_program().ok())
                 };
                 let cwd = cwd.to_str().ok_or_else(|| invalid("terminal directory is not UTF-8"))?;
                 let exe = exe.to_str().ok_or_else(|| invalid("terminal executable is not UTF-8"))?;
                 let terminal = tab.terminal.lock().unwrap();
-                Ok(json!({"cwd":cwd,"exe":exe,"rows":terminal.size.0,"cols":terminal.size.1}))
+                Ok(json!({"cwd":cwd,"exe":exe,"program":program.map(|name|self.mask_message(&name)),"rows":terminal.size.0,"cols":terminal.size.1}))
             }
             "permission_get" => Ok(json!({"allow_agent":tab.allowed.load(Ordering::Acquire)})),
             "permission_set" => {
@@ -869,6 +873,8 @@ impl Engine {
                 *tab.last_output.lock().unwrap()=Instant::now();
                 *tab.last_input.lock().unwrap()=None;
                 self.0.1.readiness.activity(tab_id);
+                let program=Path::new(&argv[0]).file_name().and_then(|name|name.to_str()).unwrap_or("command");
+                self.0.1.record_recent("command_run",tab_id,json!({"program":self.mask_message(program)}));
                 Ok(json!({"command_id": id, "state": "running"}))
             }
             "wait" | "get_exit_code" => {

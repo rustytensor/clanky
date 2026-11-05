@@ -161,7 +161,11 @@ without this operation fall back to one-second refresh; update/restart the serve
 for immediate unsolicited-output updates.
 
 For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
-agents, command drivers, the last 20 metadata-only events, and activity. Each
+agents, command drivers, the last 20 metadata-only events, human `recent` activity, and activity.
+`recent` is a separate owner-only history of up to 20 command-run, command-finished,
+agent-connected and pane-closed records; output/readiness notifications cannot evict
+it. Its sequence numbers are not v4 event cursors. Command text is masked. Windows
+add their own local file-open events and display pane names rather than protocol IDs. Each
 look event includes `age_ms`, its monotonic age at the time of the query; the UI
 shows relative seconds/minutes/hours rather than inventing wall-clock times. **activity
 is exactly 30 unsigned integer command counts, oldest to newest**, for the chart
@@ -219,6 +223,11 @@ OSC 52 writes are capped at 1 MiB; reads require explicit window opt-in. The
 headless server does not invoke desktop clipboard helpers. Config and first-owner
 handling are described in [configuration](config.md). block_events cursors are
 block IDs; evicted cursors return not_found, not the v4 events gap format.
+
+`terminal_info` also returns nullable `program`: the validated foreground process
+invocation name (argv[0] basename), so invoking sh through a bash symlink displays
+sh. Other arguments are never read into this field. The existing resolved `exe`
+path remains unchanged for callers that need it.
 
 #### Optional cell colour provenance
 

@@ -25,6 +25,9 @@ pub struct Studio {
     pub(crate) theme: look::Theme,
     calm_theme: clanky::themes::Theme,
     terminal_info:BTreeMap<String,Value>,
+    pane_labels:BTreeMap<String,String>,
+    seen_files:std::collections::BTreeSet<String>,
+    local_recent:std::collections::VecDeque<(Instant,look::TimelineItem)>,
     scene_cache:look::SceneCache,
     title:Option<String>,
     ime:Option<([u32;2],[u32;2])>,
@@ -48,7 +51,7 @@ pub struct Studio {
 }
 impl Default for Studio {
     fn default() -> Self {
-        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
+        Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
@@ -156,8 +159,8 @@ impl App {
         if now < self.studio.next_metadata { return false; }
         self.studio.next_metadata = now + Duration::from_secs(1);
         let stable=|value:&Value| {let mut value=value.clone();
-            if let Some(object)=value.as_object_mut(){object.remove("uptime_ms");}
-            if let Some(events)=value.get_mut("events").and_then(Value::as_array_mut){for event in events{if let Some(object)=event.as_object_mut(){object.remove("age_ms");}}}
+            if let Some(object)=value.as_object_mut(){object.remove("uptime_ms");object.remove("events");}
+            if let Some(events)=value.get_mut("recent").and_then(Value::as_array_mut){for event in events{if let Some(object)=event.as_object_mut(){object.remove("age_ms");}}}
             value
         };
         let before=stable(&self.studio.metadata);
@@ -434,7 +437,20 @@ impl App {
                 state.sessions.push(look::SessionItem { id: id.clone(), title: self.studio.terminal_info.get(&group.focus).and_then(|info|info["cwd"].as_str()).and_then(|cwd|std::path::Path::new(cwd).file_name()).map(|name|name.to_string_lossy().into_owned()).unwrap_or_else(||format!("Session {}",index+1)), active: index == self.active });
             }
         }
-        for (id, editor) in &self.files.panes {
+        for (index,group) in self.groups.iter().enumerate(){
+            let name=state.sessions.get(index).map(|session|session.title.as_str()).unwrap_or("Session");
+            for (pane,id) in group.layout.leaves().iter().enumerate(){self.studio.pane_labels.insert(id.clone(),clanky::calm::pane_label(name,pane));}
+        }
+        let mut retained:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
+        if let Some(recent)=self.studio.metadata["recent"].as_array(){retained.extend(recent.iter().filter_map(|event|event["tab_id"].as_str().map(str::to_owned)));}
+        self.studio.pane_labels.retain(|id,_|retained.contains(id));state.pane_labels=self.studio.pane_labels.clone();
+        self.studio.seen_files.retain(|id|self.files.panes.contains_key(id));
+        for (index,(id, editor)) in self.files.panes.iter().enumerate() {
+            if self.studio.seen_files.insert(id.clone()){
+                let name=editor.path().file_name().map(|name|name.to_string_lossy().into_owned()).unwrap_or_else(||"Untitled".into());
+                self.studio.local_recent.push_back((now,look::TimelineItem{label:"File opened".into(),detail:format!("{name} · editor pane {}",index+1)}));
+                while self.studio.local_recent.len()>20{self.studio.local_recent.pop_front();}
+            }
             state.files.push(look::FileItem { id: id.clone(), title: format!("{}{}", editor.path().display(), if editor.dirty() { " *" } else { "" }),
                 pending: editor.pending_count(), active: self.files.focus == *id });
         }
@@ -449,15 +465,13 @@ impl App {
                 }
             }
         }
-        if let Some(events) = self.studio.metadata["events"].as_array() {
-            for event in events.iter().skip(events.len().saturating_sub(20)) {
-                state.timeline_times.push(event["age_ms"].as_u64().map(|ms| {
-                    let seconds=ms/1000;
-                    if seconds<60 {format!("{seconds}s")} else if seconds<3600 {format!("{}m",seconds/60)} else {format!("{}h",seconds/3600)}
-                }).unwrap_or_default());
-                state.timeline.push(look::TimelineItem { label: event["kind"].as_str().unwrap_or("unknown").into(),
-                    detail: format!("{} {}",event["tab_id"].as_str().unwrap_or(""),event["command_id"].as_str().unwrap_or("")) });
-            }
+        let mut recent=clanky::calm::human_recent(&self.studio.metadata["recent"],&state.pane_labels,&self.studio.metadata["agents"]);
+        recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone())));
+        recent.sort_by_key(|(age,_)|std::cmp::Reverse(*age));
+        for (age,item) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
+            let seconds=age/1000;
+            state.timeline_times.push(if seconds<60{format!("{seconds}s")}else if seconds<3600{format!("{}m",seconds/60)}else{format!("{}h",seconds/3600)});
+            state.timeline.push(item);
         }
         self.studio.reviews.clear();
         let mut ui_rows: Vec<(PixelRect,String,Option<String>)> = Vec::new();
@@ -532,7 +546,7 @@ impl App {
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
             view.driver = if self.files.panes.contains_key(&pane.id) { "Local editor".into() } else {
-                self.studio.terminal_info.get(&pane.id).and_then(|info|info["exe"].as_str()).and_then(|exe|std::path::Path::new(exe).file_name()).map(|name|name.to_string_lossy().into_owned()).unwrap_or_default()
+                self.studio.terminal_info.get(&pane.id).and_then(|info|info["program"].as_str()).map(str::to_owned).unwrap_or_default()
             };
             if let Some(drivers) = self.studio.metadata["drivers"].as_array().filter(|_|!self.files.panes.contains_key(&pane.id)) {
                 if let Some(driver) = drivers.iter().find(|d| d["tab_id"].as_str() == Some(pane.id.as_str()) && d["running"] == true) {
