@@ -38,6 +38,34 @@ pub struct TerminalSnapshot {
     pub cursor: Option<(usize, usize)>,
     pub images: Vec<ImagePlacement>,
 }
+/// Stable FNV-1a hash of one row of cells, shared by the session server and its
+/// windows so a window can name the rows it already holds.
+pub fn row_hash(cells: &[Cell]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut eat = |byte: u8| {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    };
+    for cell in cells {
+        for byte in (cell.ch as u32).to_le_bytes() { eat(byte); }
+        for byte in cell.fg.iter().chain(&cell.bg) { eat(*byte); }
+        match cell.color_source {
+            None => eat(0),
+            Some(source) => {
+                eat(1);
+                for side in [source.fg, source.bg] {
+                    match side {
+                        ColorSource::Default => eat(0),
+                        ColorSource::Indexed(n) => { eat(1); eat(n); }
+                        ColorSource::Truecolor => eat(2),
+                    }
+                }
+                eat(u8::from(source.inverse));
+            }
+        }
+    }
+    hash
+}
 /// An immutable image and its terminal-local placement and viewport clip, in cells.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ImagePlacement {

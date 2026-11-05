@@ -639,6 +639,12 @@ pub struct Renderer {
     text: TextPipeline,
     scene: Option<scene_gpu::Painter>,
     suspended: bool,
+    /// Microseconds of the last draw_scene: surface acquire, scene encode, submit, present.
+    pub frame_timing: [u64; 4],
+    /// Adapter name, backend and device type, for diagnostics.
+    pub adapter_summary: String,
+    /// Surface present mode and frame latency, for diagnostics.
+    pub surface_summary: String,
 }
 impl Renderer {
     pub async fn new(window: Arc<Window>) -> Result<Self, String> {
@@ -667,12 +673,21 @@ impl Renderer {
         }
         let text = TextPipeline::new(&adapter, config.format).await?;
         surface.configure(&text.device, &config);
+        let info = adapter.get_info();
+        let adapter_summary = format!("{} {:?} {:?}", info.name, info.backend, info.device_type);
+        let surface_summary = format!(
+            "{:?} latency {} {}x{}",
+            config.present_mode, config.desired_maximum_frame_latency, config.width, config.height
+        );
         Ok(Self {
             surface,
             config,
             text,
             scene: None,
             suspended: size.width == 0 || size.height == 0,
+            frame_timing: [0; 4],
+            adapter_summary,
+            surface_summary,
         })
     }
     /// Set physical-pixel metrics after a DPI or zoom change.

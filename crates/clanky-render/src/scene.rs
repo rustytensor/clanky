@@ -149,6 +149,7 @@ impl Renderer {
         if self.suspended {
             return Ok(());
         }
+        let started = std::time::Instant::now();
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -161,6 +162,7 @@ impl Renderer {
             }
             other => return Err(format!("Surface acquisition failed: {other:?}")),
         };
+        let acquired = std::time::Instant::now();
         let view = frame.texture.create_view(&Default::default());
         let opaque = !self.supports_transparency();
         let painter = self.scene.get_or_insert_with(|| {
@@ -180,8 +182,17 @@ impl Renderer {
             ),
             opaque,
         )?;
+        let encoded = std::time::Instant::now();
         self.text.queue.submit([commands]);
+        let submitted = std::time::Instant::now();
         self.text.queue.present(frame);
+        let micros = |a: std::time::Instant, b: std::time::Instant| (b - a).as_micros() as u64;
+        self.frame_timing = [
+            micros(started, acquired),
+            micros(acquired, encoded),
+            micros(encoded, submitted),
+            micros(submitted, std::time::Instant::now()),
+        ];
         Ok(())
     }
 }

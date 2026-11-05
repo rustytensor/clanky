@@ -413,7 +413,10 @@ impl App {
 
     pub(super) fn draw_studio(&mut self) -> Result<(), String> {
         if self.stop || self.is_suspended() { return Ok(()); }
+        let trace_start=Instant::now();
         let layout = self.pixel_layout()?;
+        let trace_layout=Instant::now();
+        let mut trace_snapshot=0u64;
         if let Some(theme)=self.theme_runtime.as_ref().and_then(|runtime|runtime.active()) {self.studio.calm_theme=theme.clone();}
         self.studio.theme=clanky::calm::legacy_palette(&self.studio.calm_theme);
         self.files.viewport = Some(layout.clone());
@@ -523,7 +526,10 @@ impl App {
                 widget(&mut snapshot,&state.theme);
             } else {
                 let cached=if self.terminal_dirty{None}else{self.engine.cached_snapshot_with_blocks(&pane.id)};
-                let (current, anchors) = match cached.map(Ok).unwrap_or_else(||self.engine.snapshot_with_blocks(&pane.id)) { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
+                let trace_snap=Instant::now();
+                let fetched=cached.map(Ok).unwrap_or_else(||self.engine.snapshot_with_blocks(&pane.id));
+                trace_snapshot+=(Instant::now()-trace_snap).as_micros() as u64;
+                let (current, anchors) = match fetched { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
                 snapshot = current;
                 self.studio.blocks.insert(pane.id.clone(), anchors);
             }
@@ -672,7 +678,9 @@ impl App {
         self.update_card_actions(&layout,&mut state,now);
         let terminal_px=self.metrics()?.font_px;
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
+        let trace_state=Instant::now();
         let mut presentation = clanky::calm::presentation(&layout,&state,&self.studio.calm_theme,terminal_px,self.mouse,self.pointer_pressed,&mut |run| renderer.measure_text(run));
+        let trace_scene=Instant::now();
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
@@ -746,7 +754,14 @@ impl App {
             let theme = self.studio.calm_theme.clone();
             self.draw_robot(&mut presentation.scene, pane.rect.array(), &theme)?;
         }
-        self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
+        let trace_post=Instant::now();
+        let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
+        renderer.draw_scene(&presentation.scene)?;
+        if self.frame_trace.enabled() {
+            let us=|a:Instant,b:Instant|(b-a).as_micros() as u64;
+            let gpu=renderer.frame_timing;
+            self.frame_trace.phases(us(trace_start,Instant::now()),[us(trace_start,trace_layout),us(trace_layout,trace_state),us(trace_state,trace_scene),us(trace_scene,trace_post)],gpu,self.terminal_dirty,trace_snapshot);
+        }
         self.frame_trace.presented();
         self.frame_trace.gate_frame(self.gate_clock.as_ref().map(|clock| clock.elapsed_ms()));
         self.terminal_dirty=false;
