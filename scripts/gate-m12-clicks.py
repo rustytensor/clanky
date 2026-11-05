@@ -50,8 +50,8 @@ def main():
             require(bool(select.select([owner.stdout],[],[],10)[0]),'owner reply deadline')
             value=json.loads(owner.stdout.readline());require(value.get('ok') is True,'owner RPC '+op);return value['result']
         def xdo(*args):
-            p=subprocess.run(['xdotool',*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
-            require(p.returncode==0,'private X11 input');return p.stdout.decode().strip()
+            p=subprocess.run(['xdotool',*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+            require(p.returncode==0,f'xdotool {args[0]} exit {p.returncode}: {p.stderr.decode(errors="replace").strip()}');return p.stdout.decode().strip()
         try:
             server=launch([bins/'clanky','--server','--socket',sock]);until(lambda:sock.exists() or (server.poll() is not None and require(False,'server startup')),'server startup')
             owner=launch([bins/'clanky-agent-gate','owner',sock],True)
@@ -102,7 +102,7 @@ def main():
             print('PASS: real Split clicks: 1 → 2 → 3 panes; sidebar selected second session')
             # Settings opens from the sidebar. Navigation and controls are the
             # fixed 780×600 CSS geometry centred in the 1240×760 fixture.
-            click(40,696);time.sleep(.2)
+            click(40,680);time.sleep(.2)
             click(270,188);time.sleep(.2)  # Appearance
             click(820,179)  # Light segment
             until(lambda:saved().get('theme')=='light','Settings light segment')
@@ -114,7 +114,7 @@ def main():
             click(980,109);time.sleep(.2)  # close button
             old=len(workspace()['groups']);click(1180,36)
             until(lambda:len(workspace()['groups'])==old+1,'close button returns pointer to window')
-            click(40,696);time.sleep(.2);xdo('key','--window',wid,'Escape');time.sleep(.2)
+            click(40,680);time.sleep(.2);xdo('key','--window',wid,'Escape');time.sleep(.2)
             old=len(workspace()['groups']);click(1180,36)
             until(lambda:len(workspace()['groups'])==old+1,'Escape returns pointer to window')
             print('PASS: Settings section, light segment, font 13→14, animations off→on, close and Escape')
@@ -126,7 +126,7 @@ def main():
             geometry=dict(line.split('=',1) for line in xdo('getwindowgeometry','--shell',wid).splitlines() if '=' in line)
             left,top=int(geometry['X']),int(geometry['Y'])
             def capture():return ImageGrab.grab(bbox=(left+230,top+80,left+1010,top+680),xdisplay=env['DISPLAY']).convert('RGB')
-            plain=capture();click(40,696);time.sleep(.4);panel=capture()
+            plain=capture();click(40,680);time.sleep(.4);panel=capture()
             changed=sum(1 for pixel in ImageChops.difference(plain,panel).getdata() if pixel!=(0,0,0))
             require(changed>5000,f'Settings open changed pixels: expected >5000, observed {changed}')
             prior=config.read_bytes();click(600,200);time.sleep(.5)

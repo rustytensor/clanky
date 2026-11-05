@@ -17,12 +17,13 @@ run_step() {
     if "$@"; then echo "PASS: $name"; else local rc=$?; echo "FAIL: $name (exit $rc)" >&2; failed=1; fi
 }
 if ! flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky \
-    --bin clanky-calm-gate --bin clanky-settings-gate --bin clanky-look-gate --bin clanky --bin clanky-agent-gate -j 8; then
+    --bin clanky-calm-gate --bin clanky-settings-gate --bin clanky-copy-hit --bin clanky-look-gate --bin clanky --bin clanky-agent-gate -j 8; then
     echo 'FAIL: M12 build' >&2; exit 1
 fi
 run_step 'idle scheduler' "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
 run_step 'real window idle and key echo' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
-run_step 'real pointer checks (partial)' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
+run_step 'real pointer and Settings checks' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
+run_step 'real block hover and copy API' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-copy.py
 if [[ ${CLANKY_GATE_FAULT:-} == click ]]; then
     run_step 'additional Settings clicks' env CLANKY_GATE_BINARIES_READY=1 scripts/check-settings-clicks.sh
 else
@@ -53,10 +54,6 @@ if "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json
 else
     echo 'FAIL: M12 scene observations' >&2; failed=1
 fi
-# The calm scene has no command-card action hit target yet; neither click
-# fixture proves real-window block hover and clipboard copy.
-echo 'FAIL: M12 block hover/copy check is not implemented' >&2
-failed=1
 if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
     run_step 'release regression' env -u CLANKY_GATE_FAULT -u CLANKY_RC_NO_NESTED CLANKY_M12_PARENT=1 scripts/gate-rc.sh
 else

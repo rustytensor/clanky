@@ -27,11 +27,14 @@ def main():
     rows=data['row_heights']
     require(len(rows)>=6 and all(type(x) in (int,float) and math.isfinite(x) and x>=64 for x in rows),
             f'setting rows: expected >=64 px, observed {rows}')
+    gaps=data['row_gaps']
+    require(len(gaps)>=8 and all(type(x) in (int,float) and math.isfinite(x) and x>=64 for x in gaps),
+            f'setting label spacing: expected >=64 px, observed {gaps}')
     labels=data['labels']
     require(isinstance(labels,list) and labels and all(isinstance(x,str) for x in labels),'Settings labels missing')
     invalid=[text for text in labels if re.search(r'(?<![\w.])(?:true|false|1\.00)(?![\w.])',text,re.I)]
     require(not invalid,f'raw values in Settings labels: {invalid}')
-    print(f'PASS: Settings 780×600 radius 12, 200 px navigation, 56 px title/footer; {len(rows)} rows ≥64 px; {len(labels)} labels')
+    print(f'PASS: Settings 780×600 radius 12, 200 px navigation, 56 px title/footer; {len(rows)} row targets and {len(gaps)} label gaps ≥64 px; {len(labels)} labels')
 
 
 if __name__=='__main__':

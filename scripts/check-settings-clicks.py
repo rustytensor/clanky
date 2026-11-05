@@ -86,8 +86,8 @@ def main(work, bins):
 
     def xdo(*args):
         result = subprocess.run(['xdotool', *map(str, args)], env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, timeout=10)
-        require(result.returncode == 0, 'X11 input command')
+                                stderr=subprocess.PIPE, timeout=10)
+        require(result.returncode == 0, f'xdotool {args[0]} exit {result.returncode}: {result.stderr.decode(errors="replace").strip()}')
         return result.stdout.decode().strip()
 
     def frames():
@@ -168,7 +168,7 @@ def main(work, bins):
             return image
 
         # Opening/closing is setup: clanky-pkg owns those acceptance checks.
-        click(80, 696)
+        click(80, 680)
         section(1)
         pixel(capture('before-theme'), (997, 600), (1, 2, 3), 'synthetic initial background')
         if fault != 'click':

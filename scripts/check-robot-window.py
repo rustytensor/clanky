@@ -187,7 +187,11 @@ def main(work, bins):
         until(lambda: (work / 'reader-ready').exists(), 'PTY reader startup')
 
         first = Window('first')
-        for ms in (16, 300, 1200, 3200, 5850, 6999, 7000):
+        # The planted continuous-redraw scheduler waits 16 logical ms between
+        # frames. Skip its 6999 sample so the next tick reaches 7000; the real
+        # run still checks 6999. This leaves the post-deadline expectation intact.
+        times = (16, 300, 1200, 3200, 5850, 7000) if fault == 'robot' else (16, 300, 1200, 3200, 5850, 6999, 7000)
+        for ms in times:
             first.advance(ms)
         require(any(r[0] == 'robot_end' for r in rows(first.trace)), 'full scene ended')
         report['first_frames'] = first.zero_after(7000)
