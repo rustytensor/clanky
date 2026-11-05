@@ -5,6 +5,7 @@ pub mod frame_clock;
 pub mod themes;
 pub mod calm;
 pub mod theme_store;
+pub mod theme_runtime;
 pub mod robot;
 pub mod settings;
 pub mod settings_panel;

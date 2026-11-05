@@ -39,9 +39,11 @@ A private temporary sibling is fully written and synced, then hard-linked into p
 A save copies the caller's Theme; import/export preserve user-file bytes, including formatting.
 The picker includes background/foreground/muted/agent and all 16 ANSI swatches.
 
-**App integration remains with clanky-editor:** wire the CLI parser helper into main,
-apply overrides after reloads, and enforce Post-AI at the server/MCP boundary. This API
-parses the setting; it does not itself disable agents or claim the executable accepts the flag yet.
+**Runtime wiring is complete:** main parses `--post-ai`, reapplies overrides after
+Settings changes, and synchronizes the server policy. Server/MCP enforcement and the
+headless gate are described in [Post-AI results](m12-postai-results.md).
+`App.theme_runtime` polls themes on the existing 500 ms settings timer; `active()` returns
+the last-good selected M12 theme. Scene/picker drawing remains with clanky-editor.
 Legacy-only colour tokens remain handled by `Config::resolved_theme`; semantic tokens use
 `resolved_document`. Built-in selections with the wrong appearance are refused in config;
 user selections are checked at resolution time.

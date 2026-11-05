@@ -373,6 +373,7 @@ impl Engine {
     fn tab(&self, id: &str, trusted: bool) -> Result<Arc<Tab>, CoreError> {
         // Do not admit a fresh lease halfway through an epoch-wide revoke.
         let _authority = (!trusted).then(|| self.0.1.authority.lock().unwrap());
+        self.check_agent_mode(trusted)?;
         let tab = self
             .0
             .0
@@ -742,6 +743,7 @@ impl Engine {
     }
 
     pub fn request(&self, op: &str, args: &Value, trusted: bool) -> Result<Value, CoreError> {
+        self.check_agent_mode(trusted)?;
         if let Some(action) = op.strip_prefix("v4.") {
             return self.agent_request(action, args, trusted);
         }
@@ -778,6 +780,7 @@ impl Engine {
                 _ => return Err(invalid("allow_agent must be boolean")),
             };
             let mut s = self.0.0.lock().unwrap();
+            self.check_agent_mode(trusted)?;
             if !trusted && self.0.1.latched.load(Ordering::Acquire) {
                 return Err(error("permission_denied", "agent creation is revoked"));
             }
