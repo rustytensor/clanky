@@ -12,6 +12,9 @@ use std::{
 };
 
 fn connect_start_with(socket: &Path, owner: bool) -> io::Result<(Client, bool)> {
+    connect_start_configured(socket, owner, None, false)
+}
+fn connect_start_configured(socket: &Path, owner: bool, config: Option<&Path>, post_ai: bool) -> io::Result<(Client, bool)> {
     let connect: fn(&Path) -> io::Result<Client> = if owner {
         Client::connect_owner
     } else {
@@ -30,7 +33,7 @@ fn connect_start_with(socket: &Path, owner: bool) -> io::Result<(Client, bool)> 
         }
     }
     let exe = std::env::current_exe()?;
-    let mut child = platform::spawn_server(&exe, socket)?;
+    let mut child = platform::spawn_server_configured(&exe, socket, config, post_ai)?;
     let spawned_pid = child.id();
     // A competing launcher may lose the instance flock and exit. Both
     // launchers connect to the winner, and every launcher child is reaped.
@@ -73,9 +76,13 @@ fn connect_start(socket: &Path) -> io::Result<(Client, bool)> {
 
 /// Agent-only startup: no owner token is read or authentication attempted.
 pub fn connect_agent_or_start(socket: &Path) -> Result<Client, String> {
-    connect_start_with(socket, false)
-        .map(|(client, _)| client)
-        .map_err(|_| "cannot connect agent session".to_string())
+    let (client, _) = connect_start_with(socket, false)
+        .map_err(|_| "cannot connect agent session".to_string())?;
+    client.exchange(4, "hello", &json!({})).map_err(|error| {
+        if error.message == clanky_core::POST_AI_REASON { error.message }
+        else { "cannot connect agent session".to_owned() }
+    })?;
+    Ok(client)
 }
 
 pub fn connect_or_start(socket: &Path) -> Result<Client, String> {
@@ -88,14 +95,33 @@ pub fn connect_or_start_with_status(socket: &Path) -> Result<(Client, bool), Str
 
 /// Shared startup path for graphical and offscreen windows.
 pub fn prepare_window(socket: &Path, layout: Option<&Path>) -> Result<Client, String> {
+    prepare_window_configured(socket, layout, None, crate::config::StartupOverrides::default())
+}
+pub fn prepare_window_configured(socket: &Path, layout: Option<&Path>, config: Option<&Path>, flags: crate::config::StartupOverrides) -> Result<Client, String> {
     let guard = platform::StartupLock::acquire(socket).map_err(|e| format!("cannot lock window startup: {e}"))?;
-    let (client, fresh) = connect_or_start_with_status(socket)?;
+    let (client, fresh) = connect_start_configured(socket, true, config, flags.post_ai)
+        .map_err(|e| format!("cannot connect to session server: {e}"))?;
+    let mut policy = crate::config::Config::load(config)?;
+    flags.apply(&mut policy);
+    // Enforce before restoring any shells, not only once the window is ready.
+    client.exchange(4, "post_ai", &json!({"enabled":policy.post_ai,"force":flags.post_ai})).map_err(|e| e.message)?;
     if let Some(path) = layout { crate::layout_store::restore(&client, path, fresh)?; }
     drop(guard);
     Ok(client)
 }
 
 pub fn run_server(socket: &Path) -> Result<(), String> {
+    run_server_configured(socket, None, crate::config::StartupOverrides::default())
+}
+pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: crate::config::StartupOverrides) -> Result<(), String> {
+    let mut config = crate::config::Config::load(config_path)?;
+    flags.apply(&mut config);
+    let settings_path = config_path.map(Path::to_owned).or_else(crate::platform::settings_path);
+    let mut settings = settings_path.map(crate::settings::Settings::open).transpose()?;
+    if let Some(settings) = &settings {
+        config.post_ai = settings.config().post_ai;
+        flags.apply(&mut config);
+    }
     let _lock = platform::ServerLock::acquire(socket)
         .map_err(|e| format!("cannot lock session server: {e}"))?;
     let token = platform::owner_token(socket, true)
@@ -109,13 +135,28 @@ pub fn run_server(socket: &Path) -> Result<(), String> {
         }
     }
     let engine = Shutdown(Engine::new());
-    clanky_api::serve_owned(
-        engine.0.clone(),
-        socket,
-        Arc::new(AtomicBool::new(false)),
-        token,
-    )
-    .map_err(|e| format!("session server failed: {e}"))
+    engine.0.configure_post_ai(config.post_ai, flags.post_ai);
+    let stop = Arc::new(AtomicBool::new(false));
+    let monitor_stop = stop.clone();
+    let monitor_engine = engine.0.clone();
+    let monitor = thread::spawn(move || {
+        while !monitor_stop.load(std::sync::atomic::Ordering::Acquire) {
+            if let Some(settings) = &mut settings {
+                match settings.reload() {
+                    Ok(true) => { monitor_engine.set_post_ai(settings.config().post_ai); }
+                    Err(error) => eprintln!("clanky: {error}"),
+                    _ => (),
+                }
+            }
+            thread::park_timeout(Duration::from_millis(250));
+        }
+    });
+    let result = clanky_api::serve_owned(engine.0.clone(), socket, stop.clone(), token)
+        .map_err(|e| format!("session server failed: {e}"));
+    stop.store(true, std::sync::atomic::Ordering::Release);
+    monitor.thread().unpark();
+    let _ = monitor.join();
+    result
 }
 
 pub fn connect_pipe(socket: &Path) -> Result<Client, String> {
@@ -163,11 +204,22 @@ fn read_line(reader: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
 }
 
 pub fn stdio(socket: &Path) -> Result<(), String> {
-    let client = match connect_start(socket) {
-        Ok((client, _)) => client,
+    stdio_configured(socket, None, crate::config::StartupOverrides::default())
+}
+pub fn stdio_configured(socket: &Path, config_path: Option<&Path>, flags: crate::config::StartupOverrides) -> Result<(), String> {
+    let mut config = crate::config::Config::load(config_path)?;
+    flags.apply(&mut config);
+    let client = match connect_start_configured(socket, true, config_path, flags.post_ai) {
+        Ok((client, _)) => {
+            if config.post_ai {
+                client.exchange(4, "post_ai", &json!({"enabled":true,"force":flags.post_ai})).map_err(|e| e.message)?;
+            }
+            client
+        },
         // Inside a terminal, owner denial is expected. Preserve that role and
         // keep forwarding, including explicit auth requests carrying a token.
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            if config.post_ai { return Err(clanky_core::POST_AI_REASON.into()); }
             Client::connect_agent(socket).map_err(|_| "cannot connect agent bridge".to_string())?
         }
         Err(error) => return Err(format!("cannot connect stdio bridge: {error}")),

@@ -168,6 +168,7 @@ fn client(
     connection_id: u64,
 ) {
     let connection = connection_id;
+    let admission_epoch = engine.post_ai_epoch();
     let _connection_guard = ConnectionGuard { engine: engine.clone(), connection };
     engine.agent_connection_role(connection, &peer, false);
     let mut reader = BufReader::new(stream);
@@ -182,7 +183,8 @@ fn client(
             if owner && line.is_empty() {
                 deadline = Instant::now() + Duration::from_secs(30);
             }
-            if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+            if stop.load(Ordering::Acquire) || Instant::now() >= deadline
+                || (!owner && engine.post_ai_epoch() != admission_epoch) {
                 return;
             }
             match reader.fill_buf() {
@@ -242,6 +244,7 @@ fn client(
                     // Only successful runs supply a real, generated command ID.
                     let version = request["v"].as_u64().unwrap_or(0);
                     let op = request["op"].as_str().unwrap_or("");
+                    if response["ok"]==true && !(version==3 && matches!(op,"hello"|"auth")) {engine.agent_connection_announced(connection);}
                     if response["ok"] == true && ((version == 1 && op == "run") || (version == 2 && op == "rerun")) {
                         let tab = if op == "rerun" { &response["result"]["tab_id"] } else { &request["tab_id"] };
                         if let (Some(tab), Some(command)) = (tab.as_str(), response["result"]["command_id"].as_str()) {
@@ -275,9 +278,12 @@ fn client(
                 "Expected a UTF-8 JSON object",
             ),
         };
+        // Do not deliver a successful agent result from a pre-revocation request.
+        if !owner && engine.post_ai_epoch() != admission_epoch { return; }
         if send(reader.get_mut(), &response).is_err() {
             return;
         }
+        if !owner && engine.post_ai() { return; }
     }
 }
 
@@ -337,6 +343,11 @@ fn dispatch(
     let Some(op) = obj.get("op").and_then(Value::as_str) else {
         return error(id, "invalid_request", "op must be a string");
     };
+    // Auth is the only unauthenticated operation allowed in Post-AI mode.
+    // Owners authenticate before hello; eligibility alone never grants authority.
+    if !*owner && !(version == 3 && op == "auth") && engine.post_ai() {
+        return error(id, "permission_denied", clanky_core::POST_AI_REASON);
+    }
     if op == "hello" {
         if obj.keys().any(|k| !matches!(k.as_str(), "v" | "id" | "op" | "client_name" | "model")) {
             return error(id, "invalid_request", "Unknown hello field");

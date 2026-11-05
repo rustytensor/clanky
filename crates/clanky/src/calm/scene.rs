@@ -23,14 +23,18 @@ fn terminal(theme:&Theme,cell:&mut Cell){
     cell.fg=match fg{ColorSource::Default=>rgb(if source.inverse{c.background}else{c.foreground}),ColorSource::Indexed(i @ 0..=15)=>rgb(theme.ansi[i as usize]),_=>cell.fg};
     cell.bg=match bg{ColorSource::Default=>rgb(if source.inverse{c.foreground}else{c.background}),ColorSource::Indexed(i @ 0..=15)=>rgb(theme.ansi[i as usize]),_=>cell.bg};
 }
-struct Paint<'a>{out:Presentation,theme:&'a Theme,measure:&'a mut dyn FnMut(&TextRun)->TextMetrics,scale:f32,pointer:(f64,f64),pressed:bool,clip:[f32;4]}
-impl Paint<'_>{
-    fn shape(&mut self,rect:PixelRect,radius:f32,fill:Color,border:Option<Color>){
+pub(super) struct Paint<'a>{pub(super) out:Presentation,theme:&'a Theme,measure:&'a mut dyn FnMut(&TextRun)->TextMetrics,scale:f32,pointer:(f64,f64),pressed:bool,clip:[f32;4]}
+impl<'a> Paint<'a>{
+    pub(super) fn empty(theme:&'a Theme,measure:&'a mut dyn FnMut(&TextRun)->TextMetrics,scale:f32,window:[u32;2],pointer:(f64,f64),pressed:bool)->Self{
+        Self{out:Presentation{scene:Scene{clear:[0;4],layers:vec![]},hits:vec![]},theme,measure,scale,pointer,pressed,clip:[0.0,0.0,window[0] as f32,window[1] as f32]}
+    }
+    pub(super) fn shape(&mut self,rect:PixelRect,radius:f32,fill:Color,border:Option<Color>){
         if rect.w>0.0 && rect.h>0.0{self.out.scene.layers.push(Layer::Shape(Shape{rect:rect.array(),radius,
             fill:Fill::Solid(fill),border:border.map(|c|(self.scale,c)),shadow:None}));}
     }
-    fn width(&mut self,text:&str,px:f32,weight:u16)->f32{(self.measure)(&TextRun{text:text.into(),px,weight,..TextRun::default()}).width}
-    fn text(&mut self,rect:PixelRect,text:&str,px:f32,color:Color,weight:u16,mono:bool){
+    pub(super) fn width(&mut self,text:&str,px:f32,weight:u16)->f32{(self.measure)(&TextRun{text:text.into(),px,weight,..TextRun::default()}).width}
+    pub(super) fn mono_width(&mut self,text:&str,px:f32,weight:u16)->f32{(self.measure)(&TextRun{text:text.into(),px,weight,mono:true,..TextRun::default()}).width}
+    pub(super) fn text(&mut self,rect:PixelRect,text:&str,px:f32,color:Color,weight:u16,mono:bool){
         if rect.w<=0.0 || rect.h<=0.0{return;}
         let mut run=TextRun{text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(2048).collect(),px,color,weight,mono,..TextRun::default()};
         if (self.measure)(&run).width>rect.w{
@@ -44,7 +48,7 @@ impl Paint<'_>{
         run.origin=[rect.x,rect.y+(rect.h-metrics.line_height)/2.0];self.out.scene.layers.push(Layer::Text(run));
     }
     fn hit(&mut self,rect:PixelRect,action:HitAction){if rect.w>0.0 && rect.h>0.0{self.out.hits.push(Hotspot{rect,action});}}
-    fn icon(&mut self,kind:&str,x:f32,y:f32,color:Color){
+    pub(super) fn icon(&mut self,kind:&str,x:f32,y:f32,color:Color){
         let mut p=Path::builder();
         if kind=="search"{p.add_circle(point(7.0,7.0),4.5,clanky_render::vector::lyon::path::Winding::Positive);p.begin(point(10.5,10.5));p.line_to(point(13.5,13.5));p.end(false);}
         else if kind=="file"{
@@ -61,6 +65,17 @@ impl Paint<'_>{
         }
         self.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:p.build(),fill:None,stroke:Some(PathStroke{width:1.5,color}),
             transform:Matrix4::scale(self.scale,self.scale,1.0).then(Matrix4::translate(x,y,0.0))}],clip:self.clip,opacity:1.0}));
+    }
+    pub(super) fn kbd(&mut self,right:f32,y:f32,keys:&[&str])->f32{
+        let mut edge=right;let c=&self.theme.colors;
+        for key in keys.iter().rev(){
+            let width=(self.measure)(&TextRun{text:(*key).into(),px:12.0*self.scale,mono:true,..TextRun::default()}).width+10.0*self.scale;
+            let chip=r(edge-width,y,width,20.0*self.scale);
+            self.shape(chip,4.0*self.scale,c.muted,None);
+            self.text(r(chip.x+5.0*self.scale,chip.y,chip.w-10.0*self.scale,chip.h),key,12.0*self.scale,c.muted_foreground,400,true);
+            edge=chip.x-4.0*self.scale;
+        }
+        edge+4.0*self.scale
     }
     fn button(&mut self,rect:PixelRect,label:&str,action:HitAction,primary:bool){
         let c=&self.theme.colors;let hovered=rect.contains(self.pointer.0,self.pointer.1);
@@ -97,9 +112,9 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         let cw=p.width("C",15.0*s,600);
         p.text(r(side.x+16.0*s+(32.0*s-cw)/2.0,16.0*s,cw,32.0*s),"C",15.0*s,c.primary_foreground,600,false);
         p.text(r(side.x+58.0*s,14.0*s,side.w-74.0*s,20.0*s),"Clanky",14.0*s,c.foreground,600,false);
-        p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&format!("server up · {} h",state.uptime_seconds/3600),12.0*s,c.muted_foreground,400,false);
+        p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&super::uptime_label(state.uptime_seconds),12.0*s,c.muted_foreground,400,false);
         let mut y=72.0*s;let bottom=h-92.0*s;
-        for section in 0..3{
+        for section in 0..2{
             if y+32.0*s>bottom{break;}
             p.text(r(side.x+16.0*s,y,side.w-32.0*s,32.0*s),["Sessions","Agents","Files"][section],12.0*s,c.muted_foreground,500,false);y+=32.0*s;
             match section{
@@ -107,7 +122,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
                     let n=state.session_counts.get(&item.id).copied().unwrap_or(1);
                     p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&item.title,&format!("{n} {}",if n==1{"pane"}else{"panes"}),item.active,HitAction::Session(item.id.clone()),Some("terminal"),None);y+=34.0*s;},
                 1=>for item in &state.agents{if y+32.0*s>bottom{break;}
-                    let name=state.agent_labels.get(&item.connection_id).cloned().unwrap_or_else(||format!("agent {}",item.peer_pid));
+                    let name=state.agent_labels.get(&item.connection_id).cloned().unwrap_or_else(||"Agent".into());
                     p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&name,if item.running{"running"}else{"idle"},false,HitAction::Agent{connection_id:item.connection_id,tab_id:item.tab_id.clone()},None,Some(if item.running{c.agent}else{c.muted_foreground}));y+=34.0*s;},
                 _=>for item in &state.files{if y+32.0*s>bottom{break;}
                     let count=if item.pending>0{format!("{} changes",item.pending)}else{String::new()};
@@ -118,7 +133,6 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             }
             y+=12.0*s;
         }
-        p.item(r(side.x+8.0*s,h-80.0*s,side.w-16.0*s,32.0*s),"Settings","Ctrl+,",false,HitAction::Settings,Some("settings"),None);
         p.text(r(side.x+16.0*s,h-40.0*s,side.w-32.0*s,32.0*s),if state.masking_ready{"masking on"}else{"checking masking"},12.0*s,c.muted_foreground,400,false);
     }
     let bar=layout.top_bar;let by=bar.y+12.0*s;
@@ -131,15 +145,9 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let split_width=p.width("Split",14.0*s,500)+24.0*s;
     let split=r(new_tab.x-8.0*s-split_width,by,split_width,32.0*s);
     p.button(split,"Split",HitAction::Split,false);
-    let search=r((split.x-308.0*s).max(toggle.x+64.0*s),by,(split.x-8.0*s-(split.x-308.0*s).max(toggle.x+64.0*s)).max(0.0),32.0*s);
-    p.shape(search,8.0*s,c.background,Some(if search.contains(pointer.0,pointer.1){c.ring}else{c.input}));
-    p.icon("search",search.x+10.0*s,search.y+8.0*s,c.muted_foreground);
-    let hint_width=(p.measure)(&TextRun{text:"Ctrl⇧P".into(),px:12.0*s,mono:true,..TextRun::default()}).width+10.0*s;
-    let hint=r(search.x+search.w-8.0*s-hint_width,search.y+6.0*s,hint_width,20.0*s);
-    p.shape(hint,4.0*s,c.muted,None);p.text(r(hint.x+5.0*s,hint.y,hint.w-10.0*s,hint.h),"Ctrl⇧P",12.0*s,c.muted_foreground,400,true);
-    p.text(r(search.x+32.0*s,search.y,(hint.x-search.x-40.0*s).max(0.0),search.h),"Search or run a command…",14.0*s,c.muted_foreground,400,false);p.hit(search,HitAction::Palette);
+    // Palette entry stays hidden until its calm replacement is ready.
     let title=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.as_str()).unwrap_or("Clanky");
-    p.text(r(toggle.x+48.0*s,bar.y,(search.x-toggle.x-64.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
+    p.text(r(toggle.x+48.0*s,bar.y,(split.x-toggle.x-64.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
     p.shape(r(bar.x+s,bar.y+bar.h-s,bar.w-2.0*s,s),0.0,c.border,None);
     for pane in &layout.panes{
         let data=state.panes.iter().find(|data|data.id==pane.id);let focus=state.focused.as_ref()==Some(&pane.id);
@@ -176,9 +184,11 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.text(r(x+84.0*s,y+48.0*s,width-96.0*s,22.0*s),"commands",12.0*s,c.muted_foreground,400,false);
         let chart=r(x+12.0*s,y+82.0*s,width-24.0*s,40.0*s);let mut path=Path::builder();
         let samples:Vec<_>=state.activity.iter().rev().take(30).copied().collect();let max=samples.iter().filter(|v|v.is_finite()).copied().fold(1.0_f32,f32::max);
-        if samples.is_empty(){path.begin(point(chart.x,chart.y+chart.h));path.line_to(point(chart.x+chart.w,chart.y+chart.h));}
+        let has_commands=samples.iter().any(|value|value.is_finite() && *value>0.0);
+        if !has_commands{path.begin(point(chart.x,chart.y+chart.h-s));path.line_to(point(chart.x+chart.w,chart.y+chart.h-s));}
         else{for(i,value)in samples.iter().rev().enumerate(){let px=chart.x+i as f32*chart.w/samples.len().saturating_sub(1).max(1) as f32;let py=chart.y+chart.h-(if value.is_finite(){(*value/max).clamp(0.0,1.0)}else{0.0})*chart.h;if i==0{path.begin(point(px,py));}else{path.line_to(point(px,py));}}}path.end(false);
         p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.5*s,color:c.muted_foreground}),transform:Matrix4::IDENTITY}],clip:chart.array(),opacity:1.0}));
+        if !has_commands{p.text(r(chart.x,chart.y,chart.w,chart.h-8.0*s),"No agent commands yet",12.0*s,c.muted_foreground,400,false);}
         p.text(r(x+12.0*s,y+132.0*s,width-24.0*s,20.0*s),"Commands agents ran per minute",12.0*s,c.muted_foreground,400,false);y+=176.0*s;
         let count=state.timeline.len().min(4);let height=(48.0+36.0*count.max(1) as f32)*s;
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Recent",14.0*s,c.foreground,500,false);
@@ -195,14 +205,13 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(40.0+32.0*index as f32)*s,width-24.0*s,32.0*s);
             if row.y+row.h>side.y+side.h-8.0*s{break;}
             if row.contains(pointer.0,pointer.1){p.shape(row,6.0*s,c.accent,None);}
-            p.text(r(row.x,row.y,row.w-44.0*s,18.0*s),&pane.title,14.0*s,c.foreground,400,false);
+            p.text(r(row.x,row.y,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400,false);
             p.text(r(row.x,row.y+18.0*s,row.w-44.0*s,14.0*s),if pane.allow_agent{"read + run"}else{"off"},12.0*s,c.muted_foreground,400,false);
-            let sw=r(row.x+row.w-32.0*s,row.y+7.0*s,32.0*s,18.0*s);
+            let sw=r(row.x+row.w-32.0*s,row.y,32.0*s,18.0*s);
             p.shape(sw,9.0*s,if pane.allow_agent{c.primary}else{c.input},None);
             p.shape(r(sw.x+if pane.allow_agent{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if pane.allow_agent{c.primary_foreground}else{c.background},None);
             p.hit(row,HitAction::Access(pane.id.clone()));
         }
     }
-    let panels=look::panel_presentation(layout,state,p.measure);p.out.scene.layers.extend(panels.scene.layers);p.out.hits.extend(panels.hits);
     p.out
 }

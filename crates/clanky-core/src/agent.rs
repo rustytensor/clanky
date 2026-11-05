@@ -59,6 +59,45 @@ impl Tab {
     }
 }
 impl Engine {
+    pub fn post_ai(&self) -> bool { self.0.1.post_ai.load(Ordering::Acquire) }
+    pub fn post_ai_epoch(&self) -> u64 { self.0.1.post_ai_epoch.load(Ordering::Acquire) }
+    pub fn check_agent_mode(&self, trusted: bool) -> Result<(), CoreError> {
+        if !trusted && self.post_ai() { return Err(error("permission_denied", crate::POST_AI_REASON)); }
+        Ok(())
+    }
+    /// Configure the process-lifetime CLI override at startup or from an owner.
+    pub fn configure_post_ai(&self, enabled: bool, forced: bool) {
+        self.0.1.post_ai_forced.store(forced, Ordering::Release);
+        self.set_post_ai(enabled);
+    }
+    /// Owner policy change. Revoke all leases and wake waits before returning.
+    /// Turning the mode off does not restore old tab permissions or the revoke latch.
+    pub fn set_post_ai(&self, enabled: bool) -> bool {
+        let _authority = self.0.1.authority.lock().unwrap();
+        let enabled = enabled || self.0.1.post_ai_forced.load(Ordering::Acquire);
+        if self.0.1.post_ai.swap(enabled, Ordering::AcqRel) != enabled {
+            if enabled {
+                self.0.1.post_ai_epoch.fetch_add(1, Ordering::AcqRel);
+                self.revoke_agents_locked();
+            }
+            self.0.1.window_signal.notify();
+        }
+        enabled
+    }
+    fn revoke_agents_locked(&self) -> Value {
+        let state = self.0.0.lock().unwrap();
+        self.0.1.latched.store(true, Ordering::Release);
+        let epoch = self.0.1.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        let mut revoked = 0;
+        for tab in state.tabs.values() {
+            if tab.allowed.swap(false, Ordering::AcqRel) { revoked += 1; }
+            tab.permission.fetch_add(1, Ordering::AcqRel);
+            for c in tab.commands.lock().unwrap().all.values() { c.changed.notify_all(); }
+        }
+        self.0.1.deny_retained_events();
+        self.0.1.changed.notify_all();
+        json!({"revoked":revoked,"epoch":epoch})
+    }
     pub(super) fn lease(&self, tab: &Tab) -> (u64, u64) {
         let _authority = self.0.1.authority.lock().unwrap();
         (
@@ -72,6 +111,7 @@ impl Engine {
         lease: (u64, u64),
         trusted: bool,
     ) -> Result<(), CoreError> {
+        self.check_agent_mode(trusted)?;
         if !trusted
             && (!tab.allowed.load(Ordering::Acquire)
                 || (
@@ -119,10 +159,21 @@ impl Engine {
     }
     /// The transport passes its authenticated role, never a role from request JSON.
     pub fn agent_request(&self, op: &str, args: &Value, trusted: bool) -> Result<Value, CoreError> {
-        if matches!(op, "audit" | "revoke_all" | "resume_agents") && !trusted {
+        self.check_agent_mode(trusted)?;
+        if matches!(op, "audit" | "revoke_all" | "resume_agents" | "post_ai") && !trusted {
             return Err(error("permission_denied", "owner operation"));
         }
         match op {
+            "post_ai" => {
+                fields(args, &["enabled", "force"])?;
+                let enabled = args["enabled"].as_bool().ok_or_else(|| invalid("enabled must be boolean"))?;
+                let force = match args.get("force") {
+                    Some(value) => value.as_bool().ok_or_else(|| invalid("force must be boolean"))?,
+                    None => false,
+                };
+                if force { self.configure_post_ai(true, true); }
+                return Ok(json!({"post_ai":self.set_post_ai(enabled)}));
+            }
             "audit" => return self.audit_request(args),
             "events" => return self.events_request(args, trusted),
             "revoke_all" => {
@@ -130,25 +181,12 @@ impl Engine {
                 // State lock serializes tab creation and the creation latch. The
                 // epoch invalidates every outstanding agent lease in one change.
                 let _authority = self.0.1.authority.lock().unwrap();
-                let state = self.0.0.lock().unwrap();
-                self.0.1.latched.store(true, Ordering::Release);
-                let epoch = self.0.1.epoch.fetch_add(1, Ordering::AcqRel) + 1;
-                let mut revoked = 0;
-                for tab in state.tabs.values() {
-                    if tab.allowed.swap(false, Ordering::AcqRel) {
-                        revoked += 1;
-                    }
-                    tab.permission.fetch_add(1, Ordering::AcqRel);
-                    for c in tab.commands.lock().unwrap().all.values() {
-                        c.changed.notify_all();
-                    }
-                }
-                self.0.1.deny_retained_events();
-                self.0.1.changed.notify_all();
-                return Ok(json!({"revoked":revoked,"epoch":epoch}));
+                return Ok(self.revoke_agents_locked());
             }
             "resume_agents" => {
                 fields(args, &[])?;
+                let _authority = self.0.1.authority.lock().unwrap();
+                if self.post_ai() { return Err(error("permission_denied", crate::POST_AI_REASON)); }
                 let _state = self.0.0.lock().unwrap();
                 self.0.1.latched.store(false, Ordering::Release);
                 return Ok(json!({"resumed":true}));

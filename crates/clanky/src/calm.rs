@@ -3,6 +3,9 @@ use crate::look::{self,Layout,Metrics,PixelRect};
 use clanky_core::layout::Layout as Tree;
 
 mod scene;
+mod recent;
+pub mod settings_frame;
+pub use recent::{human_recent,pane_label,uptime_label};
 pub use scene::{presentation,legacy_palette};
 
 fn rect(x:f64,y:f64,w:f64,h:f64)->PixelRect{PixelRect{x:x as f32,y:y as f32,w:w.max(0.0) as f32,h:h.max(0.0) as f32}}

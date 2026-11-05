@@ -55,6 +55,41 @@ impl Animation {
         Some(time)
     }
 }
+/// Startup playback tied to the same monotonic clock as FrameClock. The end
+/// deadline schedules one frame exposing the shell, then disappears completely.
+#[derive(Clone, Debug)]
+pub struct Startup {
+    started: std::time::Instant,
+    animation: Animation,
+}
+impl Startup {
+    pub fn new(kind: Kind, started: std::time::Instant) -> Self {
+        Self {
+            started,
+            animation: Animation::new(kind),
+        }
+    }
+    pub fn kind(&self) -> Kind {
+        self.animation.kind
+    }
+    pub fn deadline(&self) -> Option<std::time::Instant> {
+        (!self.animation.skipped && !self.animation.finished)
+            .then(|| self.started + std::time::Duration::from_millis(self.kind().duration_ms()))
+    }
+    pub fn skip(&mut self) {
+        self.animation.skip();
+    }
+    pub fn sample(&mut self, now: std::time::Instant) -> Option<u64> {
+        let deadline = self.deadline()?;
+        if now >= deadline {
+            self.animation.finished = true;
+            return None;
+        }
+        self.animation
+            .sample(now.saturating_duration_since(self.started).as_millis() as u64)
+    }
+}
+
 /// Atomic create-new means two simultaneous windows cannot both claim first
 /// meeting. Call only once a real window can show the animation.
 pub fn claim_kind(marker: &Path) -> Result<Kind, String> {
@@ -315,6 +350,76 @@ impl Pose {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_schedule() {
+        use crate::frame_clock::FrameClock;
+        use std::time::{Duration, Instant};
+        let origin = Instant::now();
+        // 0,16,...,6992,7000 = 439 frames; 0,16,...,1200 = 76 frames.
+        for (kind, expected) in [(Kind::FirstMeeting, 439), (Kind::Greeting, 76)] {
+            let mut startup = Startup::new(kind, origin);
+            let mut clock =
+                FrameClock::new(std::env::var_os("CLANKY_ROBOT_STARTUP_FAULT").is_some());
+            let mut last = None;
+            for ms in 0..=kind.duration_ms() + 2000 {
+                let now = origin + Duration::from_millis(ms);
+                if clock.request_due(now) {
+                    clock.begin_frame();
+                    startup.sample(now);
+                    clock.presented(now, startup.deadline());
+                    last = Some(ms);
+                }
+            }
+            assert_eq!(last, Some(kind.duration_ms()));
+            assert_eq!(clock.frames(), expected);
+            assert_eq!(clock.deadline(origin + Duration::from_secs(10)), None);
+        }
+        let mut startup = Startup::new(Kind::FirstMeeting, origin);
+        let mut clock = FrameClock::default();
+        for ms in 0..=2300 {
+            let now = origin + Duration::from_millis(ms);
+            if ms == 300 {
+                startup.skip();
+                clock.invalidate();
+            }
+            if clock.request_due(now) {
+                clock.begin_frame();
+                startup.sample(now);
+                clock.presented(now, startup.deadline());
+            }
+        }
+        // Nineteen animation frames through 288ms, then one skip/clear at 300ms.
+        assert_eq!(clock.frames(), 20);
+        assert_eq!(startup.deadline(), None);
+        // The selected theme, not the Stone fallback, supplies the painted panel.
+        // At 7000ms x238,y212 is inside the flat front panel, below the display
+        // and above its text marking: its RGBA must equal this literal override.
+        let theme = crate::themes::builtin("stone-dark")
+            .unwrap()
+            .with_overrides(
+                &[("robot_paint".into(), "#0c2238".into())]
+                    .into_iter()
+                    .collect(),
+            )
+            .unwrap();
+        let frame = frame(&theme, [0., 0., 400., 400.], Kind::FirstMeeting, 7000);
+        let pixels = clanky_render::offscreen_scene(
+            &clanky_render::Scene {
+                clear: theme.colors.sidebar,
+                layers: frame.layers,
+            },
+            400,
+            400,
+        )
+        .unwrap();
+        assert_eq!(
+            &pixels[(212 * 400 + 238) * 4..(212 * 400 + 239) * 4],
+            &[12, 34, 56, 255]
+        );
+        println!(
+            "PASS: 439 full/76 short frames, 20 through skip, then zero; selected robot paint"
+        );
+    }
     #[test]
     fn startup_marker() {
         let target = std::env::var_os("CARGO_TARGET_DIR")

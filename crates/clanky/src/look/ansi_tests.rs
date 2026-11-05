@@ -39,12 +39,14 @@ fn light_ansi_color_sources() {
     for cell in &mut shown.cells{light.terminal_cell(cell);}
     assert_eq!([shown.cells[0].fg,shown.cells[1].fg,shown.cells[2].fg],[[229;3],[11,127,120],[26,34,51]]);
     assert_eq!(shown.cells[2].bg,[255;3]);
+    // The scene renderer now uses the M12 8×20 cells; sample their centres.
+    // The five independently fixed colour expectations remain unchanged.
     let scene=Scene{clear:[255;4],layers:vec![Layer::Grid(GridLayer{
-        origin:[0.0,0.0],clip:[0.0,0.0,50.0,20.0],snapshot:shown.clone(),underlines:vec![],opacity:1.0,
+        origin:[0.0,0.0],clip:[0.0,0.0,40.0,20.0],snapshot:shown.clone(),underlines:vec![],opacity:1.0,
     })]};
-    let pixels=offscreen_scene(&scene,50,20).unwrap();
-    for (x,expected) in [(5,[229,229,229,255]),(15,[11,127,120,255]),(25,[26,34,51,255]),(35,[0,0,0,255]),(45,[255;4])] {
-        let start=(10*50+x)*4;
+    let pixels=offscreen_scene(&scene,40,20).unwrap();
+    for (x,expected) in [(4,[229,229,229,255]),(12,[11,127,120,255]),(20,[26,34,51,255]),(28,[0,0,0,255]),(36,[255;4])] {
+        let start=(10*40+x)*4;
         assert_eq!(&pixels[start..start+4],&expected,"cell centre {x},10");
     }
     // Recolour the same cells without feeding the terminal again.
