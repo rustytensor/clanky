@@ -9,6 +9,9 @@ pub struct Config {
     pub font_size_pt: f32,
     pub font_size: f32,
     pub theme: ThemePreference,
+    pub theme_dark: String,
+    pub theme_light: String,
+    pub post_ai: bool,
     pub colors: BTreeMap<String, crate::look::Color>,
     pub columns: usize,
     pub rows: usize,
@@ -33,6 +36,9 @@ impl Default for Config {
             font_size_pt: 12.0,
             font_size: 16.0,
             theme: ThemePreference::System,
+            theme_dark: "stone-dark".into(),
+            theme_light: "stone-light".into(),
+            post_ai: false,
             colors: BTreeMap::new(),
             columns: 80,
             rows: 24,
@@ -53,7 +59,50 @@ impl Default for Config {
     }
 }
 
+/// CLI overrides are session-only. Call parse_flag in the argument parser, not
+/// on option values, and apply after each config load/reload. Enforcement belongs
+/// to the app/server; parsing this flag alone does not revoke agent access.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StartupOverrides {
+    pub post_ai: bool,
+}
+impl StartupOverrides {
+    /// True means the flag was consumed; unknown arguments remain with the caller.
+    pub fn parse_flag(&mut self, flag: &str) -> bool {
+        if flag != "--post-ai" { return false; }
+        self.post_ai = true;
+        true
+    }
+    pub fn apply(&self, config: &mut Config) {
+        config.post_ai |= self.post_ai;
+    }
+}
+
 impl Config {
+    pub fn selected_theme_id(&self, system_light: bool) -> &str {
+        match self.theme {
+            ThemePreference::Light => &self.theme_light,
+            ThemePreference::Dark => &self.theme_dark,
+            ThemePreference::System if system_light => &self.theme_light,
+            ThemePreference::System => &self.theme_dark,
+        }
+    }
+    /// Resolve an M12 theme and apply semantic config overrides to a copy.
+    /// Legacy-only colour tokens stay usable by resolved_theme, not this API.
+    pub fn resolved_document(&self, store: &crate::theme_store::ThemeStore, system_light: bool) -> Result<crate::themes::Theme, String> {
+        let mut theme = store.get(self.selected_theme_id(system_light))?;
+        let expected = match self.theme {
+            ThemePreference::Light => crate::themes::Appearance::Light,
+            ThemePreference::Dark => crate::themes::Appearance::Dark,
+            ThemePreference::System if system_light => crate::themes::Appearance::Light,
+            ThemePreference::System => crate::themes::Appearance::Dark,
+        };
+        if theme.appearance != expected { return Err("selected theme has the wrong appearance".into()); }
+        for (token, color) in &self.colors {
+            if crate::themes::COLOR_TOKENS.contains(&token.as_str()) { theme.colors.set(token, *color)?; }
+        }
+        Ok(theme)
+    }
     pub fn resolved_theme(&self, system_light: bool) -> crate::look::Theme {
         let light = match self.theme {
             ThemePreference::Light => true, ThemePreference::Dark => false,
@@ -111,17 +160,30 @@ impl Config {
                         _ => return Err("theme must be dark, light or system".into()),
                     };
                 }
+                "theme_dark" | "theme_light" => {
+                    let id = value.as_str().ok_or_else(|| format!("{key} must be a theme ID string"))?;
+                    crate::theme_store::validate_id(id)?;
+                    if !id.starts_with("user:") {
+                        let appearance = crate::themes::builtin(id)?.appearance;
+                        if (key == "theme_light") != (appearance == crate::themes::Appearance::Light) {
+                            return Err(format!("{key} has the wrong appearance"));
+                        }
+                    }
+                    if key == "theme_dark" { config.theme_dark = id.into(); }
+                    else { config.theme_light = id.into(); }
+                }
+                "post_ai" => {
+                    config.post_ai = value.as_bool().ok_or("post_ai must be a boolean")?;
+                }
                 "colors" => {
                     let colors = value.as_object().ok_or("colors must be an object")?;
                     for (token, value) in colors {
-                        if !crate::look::COLOR_TOKENS.contains(&token.as_str()) {
+                        if !crate::look::COLOR_TOKENS.contains(&token.as_str()) && !crate::themes::COLOR_TOKENS.contains(&token.as_str()) {
                             return Err(format!("unknown color token: {token}"));
                         }
-                        let text = value.as_str().filter(|text| text.len() == 7 && text.starts_with('#')
-                            && text.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit))
-                            .ok_or_else(|| format!("colors.{token} must be #rrggbb"))?;
-                        let channel = |start| u8::from_str_radix(&text[start..start+2], 16).unwrap();
-                        config.colors.insert(token.clone(), [channel(1),channel(3),channel(5),255]);
+                        let text = value.as_str().ok_or_else(|| format!("colors.{token} must be #rrggbb or #rrggbbaa"))?;
+                        let color = crate::themes::parse_color(text).map_err(|_| format!("colors.{token} must be #rrggbb or #rrggbbaa"))?;
+                        config.colors.insert(token.clone(), color);
                     }
                 }
                 "font_size" => {
