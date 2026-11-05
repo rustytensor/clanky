@@ -63,7 +63,7 @@ async fn adapter(
         ..Default::default()
     };
     match instance.request_adapter(&options(false)).await {
-        Ok(adapter) => Ok(adapter),
+        Ok(adapter) => {if std::env::var_os("CLANKY_FRAME_TRACE").is_some(){eprintln!("MEASURE_ADAPTER {:?}",adapter.get_info());}Ok(adapter)}
         Err(first) => instance
             .request_adapter(&options(true))
             .await

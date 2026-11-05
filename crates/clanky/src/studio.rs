@@ -408,6 +408,7 @@ impl App {
 
     pub(super) fn draw_studio(&mut self) -> Result<(), String> {
         if self.stop || self.is_suspended() { return Ok(()); }
+        let trace_frame=Instant::now();
         let layout = self.pixel_layout()?;
         self.files.viewport = Some(layout.clone());
         let now = Instant::now();
@@ -532,6 +533,7 @@ impl App {
             if state.focused.as_deref() == Some(pane.id.as_str()) {
                 if let Some((row,col)) = snapshot.cursor.filter(|(r,c)| *r<pane.rows && *c<pane.cols) {
                     let to = [pane.grid_origin[0]+col as f32*layout.cell_px[0] as f32,pane.grid_origin[1]+row as f32*layout.cell_px[1] as f32];
+                    self.frame_trace.cursor(to[0],to[1],layout.cell_px[0],layout.cell_px[1]);
                     let cursor = self.studio.cursors.entry(pane.id.clone()).or_insert(Cursor { from: to,to,start:now });
                     if cursor.to != to {
                         let elapsed = cursor.start.elapsed().as_secs_f32()*1000.0;
@@ -648,7 +650,9 @@ impl App {
         }
         self.update_card_actions(&layout,&mut state,now);
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
+        self.frame_trace.phase("prepare",trace_frame);let trace_chrome=Instant::now();
         let mut presentation = self.studio.scene_cache.presentation(&layout,&state,&mut |run| renderer.measure_text(run));
+        self.frame_trace.phase("chrome",trace_chrome);
         if let Some((origin,offset,clip,stitched,opacity))=compose_animation {
             for layer in &mut presentation.scene.layers {
                 if let Layer::Grid(grid)=layer { if grid.origin==origin {
@@ -717,7 +721,9 @@ impl App {
                 if self.studio.ime!=Some(area){window.set_ime_cursor_area(PhysicalPosition::new(area.0[0],area.0[1]),PhysicalSize::new(area.1[0],area.1[1]));self.studio.ime=Some(area);}
             }
         }
+        let trace_render=Instant::now();
         self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
+        self.frame_trace.phase("render",trace_render);self.frame_trace.phase("total",trace_frame);
         self.frame_trace.presented();
         self.terminal_dirty=false;
         let animation_end=self.animation_deadline(&state);

@@ -13,6 +13,8 @@ impl FrameTrace {
             OpenOptions::new().create_new(true).write(true).open(path).map_err(|e|e.to_string())).transpose()?;
         Ok(Self{file,started:Instant::now(),sequence:0,pending:Vec::new()})
     }
+    pub fn phase(&mut self,name:&str,start:Instant){if let Some(file)=&mut self.file{let _=writeln!(file,"phase,{name},{},{}",self.started.elapsed().as_micros(),start.elapsed().as_micros());}}
+    pub fn cursor(&mut self,x:f32,y:f32,w:u32,h:u32){if let Some(file)=&mut self.file{let _=writeln!(file,"cursor,{x},{y},{w},{h}");}}
     pub fn key_event(&mut self){
         if let Some(file)=&mut self.file{
             self.sequence+=1;let time=self.started.elapsed().as_micros();
