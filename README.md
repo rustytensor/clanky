@@ -1,71 +1,108 @@
-# Clanky
+<p align="center">
+  <img src="docs/media/robot.gif" width="420" alt="Clanky the robot rolls in, looks around and waves">
+</p>
 
-Clanky is a GPU-rendered Linux terminal for working alongside coding agents.
-It has tabs, splits, images, command blocks, editor panes, a spell-checked
-compose box and a text-mode editor. A background server keeps running sessions
-alive when a window closes. Saved layouts can start fresh shells after a restart;
-they do not restore old processes, output or unsaved editor/compose text.
+<h1 align="center">Clanky</h1>
 
-**Safety:** agent raw-output, block/copy/task, screen/history and replayed-output
-reads are secret-masked, including through MCP. Recognized bytes become fixed-width
-`*` characters, preserving raw byte offsets; undecided streaming suffixes are held
-back. The person's terminal view, copy, block text, search and OSC 52 clipboard
-text are masked too. Only the owner's live view shows unconfirmed prefixes as typed;
-complete secret headers start masking immediately and complete known values stay hidden.
-Agent reads and copy/search keep strict hold-back. Owner raw-output archives remain
-available through the socket. Detection
-covers common OpenAI/OpenRouter, GitHub, AWS access-ID, Slack, Hugging Face and
-RunPod token shapes, Bearer headers, private-key blocks and eligible secret values
-captured from the server's startup environment. It is not universal secret discovery:
-unknown formats, transformed values and secrets introduced later may be missed.
-See [exact coverage and limits](docs/agent-api.md#masking-and-its-limits).
-Ctrl+Shift+Escape revokes all agent access and cancels pending agent waits, even
-inside a panel. This is access revocation, not a kill switch for running processes.
+<p align="center">
+  <b>A calm, fast Linux terminal for working alongside coding agents.</b><br>
+  Agents work in the panes you allow. Your secrets stay hidden. Every command becomes a card.
+</p>
+
+<p align="center">
+  <a href="https://github.com/rustytensor/clanky/releases/latest"><img src="https://img.shields.io/github/v/release/rustytensor/clanky?style=flat-square&color=d2a476&label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Linux-93b89a?style=flat-square" alt="Linux">
+  <img src="https://img.shields.io/badge/GPU-wgpu-a0978d?style=flat-square" alt="GPU rendered with wgpu">
+  <img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-a0978d?style=flat-square" alt="MIT or Apache-2.0">
+</p>
+
+<p align="center">
+  <img src="docs/media/hero-dark.png" alt="Clanky with two panes: on the left you run git and cat .env with the API key shown as stars; on the right an agent named rusty runs cargo test, applies a fix, and the tests pass. Command cards show timings and exit codes; the right column shows agent activity, recent commands and agent access switches.">
+</p>
+
+---
+
+## Agents ask first
+
+A coding agent only sees and types in the panes you open to it. Flip the switch next to a pane, or press **Ctrl+Shift+A**.
+**Ctrl+Shift+Escape** takes access away from every agent at once, even in the middle of a wait.
+The right column shows which agent is connected, what it ran, and which panes it can reach.
+
+Agents connect through a local socket API or `clanky mcp`. The full reference is in [the agent API](docs/agent-api.md).
+
+## Your secrets stay hidden
+
+Look at the left pane above: `cat .env` printed an API key, and Clanky shows it as stars.
+Common API keys, tokens and private keys are masked in what agents read, and in copy, search and the clipboard.
+Masking recognises known formats; [its exact coverage and limits](docs/agent-api.md#masking-and-its-limits) are documented.
+
+## Every command is a card
+
+Each command you or an agent runs gets a header with its run time and exit code: a green ✓ 0 or a red ✕ 101.
+Hover a card to **Copy** it, **Rerun** it, or hand it to an agent.
+
+## Calm by design
+
+Warm greys, the Geist fonts, no text under 12 px, and no glow outside the joke themes. Nothing moves once the window is idle.
+An idle Clanky window draws **0 frames**, and a key press reaches the screen in about **3 ms** on a desktop GPU.
+
+<p align="center">
+  <img src="docs/media/hero-light.png" width="49%" alt="The same scene in Catppuccin Latte, a light theme">
+  <img src="docs/media/palette.png" width="49%" alt="The command palette: typing split offers Split right, Split down, and running split in the focused pane">
+</p>
+
+## 13 themes, and your own
+
+Stone, Paper and Graphite in dark and light, the four official Catppuccin flavours, and three for fun: **AI Bedazzled**, **Unicorn Tears** and **Unicorn Vomit**.
+Pick one for dark and one for light, and Clanky follows your system. Save, import and export your own themes as JSON.
+
+<p align="center">
+  <img src="docs/media/themes.png" alt="Eight of the themes side by side: Stone, Stone light, Paper light, Graphite, Catppuccin Mocha, Catppuccin Latte, AI Bedazzled and Unicorn Vomit">
+</p>
+
+<p align="center">
+  <img src="docs/media/settings.png" width="80%" alt="Settings, Appearance page: mode Light, Dark or System, theme previews, and per-theme colours">
+</p>
+
+## Everything else
+
+- **Tabs and splits.** Ctrl+Shift+T opens a tab; Ctrl+Shift+D and Ctrl+Shift+E split right and down.
+- **Sessions that survive.** A background server keeps your shells running when you close the window. Reopen it to reattach, or attach over SSH with `clanky attach HOST`.
+- **A command palette.** Ctrl+Shift+P runs any action, or types a command into the focused pane.
+- **Find** with Ctrl+Shift+F searches everything still on screen and in scrollback, including wrapped lines.
+- **An editor with change review.** Ctrl+Shift+O opens a file. When an agent proposes changes, you accept or reject each one.
+- **Compose** with Ctrl+Shift+Enter: a spell-checked box for long prompts.
+- **Post-AI mode.** `clanky --post-ai`, or one switch in Settings, makes Clanky a plain terminal: agents are refused and every agent control disappears. [More](docs/post-ai.md).
+- **Clanky the robot** says hello the first time you start (7 s; any key skips it). `clanky +hello` brings him back. [More](docs/robot.md).
 
 ## Install
 
-On Fedora, install an obtained RPM with `sudo dnf install ./clanky-<version>.rpm`.
-See [Linux packages and SRPMs](docs/release-linux.md). To build from source,
-install Rust and Cargo, then:
+**Fedora:** download the RPM from the [latest release](https://github.com/rustytensor/clanky/releases/latest), then
 
 ```sh
-cargo build --workspace --bins -j 8
-"${CARGO_TARGET_DIR:-target}/debug/clanky"
+sudo dnf install ./clanky-*.x86_64.rpm
 ```
 
-The window needs a graphical display. `clanky edit FILE[:LINE[:COL]] [--review FILE]`
-works in a terminal without a display server.
+**From source** (Rust and Cargo):
 
-## The calm look
+```sh
+cargo build --release -p clanky
+./target/release/clanky
+```
 
-Stone uses warm greys, with sage for success, brick for errors and clay for agent activity.
-Sessions and files live in the left sidebar; panes sit beside it, with activity on the right.
-Click **New tab**, **Split** or **Settings**, or press Ctrl+, for Settings.
-Ctrl+Shift+B hides the sidebar and activity column.
+The window needs a graphical display. `clanky edit FILE[:LINE[:COL]]` also works in a plain terminal.
+Packaging details are in [Linux packages](docs/release-linux.md).
 
-Clanky the robot greets you once for 7 seconds, then for 1.2 seconds on later windows.
-Any key or click skips it and still acts normally. `clanky +hello` replays it in a separate
-window; [robot settings](docs/robot.md) can turn it off.
+## Learn more
 
-Clanky ships 13 [built-in themes and a JSON theme format](docs/themes.md); Settings →
-Appearance picks, saves, imports and exports them. [Post-AI mode](docs/post-ai.md) turns
-Clanky into a plain terminal with agents locked out.
+[Getting started](docs/getting-started.md) ·
+[Keyboard shortcuts](docs/shortcuts.md) ·
+[Settings](docs/settings.md) ·
+[Configuration](docs/config.md) ·
+[Themes](docs/themes.md) ·
+[Agent API](docs/agent-api.md)
 
-## First steps
-
-Start `clanky` and type in its shell. Ctrl+Shift+T opens a tab; Ctrl+Shift+D/E
-splits right/below, using the focused terminal's directory when known.
-Ctrl+Shift+O opens an editor, Ctrl+Shift+Enter opens compose, and Ctrl+Shift+F
-searches retained terminal text, including wrapped lines. Ctrl+click opens an
-HTTP/HTTPS URL; a plain URL click does not open it.
-
-Grant or deny agent access to a terminal with Ctrl+Shift+A. Agents use the
-versioned socket API or the agent-only `clanky mcp` adapter. Close the window
-and reopen it to reattach; `clanky attach HOST` attaches over SSH.
-
-Read [getting started](docs/getting-started.md), [configuration](docs/config.md),
-[Settings](docs/settings.md), [keyboard shortcuts](docs/shortcuts.md), and the [agent API](docs/agent-api.md).
-Clanky uses its Alacritty terminal/parser forks, wgpu, cosmic-text and winit.
+Clanky is built on forks of Alacritty's terminal and parser, wgpu, cosmic-text and winit.
 
 ## Why "Clanky"
 
@@ -73,7 +110,7 @@ A clanker is a robot. This is where they work.
 
 ## Licence
 
-Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
-at your option. Dependencies retain their own licences, including MPL-2.0 for
-spellbook. The bundled Geist, Geist Mono, JetBrains Mono and Inter fonts are under
-the SIL Open Font License 1.1. See [NOTICE](NOTICE) for terminal, parser and font attribution.
+Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Dependencies keep their own licences, including MPL-2.0 for spellbook.
+The bundled Geist, Geist Mono, JetBrains Mono and Inter fonts are under the SIL Open Font License 1.1.
+See [NOTICE](NOTICE) for attributions.
