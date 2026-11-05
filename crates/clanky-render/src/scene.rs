@@ -189,10 +189,10 @@ impl Renderer {
 /// Top-left row-major premultiplied RGBA8, exactly width * height * 4 bytes.
 /// Uses bundled Geist Mono at 13 px and 8x20 cells. Legacy fixtures are unchanged.
 pub fn offscreen_scene(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, String> {
-    crate::block_on(offscreen(scene, width, height))
+    crate::block_on(offscreen(scene, width, height, false))
 }
 
-async fn offscreen(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub(super) async fn offscreen(scene: &Scene, width: u32, height: u32, system_fonts: bool) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 || u64::from(width) * u64::from(height) * 4 > 256 * 1024 * 1024 {
         return Err("Invalid offscreen scene dimensions".into());
     }
@@ -204,7 +204,7 @@ async fn offscreen(scene: &Scene, width: u32, height: u32) -> Result<Vec<u8>, St
         .map_err(|e| e.to_string())?;
     crate::scene_gpu::validate_target(&device, width, height)?;
     let mut painter =
-        crate::scene_gpu::Painter::new(&device, wgpu::TextureFormat::Rgba8Unorm, false);
+        crate::scene_gpu::Painter::new(&device, wgpu::TextureFormat::Rgba8Unorm, system_fonts);
     let target = crate::texture(
         &device,
         width,

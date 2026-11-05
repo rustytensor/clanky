@@ -38,10 +38,27 @@ M1/M2 fixture code changes. The focused `vector::tests::path_pixels` check cover
 literal fill/stroke pixels, half-covered edges and a 700 px projection;
 `CLANKY_PATH_FAULT=1` deliberately changes the fill and must fail.
 
-Scene defaults are bundled JetBrains Mono and Inter. `set_font_families(terminal,
+Scene defaults are bundled Geist Mono and Geist. `set_font_families(terminal,
 ui)` accepts bundled or installed families; default-family host duplicates are
 excluded so shipped faces win. Window metrics follow `set_metrics`. Offscreen
-scenes use bundled fonts only and fixed 16 px / 10x20 cells.
+scenes use bundled fonts only and fixed 13 px / 8x20 cells.
+
+Monospace text uses cosmic-text's coverage-aware monospace fallback, with installed
+fonts discovered by fontdb/fontconfig in real windows. The chosen primary family
+still wins, at its requested size, for characters it contains. Grid shaping supplies
+cell width and line height for fallback. Any raster overhang is fitted as one ink group,
+without splitting glyph clusters. Private-use prompt icons stay in one cell; wider
+shaped characters retain up to two cells. System generic family aliases are preserved
+separately for configuration.
+No extra font file or dependency is bundled for this path.
+
+The one focused check is
+`scene_gpu::font_fallback_tests::prompt_icons_use_installed_fallback`. It renders
+U+E0B0 and U+F07C in 8x20 cells with system fonts enabled, rejects .notdef, checks
+visible ink in both cells, and checks the following blank cell for spill. Run with
+software Vulkan and the shared build lock. `CLANKY_FONT_FALLBACK_FAULT=1` disables
+system discovery in that fixture and must fail. The machine must have installed
+fonts covering these icons (for example a Nerd Font/Powerline family).
 
 `measure_text(&TextRun)` is GPU-free and deterministic with the bundled fonts.
 It reports the widest line's advance width (not ink bounds), maximum font ascent
