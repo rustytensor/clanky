@@ -34,6 +34,8 @@ pub fn run(config: Config) -> Result<(), String> {
             0
         },
         error: None,
+        gate_clock: clanky::robot_gate_clock::RobotGateClock::from_env()?,
+        frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     app.error.map_or(Ok(()), Err)
@@ -48,9 +50,17 @@ struct Hello {
     next: Instant,
     last_time: u64,
     error: Option<String>,
+    gate_clock: Option<clanky::robot_gate_clock::RobotGateClock>,
+    frame_trace: clanky::frame_trace::FrameTrace,
 }
 impl Hello {
+    fn clock_now(&self) -> Instant {
+        self.gate_clock
+            .as_ref()
+            .map_or_else(Instant::now, |clock| clock.now())
+    }
     fn draw(&mut self) -> Result<(), String> {
+        let now = self.clock_now();
         let window = self.window.as_ref().ok_or("hello window unavailable")?;
         let size = window.inner_size();
         if size.width == 0 || size.height == 0 {
@@ -59,7 +69,7 @@ impl Hello {
         if self.config.animations {
             self.last_time = self
                 .animation
-                .sample(self.started.elapsed().as_millis() as u64)
+                .sample(now.saturating_duration_since(self.started).as_millis() as u64)
                 .unwrap_or(self.last_time);
         }
         let renderer = self.renderer.as_mut().ok_or("hello renderer unavailable")?;
@@ -78,7 +88,11 @@ impl Hello {
         renderer.draw_scene(&Scene {
             clear: self.theme.colors.sidebar,
             layers: frame.layers,
-        })
+        })?;
+        self.frame_trace.presented();
+        self.frame_trace
+            .gate_frame(self.gate_clock.as_ref().map(|clock| clock.elapsed_ms()));
+        Ok(())
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
         self.error = Some(error);
@@ -113,7 +127,7 @@ impl ApplicationHandler for Hello {
             let mut renderer = block_on(Renderer::new(window.clone()))?;
             renderer.set_font_families(&self.config.font_family, &self.config.ui_font_family)?;
             self.renderer = Some(renderer);
-            self.started = Instant::now();
+            self.started = self.clock_now();
             self.next = self.started;
             window.request_redraw();
             self.window = Some(window);
@@ -150,6 +164,24 @@ impl ApplicationHandler for Hello {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(clock) = &mut self.gate_clock {
+            match clock.poll() {
+                Ok(true) if self.last_time < Kind::FirstMeeting.duration_ms() => {
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                Ok(_) => (),
+                Err(error) => {
+                    self.fail(event_loop, error);
+                    return;
+                }
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                clanky::robot_gate_clock::RobotGateClock::poll_deadline(),
+            ));
+            return;
+        }
         if self.last_time >= Kind::FirstMeeting.duration_ms() {
             event_loop.set_control_flow(ControlFlow::Wait);
             return;

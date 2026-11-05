@@ -47,6 +47,14 @@ impl<'a> Paint<'a>{
         if metrics.width>rect.w{return;}
         run.origin=[rect.x,rect.y+(rect.h-metrics.line_height)/2.0];self.out.scene.layers.push(Layer::Text(run));
     }
+    pub(super) fn pane_label(&mut self,rect:PixelRect,label:&str,px:f32,color:Color,weight:u16){
+        if let Some((name,number))=label.rsplit_once(" · pane "){
+            let suffix=format!(" · pane {number}");let width=self.width(&suffix,px,weight).min(rect.w);
+            let name_width=self.width(name,px,weight).min((rect.w-width).max(0.0));
+            self.text(r(rect.x,rect.y,name_width,rect.h),name,px,color,weight,false);
+            self.text(r(rect.x+name_width,rect.y,width,rect.h),&suffix,px,color,weight,false);
+        }else{self.text(rect,label,px,color,weight,false);}
+    }
     fn hit(&mut self,rect:PixelRect,action:HitAction){if rect.w>0.0 && rect.h>0.0{self.out.hits.push(Hotspot{rect,action});}}
     pub(super) fn icon(&mut self,kind:&str,x:f32,y:f32,color:Color){
         let mut p=Path::builder();
@@ -114,7 +122,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.text(r(side.x+58.0*s,14.0*s,side.w-74.0*s,20.0*s),"Clanky",14.0*s,c.foreground,600,false);
         p.text(r(side.x+58.0*s,34.0*s,side.w-74.0*s,16.0*s),&super::uptime_label(state.uptime_seconds),12.0*s,c.muted_foreground,400,false);
         let mut y=72.0*s;let bottom=h-92.0*s;
-        for section in 0..2{
+        for section in 0..if state.post_ai{1}else{2}{
             if y+32.0*s>bottom{break;}
             p.text(r(side.x+16.0*s,y,side.w-32.0*s,32.0*s),["Sessions","Agents","Files"][section],12.0*s,c.muted_foreground,500,false);y+=32.0*s;
             match section{
@@ -133,6 +141,8 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             }
             y+=12.0*s;
         }
+        p.item(r(side.x+8.0*s,h-80.0*s,side.w-16.0*s,32.0*s),"Settings","",false,HitAction::Settings,Some("settings"),None);
+        p.kbd(side.x+side.w-16.0*s,h-74.0*s,&["Ctrl",","]);
         p.text(r(side.x+16.0*s,h-40.0*s,side.w-32.0*s,32.0*s),if state.masking_ready{"masking on"}else{"checking masking"},12.0*s,c.muted_foreground,400,false);
     }
     let bar=layout.top_bar;let by=bar.y+12.0*s;
@@ -154,10 +164,10 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.shape(pane.rect,10.0*s,c.background,Some(if focus{c.ring}else{c.border}));
         p.shape(r(pane.rect.x+s,pane.rect.y+40.0*s-s,pane.rect.w-2.0*s,s),0.0,c.border,None);
         let Some(data)=data else{continue;};
-        let access=if data.allow_agent{"read + run"}else{"agents off"};let badge_width=p.width(access,12.0*s,500)+16.0*s;
+        let access=if data.allow_agent{"read + run"}else{"agents off"};let badge_width=if state.post_ai{0.0}else{p.width(access,12.0*s,500)+16.0*s};
         let badge=r(pane.rect.x+pane.rect.w-8.0*s-badge_width,pane.rect.y+9.0*s,badge_width,22.0*s);
-        p.shape(badge,6.0*s,if data.allow_agent{alpha(c.agent,0.1)}else{alpha(c.background,0.0)},Some(if data.allow_agent{alpha(c.agent,0.35)}else{c.border}));
-        p.text(r(badge.x+8.0*s,badge.y,badge.w-16.0*s,badge.h),access,12.0*s,if data.allow_agent{c.agent}else{c.muted_foreground},500,false);
+        if !state.post_ai {p.shape(badge,6.0*s,if data.allow_agent{alpha(c.agent,0.1)}else{alpha(c.background,0.0)},Some(if data.allow_agent{alpha(c.agent,0.35)}else{c.border}));
+        p.text(r(badge.x+8.0*s,badge.y,badge.w-16.0*s,badge.h),access,12.0*s,if data.allow_agent{c.agent}else{c.muted_foreground},500,false);}
         let available=(badge.x-pane.rect.x-24.0*s).max(0.0);let driver_width=p.width(&data.driver,12.0*s,400).min(available*0.3);
         let title_width=p.width(&data.title,14.0*s,500).min((available-driver_width-8.0*s).max(0.0));
         p.text(r(pane.rect.x+12.0*s,pane.rect.y,title_width,40.0*s),&data.title,14.0*s,c.foreground,500,false);
@@ -205,7 +215,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(40.0+32.0*index as f32)*s,width-24.0*s,32.0*s);
             if row.y+row.h>side.y+side.h-8.0*s{break;}
             if row.contains(pointer.0,pointer.1){p.shape(row,6.0*s,c.accent,None);}
-            p.text(r(row.x,row.y,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400,false);
+            p.pane_label(r(row.x,row.y,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400);
             p.text(r(row.x,row.y+18.0*s,row.w-44.0*s,14.0*s),if pane.allow_agent{"read + run"}else{"off"},12.0*s,c.muted_foreground,400,false);
             let sw=r(row.x+row.w-32.0*s,row.y,32.0*s,18.0*s);
             p.shape(sw,9.0*s,if pane.allow_agent{c.primary}else{c.input},None);

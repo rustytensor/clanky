@@ -1019,22 +1019,30 @@ impl Painter {
         };
         let mut used = HashSet::new();
         let mut text_bytes = 0usize;
+        let mut clip=frame.viewport();
         for layer in &scene.layers {
+            if let Layer::Clip(rect)=layer {
+                let requested=rect.unwrap_or_else(||frame.viewport());
+                if !rect_ok(requested){return Err("Invalid scene clip".into());}
+                clip=intersection(requested,frame.viewport()).unwrap_or([0.0;4]);
+                continue;
+            }
             frame.opacity = match layer {
-                Layer::Shape(_) | Layer::Vector(_) => 1.0,
+                Layer::Shape(_) | Layer::Vector(_) | Layer::Clip(_) => 1.0,
                 Layer::Grid(grid) => grid.opacity,
                 Layer::Text(text) => text.opacity,
             };
             if !frame.opacity.is_finite() || !(0.0..=1.0).contains(&frame.opacity) {
                 return Err("Invalid scene layer opacity: expected finite 0..=1".into());
             }
-            let clip = frame.viewport();
             match layer {
+                Layer::Clip(_) => unreachable!(),
                 Layer::Vector(layer) => {
                     let budget = MAX_VERTICES.saturating_sub(
                         frame.shapes.len() + frame.textures.len() + frame.vectors.len(),
                     );
-                    let vertices = crate::vector::vertices(layer, [width, height], budget)?;
+                    let vertices = if clip==frame.viewport(){crate::vector::vertices(layer,[width,height],budget)?}
+                        else{let mut clipped=layer.clone();clipped.clip=intersection(layer.clip,clip).unwrap_or([0.0;4]);crate::vector::vertices(&clipped,[width,height],budget)?};
                     let start = (frame.vectors.len() / 40) as u32;
                     frame.vectors.extend(vertices);
                     frame
@@ -1042,7 +1050,10 @@ impl Painter {
                         .push(Op::Vector(start..(frame.vectors.len() / 40) as u32));
                 }
                 Layer::Shape(shape) => self.shape(&mut frame, shape, clip)?,
-                Layer::Grid(grid) => self.grid(device, queue, &mut frame, grid, &mut used)?,
+                Layer::Grid(grid) => {
+                    if clip==frame.viewport(){self.grid(device,queue,&mut frame,grid,&mut used)?;}
+                    else{let mut clipped=grid.clone();clipped.clip=intersection(grid.clip,clip).unwrap_or([0.0;4]);self.grid(device,queue,&mut frame,&clipped,&mut used)?;}
+                }
                 Layer::Text(text) => {
                     text_bytes = text_bytes.saturating_add(text.text.len());
                     if text_bytes > 1024 * 1024 {

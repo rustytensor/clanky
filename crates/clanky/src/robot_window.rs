@@ -8,6 +8,11 @@ use clanky_render::Scene;
 use std::time::Instant;
 
 impl App {
+    pub(super) fn clock_now(&self) -> Instant {
+        self.gate_clock
+            .as_ref()
+            .map_or_else(Instant::now, |clock| clock.now())
+    }
     pub(super) fn start_robot(&mut self) {
         if !self.config.startup_animation || !self.config.animations {
             return;
@@ -17,7 +22,7 @@ impl App {
             .and_then(|path| robot::claim_kind(&path));
         match kind {
             Ok(kind) => {
-                self.startup = Some(Startup::new(kind, Instant::now()));
+                self.startup = Some(Startup::new(kind, self.clock_now()));
                 self.frame_trace.robot_started(kind.duration_ms());
                 self.frame_clock.invalidate();
             }
@@ -50,11 +55,12 @@ impl App {
             }
             return Ok(());
         }
+        let now = self.clock_now();
         let Some(startup) = &mut self.startup else {
             return Ok(());
         };
         let kind = startup.kind();
-        let Some(time) = startup.sample(Instant::now()) else {
+        let Some(time) = startup.sample(now) else {
             // The final deadline frame clears the overlay without postponing
             // the stop to a later tick or retaining a blinking cursor.
             self.startup = None;

@@ -1,18 +1,22 @@
 //! Window integration for the shared settings file and form.
 use super::*;
-use clanky::settings_panel::Effect;
+use clanky::calm::settings_panel::{Effect,ThemeAction};
 
 impl App {
     pub(super) fn settings_open(&self) -> bool { self.settings.as_ref().is_some_and(|panel|panel.open) }
     pub(super) fn toggle_settings(&mut self) -> Result<(),String> {
-        // Never fall back to the legacy form while the replacement is being built.
-        self.status=Some("Settings is being rebuilt.".into());
+        let Some(panel)=&mut self.settings else{self.status=self.settings_error.clone();return Ok(());};
+        panel.toggle();
+        self.clear_card_focus();self.studio.drag=None;self.files.dragging=None;self.compose_dragging=false;self.reset_ime();
         Ok(())
     }
     pub(super) fn settings_effect(&mut self,effect:Effect) -> Result<(),String> {
         let result=(|| -> Result<(),String> { match effect {
             Effect::None=>Ok(()),
             Effect::Changed=>self.apply_settings(),
+            Effect::Theme(action)=>self.theme_action(action),
+            Effect::StopAgents=>{self.call("v4.revoke_all",json!({}))?;for allowed in self.studio.permissions.values_mut(){*allowed=false;}self.status=Some("Agent access revoked; pending waits cancelled".into());Ok(())},
+            Effect::ResumeAgents=>{self.call("v4.resume_agents",json!({}))?;self.status=Some("New agents allowed; grant pane permissions separately".into());Ok(())},
             Effect::Open(path)=>{
                 if !path.exists() {
                     if let Some(panel)=&self.settings {panel.store.export(&path)?;}
@@ -20,8 +24,10 @@ impl App {
                 clanky::platform::open_settings_file(&path)
             },
             Effect::Access(id)=>{
+                if self.applied_post_ai{return Err(clanky_core::POST_AI_REASON.into());}
                 let allowed=self.engine.agent_permission(&id).map_err(|e|e.message)?;
-                self.engine.set_agent_permission(&id,!allowed).map_err(|e|e.message)
+                self.engine.set_agent_permission(&id,!allowed).map_err(|e|e.message)?;
+                self.studio.permissions.insert(id,!allowed);Ok(())
             }
         }})();
         if let Err(error)=result {
@@ -31,9 +37,31 @@ impl App {
         if !self.settings_open() {self.reset_ime();}
         Ok(())
     }
+    fn theme_action(&mut self,action:ThemeAction)->Result<(),String>{
+        let (selected,clear_overrides)={
+            let runtime=self.theme_runtime.as_mut().ok_or("Theme storage is unavailable")?;
+            match action{
+                ThemeAction::Save{slug,theme}=>(Some(runtime.store.save_new(&slug,&theme)?),true),
+                ThemeAction::Import{path,slug}=>(Some(runtime.store.import(&path,&slug)?),false),
+                ThemeAction::Export{id,path}=>{runtime.store.export(&id,&path)?;(None,false)},
+            }
+        };
+        if let Some(id)=selected{
+            let appearance=self.theme_runtime.as_ref().unwrap().store.get(&id)?.appearance;
+            let panel=self.settings.as_mut().ok_or("Settings is unavailable")?;
+            panel.store.set(if appearance==clanky::themes::Appearance::Light{"theme_light"}else{"theme_dark"},json!(id))?;
+            if clear_overrides{
+                let retained:serde_json::Map<String,Value>=panel.store.config().colors.iter().filter(|(token,_)|!clanky::themes::COLOR_TOKENS.contains(&token.as_str())).map(|(token,color)|(token.clone(),json!(format!("#{:02x}{:02x}{:02x}",color[0],color[1],color[2])))).collect();
+                panel.store.set("colors",Value::Object(retained))?;
+            }
+        }
+        if let Some(panel)=&mut self.settings{panel.theme_complete();}
+        self.apply_settings()
+    }
     fn apply_settings(&mut self)->Result<(),String> {
         let Some(panel)=&self.settings else{return Ok(());};
-        let config=panel.store.config().clone();
+        let mut config=panel.store.config().clone();
+        self.startup_flags.apply(&mut config);
         self.frame_clock.invalidate();
         let font_changed=config.font_size_pt!=self.config.font_size_pt;
         let geometry_changed=config.columns!=self.config.columns || config.rows!=self.config.rows;
@@ -55,6 +83,7 @@ impl App {
         if font_changed {self.zoom=Zoom::new(config.font_size_pt);}
         self.studio.theme=config.resolved_theme(self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));
         self.config=config;
+        if let Some(runtime)=&mut self.theme_runtime{runtime.poll(&self.config,self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));}
         if geometry_changed {
             if let Some(window)=&self.window {
                 let base=self.zoom.metrics(1.0)?;

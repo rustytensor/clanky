@@ -1,34 +1,42 @@
 # Settings
 
-Open Settings from the sidebar or with **Ctrl+,**. Escape closes it; when editing a
-value, Escape cancels that edit first. Settings uses the same [JSON config file](config.md)
-as hand editing.
+Open Settings from the sidebar or **Ctrl+,**. Escape closes it; inside a colour or
+theme dialog, Escape cancels that edit first. Changes apply and save as you go.
+The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 
-- **Appearance:** fonts, size, opacity, sidebar visibility, animations and colour controls.
-- **Terminal:** window size, compose spelling, notifications and layout restoration.
-- **Agents / access:** clipboard policy and per-terminal agent permission.
-- **Keys:** a read-only shortcut list.
+## Live pages
 
-**Still being connected for M12:** the new dark/light theme pickers, semantic colour pickers,
-Save as new theme, Export theme, Import theme, and General's Post-AI switch. See
-[themes](themes.md) and [Post-AI mode](post-ai.md) for their format and current limits.
-Do not confuse whole-settings import/export below with theme import/export.
+- **General:** Post-AI mode. It applies server policy and hides agent UI immediately.
+- **Appearance:** Light/Dark/System, theme cards, semantic colours and per-colour Reset.
+  Scroll to reach all themes, colours and the Save/Import/Export buttons.
+- **Terminal:** bundled monospace font, size, opacity, side columns and animations.
+- **Agents:** masking status, stop/resume actions and named per-pane access switches.
+  Resume permits new agents but does not restore revoked pane permissions.
+- **Keys:** current shortcuts as right-aligned key chips; unavailable screens are omitted.
 
-## Edit a value
+Post-AI hides the Agents page and agent shortcuts. A window started with `--post-ai`
+shows a disabled mode switch and explains that the server must restart to turn it off.
+The old Settings modal is never used as a fallback. Ctrl+Shift+Escape still revokes agents.
 
-Click a control or field. Text fields support typing, IME, Backspace, Ctrl+A and Ctrl+V.
-Enter applies the value; Escape cancels. Scroll for more rows.
+## Colours and themes
 
-Valid edits save immediately. Invalid values leave the file unchanged. Hand edits are checked
-every 500 ms; a bad file keeps the last good settings and shows an error. Panel writes keep
-key order, but reformat whitespace. Zoom is window-local; a saved font-size change resets it.
+Click a swatch/colour row to choose an ANSI swatch or enter a hex colour. Reset
+appears only for a changed value. Invalid values keep the previous file/display.
 
-## Move your settings
+**Save as new theme** asks for a display name and a safe file-name stem. It copies
+the edited theme through `ThemeStore`, selects that copy and clears the baked-in
+semantic config overrides. Built-ins are never overwritten.
 
-**Export** writes the current settings to a chosen absolute path. Replacing an existing
-settings export needs an explicit **Replace** click. **Import** checks a file before replacing
-your settings. **Open settings file** uses your desktop's file association.
+**Export** writes the selected theme to a new file. Save modified colours as a new
+theme first. **Import** asks for a source file and a new file-name stem, preserves
+its bytes and selects it for its light/dark appearance. Existing destinations are
+refused, not replaced. These buttons handle themes, not whole-settings imports.
 
-These operations reject symlinks, non-files and files over 1 MiB. Per-terminal access
-switches change the running server's permission, not a permanent blanket grant in the file.
-Ctrl+Shift+Escape still revokes agents while Settings is open.
+Text fields accept typing, Backspace/Delete, arrows, Home/End, Ctrl+A and Ctrl+V.
+Enter applies; Escape cancels. Tab moves focus. Sliders support left/right arrows.
+Page Up/Down and the mouse wheel scroll long pages.
+The footer's **Open settings file** uses the desktop's file association.
+
+Hand edits are checked every 500 ms. Invalid files retain the last-good settings;
+user-theme errors retain their last-good theme. Panel writes preserve key order,
+but may reformat whitespace. A saved font-size change resets window-local zoom.
