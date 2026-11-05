@@ -12,6 +12,7 @@
   <launchable type="desktop-id">clanky.desktop</launchable>
   <url type="homepage">https://github.com/rustytensor/clanky</url>
   <releases>
+    <release version="1.0.0~rc.1" date="2026-11-05" type="development"/>
     <release version="0.6.1" date="2026-11-04"/>
     <release version="0.6.0" date="2026-11-04"/>
     <release version="0.5.5" date="2026-11-04"/>
