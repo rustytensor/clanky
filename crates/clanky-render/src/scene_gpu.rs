@@ -11,11 +11,34 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 
+#[cfg(test)]
+#[test]
+fn geist_measurements() {
+    // Independent HarfBuzz hb-shape on v1.9.1: Geist U+0030 advances
+    // are 663/673/683 plus 10 units kerning for each of the first nine
+    // zeros; Geist Mono is 600 throughout. All use 1000 units/em.
+    let text = "0000000000";
+    for (weight, advance) in [(400, 663.0), (500, 673.0), (600, 683.0)] {
+        let ui = TextRun { text: text.into(), px: 14.0, weight, ..Default::default() };
+        let mono = TextRun { px: 13.0, mono: true, ..ui.clone() };
+        let expected = if std::env::var_os("CLANKY_FONT_FAULT").is_some() { 1.0 } else { (advance * 10.0 + 90.0) * 0.014 };
+        assert!((measure_text(&ui).width - expected).abs() < 0.02, "Geist weight {weight}: {:?}, expected {expected}", measure_text(&ui));
+        assert!((measure_text(&mono).width - 78.0).abs() < 0.02, "Geist Mono weight {weight}");
+    }
+    println!("PASS: Geist and Geist Mono 400/500/600 advances match v1.9.1 font tables");
+}
+
 const ATLAS: u32 = 2048;
 const MAX_VERTICES: usize = 64 * 1024 * 1024;
 const MAX_IMAGES: usize = 128 * 1024 * 1024;
 const ATLAS_FULL: &str = "scene glyph atlas capacity exceeded";
 const FONTS: &[&[u8]] = &[
+    include_bytes!("../../../assets/fonts/Geist-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/Geist-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/Geist-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
@@ -83,6 +106,7 @@ struct Image {
 }
 type ImageKey = (usize, u32, u32);
 enum Op {
+    Vector(Range<u32>),
     Shape(Range<u32>),
     Glyph(Range<u32>),
     Image(Range<u32>, wgpu::BindGroup),
@@ -91,6 +115,7 @@ struct Frame {
     opacity: f32,
     shapes: Vec<u8>,
     textures: Vec<u8>,
+    vectors: Vec<u8>,
     ops: Vec<Op>,
     width: u32,
     height: u32,
@@ -100,7 +125,7 @@ impl Frame {
         [0.0, 0.0, self.width as f32, self.height as f32]
     }
     fn capacity(&self, bytes: usize) -> Result<(), String> {
-        if self.shapes.len() + self.textures.len() + bytes > MAX_VERTICES {
+        if self.shapes.len() + self.textures.len() + self.vectors.len() + bytes > MAX_VERTICES {
             Err("Scene vertex budget exceeded".into())
         } else {
             Ok(())
@@ -204,6 +229,8 @@ fn scene_fonts(system_fonts: bool) -> FontSystem {
                     && face.families.iter().any(|(name, _)| {
                         name.eq_ignore_ascii_case("Inter")
                             || name.eq_ignore_ascii_case("JetBrains Mono")
+                            || name.eq_ignore_ascii_case("Geist")
+                            || name.eq_ignore_ascii_case("Geist Mono")
                     })
             })
             .map(|face| face.id)
@@ -212,8 +239,8 @@ fn scene_fonts(system_fonts: bool) -> FontSystem {
             db.remove_face(id);
         }
     } else {
-        db.set_monospace_family("JetBrains Mono");
-        db.set_sans_serif_family("Inter");
+        db.set_monospace_family("Geist Mono");
+        db.set_sans_serif_family("Geist");
         db.set_serif_family("DejaVu Sans Mono");
     }
     FontSystem::new_with_locale_and_db("en-US".into(), db)
@@ -295,12 +322,17 @@ pub(super) fn measure_text(text: &TextRun) -> TextMetrics {
         measure_with_fonts(
             &mut fonts.borrow_mut(),
             text,
-            if text.mono { "JetBrains Mono" } else { "Inter" },
+            if text.mono { "Geist Mono" } else { "Geist" },
         )
     })
 }
 
 pub(super) struct Painter {
+    vector_pipeline: wgpu::RenderPipeline,
+    samples: u32,
+    format: wgpu::TextureFormat,
+    system_fonts: bool,
+    multisample_target: Option<(u32, u32, wgpu::Texture)>,
     shape_pipeline: wgpu::RenderPipeline,
     glyph_pipeline: wgpu::RenderPipeline,
     image_pipeline: wgpu::RenderPipeline,
@@ -311,6 +343,7 @@ pub(super) struct Painter {
     swash: SwashCache,
     glyphs: HashMap<CacheKey, Bitmap>,
     shaped: HashMap<TextKey, Vec<Placed>>,
+    measured: HashMap<TextKey, TextMetrics>,
     images: HashMap<ImageKey, Image>,
     next: [u32; 2],
     shelf: u32,
@@ -320,6 +353,27 @@ pub(super) struct Painter {
 }
 impl Painter {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, system_fonts: bool) -> Self {
+        Self::with_samples(device, format, system_fonts, 1)
+    }
+    fn with_samples(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        system_fonts: bool,
+        samples: u32,
+    ) -> Self {
+        let vector_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("scene lyon paths"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("scene-vector.wgsl").into()),
+        });
+        let vector_pipeline = pipeline(
+            device,
+            format,
+            &vector_shader,
+            "fs_main",
+            40,
+            &wgpu::vertex_attr_array![0=>Float32x2,1=>Float32x4,2=>Float32x4],
+            samples,
+        );
         let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene rounded shapes"),
             source: wgpu::ShaderSource::Wgsl(include_str!("scene-shape.wgsl").into()),
@@ -338,6 +392,7 @@ impl Painter {
             "fs_main",
             112,
             &shape_attributes,
+            samples,
         );
         let glyph_pipeline = pipeline(
             device,
@@ -346,6 +401,7 @@ impl Painter {
             "fs_glyph",
             48,
             &texture_attributes,
+            samples,
         );
         let image_pipeline = pipeline(
             device,
@@ -354,6 +410,7 @@ impl Painter {
             "fs_image",
             48,
             &texture_attributes,
+            samples,
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("scene glyph interpolation"),
@@ -370,6 +427,11 @@ impl Painter {
         );
         let atlas_binding = atlas_binding(device, &glyph_pipeline, &atlas, &sampler);
         Self {
+            vector_pipeline,
+            samples,
+            format,
+            system_fonts,
+            multisample_target: None,
             shape_pipeline,
             glyph_pipeline,
             image_pipeline,
@@ -380,12 +442,13 @@ impl Painter {
             swash: SwashCache::new(),
             glyphs: HashMap::new(),
             shaped: HashMap::new(),
+            measured: HashMap::new(),
             images: HashMap::new(),
             next: [1, 1],
             shelf: 0,
-            terminal_family: "JetBrains Mono".into(),
-            ui_family: "Inter".into(),
-            metrics: (16.0, 10, 20),
+            terminal_family: "Geist Mono".into(),
+            ui_family: "Geist".into(),
+            metrics: (13.0, 8, 20),
         }
     }
     fn reset_atlas(&mut self, device: &wgpu::Device) {
@@ -400,6 +463,7 @@ impl Painter {
             atlas_binding(device, &self.glyph_pipeline, &self.atlas, &self.sampler);
         self.glyphs.clear();
         self.shaped.clear();
+        self.measured.clear();
         self.swash = SwashCache::new();
         self.next = [1, 1];
         self.shelf = 0;
@@ -432,12 +496,19 @@ impl Painter {
         Ok(())
     }
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
+        if !valid_text(text) || text.text.is_empty(){return TextMetrics::default();}
+        let key=TextKey{text:text.text.clone(),px:text.px.to_bits(),height:(text.px*1.25).to_bits(),
+            letter_spacing:text.letter_spacing.to_bits(),weight:text.weight,mono:text.mono};
+        if let Some(metrics)=self.measured.get(&key){return *metrics;}
         let name = if text.mono {
             &self.terminal_family
         } else {
             &self.ui_family
         };
-        measure_with_fonts(&mut self.fonts, text, name)
+        let metrics=measure_with_fonts(&mut self.fonts, text, name);
+        if self.measured.len()>=4096{self.measured.clear();}
+        self.measured.insert(key,metrics);
+        metrics
     }
     fn bitmap(&mut self, queue: &wgpu::Queue, key: CacheKey) -> Result<Bitmap, String> {
         if let Some(bitmap) = self.glyphs.get(&key) {
@@ -928,6 +999,7 @@ impl Painter {
             opacity: 1.0,
             shapes: Vec::new(),
             textures: Vec::new(),
+            vectors: Vec::new(),
             ops: Vec::new(),
             width,
             height,
@@ -936,7 +1008,7 @@ impl Painter {
         let mut text_bytes = 0usize;
         for layer in &scene.layers {
             frame.opacity = match layer {
-                Layer::Shape(_) => 1.0,
+                Layer::Shape(_) | Layer::Vector(_) => 1.0,
                 Layer::Grid(grid) => grid.opacity,
                 Layer::Text(text) => text.opacity,
             };
@@ -945,6 +1017,17 @@ impl Painter {
             }
             let clip = frame.viewport();
             match layer {
+                Layer::Vector(layer) => {
+                    let budget = MAX_VERTICES.saturating_sub(
+                        frame.shapes.len() + frame.textures.len() + frame.vectors.len(),
+                    );
+                    let vertices = crate::vector::vertices(layer, [width, height], budget)?;
+                    let start = (frame.vectors.len() / 40) as u32;
+                    frame.vectors.extend(vertices);
+                    frame
+                        .ops
+                        .push(Op::Vector(start..(frame.vectors.len() / 40) as u32));
+                }
                 Layer::Shape(shape) => self.shape(&mut frame, shape, clip)?,
                 Layer::Grid(grid) => self.grid(device, queue, &mut frame, grid, &mut used)?,
                 Layer::Text(text) => {
@@ -972,6 +1055,43 @@ impl Painter {
         opaque: bool,
     ) -> Result<wgpu::CommandBuffer, String> {
         validate_target(device, width, height)?;
+        let samples = if scene
+            .layers
+            .iter()
+            .any(|layer| matches!(layer, Layer::Vector(_)))
+        {
+            4
+        } else {
+            1
+        };
+        if u64::from(width) * u64::from(height) * 4 * u64::from(samples) > 256 * 1024 * 1024 {
+            return Err("Scene antialias target exceeds limits".into());
+        }
+        // Switch only when entering/leaving vector scenes. Existing scenes and
+        // all legacy fixtures retain their original single-sample pipeline.
+        if self.samples != samples {
+            let mut painter = Self::with_samples(device, self.format, self.system_fonts, samples);
+            painter.set_families(device, &self.terminal_family, &self.ui_family)?;
+            *self = painter;
+        }
+        if samples > 1
+            && self
+                .multisample_target
+                .as_ref()
+                .is_none_or(|(w, h, _)| *w != width || *h != height)
+        {
+            let target = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("scene vector antialias target"),
+                size: extent(width, height),
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.multisample_target = Some((width, height, target));
+        }
         if !metrics.0.is_finite()
             || !(1.0..=512.0).contains(&metrics.0)
             || metrics.1 == 0
@@ -999,6 +1119,11 @@ impl Painter {
         };
         let shapes = make("scene shapes", &frame.shapes);
         let textures = make("scene textured quads", &frame.textures);
+        let vectors = make("scene vector triangles", &frame.vectors);
+        let aa_view = self
+            .multisample_target
+            .as_ref()
+            .map(|(_, _, texture)| texture.create_view(&Default::default()));
         let mut encoder = device.create_command_encoder(&Default::default());
         let mut clear = scene.clear;
         if opaque {
@@ -1009,9 +1134,9 @@ impl Painter {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: aa_view.as_ref().unwrap_or(view),
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target: aa_view.as_ref().map(|_| view),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: c[0] as f64,
@@ -1029,6 +1154,11 @@ impl Painter {
             });
             for op in &frame.ops {
                 match op {
+                    Op::Vector(range) => {
+                        pass.set_pipeline(&self.vector_pipeline);
+                        pass.set_vertex_buffer(0, vectors.slice(..));
+                        pass.draw(range.clone(), 0..1);
+                    }
                     Op::Shape(range) => {
                         pass.set_pipeline(&self.shape_pipeline);
                         pass.set_vertex_buffer(0, shapes.slice(..));
@@ -1081,6 +1211,7 @@ fn pipeline(
     fragment: &str,
     stride: u64,
     attributes: &[wgpu::VertexAttribute],
+    samples: u32,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(fragment),
@@ -1097,7 +1228,10 @@ fn pipeline(
         },
         primitive: Default::default(),
         depth_stencil: None,
-        multisample: Default::default(),
+        multisample: wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        },
         fragment: Some(wgpu::FragmentState {
             module: shader,
             entry_point: Some(fragment),

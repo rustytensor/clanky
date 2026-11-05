@@ -44,6 +44,10 @@ impl SettingsPanel {
         self.scroll = (self.scroll as i32-delta).clamp(0,256) as usize;
     }
     pub fn release(&mut self) { self.dragging=None; }
+    pub fn animation_deadline(&self)->Option<Instant>{
+        let end=self.opened+std::time::Duration::from_millis(120);
+        (self.open && self.store.config().animations && end>Instant::now()).then_some(end)
+    }
     pub fn ime_position(&self)->Option<[f32;2]>{self.ime}
     pub fn select_all(&mut self){if let Some(edit)=&mut self.editing{edit.selected=true;}}
     pub fn preedit(&mut self, text: &str) { self.preedit=text.chars().take(128).collect(); }
@@ -239,6 +243,7 @@ impl SettingsPanel {
                     if let Some(shadow)=&mut shape.shadow{shadow.color=Theme::fade(shadow.color,opacity);}
                 },
                 Layer::Grid(grid)=>grid.opacity*=opacity,
+                Layer::Vector(vector)=>vector.opacity*=opacity,
             }
         }
         out.layers

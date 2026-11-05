@@ -8,7 +8,7 @@ use std::{
     io::{self, Read, Seek, Write},
     net::Shutdown,
     os::{
-        fd::AsRawFd,
+        fd::{AsRawFd, FromRawFd, OwnedFd},
         unix::{
             ffi::OsStrExt,
             fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
@@ -389,6 +389,7 @@ pub(crate) enum Control {
 }
 pub(crate) struct Process {
     pub tx: SyncSender<Control>,
+    wake: UnixStream,
     pid: u32,
     identity: Option<ProcessIdentity>,
     master: File,
@@ -419,6 +420,19 @@ impl Process {
         if foreground < 1 {
             return false;
         }
+        let blocked = |identity:ProcessIdentity| {
+            if identity.session!=root.pid || identity.group!=foreground {return false;}
+            let Ok(tasks)=fs::read_dir(format!("/proc/{}/task",identity.pid)) else{return false;};
+            for task in tasks.take(4096).flatten(){
+                if blocked_slave_read(&task.path(),device)
+                    && process_identity(identity.pid).ok()==Some(identity)
+                    && unsafe{libc::tcgetpgrp(self.master.as_raw_fd())}==foreground {return true;}
+            }
+            false
+        };
+        // The foreground group leader is the common shell/read case. Validate
+        // the same identity, slave and foreground evidence as the full scan.
+        if process_identity(foreground).ok().is_some_and(&blocked){return true;}
         let Ok(entries) = fs::read_dir("/proc") else {
             return false;
         };
@@ -433,21 +447,7 @@ impl Process {
             let Ok(identity) = process_identity(pid) else {
                 continue;
             };
-            if identity.session != root.pid || identity.group != foreground {
-                continue;
-            }
-            let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else {
-                continue;
-            };
-            for task in tasks.take(4096).flatten() {
-                let path = task.path();
-                if blocked_slave_read(&path, device)
-                    && process_identity(pid).ok() == Some(identity)
-                    && unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) } == foreground
-                {
-                    return true;
-                }
-            }
+            if blocked(identity){return true;}
         }
         false
     }
@@ -521,10 +521,21 @@ impl Process {
             self.queued.fetch_sub(n, Ordering::AcqRel);
             return Err(io::Error::other("PTY input queue unavailable"));
         }
+        self.wake_control();
         Ok(())
+    }
+    pub fn wake_control(&self) {
+        loop {
+            match (&self.wake).write(&[1]) {
+                Err(error) if error.kind()==io::ErrorKind::Interrupted=>continue,
+                // WouldBlock means a previous wake byte is still pending.
+                _=>break,
+            }
+        }
     }
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        self.wake_control();
         if let Some(j) = self.join.lock().unwrap().take() {
             let _ = j.join();
         }
@@ -578,8 +589,14 @@ pub(crate) fn spawn(
     if roots.len() >= MAX_PTY_ROOTS {
         return Err(io::Error::other("PTY ancestry registry full"));
     }
+    let (mut wake_reader,wake)=UnixStream::pair()?;
+    wake_reader.set_nonblocking(true)?;wake.set_nonblocking(true)?;
     let mut pty = tty::new(&options, size(rows, cols), 0)?;
     let pid = pty.child().id() as i32;
+    // pidfd wakes on child exit even when a descendant still holds the slave.
+    // Older kernels retain a one-second child-status deadline, not a busy loop.
+    let child_fd=unsafe{libc::syscall(libc::SYS_pidfd_open,pid,0)};
+    let child_event=(child_fd>=0).then(||unsafe{OwnedFd::from_raw_fd(child_fd as i32)});
     let identity = process_identity(pid).ok();
     let master = pty.file().try_clone()?;
     let mut slave_number: libc::c_uint = 0;
@@ -721,7 +738,25 @@ pub(crate) fn spawn(
                 }
                 break;
             }
-            thread::sleep(Duration::from_millis(3));
+            let now=Instant::now();
+            let stop_deadline=deadline.map(|d|if killed{d+Duration::from_millis(500)}else{d}).filter(|d|*d>now);
+            let child_deadline=(child_event.is_none() && !status).then_some(now+Duration::from_secs(1));
+            let timeout=stop_deadline.into_iter().chain(child_deadline).min()
+                .map(|d|d.saturating_duration_since(now).as_millis().saturating_add(1).min(i32::MAX as u128) as i32).unwrap_or(-1);
+            let mut fds=[
+                libc::pollfd{fd:if eof{-1}else{pty.file().as_raw_fd()},events:libc::POLLIN|if pending.is_empty(){0}else{libc::POLLOUT},revents:0},
+                libc::pollfd{fd:wake_reader.as_raw_fd(),events:libc::POLLIN,revents:0},
+                libc::pollfd{fd:if status{-1}else{child_event.as_ref().map_or(-1,AsRawFd::as_raw_fd)},events:libc::POLLIN,revents:0},
+            ];
+            let ready=unsafe{libc::poll(fds.as_mut_ptr(),fds.len() as libc::nfds_t,timeout)};
+            if ready<0 && io::Error::last_os_error().kind()!=io::ErrorKind::Interrupted {
+                command.failed("PTY event wait failed".into());stopping.store(true,Ordering::Release);
+                thread::sleep(Duration::from_millis(1));
+            }
+            if fds[1].revents!=0 {
+                let mut bytes=[0;64];
+                while matches!(wake_reader.read(&mut bytes),Ok(n) if n>0){}
+            }
         }
         tab.eof(&command.id);
         command.drained();
@@ -731,6 +766,7 @@ pub(crate) fn spawn(
     });
     Ok(Process {
         tx,
+        wake,
         pid: pid as u32,
         identity,
         master,

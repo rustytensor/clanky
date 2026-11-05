@@ -149,6 +149,17 @@ in the authenticated owner's look_state agent entries; they grant no authority.
 A later hello replaces the labels; omitted labels clear them. Owners never appear
 in the connected-agent list. The UI falls back to `agent <pid>` without a name.
 
+Request: `{"v":3,"id":"1","op":"window_changes","after":0,"timeout_ms":1000}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+
+Authenticated `window_changes` waits up to 0–1000 ms and returns
+a result such as `{"revision":42,"changed":true}` (`changed:false` on timeout).
+Pass the previous revision as `after`.
+Notices contain no output bytes. Raw PTY updates notify only after the grid changes,
+without waiting for the agent masking stream to release a prefix. Windows use a
+separate authenticated connection so waiting cannot block input RPCs. Old servers
+without this operation fall back to one-second refresh; update/restart the server
+for immediate unsolicited-output updates.
+
 For an authenticated owner, look_state returns uptime_ms, masking_ready, connected
 agents, command drivers, the last 20 metadata-only events, and activity. Each
 look event includes `age_ms`, its monotonic age at the time of the query; the UI
@@ -189,6 +200,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | --- | --- |
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
+| window_changes | Owner-only change revision; after/timeout_ms (0–1000); no terminal payload |
 | snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
@@ -256,6 +268,10 @@ Request: `{"v":4,"id":"1","op":"resume_agents"}` Response: `{"id":"1","ok":false
 
 Waiting is observed after a quiet period (200 ms), using a blocked foreground
 PTY read or OSC prompt evidence; silence/sleep alone is not proof of readiness.
+The background observer checks on command/input/output activity and one quiet-period
+deadline, then parks. input_state and bounded wait_input calls refresh the evidence.
+An events request probes at entry and timeout; a silent readiness transition without
+PTY activity is detected on the next request/deadline, not by periodic idle scans.
 The event ring retains 1,024 entries with ordered cursors and kinds such as
 output_appended, command_finished, waiting_for_input and terminal_closed.
 Output events carry base64 data and offset; replay rechecks permissions. A gap

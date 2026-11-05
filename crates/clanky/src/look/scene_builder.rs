@@ -68,15 +68,15 @@ pub struct BlockCard {
 }
 #[derive(Clone, Copy, Debug)]
 pub struct CursorMotion { pub from: [f32; 2], pub to: [f32; 2], pub elapsed_ms: f32 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SessionItem { pub id: String, pub title: String, pub active: bool }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AgentItem {
     pub connection_id: u64, pub peer_pid: u32, pub tab_id: Option<String>, pub running: bool,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileItem { pub id: String, pub title: String, pub pending: usize, pub active: bool }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TimelineItem { pub label: String, pub detail: String }
 #[derive(Clone, Debug)]
 pub struct PanelState {
@@ -88,7 +88,7 @@ pub struct PanelState {
 pub struct PanelLine { pub text: String, pub selected: bool, pub action: Option<HitAction> }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HitAction {
-    Palette, Settings, ToggleRails, Session(String), File(String),
+    Palette, Settings, ToggleRails, NewTab, Split, Session(String), File(String),
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
 }
@@ -96,6 +96,32 @@ pub enum HitAction {
 pub struct Hotspot { pub rect: PixelRect, pub action: HitAction }
 #[derive(Clone, Debug)]
 pub struct Presentation { pub scene: Scene, pub hits: Vec<Hotspot> }
+#[derive(Clone,PartialEq)]
+struct ChromeKey {
+    theme:Theme,metrics:super::Metrics,window:[u32;2],top:PixelRect,rails:[Option<PixelRect>;2],shown:bool,
+    sessions:Vec<SessionItem>,counts:std::collections::BTreeMap<String,usize>,agents:Vec<AgentItem>,
+    labels:std::collections::BTreeMap<u64,String>,files:Vec<FileItem>,timeline:Vec<TimelineItem>,times:Vec<String>,
+    activity:Vec<f32>,panes:Vec<(String,String,bool)>,uptime:Option<u64>,masking:bool,
+}
+impl ChromeKey {
+    fn new(layout:&Layout,state:&LookState)->Self{Self{
+        theme:state.theme.clone(),metrics:layout.metrics,window:layout.window_px,top:layout.top_bar,
+        rails:[layout.left_rail,layout.right_rail],shown:layout.rails_shown,
+        sessions:state.sessions.clone(),counts:state.session_counts.clone(),agents:state.agents.clone(),labels:state.agent_labels.clone(),
+        files:state.files.clone(),timeline:state.timeline.clone(),times:state.timeline_times.clone(),activity:state.activity.clone(),
+        panes:state.panes.iter().map(|pane|(pane.id.clone(),pane.title.clone(),pane.allow_agent)).collect(),
+        uptime:(state.masking_ready || state.uptime_seconds>0).then_some(state.uptime_seconds/3600),masking:state.masking_ready,
+    }}
+}
+/// Reuses static chrome until its inputs change. Clear after changing font families.
+#[derive(Default)]
+pub struct SceneCache {chrome:Option<(ChromeKey,Vec<Layer>,Vec<Hotspot>)>}
+impl SceneCache {
+    pub fn clear(&mut self){self.chrome=None;}
+    pub fn presentation(&mut self,layout:&Layout,state:&LookState,measure:&mut dyn FnMut(&TextRun)->clanky_render::TextMetrics)->Presentation{
+        build_presentation(layout,state,measure,Some(self))
+    }
+}
 struct Builder<'a> {
     scene: Scene,
     hits: Vec<Hotspot>,
@@ -173,16 +199,30 @@ fn row(out: &mut Builder<'_>, t: &Theme, m: &super::Metrics, r: PixelRect, label
 }
 pub fn scene(layout: &Layout, state: &LookState) -> Scene { presentation(layout,state).scene }
 
+pub fn panel_presentation(layout:&Layout,state:&LookState,measure:&mut dyn FnMut(&TextRun)->clanky_render::TextMetrics)->Presentation {
+    let mut out=Builder{scene:Scene{clear:[0;4],layers:vec![]},hits:vec![],measure};
+    for panel in &state.panels{panel_card(&mut out,layout,state,panel);}
+    Presentation{scene:out.scene,hits:out.hits}
+}
 pub fn presentation(layout: &Layout, state: &LookState) -> Presentation {
     presentation_with_measure(layout,state,&mut clanky_render::measure_text)
 }
 pub fn presentation_with_measure(layout: &Layout, state: &LookState,
     measure: &mut dyn FnMut(&TextRun) -> clanky_render::TextMetrics) -> Presentation {
+    build_presentation(layout,state,measure,None)
+}
+fn build_presentation(layout:&Layout,state:&LookState,measure:&mut dyn FnMut(&TextRun)->clanky_render::TextMetrics,cache:Option<&mut SceneCache>)->Presentation {
     let t = &state.theme;
     let m = &layout.metrics;
     let p = m.pane_padding as f32;
     let mut out = Builder { scene: Scene { clear: Theme::fade(t.window,state.opacity),layers:vec![] },hits:vec![],measure };
-    chrome(&mut out,layout,state);
+    if let Some(cache)=cache {
+        let key=ChromeKey::new(layout,state);
+        if let Some((old,layers,hits))=&cache.chrome {
+            if *old==key {out.scene.layers=layers.clone();out.hits=hits.clone();}
+            else {chrome(&mut out,layout,state);cache.chrome=Some((key,out.scene.layers.clone(),out.hits.clone()));}
+        } else {chrome(&mut out,layout,state);cache.chrome=Some((key,out.scene.layers.clone(),out.hits.clone()));}
+    } else {chrome(&mut out,layout,state);}
     for pane in &layout.panes {
         let data=state.panes.iter().find(|p| p.id==pane.id);
         let focused=state.focused.as_deref()==Some(pane.id.as_str());
@@ -329,7 +369,7 @@ fn chrome(out: &mut Builder<'_>,layout: &Layout,state: &LookState) {
         uptime_x-=width;
         chip(out,t,m,rect(uptime_x,bar_y,width,pill_h),label,t.dim,None);uptime_x-=gap;
     }
-    if state.uptime_seconds>0 {
+    if state.masking_ready || state.uptime_seconds>0 {
         let label=format!("● server up · {} h",state.uptime_seconds/3600);
         let width=text_width(out,&label,small,600,false,0.0)+2.0*m.pill_padding as f32;
         uptime_x-=width;
