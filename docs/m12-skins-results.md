@@ -38,3 +38,21 @@ Lead decision: keep exact upstream Catppuccin colours as the theme's identity.
 The 4.5:1 requirement applies to our own themes only, not Catppuccin.
 Latte peach/green remain 2.64:1 and 2.96:1 on base; no colour values were changed.
 The app's theme-specific sparkle/badge, rainbow borders and cursor remain app-team work.
+
+## Settings theme-data gate
+
+Command: `cargo test -j 8 -p clanky --lib theme_store_round_trip -- --nocapture`.
+First run with `CLANKY_THEME_STORE_FAULT=1`: a deliberately corrupted exported file must fail.
+Real input: Stone dark JSON renamed Workshop, background changed to #010203.
+Expected before running: preview/background (1,2,3,255), agent (210,164,118,255);
+export and import bytes identical to that input. An external edit to #040506 reloads to
+(4,5,6,255); malformed JSON keeps those last-good values; deletion removes the picker entry.
+A saved copy with agent (10,20,30,255) never changes Stone. Existing destinations and
+path traversal must be refused without overwriting any bytes.
+Config post_ai=true and CLI --post-ai both set the flag; a string boolean is refused.
+The agent override #10203080 resolves to (16,32,48,128), without modifying the stored theme.
+Result: the planted export corruption failed; the normal gate passed on its first run.
+A focused follow-up `cargo test -j 8 -p clanky --lib recreated_theme_clears_old_error`
+also passed: deleting an invalid file and recreating it through save_new clears its old
+error immediately, including when the next reload sees unchanged bytes.
+No full suite, GPU check or executable Post-AI enforcement check was run.

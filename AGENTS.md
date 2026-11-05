@@ -15,6 +15,9 @@ Clanky is a GPU-rendered terminal in Rust, built for people who work alongside c
 - Commits: plain English, what changed and why. No AI tool names in commits or code.
 - New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0, MPL-2.0 (spellbook only), or Unlicense (Unlicense only where MIT is also offered). Bundled fonts may use OFL-1.1 (Marc, 2026-11-04: JetBrains Mono and Inter).
 - Never weaken an expected value to make a test pass.
+- M12 review builds must never expose an old-style M11 screen. Hide its mouse entries and keyboard routes
+  until its replacement is ready. Settings must match `/srv/devops/build/clanky/mockups/settings.html`
+  exactly (Marc's approval via the lead, 2026-11-04); do not restyle the legacy modal.
 
 ## Versions and tags
 

@@ -103,10 +103,7 @@ impl Client {
     pub fn connect_owner(path: &Path) -> io::Result<Self> {
         let client = Self::connect_agent(path)?;
         let token = platform::owner_token(path, false)?;
-        let hello = client.exchange(3, "hello", &json!({})).map_err(io_error)?;
-        if hello["version"] != 3 {
-            return Err(io::Error::other("Incompatible server"));
-        }
+        // Authenticate first: Post-AI refuses every unauthenticated hello.
         let result = client
             .exchange(3, "auth", &json!({"token":token}))
             .map_err(io_error)?;
@@ -116,6 +113,8 @@ impl Client {
                 "Owner authentication denied",
             ));
         }
+        let hello = client.exchange(3, "hello", &json!({})).map_err(io_error)?;
+        if hello["version"] != 3 { return Err(io::Error::other("Incompatible server")); }
         *client.0.endpoint.lock().unwrap()=Some(OwnerEndpoint::Local(path.to_owned()));
         Ok(client)
     }
