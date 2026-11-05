@@ -33,6 +33,21 @@ cargo build --workspace --bins -j 8
 The window needs a graphical display. `clanky edit FILE[:LINE[:COL]] [--review FILE]`
 works in a terminal without a display server.
 
+## The calm look
+
+Stone uses warm greys, with sage for success, brick for errors and clay for agent activity.
+Sessions and files live in the left sidebar; panes sit beside it, with activity on the right.
+Click **New tab**, **Split** or **Settings**, or press Ctrl+, for Settings.
+Ctrl+Shift+B hides the sidebar and activity column.
+
+Clanky the robot greets you once for 7 seconds, then for 1.2 seconds on later windows.
+Any key or click skips it and still acts normally. `clanky +hello` replays it in a separate
+window; [robot settings](docs/robot.md) can turn it off.
+
+M12 includes 13 [built-in themes and a JSON theme format](docs/themes.md), plus
+[Post-AI mode](docs/post-ai.md) for a plain terminal. **The theme controls and Post-AI
+behaviour are still being connected on this branch; those pages state the limits.**
+
 ## First steps
 
 Start `clanky` and type in its shell. Ctrl+Shift+T opens a tab; Ctrl+Shift+D/E
@@ -46,7 +61,7 @@ versioned socket API or the agent-only `clanky mcp` adapter. Close the window
 and reopen it to reattach; `clanky attach HOST` attaches over SSH.
 
 Read [getting started](docs/getting-started.md), [configuration](docs/config.md),
-[keyboard shortcuts](docs/shortcuts.md), and the [agent API](docs/agent-api.md).
+[Settings](docs/settings.md), [keyboard shortcuts](docs/shortcuts.md), and the [agent API](docs/agent-api.md).
 Clanky uses its Alacritty terminal/parser forks, wgpu, cosmic-text and winit.
 
 ## Why "Clanky"
@@ -57,5 +72,5 @@ A clanker is a robot. This is where they work.
 
 Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
 at your option. Dependencies retain their own licences, including MPL-2.0 for
-spellbook. The bundled JetBrains Mono and Inter fonts are under the SIL Open Font
-License 1.1. See [NOTICE](NOTICE) for terminal, parser and font attribution.
+spellbook. The bundled Geist, Geist Mono, JetBrains Mono and Inter fonts are under
+the SIL Open Font License 1.1. See [NOTICE](NOTICE) for terminal, parser and font attribution.
