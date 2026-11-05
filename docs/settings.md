@@ -10,9 +10,13 @@ The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 - **Appearance:** Light/Dark/System, theme cards, semantic colours and per-colour Reset.
   Scroll to reach all themes, colours and the Save/Import/Export buttons.
 - **Terminal:** bundled monospace font, size, opacity, side columns and animations.
+- **Agents:** masking status, stop/resume actions and named per-pane access switches.
+  Resume permits new agents but does not restore revoked pane permissions.
+- **Keys:** current shortcuts as right-aligned key chips; unavailable screens are omitted.
 
-Agents and Keys are still hidden while their replacements are built. The old
-Settings modal is never used as a fallback. Ctrl+Shift+Escape still revokes agents.
+Post-AI hides the Agents page and agent shortcuts. A window started with `--post-ai`
+shows a disabled mode switch and explains that the server must restart to turn it off.
+The old Settings modal is never used as a fallback. Ctrl+Shift+Escape still revokes agents.
 
 ## Colours and themes
 
@@ -30,6 +34,7 @@ refused, not replaced. These buttons handle themes, not whole-settings imports.
 
 Text fields accept typing, Backspace/Delete, arrows, Home/End, Ctrl+A and Ctrl+V.
 Enter applies; Escape cancels. Tab moves focus. Sliders support left/right arrows.
+Page Up/Down and the mouse wheel scroll long pages.
 The footer's **Open settings file** uses the desktop's file association.
 
 Hand edits are checked every 500 ms. Invalid files retain the last-good settings;

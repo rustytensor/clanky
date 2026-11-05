@@ -1,8 +1,8 @@
 # Configuration
 
-M12 preview: the calm window currently uses Stone dark. Legacy Settings, palette,
-search, compose and editor entries are hidden, including their opening shortcuts,
-until their replacement screens are ready. Edit the JSON file to change settings.
+M12 preview: rebuilt Settings and live theme selection are available. Palette,
+search, compose and editor entries remain hidden, including their opening shortcuts,
+until their replacement screens are ready. Settings and hand edits use the same JSON.
 
 Clanky reads a JSON object from `$XDG_CONFIG_HOME/clanky/config.json`, or
 `$HOME/.config/clanky/config.json` if XDG_CONFIG_HOME is unset or empty.

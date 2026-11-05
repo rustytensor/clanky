@@ -15,6 +15,8 @@ impl App {
             Effect::None=>Ok(()),
             Effect::Changed=>self.apply_settings(),
             Effect::Theme(action)=>self.theme_action(action),
+            Effect::StopAgents=>{self.call("v4.revoke_all",json!({}))?;for allowed in self.studio.permissions.values_mut(){*allowed=false;}self.status=Some("Agent access revoked; pending waits cancelled".into());Ok(())},
+            Effect::ResumeAgents=>{self.call("v4.resume_agents",json!({}))?;self.status=Some("New agents allowed; grant pane permissions separately".into());Ok(())},
             Effect::Open(path)=>{
                 if !path.exists() {
                     if let Some(panel)=&self.settings {panel.store.export(&path)?;}
@@ -22,8 +24,10 @@ impl App {
                 clanky::platform::open_settings_file(&path)
             },
             Effect::Access(id)=>{
+                if self.applied_post_ai{return Err(clanky_core::POST_AI_REASON.into());}
                 let allowed=self.engine.agent_permission(&id).map_err(|e|e.message)?;
-                self.engine.set_agent_permission(&id,!allowed).map_err(|e|e.message)
+                self.engine.set_agent_permission(&id,!allowed).map_err(|e|e.message)?;
+                self.studio.permissions.insert(id,!allowed);Ok(())
             }
         }})();
         if let Err(error)=result {
