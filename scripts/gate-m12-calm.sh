@@ -23,13 +23,22 @@ fi
 run_step 'idle scheduler' "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
 run_step 'real window idle and key echo' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
 run_step 'real pointer checks (partial)' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
+if [[ ${CLANKY_GATE_FAULT:-} == click ]]; then
+    run_step 'additional Settings clicks' env CLANKY_GATE_BINARIES_READY=1 scripts/check-settings-clicks.sh
+else
+    run_step 'additional Settings clicks' env -u CLANKY_GATE_FAULT CLANKY_GATE_BINARIES_READY=1 scripts/check-settings-clicks.sh
+fi
 if [[ ${CLANKY_GATE_FAULT:-} == robot ]]; then
     run_step 'robot offscreen' env CLANKY_ROBOT_FAULT=1 flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::robot_frames -- --exact --nocapture
 else
     run_step 'robot offscreen' env -u CLANKY_ROBOT_FAULT flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::robot_frames -- --exact --nocapture
 fi
 run_step 'robot first-run marker' flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::startup_marker -- --exact
-run_step 'robot real window' env CLANKY_GATE_BINARIES_READY=1 scripts/check-robot-window.sh
+if [[ ${CLANKY_GATE_FAULT:-} == robot ]]; then
+    run_step 'robot real window' env CLANKY_GATE_BINARIES_READY=1 scripts/check-robot-window.sh
+else
+    run_step 'robot real window' env -u CLANKY_GATE_FAULT CLANKY_GATE_BINARIES_READY=1 scripts/check-robot-window.sh
+fi
 run_step 'built-in themes and Catppuccin' flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib themes::tests::builtin_documents -- --exact --nocapture
 run_step 'theme contrast and storage' scripts/gate-m12-themes.sh
 run_step 'Post-AI server' python3 scripts/gate-m12-post-ai.py
@@ -39,9 +48,9 @@ if "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json
 else
     echo 'FAIL: M12 scene observations' >&2; failed=1
 fi
-# Remaining clicks include access-row text, block hover/copy, Settings and a
-# disabled control. Do not infer success from the partial New tab/split checks.
-echo 'FAIL: M12 remaining pointer checks are not implemented' >&2
+# The calm scene has no command-card action hit target yet; neither click
+# fixture proves hover/copy. Settings geometry and raw-label checks also remain.
+echo 'FAIL: M12 block hover/copy and Settings geometry/raw-label checks are not implemented' >&2
 failed=1
 if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
     run_step 'release regression' env -u CLANKY_GATE_FAULT -u CLANKY_RC_NO_NESTED CLANKY_M12_PARENT=1 scripts/gate-rc.sh
