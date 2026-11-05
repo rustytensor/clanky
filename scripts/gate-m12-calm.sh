@@ -16,6 +16,7 @@ flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky
 # key echo and the remaining idle checks still fail closed below.
 "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
 LP_NUM_THREADS=8 xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
+LP_NUM_THREADS=8 xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
 if [[ ${CLANKY_GATE_FAULT:-} == robot ]]; then
     CLANKY_ROBOT_FAULT=1 flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::robot_frames -- --exact --nocapture
 else
@@ -27,5 +28,5 @@ python3 scripts/gate-m12-post-ai.py
 "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json"
 python3 scripts/gate-m12-calm.py --no-idle < "$work/observations.json"
 python3 scripts/m12-pictures.py "$work" "$CARGO_TARGET_DIR/look"
-echo 'FAIL: M12 gate incomplete: clicks, theme contrast and storage, robot input routing and regression are not yet checked' >&2
+echo 'FAIL: M12 gate incomplete: remaining clicks, theme contrast and storage, robot input routing and regression are not yet checked' >&2
 exit 1
