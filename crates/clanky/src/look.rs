@@ -102,12 +102,12 @@ impl Layout {
     }
 }
 
-fn minimum(tree: &WorkspaceLayout, metrics: &Metrics, cell: [u32; 2]) -> [f64; 2] {
+pub(crate) fn minimum(tree: &WorkspaceLayout, metrics: &Metrics, cell: [u32; 2]) -> [f64; 2] {
     match tree {
         WorkspaceLayout::Leaf(id) if id.is_empty() => [0.0, 0.0],
         WorkspaceLayout::Leaf(_) => [
             2.0 * metrics.pane_padding + MIN_COLUMNS as f64 * cell[0] as f64,
-            (2.0 * metrics.pane_padding + metrics.pane_header) + MIN_ROWS as f64 * cell[1] as f64,
+            (2.0 * metrics.pane_padding_y + metrics.pane_header) + MIN_ROWS as f64 * cell[1] as f64,
         ],
         WorkspaceLayout::Split {
             axis,
@@ -224,7 +224,7 @@ pub fn layout_with_metrics(
     }
     out
 }
-fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bool>, out: &mut Layout) {
+pub(crate) fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bool>, out: &mut Layout) {
     if area.w <= 0.0 || area.h <= 0.0 {
         return;
     }
@@ -238,11 +238,11 @@ fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bool>, out: &
                 stable_floor((area.w as f64 - 2.0 * metrics.pane_padding).max(0.0) / out.cell_px[0] as f64)
                     as usize;
             let rows = stable_floor(
-                (area.h as f64 - (2.0 * metrics.pane_padding + metrics.pane_header)).max(0.0) / out.cell_px[1] as f64,
+                (area.h as f64 - (2.0 * metrics.pane_padding_y + metrics.pane_header)).max(0.0) / out.cell_px[1] as f64,
             ) as usize;
             let origin = [
                 area.x as f64 + metrics.pane_padding,
-                area.y as f64 + metrics.pane_padding + metrics.pane_header,
+                area.y as f64 + metrics.pane_padding_y + metrics.pane_header,
             ];
             out.panes.push(PaneLayout {
                 id: id.clone(),

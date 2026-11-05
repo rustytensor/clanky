@@ -145,7 +145,7 @@ fn mix(base: Color, ink: Color, weight: f32) -> Color {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {
     pub top_bar: f64, pub left_rail: f64, pub right_rail: f64,
-    pub outer_gap: f64, pub pane_gap: f64, pub pane_padding: f64, pub pane_header: f64,
+    pub outer_gap: f64, pub pane_gap: f64, pub pane_padding: f64, pub pane_padding_y: f64, pub pane_header: f64,
     pub pane_radius: f64, pub block_radius: f64, pub card_inset: f64,
     pub border: f64, pub control_gap: f64, pub rail_padding: f64,
     pub rail_row_height: f64, pub rail_section_gap: f64, pub rail_header_height: f64,
@@ -170,7 +170,7 @@ impl Default for Metrics { fn default() -> Self { Self::DEFAULT } }
 impl Metrics {
     pub const DEFAULT: Self = Self {
         top_bar:40.0,left_rail:210.0,right_rail:270.0,outer_gap:10.0,pane_gap:10.0,
-        pane_padding:12.0,pane_header:24.0,pane_radius:11.0,block_radius:8.0,card_inset:4.0,
+        pane_padding:12.0,pane_padding_y:12.0,pane_header:24.0,pane_radius:11.0,block_radius:8.0,card_inset:4.0,
         border:1.0,control_gap:8.0,rail_padding:16.0,rail_row_height:34.0,rail_section_gap:18.0,
         rail_header_height:24.0,item_radius:7.0,ui_font_px:14.0,small_font_px:11.0,title_font_px:15.0,
         brand_font_px:13.0,search_width:380.0,search_height:26.0,pill_height:24.0,pill_padding:9.0,
@@ -186,7 +186,7 @@ impl Metrics {
         cursor_ms:80.0,panel_ms:120.0,scroll_ms:120.0,pulse_ms:1200.0,
     };
     pub fn is_valid(&self) -> bool {
-        [self.top_bar,self.left_rail,self.right_rail,self.outer_gap,self.pane_gap,self.pane_padding,
+        [self.top_bar,self.left_rail,self.right_rail,self.outer_gap,self.pane_gap,self.pane_padding,self.pane_padding_y,
             self.pane_header,self.pane_radius,self.block_radius,self.card_inset,self.border,
             self.control_gap,self.rail_padding,self.rail_row_height,self.rail_section_gap,
             self.rail_header_height,self.item_radius,self.ui_font_px,self.small_font_px,self.title_font_px,
@@ -204,7 +204,7 @@ impl Metrics {
     pub fn scaled(self, scale: f64) -> Self {
         let mut out = self;
         macro_rules! scale_fields { ($($field:ident),* $(,)?) => { $(out.$field *= scale;)* }; }
-        scale_fields!(top_bar,left_rail,right_rail,outer_gap,pane_gap,pane_padding,pane_header,
+        scale_fields!(top_bar,left_rail,right_rail,outer_gap,pane_gap,pane_padding,pane_padding_y,pane_header,
             pane_radius,block_radius,card_inset,border,control_gap,rail_padding,rail_row_height,
             rail_section_gap,rail_header_height,item_radius,ui_font_px,small_font_px,title_font_px,
             brand_font_px,search_width,search_height,pill_height,pill_padding,chip_inset_y,chip_right_gap,

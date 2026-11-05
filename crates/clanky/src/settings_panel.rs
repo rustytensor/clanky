@@ -243,6 +243,7 @@ impl SettingsPanel {
                     if let Some(shadow)=&mut shape.shadow{shadow.color=Theme::fade(shadow.color,opacity);}
                 },
                 Layer::Grid(grid)=>grid.opacity*=opacity,
+                Layer::Vector(vector)=>vector.opacity*=opacity,
             }
         }
         out.layers

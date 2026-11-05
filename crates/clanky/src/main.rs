@@ -135,6 +135,7 @@ struct App {
     minimum_window: Option<[u32;2]>,
     modifiers: ModifiersState,
     mouse: (f64, f64),
+    pointer_pressed: bool,
     input: InputState,
     occluded: bool,
     error: Option<String>,
@@ -205,6 +206,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         minimum_window: None,
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
+        pointer_pressed: false,
         input: InputState::default(),
         occluded: false,
         error: None,
@@ -233,7 +235,7 @@ impl App {
         self.engine.request(op, &args, true).map_err(|e| e.message)
     }
     fn metrics(&self) -> Result<Metrics, String> {
-        self.zoom.metrics(self.scale)
+        clanky::calm::font_metrics(&self.zoom,self.scale)
     }
     fn full_rect(&self) -> Result<Rect, String> {
         let m = self.metrics()?;
@@ -742,7 +744,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             return;
         }
         let result = (|| {
-            let base = self.zoom.metrics(1.0)?;
+            let base = clanky::calm::font_metrics(&self.zoom,1.0)?;
             let window = Arc::new(
                 event_loop
                     .create_window(
@@ -750,8 +752,8 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                             .with_title("Clanky")
                             .with_transparent(true)
                             .with_inner_size(LogicalSize::new(
-                                self.config.columns as f64 * base.cell_width as f64,
-                                (self.config.rows + 1) as f64 * base.cell_height as f64,
+                                (self.config.columns as f64 * base.cell_width as f64 + 592.0).max(1240.0),
+                                (self.config.rows as f64 * base.cell_height as f64 + 228.0).max(760.0),
                             )),
                     )
                     .map_err(|e| e.to_string())?,
@@ -769,7 +771,8 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             self.window = Some(window);
             self.metrics_changed()?;
             if self.groups.is_empty() {
-                self.new_tab()
+                self.new_tab()?;
+                self.split(Axis::Rows)
             } else {
                 Ok(())
             }
@@ -802,7 +805,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.modifiers = m.state();
                 Ok(())
             }
-            WindowEvent::CursorLeft { .. } => { self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
+            WindowEvent::CursorLeft { .. } => { self.pointer_pressed=false; self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if let Err(e) = self.drag() { self.status = Some(e); }
@@ -813,12 +816,14 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                self.pointer_pressed=true;
                 if let Err(e) = self.click() {
                     self.status = Some(e);
                 }
                 Ok(())
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                self.pointer_pressed=false;
                 if let Some(panel)=&mut self.settings {panel.release();}
                 self.files.dragging = None;
                 self.compose_dragging = false;
@@ -918,6 +923,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 }
             }
             WindowEvent::Focused(focused) => {
+                if !focused{self.pointer_pressed=false;}
                 self.window_focused = focused;
                 if focused {
                     if let Some(pane) = self.files.editor() { let _ = pane.command("refresh", &json!({})); }

@@ -1,6 +1,8 @@
 //! Shared window and offscreen text and image rendering.
 mod scene;
 mod scene_gpu;
+pub mod vector;
+pub use vector::{Matrix4, PathStroke, VectorLayer, VectorPath};
 pub use scene::{
     Fill, GridLayer, Layer, Scene, Shadow, Shape, TextMetrics, TextRun, measure_text, offscreen_scene,
 };
