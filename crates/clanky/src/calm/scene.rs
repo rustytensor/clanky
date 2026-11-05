@@ -251,9 +251,16 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Recent",14.0*s,c.foreground,500,false);
         if count==0{p.text(r(x+12.0*s,y+40.0*s,width-24.0*s,20.0*s),"No recent events",12.0*s,c.muted_foreground,400,false);}
         for (n,(index,event)) in state.timeline.iter().enumerate().rev().take(4).enumerate(){let ey=y+(40.0+n as f32*36.0)*s;
-            p.shape(r(x+12.0*s,ey+6.0*s,8.0*s,8.0*s),4.0*s,c.muted_foreground,None);
+            let dot=match state.timeline_exits.get(index).copied().flatten(){Some(0)=>c.ok,Some(_)=>c.err,None=>c.muted_foreground};
+            p.shape(r(x+12.0*s,ey+6.0*s,8.0*s,8.0*s),4.0*s,dot,None);
             let time=state.timeline_times.get(index).map(String::as_str).unwrap_or("");let tw=p.width(time,12.0*s,400);
-            p.text(r(x+30.0*s,ey,width-54.0*s-tw,18.0*s),&event.label.replace('_'," "),14.0*s,c.foreground,400,false);
+            let mut label_right=x+width-24.0*s-tw;
+            if let Some(code)=state.timeline_exits.get(index).copied().flatten(){
+                let text=code.to_string();let tone=if code==0{c.ok}else{c.err};
+                let bw=(p.width(&text,12.0*s,500)+32.0*s).ceil()+s;let badge=r(label_right-bw,ey,bw,18.0*s);label_right=badge.x-8.0*s;
+                exit_badge(&mut p,badge,&text,code==0,tone);
+            }
+            p.text(r(x+30.0*s,ey,(label_right-x-30.0*s).max(0.0),18.0*s),&event.label,14.0*s,c.foreground,400,false);
             p.text(r(x+30.0*s,ey+18.0*s,width-42.0*s,16.0*s),&event.detail,12.0*s,c.muted_foreground,400,false);
             p.text(r(x+width-12.0*s-tw,ey,tw,18.0*s),time,12.0*s,c.muted_foreground,400,false);
         }y+=height+12.0*s;
@@ -353,17 +360,10 @@ fn card_over_grid(p:&mut Paint,card:&CardGeometry,tab:&str,state:&LookState){
     if let Some((rect,text))=&card.duration{p.text(*rect,text,12.0*s,c.muted_foreground,400,false);}
     if let Some((rect,text,kind))=&card.badge{
         let tone=match kind{0=>c.ok,1=>c.err,_=>c.agent};
-        p.shape(*rect,6.0*s,alpha(tone,0.10),Some(alpha(tone,0.35)));
-        let mut tx=rect.x+8.0*s;
-        if *kind!=2{
-            let mut path=Path::builder();
-            if *kind==0{path.begin(point(2.5,6.2));path.line_to(point(4.8,8.5));path.line_to(point(9.5,3.6));path.end(false);}
-            else{path.begin(point(3.0,3.0));path.line_to(point(9.0,9.0));path.end(false);path.begin(point(9.0,3.0));path.line_to(point(3.0,9.0));path.end(false);}
-            p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.6,color:tone}),
-                transform:Matrix4::scale(s,s,1.0).then(Matrix4::translate(tx,rect.y+3.0*s,0.0))}],clip:p.clip,opacity:1.0}));
-            tx+=16.0*s;
-        }
-        p.text(r(tx,rect.y,rect.x+rect.w-7.0*s-tx,rect.h),text,12.0*s,tone,500,false);
+        if *kind==2{
+            p.shape(*rect,6.0*s,alpha(tone,0.10),Some(alpha(tone,0.35)));
+            p.text(r(rect.x+8.0*s,rect.y,rect.w-15.0*s,rect.h),text,12.0*s,tone,500,false);
+        }else{exit_badge(p,*rect,text,*kind==0,tone);}
     }
     for (index,(rect,label,action)) in card.actions.iter().enumerate(){
         let over=rect.contains(p.pointer.0,p.pointer.1);
@@ -373,4 +373,18 @@ fn card_over_grid(p:&mut Paint,card:&CardGeometry,tab:&str,state:&LookState){
         p.hit(*rect,HitAction::Block{tab_id:tab.into(),block_id:card.id.clone(),action:(*action).into()});
     }
     let _=state;
+}
+
+/// The sheets' exit badge: 12 px / 500 in a tinted, bordered 6 px rounded box with a
+/// check (success) or a cross (failure) before the code.
+fn exit_badge(p:&mut Paint,rect:PixelRect,text:&str,ok:bool,tone:Color){
+    let s=p.scale;
+    p.shape(rect,6.0*s,alpha(tone,0.10),Some(alpha(tone,0.35)));
+    let mut path=Path::builder();
+    if ok{path.begin(point(2.5,6.2));path.line_to(point(4.8,8.5));path.line_to(point(9.5,3.6));path.end(false);}
+    else{path.begin(point(3.0,3.0));path.line_to(point(9.0,9.0));path.end(false);path.begin(point(9.0,3.0));path.line_to(point(3.0,9.0));path.end(false);}
+    let tx=rect.x+8.0*s;
+    p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.6,color:tone}),
+        transform:Matrix4::scale(s,s,1.0).then(Matrix4::translate(tx,rect.y+(rect.h-12.0*s)/2.0,0.0))}],clip:p.clip,opacity:1.0}));
+    p.text(r(tx+16.0*s,rect.y,rect.x+rect.w-7.0*s-tx-16.0*s,rect.h),text,12.0*s,tone,500,false);
 }

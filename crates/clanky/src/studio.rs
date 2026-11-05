@@ -529,9 +529,14 @@ impl App {
             }
         }
         let mut recent=clanky::calm::human_recent(&self.studio.metadata["recent"],&state.pane_labels,&self.studio.metadata["agents"]);
-        recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone())));
-        recent.sort_by_key(|(age,_)|std::cmp::Reverse(*age));
-        for (age,item) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
+        recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone(),None)));
+        recent.sort_by_key(|(age,_,_)|std::cmp::Reverse(*age));
+        for (age,item,command) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
+            // The newest finished card in that pane with the same command gives the exit code.
+            let exit=command.and_then(|(tab,command)|self.studio.blocks.get(&tab).and_then(|view|view["blocks"].as_array())
+                .and_then(|blocks|blocks.iter().rev().find(|b|b["command"].as_str().map(str::trim)==Some(command.as_str()) && b["complete"]==true))
+                .and_then(|b|b["exit_code"].as_i64()).and_then(|code|i32::try_from(code).ok()));
+            state.timeline_exits.push(exit);
             let seconds=age/1000;
             state.timeline_times.push(if seconds<60{format!("{seconds}s")}else if seconds<3600{format!("{}m",seconds/60)}else{format!("{}h",seconds/3600)});
             state.timeline.push(item);
