@@ -205,7 +205,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
 | window_changes | Owner-only change revision; after/timeout_ms (0–1000); no terminal payload |
-| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; block_anchors accompanies changed snapshots |
+| snapshot | Raw cells/cursor/images; known_generation/known_images avoid retransfers; known_rows (one `clanky_core::row_hash` per held row, same row count) gets `delta: true` with empty `snapshot.cells` and `changed_rows` as `[row, cells]` pairs; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |

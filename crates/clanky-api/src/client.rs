@@ -223,15 +223,15 @@ impl Client {
                                 break;
                             }
                         }
-                        let reply: Value = serde_json::from_slice(&line)
+                        let mut reply: Value = serde_json::from_slice(&line)
                             .map_err(|_| fail("transport_error", "Invalid reply"))?;
                         if reply["id"] != id {
                             return Err(fail("transport_error", "Reply id mismatch"));
                         }
                         match reply["ok"].as_bool() {
                             Some(true) => reply
-                                .get("result")
-                                .cloned()
+                                .get_mut("result")
+                                .map(Value::take)
                                 .ok_or_else(|| fail("transport_error", "Missing result")),
                             Some(false) => {
                                 remote_error = true;
@@ -419,7 +419,13 @@ impl Client {
         if let Some(generation) = generation {
             args["known_generation"] = json!(generation);
         }
-        let result = self.exchange(3, "snapshot", &args)?;
+        // Name the rows already held, so the server sends only rows that changed.
+        let held = cache.snapshots.get(tab).map(|(_, s)| (s.rows, s.cols));
+        if let Some((_, s)) = cache.snapshots.get(tab).filter(|(_, s)| s.cols > 0) {
+            let hashes: Vec<u64> = s.cells.chunks(s.cols).map(clanky_core::row_hash).collect();
+            args["known_rows"] = json!(hashes);
+        }
+        let mut result = self.exchange(3, "snapshot", &args)?;
         let generation = result["generation"]
             .as_u64()
             .ok_or_else(|| fail("transport_error", "Invalid snapshot generation"))?;
@@ -434,8 +440,30 @@ impl Client {
         if result["unchanged"] != false {
             return Err(fail("transport_error", "Invalid snapshot status"));
         }
-        let mut snapshot: TerminalSnapshot = serde_json::from_value(result["snapshot"].clone())
+        let mut snapshot: TerminalSnapshot = serde_json::from_value(result["snapshot"].take())
             .map_err(|_| fail("transport_error", "Invalid snapshot"))?;
+        if result["delta"] == true {
+            // Rebuild from the held rows; a reply for other dimensions is a transport error.
+            let (rows, cols) = (snapshot.rows, snapshot.cols);
+            let base = cache
+                .snapshots
+                .get(tab)
+                .map(|(_, s)| s)
+                .filter(|s| held == Some((rows, cols)) && s.cells.len() == rows * cols)
+                .ok_or_else(|| fail("transport_error", "Row delta without held rows"))?;
+            snapshot.cells = base.cells.clone();
+            let changed = result["changed_rows"]
+                .as_array_mut()
+                .ok_or_else(|| fail("transport_error", "Invalid changed rows"))?;
+            for entry in changed {
+                let (row, cells): (usize, Vec<clanky_core::Cell>) = serde_json::from_value(entry.take())
+                    .map_err(|_| fail("transport_error", "Invalid changed row"))?;
+                if row >= rows || cells.len() != cols {
+                    return Err(fail("transport_error", "Invalid changed row"));
+                }
+                snapshot.cells[row * cols..(row + 1) * cols].clone_from_slice(&cells);
+            }
+        }
         if snapshot.rows == 0
             || snapshot.cols == 0
             || snapshot.rows > 1000
