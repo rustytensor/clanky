@@ -10,7 +10,7 @@ pub mod settings_panel;
 mod settings_appearance;
 mod settings_access;
 pub use recent::{human_recent,pane_label,uptime_label};
-pub use scene::{presentation,legacy_palette,notice};
+pub use scene::{presentation,legacy_palette,notice,review_buttons};
 
 fn rect(x:f64,y:f64,w:f64,h:f64)->PixelRect{PixelRect{x:x as f32,y:y as f32,w:w.max(0.0) as f32,h:h.max(0.0) as f32}}
 pub fn font_metrics(zoom:&crate::config::Zoom,scale:f64)->Result<crate::config::Metrics,String>{

@@ -103,6 +103,8 @@ pub enum HitAction {
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
     /// Find bar: -1 previous match, 1 next match, 0 close.
     Find(i8),
+    /// A change-review button in an editor pane.
+    Review { pane: String, action: String },
 }
 #[derive(Clone, Debug)]
 pub struct Hotspot { pub rect: PixelRect, pub action: HitAction }
