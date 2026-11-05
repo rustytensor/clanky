@@ -12,6 +12,10 @@ use std::{
 use wgpu::util::DeviceExt;
 
 #[cfg(test)]
+#[path = "font_fallback_tests.rs"]
+mod font_fallback_tests;
+
+#[cfg(test)]
 #[test]
 fn geist_measurements() {
     // Independent HarfBuzz hb-shape on v1.9.1: Geist U+0030 advances
@@ -70,6 +74,25 @@ fn intersection(a: [f32; 4], b: [f32; 4]) -> Option<[f32; 4]> {
     let bottom = (a[1] + a[3]).min(b[1] + b[3]);
     (right > x && bottom > y).then_some([x, y, right - x, bottom - y])
 }
+/// Preserve shaping offsets while fitting the complete ink group into a cell.
+/// Normal in-bounds glyphs keep their original baseline and raster size.
+fn fit_cell(rects: &[[f32; 4]], cell: [f32; 2]) -> [f32; 3] {
+    if rects.is_empty() { return [1., 0., 0.]; }
+    let left = rects.iter().map(|r| r[0]).fold(f32::INFINITY, f32::min);
+    let top = rects.iter().map(|r| r[1]).fold(f32::INFINITY, f32::min);
+    let right = rects.iter().map(|r| r[0]+r[2]).fold(f32::NEG_INFINITY, f32::max);
+    let bottom = rects.iter().map(|r| r[1]+r[3]).fold(f32::NEG_INFINITY, f32::max);
+    if left >= 0. && top >= 0. && right <= cell[0] && bottom <= cell[1] {
+        return [1., 0., 0.];
+    }
+    let (w,h) = (right-left,bottom-top);
+    if w <= 0. || h <= 0. { return [1.,0.,0.]; }
+    let scale = (cell[0]/w).min(cell[1]/h).min(1.);
+    [scale,(cell[0]-w*scale)*0.5-left*scale,(cell[1]-h*scale)*0.5-top*scale]
+}
+fn private_use(ch: char) -> bool {
+    matches!(ch, '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}')
+}
 fn family(name: &str) -> Family<'_> {
     match name {
         "monospace" => Family::Monospace,
@@ -89,6 +112,7 @@ struct Placed {
     key: CacheKey,
     x: i32,
     y: i32,
+    advance: f32,
 }
 #[derive(Hash, PartialEq, Eq)]
 struct TextKey {
@@ -96,6 +120,7 @@ struct TextKey {
     px: u32,
     height: u32,
     letter_spacing: u32,
+    cell_width: Option<u32>,
     weight: u16,
     mono: bool,
 }
@@ -265,11 +290,33 @@ fn shape_buffer(
     weight: u16,
     name: &str,
     letter_spacing: f32,
+    mono: bool,
+    cell_width: Option<f32>,
 ) -> Buffer {
+    // A named family uses generic fallback ordering, which can choose unrelated
+    // private-use glyphs. Monospace asks cosmic-text to rank installed mono faces
+    // by actual codepoint coverage, retaining the selected face when it covers.
+    let selected_family = if mono {
+        let primary = fonts.db().family_name(&family(name)).to_owned();
+        if fonts.db().family_name(&Family::Monospace) != primary {
+            fonts.db_mut().set_monospace_family(primary);
+        }
+        Family::Monospace
+    } else { family(name) };
+    // Keep the primary face at its requested size. Only missing-glyph fallback
+    // needs pitch normalization; the final ink fit handles raster overhangs.
+    let fallback_width = cell_width.filter(|_| {
+        let primary = fonts.db().query(&cosmic_text::fontdb::Query {
+            families: &[selected_family], weight: Weight(weight), ..Default::default()
+        });
+        primary.and_then(|id| fonts.get_font_supported_codepoints_in_word(id, Weight(weight), text))
+            != Some(text.chars().count())
+    });
     let mut buffer = Buffer::new(fonts, Metrics::new(px, height));
+    buffer.set_monospace_width(fallback_width);
     buffer.set_size(None, None);
     buffer.set_wrap(Wrap::None);
-    let mut attrs = Attrs::new().family(family(name)).weight(Weight(weight));
+    let mut attrs = Attrs::new().family(selected_family).weight(Weight(weight));
     if letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(letter_spacing / px);
     }
@@ -290,6 +337,8 @@ fn measure_with_fonts(fonts: &mut FontSystem, text: &TextRun, name: &str) -> Tex
         text.weight,
         name,
         text.letter_spacing,
+        text.mono,
+        None,
     );
     let mut metrics = TextMetrics {
         line_height: text.px * 1.25,
@@ -340,6 +389,7 @@ pub(super) struct Painter {
     atlas_binding: wgpu::BindGroup,
     sampler: wgpu::Sampler,
     fonts: FontSystem,
+    generic_families: [String; 3],
     swash: SwashCache,
     glyphs: HashMap<CacheKey, Bitmap>,
     shaped: HashMap<TextKey, Vec<Placed>>,
@@ -426,6 +476,11 @@ impl Painter {
             wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         );
         let atlas_binding = atlas_binding(device, &glyph_pipeline, &atlas, &sampler);
+        let fonts = scene_fonts(system_fonts);
+        // Preserve fontconfig's aliases even after terminal shaping sets its own
+        // monospace default. UI/generic configuration keeps its original meaning.
+        let generic_families = [Family::Monospace, Family::SansSerif, Family::Serif]
+            .map(|family| fonts.db().family_name(&family).to_owned());
         Self {
             vector_pipeline,
             samples,
@@ -438,7 +493,8 @@ impl Painter {
             atlas,
             atlas_binding,
             sampler,
-            fonts: scene_fonts(system_fonts),
+            fonts,
+            generic_families,
             swash: SwashCache::new(),
             glyphs: HashMap::new(),
             shaped: HashMap::new(),
@@ -488,9 +544,16 @@ impl Painter {
                 return Err(format!("Font family is not installed: {name}"));
             }
         }
+        let resolve = |name: &str| match name {
+            "monospace" => self.generic_families[0].clone(),
+            "sans-serif" => self.generic_families[1].clone(),
+            "serif" => self.generic_families[2].clone(),
+            _ => name.to_owned(),
+        };
+        let (terminal, ui) = (resolve(terminal), resolve(ui));
         if self.terminal_family != terminal || self.ui_family != ui {
-            self.terminal_family = terminal.into();
-            self.ui_family = ui.into();
+            self.terminal_family = terminal;
+            self.ui_family = ui;
             self.reset_atlas(device);
         }
         Ok(())
@@ -498,7 +561,7 @@ impl Painter {
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
         if !valid_text(text) || text.text.is_empty(){return TextMetrics::default();}
         let key=TextKey{text:text.text.clone(),px:text.px.to_bits(),height:(text.px*1.25).to_bits(),
-            letter_spacing:text.letter_spacing.to_bits(),weight:text.weight,mono:text.mono};
+            letter_spacing:text.letter_spacing.to_bits(),cell_width:None,weight:text.weight,mono:text.mono};
         if let Some(metrics)=self.measured.get(&key){return *metrics;}
         let name = if text.mono {
             &self.terminal_family
@@ -579,12 +642,14 @@ impl Painter {
         weight: u16,
         mono: bool,
         letter_spacing: f32,
+        cell_width: Option<f32>,
     ) -> Vec<Placed> {
         let key = TextKey {
             text: text.into(),
             px: px.to_bits(),
             height: height.to_bits(),
             letter_spacing: letter_spacing.to_bits(),
+            cell_width: cell_width.map(f32::to_bits),
             weight,
             mono,
         };
@@ -604,6 +669,8 @@ impl Painter {
             weight,
             name,
             letter_spacing,
+            mono,
+            cell_width,
         );
         let mut placed = Vec::new();
         for run in buffer.layout_runs() {
@@ -613,6 +680,7 @@ impl Painter {
                     key: p.cache_key,
                     x: p.x,
                     y: p.y,
+                    advance: run.line_w,
                 });
             }
         }
@@ -629,6 +697,7 @@ impl Painter {
         text: &TextRun,
         clip: [f32; 4],
         height: f32,
+        cell_width: Option<f32>,
     ) -> Result<(), String> {
         if !text.origin.iter().all(|v| v.is_finite()) || !valid_text(text) {
             return Err("Invalid scene text run".into());
@@ -643,7 +712,16 @@ impl Painter {
             text.weight,
             text.mono,
             text.letter_spacing,
+            cell_width,
         );
+        // Keep wide shaped characters wide, but private-use prompt icons occupy
+        // one terminal cell even if a fallback face advertises a wider advance.
+        let cell = cell_width.map(|cw| [
+            cw * if text.text.chars().all(private_use) { 1. } else {
+                (placed.first().map_or(cw, |p| p.advance)/cw).round().clamp(1.,2.)
+            }, height,
+        ]);
+        let mut glyphs = Vec::with_capacity(placed.len());
         for p in placed {
             // Avoid rasterizing long runs outside the target. The generous
             // margin retains overhangs and combining marks near the edge.
@@ -662,13 +740,21 @@ impl Painter {
                 continue;
             }
             let b = self.bitmap(queue, p.key)?;
+            let rect = [p.x as f32+b.left as f32,p.y as f32-b.top as f32,
+                b.rect[2] as f32,b.rect[3] as f32];
+            glyphs.push((rect,b));
+        }
+        let fit = cell.map_or([1.,0.,0.], |cell| {
+            fit_cell(&glyphs.iter().map(|(rect,_)| *rect).collect::<Vec<_>>(),cell)
+        });
+        let clip = if let Some(cell) = cell {
+            let Some(clip) = intersection(clip,[text.origin[0],text.origin[1],cell[0],cell[1]]) else {return Ok(());};
+            clip
+        } else { clip };
+        for (rect,b) in glyphs {
             frame.quad(
-                [
-                    x + b.left as f32,
-                    y - b.top as f32,
-                    b.rect[2] as f32,
-                    b.rect[3] as f32,
-                ],
+                [text.origin[0]+rect[0]*fit[0]+fit[1],text.origin[1]+rect[1]*fit[0]+fit[2],
+                    rect[2]*fit[0],rect[3]*fit[0]],
                 b.rect.map(|v| v as f32),
                 premul(text.color),
                 clip,
@@ -846,6 +932,7 @@ impl Painter {
                 },
                 clip,
                 ch,
+                Some(cw),
             )?;
         }
         for line in &grid.underlines {
@@ -1059,7 +1146,7 @@ impl Painter {
                     if text_bytes > 1024 * 1024 {
                         return Err("Scene text budget exceeded".into());
                     }
-                    self.text(queue, &mut frame, text, clip, text.px * 1.25)?;
+                    self.text(queue, &mut frame, text, clip, text.px * 1.25, None)?;
                 }
             }
         }
