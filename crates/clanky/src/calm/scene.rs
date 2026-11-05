@@ -143,7 +143,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
                         p.shape(badge,6.0*s,alpha(c.agent,0.1),Some(alpha(c.agent,0.35)));p.text(r(badge.x+8.0*s,badge.y,bw-16.0*s,badge.h),"running",12.0*s,c.agent,500,false);}
                     y+=34.0*s;},
                 _=>for item in &state.files{if y+32.0*s>bottom{break;}
-                    let count=if item.pending>0{format!("{} changes",item.pending)}else{String::new()};
+                    let count=match item.pending{0=>String::new(),1=>"1 change".into(),n=>format!("{n} changes")};
                     p.item(r(side.x+8.0*s,y,side.w-16.0*s,32.0*s),&item.title,&count,item.active,HitAction::File(item.id.clone()),Some("file"),None);y+=34.0*s;},
             }
             if (section==1 && state.agents.is_empty())||(section==2 && state.files.is_empty()){
@@ -474,7 +474,8 @@ fn calm_panel(p:&mut Paint,layout:&Layout,panel:&look::PanelState,font_px:f32){
     }
     if let Some(snapshot)=&panel.snapshot{
         let mut grid=snapshot.clone();let cursor=grid.cursor;grid.cursor=None;
-        for cell in &mut grid.cells{terminal(theme,cell);if cell.color_source.is_none(){cell.fg=rgb(c.foreground);cell.bg=rgb(c.background);}}
+        // Cells arrive already mapped to theme colours (background, selection, old / new tints).
+        for cell in &mut grid.cells{terminal(theme,cell);}
         let cw=layout.cell_px[0] as f32;let ch=layout.cell_px[1] as f32;
         let clip=r(rect.x+pad,top,(rect.w-2.0*pad).max(0.0),(rect.h-pad-header-pad).max(0.0));
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[rect.x+pad,top],clip:clip.array(),snapshot:grid,underlines:panel.underlines.clone(),opacity:panel.opacity}));
@@ -492,4 +493,33 @@ fn calm_panel(p:&mut Paint,layout:&Layout,panel:&look::PanelState,font_px:f32){
             if let Some(action)=&item.action{p.hit(row,action.clone());}
         }
     }
+}
+
+/// Review actions as the sheets' small buttons: outline for Accept, ghost for the
+/// others, 13 px / 500, hover and pressed fills. Height follows the 20 px row.
+/// Lays them out in `row` by measured width: Accept, Reject, Accept all, Reject all on
+/// the left (8 px apart), Previous / Next on the right; returns each button's action.
+pub fn review_buttons(layout:&Layout,theme:&Theme,row:PixelRect,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->(Vec<Layer>,Vec<(PixelRect,&'static str)>){
+    let s=layout.scale as f32;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);
+    let mut placed=Vec::new();let mut x=row.x;
+    for (label,action,primary) in [("Accept","accept",true),("Reject","reject",false),("Accept all","accept_all",true),("Reject all","reject_all",false)]{
+        let w=(p.width(label,13.0*s,500)+20.0*s).ceil();if x+w>row.x+row.w{break;}placed.push((r(x,row.y,w,row.h),label,action,primary));x+=w+8.0*s;
+    }
+    let mut right=row.x+row.w;
+    for (label,action) in [("Next","review_next"),("Previous","review_previous")]{
+        let w=(p.width(label,13.0*s,500)+20.0*s).ceil();if right-w<x{break;}right-=w;placed.push((r(right,row.y,w,row.h),label,action,false));right-=4.0*s;
+    }
+    let mut hits=Vec::new();
+    for (rect,label,action,primary) in &placed{
+        let face=r(rect.x,rect.y-2.0*s,rect.w,rect.h+1.0*s);hits.push((face,*action));
+        let over=face.contains(pointer.0,pointer.1);
+        let fill=if over{if pressed{c.pressed}else{c.accent}}else if *primary{c.background}else{[0;4]};
+        if *primary{
+            p.out.scene.layers.push(Layer::Shape(Shape{rect:face.array(),radius:6.0*s,fill:Fill::Solid(fill),border:None,shadow:Some(clanky_render::Shadow{offset:[0.0,s],blur:2.0*s,spread:0.0,color:shadow_color(theme)})}));
+            p.shape(face,6.0*s,fill,Some(c.input));
+        }else if over{p.shape(face,6.0*s,fill,None);}
+        let w=p.width(label,13.0*s,500);
+        p.text(r(face.x+(face.w-w)/2.0,face.y,w,face.h),label,13.0*s,c.foreground,500,false);
+    }
+    (p.out.scene.layers,hits)
 }

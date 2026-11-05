@@ -82,6 +82,8 @@ fn terminal_path(tree: &Tree, path: &mut Vec<bool>) -> bool {
     }
 }
 fn rgb(color: look::Color) -> [u8;3] { [color[0],color[1],color[2]] }
+/// Rows the editor core reserves for its own title; the window does not show them.
+const EDITOR_TITLE_ROWS: usize = 1;
 fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
     for cell in &mut snapshot.cells { cell.fg = theme.ui_color(cell.fg,false); cell.bg = theme.ui_color(cell.bg,true); cell.color_source = None; }
 }
@@ -292,7 +294,7 @@ impl App {
         }).collect();
         let terminal = (self.files.focus == TERMINALS).then(|| self.focused()).flatten()
             .map(|id| self.studio.pane_labels.get(id).cloned().unwrap_or_else(|| "this pane".into()));
-        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal }
+        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal, editor: self.files.panes.contains_key(&self.files.focus) }
     }
     pub(super) fn palette_effect(&mut self, effect: clanky::calm::palette::Effect) -> Result<(), String> {
         use clanky::calm::palette::{Command, Effect};
@@ -320,6 +322,8 @@ impl App {
             Command::ZoomOut => { self.zoom.adjust(-1.0); self.metrics_changed() }
             Command::ZoomReset => { self.zoom.reset(); self.metrics_changed() }
             Command::Settings => self.toggle_settings(),
+            Command::OpenFile => { let tab = self.focused().map(str::to_owned); self.open_prompt(Axis::Columns, false, tab, self.files.focus.clone()) }
+            Command::LoadChanges => { let target = self.files.focus.clone(); self.open_prompt(Axis::Columns, true, None, target) }
             Command::Session(id) => self.activate_studio(HitAction::Session(id)),
             Command::Run(text) => {
                 let id = self.focused().ok_or("No terminal has focus")?.to_owned();
@@ -357,6 +361,11 @@ impl App {
             HitAction::PaletteChoice(index) => { self.panels.choose(&self.engine, index); self.local_request()?; self.reset_ime(); }
             HitAction::Block { tab_id, block_id, action } => self.card_action(&tab_id, &block_id, &action)?,
             HitAction::Find(0) => { self.search.close(); self.reset_ime(); }
+            HitAction::Review { pane, action } => {
+                let editor = self.files.panes.get_mut(&pane).ok_or("That editor was closed")?;
+                editor.review_action(&action)?;
+                self.files.focus_on(pane); self.reset_ime();
+            }
             HitAction::Find(direction) => self.search.step(&self.engine, direction < 0)?,
         }
         Ok(())
@@ -392,10 +401,11 @@ impl App {
         let id = pane.id.clone();
         if self.files.panes.contains_key(&id) {
             self.files.focus_on(id.clone()); self.reset_ime();
+            if self.studio.reviews.get(&id).is_some_and(|r|r.content.contains(self.mouse.0,self.mouse.1) && self.mouse.1 < (r.content.y+layout.cell_px[1] as f32) as f64) { return Ok(()); }
             let hit = self.studio.reviews.get(&id).filter(|r|r.content.contains(self.mouse.0,self.mouse.1)).map(|r| {
                 (((self.mouse.0-r.content.x as f64)/layout.cell_px[0] as f64) as usize,
                  r.first_row+((self.mouse.1-r.content.y as f64)/layout.cell_px[1] as f64) as usize)
-            }).or_else(||point(pane,self.mouse,layout.cell_px,false));
+            }).or_else(||point(pane,self.mouse,layout.cell_px,false).map(|(col,row)|(col,row+EDITOR_TITLE_ROWS)));
             if let Some((col,row)) = hit {
                 self.files.panes.get_mut(&id).unwrap().click(&local_rect(pane), col, row, self.modifiers.shift_key())?;
                 self.files.dragging = Some(id);
@@ -449,7 +459,7 @@ impl App {
             let layout = self.pixel_layout()?;
             if let Some(pane) = layout.pane(&id) {
                 if let Some((col,row)) = point(pane, self.mouse, layout.cell_px, true) {
-                    if let Some(editor) = self.files.panes.get_mut(&id) { editor.drag(&local_rect(pane), col, row)?; }
+                    if let Some(editor) = self.files.panes.get_mut(&id) { editor.drag(&local_rect(pane), col, row+EDITOR_TITLE_ROWS)?; }
                 }
             }
         }
@@ -474,7 +484,7 @@ impl App {
         let id = pane.id.clone();
         if self.files.panes.contains_key(&id) {
             let row = self.studio.reviews.get(&id).filter(|r|r.content.contains(self.mouse.0,self.mouse.1)).map(|r|r.first_row+((self.mouse.1-r.content.y as f64)/layout.cell_px[1] as f64) as usize)
-                .unwrap_or_else(||point(pane,self.mouse,layout.cell_px,true).map_or(0,|(_,row)|row));
+                .unwrap_or_else(||point(pane,self.mouse,layout.cell_px,true).map_or(0,|(_,row)|row+EDITOR_TITLE_ROWS));
             self.files.scroll(&id, row, lines.round() as i32, columns.round() as i32)?;
         } else { self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?; }
         if self.config.animations {
@@ -554,6 +564,8 @@ impl App {
         }
         self.studio.reviews.clear();
         let mut ui_rows: Vec<(PixelRect,String,Option<String>)> = Vec::new();
+        let mut review_controls: Vec<(PixelRect,String,String)> = Vec::new();
+        let mut review_hits: Vec<Hotspot> = Vec::new();
         let mut ime = None;
         let mut scroll_clips=Vec::new();
         for pane in &layout.panes {
@@ -572,7 +584,7 @@ impl App {
                     if start+2 < pane.rows-1 {
                         let m = layout.metrics;
                         let inset = m.card_inset as f32;
-                        let y = pane.grid_origin[1]+start as f32*layout.cell_px[1] as f32;
+                        let y = pane.grid_origin[1]+(start-1) as f32*layout.cell_px[1] as f32;
                         let rect = PixelRect { x:pane.rect.x+inset,y,w:(pane.rect.w-2.0*inset).max(0.0),h:(pane.rect.y+pane.rect.h-inset-y).max(0.0) };
                         let content = PixelRect { x:rect.x+m.panel_padding as f32,y:rect.y+(m.panel_padding+m.panel_header) as f32,
                             w:(rect.w-2.0*m.panel_padding as f32).max(0.0),h:(rect.h-(2.0*m.panel_padding+m.panel_header) as f32).max(0.0) };
@@ -583,16 +595,19 @@ impl App {
                         for r in 1..count { for c in 0..cols { preview.cells[r*cols+c]=snapshot.cells[(start+1+r)*pane.cols+c].clone(); } }
                         widget(&mut preview,&state.theme);
                         if count>1 {
-                            let status=row_text(&snapshot,pane.rows-1);
-                            ui_rows.push((PixelRect { x:content.x,y:content.y+(count-1) as f32*layout.cell_px[1] as f32,w:content.w,h:layout.cell_px[1] as f32 },status,Some(panel_id.clone())));
+                            let status=row_text(&snapshot,pane.rows-1).trim().to_owned();
+                            let status=if status.starts_with("Ctrl+S save") || status.is_empty() {"Ctrl+S saves the accepted changes".to_owned()} else {status.replace(" | "," · ")};
+                            ui_rows.push((PixelRect { x:content.x,y:content.y+(count-1) as f32*layout.cell_px[1] as f32,w:content.w,h:layout.cell_px[1] as f32 },status,Some("editor-hint".into())));
                             for cell in &mut preview.cells[(count-1)*cols..] { cell.ch=' '; }
                         }
-                        for (col,label) in [(0,"[Accept]"),(9,"[Reject]"),(18,"[Accept all]"),(31,"[Reject all]"),(44,"[Prev]"),(51,"[Next]")] {
-                            let x=content.x+col as f32*layout.cell_px[0] as f32;
-                            if x<content.x+content.w { ui_rows.push((PixelRect { x,y:content.y,w:(label.len() as f32*layout.cell_px[0] as f32).min(content.x+content.w-x),h:layout.cell_px[1] as f32 },label.into(),Some(panel_id.clone()))); }
-                        }
+                        // Calm buttons on the first content row; they run the review actions themselves.
+                        review_controls.push((PixelRect { x:content.x,y:content.y,w:content.w,h:layout.cell_px[1] as f32 },pane.id.clone(),panel_id.clone()));
+                        for cell in &mut preview.cells[..cols] { cell.ch=' '; }
                         self.studio.reviews.insert(pane.id.clone(),Review { content,first_row:start+1 });
-                        let mut card=panel(&panel_id,rect,row_text(&snapshot,start),Vec::new());
+                        // "Hunk 3 Pending | clipped preview offset 0" -> "Proposed change 3 · pending".
+                        let header=row_text(&snapshot,start);let mut words=header.split_whitespace().skip(1);
+                        let title=match (words.next(),words.next()) { (Some(id),Some(state)) => format!("Proposed change {id} · {}",state.to_lowercase()), _ => "Proposed changes".into() };
+                        let mut card=panel(&panel_id,rect,title,Vec::new());
                         card.snapshot=Some(preview); state.panels.push(card);
                         for cell in &mut snapshot.cells[start*pane.cols..] { cell.ch=' '; }
                         rows.retain(|r|*r<start);
@@ -607,12 +622,17 @@ impl App {
                         let hint = if text.starts_with("Ctrl+S save") || text.is_empty() {
                             if dirty { "Unsaved changes · Ctrl+S saves · Ctrl+F finds".to_owned() } else { "Ctrl+S saves · Ctrl+F finds".to_owned() }
                         } else { text.replace(" | ", " · ") };
-                        ui_rows.push((PixelRect { x: pane.grid_origin[0], y: pane.grid_origin[1]+row as f32*layout.cell_px[1] as f32,
+                        ui_rows.push((PixelRect { x: pane.grid_origin[0], y: pane.grid_origin[1]+(row-1) as f32*layout.cell_px[1] as f32,
                             w: pane.grid_clip.w, h: layout.cell_px[1] as f32 }, hint, Some("editor-hint".into())));
                     }
                     for cell in &mut snapshot.cells[row*pane.cols..(row+1)*pane.cols] { cell.ch = ' '; }
                 }
                 widget(&mut snapshot,&state.theme);
+                // The core's title row is blank in the window: show the text from the top
+                // padding. Mouse rows add EDITOR_TITLE_ROWS back before reaching the editor.
+                let cols=snapshot.cols;let blank=snapshot.cells[0].clone();
+                snapshot.cells.drain(..cols.min(snapshot.cells.len()));snapshot.cells.extend(std::iter::repeat_n(blank,cols));
+                snapshot.cursor=snapshot.cursor.and_then(|(row,col)|row.checked_sub(EDITOR_TITLE_ROWS).map(|row|(row,col)));
             } else {
                 let cached=if self.terminal_dirty{None}else{self.engine.cached_snapshot_with_blocks(&pane.id)};
                 let trace_snap=Instant::now();
@@ -820,6 +840,12 @@ impl App {
             let color=if hint{self.studio.calm_theme.colors.muted_foreground}else{state.theme.ink};
             if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.5}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
+        for (rect,pane,card) in &review_controls {
+            let rise=state.panels.iter().find(|p|p.id==*card).map_or(0.0,|p|p.rise_px);
+            let (layers,hits)=clanky::calm::review_buttons(&layout,&self.studio.calm_theme,PixelRect{y:rect.y+rise,..*rect},self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run));
+            presentation.scene.layers.extend(layers);
+            review_hits.extend(hits.into_iter().map(|(rect,action)|Hotspot{rect,action:HitAction::Review{pane:pane.clone(),action:action.into()}}));
+        }
         let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {
             panel.forced_post_ai=self.startup_flags.post_ai;
@@ -833,6 +859,7 @@ impl App {
         }
         if let Some(layers) = status_layers { presentation.scene.layers.extend(layers); }
         self.studio.hits = presentation.hits;
+        self.studio.hits.extend(review_hits);
         if let Some(window) = &self.window {
             let title=format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points());
             if self.studio.title.as_ref()!=Some(&title){window.set_title(&title);self.studio.title=Some(title);}
