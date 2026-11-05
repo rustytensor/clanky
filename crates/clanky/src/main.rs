@@ -611,7 +611,7 @@ impl App {
         }
         // No legacy dialogs in the calm review build, including keyboard routes.
         if self.modifiers.control_key() && self.modifiers.shift_key()
-            && (*key==Key::Named(NamedKey::Enter) || matches!(key,Key::Character(ch) if ["f","o"].contains(&ch.to_lowercase().as_str()))) {
+            && (*key==Key::Named(NamedKey::Enter) || matches!(key,Key::Character(ch) if ["o"].contains(&ch.to_lowercase().as_str()))) {
             self.status=Some("This screen is being rebuilt.".into());return Ok(());
         }
         if self.card_key(key)? { return Ok(()); }

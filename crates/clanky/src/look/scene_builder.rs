@@ -15,6 +15,8 @@ pub struct LookState {
     pub post_ai: bool,
     /// The command palette is open: its top-bar field shows the focus ring.
     pub palette_open: bool,
+    /// Open find bar: pane id, query, match count.
+    pub find: Option<(String,String,usize)>,
     /// The person at the window, for the sidebar's user block.
     pub user_name: String,
     /// Exit codes known for Recent entries, parallel to timeline: Some(code) when finished.
@@ -39,7 +41,7 @@ pub struct LookState {
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
-            panes: vec![], post_ai:false, palette_open:false, user_name: String::new(), timeline_exits: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
+            panes: vec![], post_ai:false, palette_open:false, find: None, user_name: String::new(), timeline_exits: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
             masking_ready: false, panels: vec![] }
     }
@@ -99,6 +101,8 @@ pub enum HitAction {
     Palette, Settings, ToggleRails, NewTab, Split, Session(String), File(String),
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
+    /// Find bar: -1 previous match, 1 next match, 0 close.
+    Find(i8),
 }
 #[derive(Clone, Debug)]
 pub struct Hotspot { pub rect: PixelRect, pub action: HitAction }
