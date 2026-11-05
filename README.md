@@ -47,9 +47,9 @@ Clanky the robot greets you once for 7 seconds, then for 1.2 seconds on later wi
 Any key or click skips it and still acts normally. `clanky +hello` replays it in a separate
 window; [robot settings](docs/robot.md) can turn it off.
 
-M12 includes 13 [built-in themes and a JSON theme format](docs/themes.md), plus
-[Post-AI mode](docs/post-ai.md) for a plain terminal. Post-AI server enforcement is active.
-**Theme controls and the plain-terminal window view are still being connected; those pages state the limits.**
+Clanky ships 13 [built-in themes and a JSON theme format](docs/themes.md); Settings →
+Appearance picks, saves, imports and exports them. [Post-AI mode](docs/post-ai.md) turns
+Clanky into a plain terminal with agents locked out.
 
 ## First steps
 

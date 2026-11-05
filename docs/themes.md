@@ -1,8 +1,7 @@
 # Themes
 
-**Branch status:** all 13 built-ins, the JSON loader and user-theme storage are present.
-The window's new theme pickers and Save/Export/Import buttons are not connected yet.
-The settings below describe M12's format, not a promise that they already change the window.
+Clanky has 13 built-in themes. Settings → Appearance picks one for dark and one for light
+appearance, and saves, imports and exports your own themes as JSON.
 
 ## Choose a theme
 
