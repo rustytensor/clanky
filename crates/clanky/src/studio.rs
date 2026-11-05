@@ -33,7 +33,7 @@ pub struct Studio {
     ime:Option<([u32;2],[u32;2])>,
     hits: Vec<Hotspot>,
     metadata: Value,
-    permissions: BTreeMap<String, bool>,
+    pub(super) permissions: BTreeMap<String, bool>,
     blocks: BTreeMap<String, Value>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
@@ -728,7 +728,9 @@ impl App {
             presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
         }
         if let Some(panel)=&mut self.settings {
-            presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
+            panel.forced_post_ai=self.startup_flags.post_ai;
+            let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
+            presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,&access,state.masking_ready,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             if panel.open{ime=panel.ime_position();}
         }
         self.studio.hits = presentation.hits;

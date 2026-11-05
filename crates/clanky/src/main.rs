@@ -6,7 +6,6 @@ mod window_events;
 mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
-use clanky::editor::{EditorPane, location_at};
 mod tui;
 
 use clanky::{
@@ -261,10 +260,12 @@ impl App {
     fn sync_post_ai(&mut self) {
         self.startup_flags.apply(&mut self.config);
         if self.config.post_ai != self.applied_post_ai {
+            let requested=self.config.post_ai;
             match self.engine.exchange(4, "post_ai", &json!({"enabled":self.config.post_ai})) {
                 Ok(reply) => {
                     self.applied_post_ai = reply["post_ai"].as_bool().unwrap_or(true);
                     self.config.post_ai = self.applied_post_ai;
+                    if !requested && self.applied_post_ai{if let Some(panel)=&mut self.settings{panel.error=Some("The server keeps Post-AI on until restarted.".into());}}
                     self.studio.drag=None;
                     if let Err(error)=self.resize_panes(){self.status=Some(error);}
                 }

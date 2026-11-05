@@ -1,38 +1,38 @@
-# Settings rebuild: General, Appearance and Terminal
+# Settings: all five rebuilt pages are live
 
-General, Appearance and Terminal are live in the rebuilt 780×600 Settings panel.
-Open it from the sidebar or Ctrl+comma. Agents and Keys remain hidden until rebuilt;
-there is no fallback to the legacy form.
+General, Appearance, Terminal, Agents and Keys use the new 780×600 frame.
+Open it from the sidebar or Ctrl+comma. No legacy Settings fallback exists.
 
-General's Post-AI switch saves immediately and applies the merged server policy.
-The window hides Agents, the right column, badges and access switches. Pane A uses
-the existing checked layout: (268,76,952,326), with 116 columns at 13 px. Turning
-Post-AI off restores the column and 81-column panes; revoked permissions stay revoked.
+- General applies Post-AI server policy and hides agent UI. Pane A becomes
+  (268,76,952,326), with 116 columns; normal mode returns it to 81 columns.
+- Appearance selects themes, edits/resets colours, and saves/exports/imports through
+  ThemeStore. Built-ins remain unchanged; exported/imported bytes are preserved.
+- Terminal applies font, size, opacity, side columns and animations immediately.
+- Agents displays masking and named pane permissions. Stop revokes access and
+  blocks new agents. Resume does not silently restore pane permissions.
+- Keys lists only available shortcuts in key chips. Agents and agent shortcuts
+  disappear in Post-AI. Long pages support the wheel and Page Up/Down.
 
-Terminal's font selector, size stepper, opacity slider, side-column switch and
-animation switch save and apply. The selector offers the three bundled monospace
-families. Escape/close dismisses the panel; the footer opens the settings file with
-the system editor. Tab/Enter operate controls; arrow keys adjust a focused slider.
-The window also draws the theme runtime's last-good active theme.
+## Checks
 
-Check: `python3 /srv/devops/build/clanky-settings-live-check.py` passed in a private
-Xvfb window. It clicked General on/off (81→116→81 columns), changed font and size,
-set opacity to 75% then 100%, toggled columns and animations, checked saved JSON,
-and confirmed that shell input resumed after closing Settings. The release build
-passed. No full regression suite was run.
+All three private-window checks passed, once each:
+- `clanky-settings-live-check.py`: 81→116→81 columns; font, size, opacity, columns
+  and animation settings saved; shell input resumed after Settings closed.
+- `clanky-appearance-live-check.py`: pinned Light/Graphite window pixels, colour
+  (1,2,3), Reset, and byte-identical save→export→import.
+- `clanky-access-live-check.py`: a real agent read after a pane grant, revocation,
+  blocked creation, explicit resume, hidden Agents entry and scrolling Keys.
 
-Screenshots under `/srv/devops/build/clanky-editor-m12-reference/`:
-`post-ai-live.png` and `settings-terminal-live.png`.
+These scripts/logs are under `/srv/devops/build/`. Frame geometry and clipping
+pixel checks passed after their planted faults failed. The release build and
+documentation gate passed. Full regression was not run.
 
-Appearance uses ThemeStore for selection, save, export and import, with config
-colour overrides and Reset. Its scrollable contents are clipped below the title
-and above the footer. The clipping pixel check passed after a planted missing clip
-failed. All binary/example callers compile with the added clip directive.
+## Visual review
 
-`python3 /srv/devops/build/clanky-appearance-live-check.py` passed: Light and Graphite
-changed actual window pixels to the pinned colours; a sidebar edit produced
-(1,2,3); Reset removed it; save/export/import produced identical theme bytes.
-Screenshot: `settings-appearance-live.png` in the same comparison folder.
+Native 2× crops: `/srv/devops/build/clanky-editor-m12-reference/`
+`settings-{general,appearance,terminal,agents,keys}-live-2x.png` and
+`settings-terminal-light-live-2x.png`. The approved browser reference is unchanged.
+Keyboard rings are 2 pixels; ordinary mouse clicks do not show keyboard focus.
 
-Next: Agents and Keys. Existing unrelated
-palette, search, compose and editor entries remain hidden in this review build.
+The lead still owns the 2× comparison and full regression. Unconverted palette,
+search, compose and editor entries remain hidden in either mode.
