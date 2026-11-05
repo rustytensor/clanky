@@ -597,6 +597,16 @@ fn check_fields(value: &Value, fields: &[&str]) -> Result<()> {
     if let Some(key) = object.keys().find(|key| !fields.contains(&key.as_str())) { return Err(format!("unknown field: {key}")); }
     Ok(())
 }
+impl EditorPane {
+    /// Run a review action on the change being shown, as its button would.
+    pub fn review_action(&mut self, action: &str) -> Result<()> {
+        let args = if action == "accept" || action == "reject" {
+            match self.document.hunks().get(self.review) { Some(h) => json!({"id": h.id}), None => return Ok(()) }
+        } else if matches!(action, "accept_all" | "reject_all" | "review_next" | "review_previous") { json!({}) }
+        else { return Err(format!("unknown review action: {action}")); };
+        self.command(action, &args).map(|_| ())
+    }
+}
 fn review_buttons() -> [(usize, &'static str, &'static str); 6] {
     [(0, "[Accept]", "accept"), (9, "[Reject]", "reject"), (18, "[Accept all]", "accept_all"),
         (31, "[Reject all]", "reject_all"), (44, "[Prev]", "review_previous"), (51, "[Next]", "review_next")]
