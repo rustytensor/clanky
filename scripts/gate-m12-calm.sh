@@ -11,8 +11,19 @@ case ${CLANKY_GATE_FAULT:-} in ''|look|click|idle|robot) ;; *) echo 'FAIL: unkno
 mkdir -p "$CARGO_TARGET_DIR/look"
 work=$(mktemp -d "$CARGO_TARGET_DIR/look/m12.XXXXXXXX")
 trap 'rc=$?; rm -rf -- "$work"; if ((rc != 0)); then echo "FAIL: M12 calm" >&2; fi' EXIT
-flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky-calm-gate -j 8
+flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky --bin clanky-calm-gate --bin clanky-look-gate --bin clanky --bin clanky-agent-gate -j 8
+# The shared window scheduler's no-input portion is available now. Real-window
+# key echo and the remaining idle checks still fail closed below.
+"$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
+if [[ ${CLANKY_GATE_FAULT:-} == robot ]]; then
+    CLANKY_ROBOT_FAULT=1 flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::robot_frames -- --exact --nocapture
+else
+    env -u CLANKY_ROBOT_FAULT flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::robot_frames -- --exact --nocapture
+fi
+flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib robot::tests::startup_marker -- --exact
+flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib themes::tests::builtin_documents -- --exact --nocapture
+python3 scripts/gate-m12-post-ai.py
 "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json"
 python3 scripts/gate-m12-calm.py --scene-only < "$work/observations.json"
-echo 'FAIL: M12 gate incomplete: PTYs, persistence, clicks, idle, themes, Post-AI API, robot, pictures and regression are not yet checked' >&2
+echo 'FAIL: M12 gate incomplete: PTYs, persistence, clicks, key echo, theme contrast and storage, robot input routing, pictures and regression are not yet checked' >&2
 exit 1
