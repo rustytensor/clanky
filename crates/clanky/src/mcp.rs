@@ -11,6 +11,8 @@ const PROTOCOL: &str = "2024-11-05";
 /// Serve newline-delimited MCP JSON-RPC on stdin/stdout using agent authority only.
 /// Tools connect on demand as agents. Idle stdio never needs an owner capability.
 pub fn serve(socket: &Path) -> Result<(), String> {
+    // Refuse before waiting on stdin, even if the caller's local config differs.
+    drop(crate::session::connect_agent_or_start(socket)?);
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();
@@ -20,6 +22,8 @@ pub fn serve(socket: &Path) -> Result<(), String> {
         let Some(frame) = read_frame(&mut reader)? else {
             return Ok(());
         };
+        // A running adapter also refuses the next frame after a policy change.
+        drop(crate::session::connect_agent_or_start(socket)?);
         let response = match serde_json::from_slice::<Value>(&frame) {
             Ok(request) => dispatch(socket, &request, &mut initialized),
             Err(_) => Some(rpc_error(Value::Null, -32700, "Parse error")),

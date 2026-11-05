@@ -44,6 +44,10 @@ use winit::{
 
 fn main() {
     if let Err(error) = run() {
+        if error == clanky_core::POST_AI_REASON {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
         eprintln!("clanky: {error}");
         std::process::exit(1);
     }
@@ -70,6 +74,7 @@ fn run() -> Result<(), String> {
     let mut mcp = false;
     let mut hello = false;
     let mut host = None;
+    let mut startup_flags = clanky::config::StartupOverrides::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -84,18 +89,22 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH]\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
+            _ if startup_flags.parse_flag(&arg) => (),
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
+    let mut config = Config::load(config_path.as_deref())?;
+    startup_flags.apply(&mut config);
+    if mcp && config.post_ai { return Err(clanky_core::POST_AI_REASON.into()); }
     if hello {
         if host.is_some() || socket.is_some() || headless || stdio || mcp {
             return Err("+hello is a standalone window; it cannot use server, socket, attach, stdio or MCP mode".into());
         }
-        return hello::run(Config::load(config_path.as_deref())?);
+        return hello::run(config);
     }
     if host.is_some() && (socket.is_some() || headless || stdio || mcp) {
         return Err("attach cannot use --socket, --server, --headless, --stdio or mcp".into());
@@ -104,30 +113,25 @@ fn run() -> Result<(), String> {
         return Err("choose server, stdio or MCP mode".into());
     }
     if let Some(host) = host {
-        let config = Config::load(config_path.as_deref())?;
         let client = Client::connect_ssh(&host).map_err(|e| e.to_string())?;
-        return run_window(client, config, false, None, config_path.or_else(clanky::platform::settings_path));
+        return run_window(client, config, false, None, config_path.or_else(clanky::platform::settings_path), startup_flags);
     }
     let socket = match socket {
         Some(path) => path,
         None => platform::default_socket().map_err(|e| e.to_string())?,
     };
-    if (headless || stdio) && config_path.is_some() {
-        Config::load(config_path.as_deref())?;
-    }
     if headless {
-        return clanky::session::run_server(&socket);
+        return clanky::session::run_server_configured(&socket, config_path.as_deref(), startup_flags);
     }
     if stdio {
-        return clanky::session::stdio(&socket);
+        return clanky::session::stdio_configured(&socket, config_path.as_deref(), startup_flags);
     }
     if mcp {
         return clanky::mcp::serve(&socket);
     }
-    let config = Config::load(config_path.as_deref())?;
     let persistence = layout_store::default_path().map(|path| (path, socket.clone()));
-    let client = clanky::session::prepare_window(&socket, persistence.as_ref().filter(|_|config.restore_layout).map(|(path, _)| path.as_path()))?;
-    run_window(client, config, true, persistence, config_path.or_else(clanky::platform::settings_path))
+    let client = clanky::session::prepare_window_configured(&socket, persistence.as_ref().filter(|_|config.restore_layout).map(|(path, _)| path.as_path()), config_path.as_deref(), startup_flags)?;
+    run_window(client, config, true, persistence, config_path.or_else(clanky::platform::settings_path), startup_flags)
 }
 
 struct App {
@@ -178,10 +182,20 @@ struct App {
     settings: Option<clanky::settings_panel::SettingsPanel>,
     settings_error: Option<String>,
     next_settings: Instant,
+    startup_flags: clanky::config::StartupOverrides,
+    applied_post_ai: bool,
+    theme_runtime: Option<clanky::theme_runtime::ThemeRuntime>,
     startup: Option<clanky::robot::Startup>,
 }
 
-fn run_window(engine: Client, config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>) -> Result<(), String> {
+fn run_window(engine: Client, mut config: Config, local_files: bool, persistence: Option<(PathBuf, PathBuf)>, settings_path: Option<PathBuf>, startup_flags: clanky::config::StartupOverrides) -> Result<(), String> {
+    startup_flags.apply(&mut config);
+    let policy = engine.exchange(4, "post_ai", &json!({"enabled":config.post_ai,"force":startup_flags.post_ai})).map_err(|e| e.message)?;
+    config.post_ai = policy["post_ai"].as_bool().ok_or("invalid Post-AI reply")?;
+    let applied_post_ai = config.post_ai;
+    let (theme_runtime, theme_error) = match clanky::theme_runtime::ThemeRuntime::open() {
+        Ok(runtime) => (Some(runtime), None), Err(error) => (None, Some(error)),
+    };
     let (settings,settings_error)=match settings_path.map(clanky::settings::Settings::open) {
         Some(Ok(store))=>(Some(clanky::settings_panel::SettingsPanel::new(store)),None),
         Some(Err(error))=>(None,Some(error)),
@@ -221,7 +235,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         input: InputState::default(),
         occluded: false,
         error: None,
-        status: feed_error,
+        status: feed_error.or(theme_error),
         frame_clock: clanky::frame_clock::FrameClock::default(),
         window_events,fallback_poll,terminal_dirty:true,persist_dirty:true,sent_input:false,file_stamps:BTreeMap::new(),
         frame_trace: clanky::frame_trace::FrameTrace::from_env()?,
@@ -236,6 +250,7 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
         persistence,
         studio: studio::Studio::default(),
         settings,settings_error,next_settings:Instant::now(),
+        startup_flags, applied_post_ai, theme_runtime,
         startup: None,
     };
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
@@ -243,6 +258,19 @@ fn run_window(engine: Client, config: Config, local_files: bool, persistence: Op
 }
 
 impl App {
+    fn sync_post_ai(&mut self) {
+        self.startup_flags.apply(&mut self.config);
+        if self.config.post_ai != self.applied_post_ai {
+            match self.engine.exchange(4, "post_ai", &json!({"enabled":self.config.post_ai})) {
+                Ok(reply) => {
+                    self.applied_post_ai = reply["post_ai"].as_bool().unwrap_or(true);
+                    self.config.post_ai = self.applied_post_ai;
+                }
+                Err(error) => { self.status = Some(error.message); }
+            }
+            self.frame_clock.invalidate();
+        }
+    }
     fn call(&self, op: &str, args: Value) -> Result<Value, String> {
         self.engine.request(op, &args, true).map_err(|e| e.message)
     }
@@ -987,6 +1015,8 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             WindowEvent::RedrawRequested => {self.frame_clock.begin_frame();self.draw()},
             _ => Ok(()),
         };
+        // Settings controls may have applied config during this input event.
+        self.sync_post_ai();
         if visual_event && (!self.sent_input || self.fallback_poll){
             if self.sent_input{self.terminal_dirty=true;}
             self.frame_clock.invalidate();
@@ -1015,6 +1045,14 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
         }
         if Instant::now() >= self.next_settings {
             self.poll_settings();
+            self.sync_post_ai();
+            let system_light = self.window.as_ref().is_some_and(|w| clanky::platform::system_light(w));
+            if let Some(runtime) = &mut self.theme_runtime {
+                if runtime.poll(&self.config, system_light) {
+                    if let Some(error) = runtime.error() { self.status = Some(error.to_owned()); }
+                    self.frame_clock.invalidate();
+                }
+            }
             self.next_settings=Instant::now()+Duration::from_millis(500);
         }
         if Instant::now() >= self.next_polish {

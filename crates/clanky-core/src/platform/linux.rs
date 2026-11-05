@@ -1262,6 +1262,9 @@ pub fn exec_program(program: &Path, args: &[String]) -> io::Error {
 }
 
 pub fn spawn_server(exe: &Path, socket: &Path) -> io::Result<Child> {
+    spawn_server_configured(exe, socket, None, false)
+}
+pub fn spawn_server_configured(exe: &Path, socket: &Path, config: Option<&Path>, post_ai: bool) -> io::Result<Child> {
     let mut command = HelperCommand::new(exe);
     command
         .arg("--server")
@@ -1270,6 +1273,8 @@ pub fn spawn_server(exe: &Path, socket: &Path) -> io::Result<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(path) = config { command.arg("--config").arg(path); }
+    if post_ai { command.arg("--post-ai"); }
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {
