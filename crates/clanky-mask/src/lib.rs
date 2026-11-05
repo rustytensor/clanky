@@ -207,6 +207,9 @@ pub struct Masker {
     tail: Tail,
     finished: bool,
     fixed_width: bool,
+    /// Bytes that can begin a literal or a built-in trigger. Any other byte, met
+    /// with nothing held and no open tail, is released unchanged by drain().
+    starts: [bool; 256],
 }
 
 impl Masker {
@@ -307,7 +310,14 @@ impl Masker {
             .chain(BUILTINS.iter().map(Builtin::len))
             .max()
             .unwrap_or(1);
+        let mut starts = [false; 256];
+        for (byte, start) in starts.iter_mut().enumerate() {
+            let byte = byte as u8;
+            *start = literals.iter().any(|literal| literal.value.bytes()[0] == byte)
+                || BUILTINS.iter().any(|builtin| builtin.matches(&[byte]));
+        }
         Ok(Self {
+            starts,
             literals,
             hold: Secret::zeroed(limit),
             held: 0,
@@ -332,13 +342,28 @@ impl Masker {
         if self.finished {
             return Err(Error::Finished);
         }
-        let mut output = Vec::new();
-        for &byte in input {
+        let mut output = Vec::with_capacity(input.len());
+        let mut index = 0;
+        while index < input.len() {
+            // Fast path, same result as drain(): with nothing held and no open tail,
+            // a byte that cannot begin any trigger is released as it is.
+            if self.held == 0 && matches!(self.tail, Tail::None) {
+                let run = input[index..]
+                    .iter()
+                    .position(|byte| self.starts[usize::from(*byte)])
+                    .unwrap_or(input.len() - index);
+                if run > 0 {
+                    output.extend_from_slice(&input[index..index + run]);
+                    index += run;
+                    continue;
+                }
+            }
             // drain() always leaves fewer bytes than the buffer capacity. The fixed
             // allocation never grows, even for arbitrarily long input chunks.
-            self.hold.bytes_mut()[self.held] = byte;
+            self.hold.bytes_mut()[self.held] = input[index];
             self.held += 1;
             self.drain(false, &mut output);
+            index += 1;
         }
         Ok(output)
     }

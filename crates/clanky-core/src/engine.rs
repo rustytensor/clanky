@@ -490,7 +490,7 @@ impl Engine {
             "workspace_get" | "shell_defaults" | "look_state" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "window_changes" => &["after", "timeout_ms"],
-            "snapshot" => &["tab_id", "known_generation", "known_images"],
+            "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows"],
             "history" => &["tab_id", "offset", "limit"],
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
@@ -639,6 +639,35 @@ impl Engine {
                         pixels.push(json!({"image_key":image.image_key,
                             "data":base64::engine::general_purpose::STANDARD.encode(image.rgba.as_slice())}));
                     }
+                }
+                // A window that names the rows it holds gets only the rows that differ.
+                let known_rows = match args.get("known_rows") {
+                    None => None,
+                    Some(value) => {
+                        let values = value
+                            .as_array()
+                            .filter(|a| a.len() <= 1000)
+                            .ok_or_else(|| invalid("invalid known_rows"))?;
+                        let mut hashes = Vec::with_capacity(values.len());
+                        for value in values {
+                            hashes.push(value.as_u64().ok_or_else(|| invalid("invalid row hash"))?);
+                        }
+                        Some(hashes)
+                    }
+                };
+                if let Some(known) = known_rows.filter(|known| known.len() == snapshot.rows) {
+                    let cols = snapshot.cols;
+                    let changed: Vec<Value> = snapshot
+                        .cells
+                        .chunks(cols)
+                        .enumerate()
+                        .filter(|(row, cells)| crate::row_hash(cells) != known[*row])
+                        .map(|(row, cells)| json!([row, cells]))
+                        .collect();
+                    let mut header = snapshot;
+                    header.cells = Vec::new();
+                    return Ok(json!({"generation":generation,"unchanged":false,"delta":true,
+                        "snapshot":header,"changed_rows":changed,"pixels":pixels,"block_anchors":block_anchors}));
                 }
                 Ok(
                     json!({"generation":generation,"unchanged":false,"snapshot":snapshot,"pixels":pixels,

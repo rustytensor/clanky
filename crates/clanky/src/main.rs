@@ -814,6 +814,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             self.studio.theme = self.config.resolved_theme(clanky::platform::system_light(&window));
             window.set_ime_allowed(true);
             let mut renderer = block_on(Renderer::new(window.clone()))?;
+            if self.frame_trace.enabled() { eprintln!("clanky: frame trace on {} ({})", renderer.adapter_summary, renderer.surface_summary); }
             renderer.set_font_families(&self.config.font_family, &self.config.ui_font_family)
                 .map_err(|error| format!("Configuration: {error}"))?;
             if !renderer.supports_transparency() {
