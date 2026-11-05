@@ -38,14 +38,16 @@ impl<'a> Paint<'a>{
     pub(super) fn text(&mut self,rect:PixelRect,text:&str,px:f32,color:Color,weight:u16,mono:bool){
         if rect.w<=0.0 || rect.h<=0.0{return;}
         let mut run=TextRun{text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(2048).collect(),px,color,weight,mono,..TextRun::default()};
-        if (self.measure)(&run).width>rect.w{
+        // Half a pixel of tolerance: controls sized to their measured label must not lose it to rounding.
+        let fits=rect.w+0.5;
+        if (self.measure)(&run).width>fits{
             let chars:Vec<_>=run.text.chars().collect();let (mut lo,mut hi)=(0,chars.len());
             while lo<hi{let mid=(lo+hi).div_ceil(2);run.text=chars[..mid].iter().collect::<String>()+"…";
-                if (self.measure)(&run).width<=rect.w{lo=mid;}else{hi=mid-1;}}
+                if (self.measure)(&run).width<=fits{lo=mid;}else{hi=mid-1;}}
             run.text=chars[..lo].iter().collect::<String>()+"…";
         }
         let metrics=(self.measure)(&run);
-        if metrics.width>rect.w{return;}
+        if metrics.width>fits{return;}
         run.origin=[rect.x,rect.y+(rect.h-metrics.line_height)/2.0];self.out.scene.layers.push(Layer::Text(run));
     }
     pub(super) fn pane_label(&mut self,rect:PixelRect,label:&str,px:f32,color:Color,weight:u16){
@@ -212,7 +214,10 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         let mut snapshot=data.snapshot.clone();let cursor=snapshot.cursor;snapshot.cursor=None;
         for cell in &mut snapshot.cells{terminal(theme,cell);}
         let origin=[pane.grid_origin[0],pane.grid_origin[1]-data.scroll_px];
+        let cards:Vec<_>=data.blocks.iter().filter_map(|block|card_geometry(&mut p,layout,pane,data,block,origin,state)).collect();
+        for card in &cards{card_under_grid(&mut p,card,&mut snapshot,layout,origin);}
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0}));
+        for card in &cards{card_over_grid(&mut p,card,&data.id,state);}
         if focus{if let Some((row,col))=cursor.filter(|(row,col)|*row<pane.rows && *col<pane.cols){
             let x=origin[0]+col as f32*layout.cell_px[0] as f32;let y=origin[1]+row as f32*layout.cell_px[1] as f32;
             p.shape(r(x,y+2.0*s,layout.cell_px[0] as f32,(layout.cell_px[1] as f32-4.0*s).max(0.0)),0.0,c.foreground,None);
@@ -286,4 +291,86 @@ pub fn notice(layout:&Layout,theme:&Theme,text:&str,measure:&mut dyn FnMut(&Text
     p.shape(card,8.0*s,c.card,Some(c.border));
     p.text(r(card.x+12.0*s,card.y,card.w-24.0*s,card.h),text,13.0*s,c.foreground,400,false);
     p.out.scene.layers
+}
+
+/// One command card over the live grid. The grid keeps its 20 px rows, so the header is
+/// the command's own row (the sheet's 32 px header cannot fit without moving terminal
+/// text); controls keep the sheet's order, gaps and colours at row height.
+struct CardGeometry{id:String,frame:PixelRect,header:PixelRect,first_row:usize,clear_from:f32,command:String,
+    badge:Option<(PixelRect,String,u8)>,duration:Option<(PixelRect,String)>,actions:Vec<(PixelRect,&'static str,&'static str)>,
+    opacity:f32,hovered:bool,running:bool,failed:bool,focus:Option<usize>}
+fn duration_label(ms:u64)->String{
+    if ms<1000{format!("{ms} ms")}else if ms<60_000{format!("{:.1} s",ms as f64/1000.0)}
+    else{format!("{} m {} s",ms/60_000,(ms%60_000)/1000)}
+}
+fn card_geometry(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,block:&look::BlockCard,origin:[f32;2],state:&LookState)->Option<CardGeometry>{
+    let s=layout.scale as f32;let ch=layout.cell_px[1] as f32;
+    let rows=data.snapshot.rows;if block.first_row>=rows||block.last_row<block.first_row{return None;}
+    let last=block.last_row.min(rows-1);
+    let left=(origin[0]-6.0*s).max(pane.rect.x+s);let right=(origin[0]+pane.grid_clip.w+6.0*s).min(pane.rect.x+pane.rect.w-s);
+    let top=origin[1]+block.first_row as f32*ch;let bottom=origin[1]+(last+1) as f32*ch-2.0*s;
+    let clip_top=pane.grid_clip.y;let clip_bottom=pane.grid_clip.y+pane.grid_clip.h;
+    if bottom<=clip_top||top>=clip_bottom{return None;}
+    let frame=r(left,top,right-left,bottom-top);let header=r(left,top,right-left,ch.min(bottom-top));
+    let key=(data.id.clone(),block.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0);
+    // Right to left, 8 px apart: exit badge, duration, then the actions (they fade in on hover).
+    let mut x=right-6.0*s;let bh=18.0*s;let by=top+(ch-bh)/2.0;
+    let badge=if block.running{Some(("● running".to_string(),2u8))}else{block.exit_code.map(|code|(code.to_string(),if code==0{0}else{1}))};
+    let badge=badge.map(|(text,kind)|{let icon=if kind==2{0.0}else{16.0*s};let w=(p.width(&text,12.0*s,500)+16.0*s+icon).ceil()+s;x-=w;let rect=r(x,by,w,bh);x-=8.0*s;(rect,text,kind)});
+    let duration=block.duration_ms.filter(|_|!block.running).map(duration_label).map(|text|{let w=p.width(&text,12.0*s,400);x-=w;let rect=r(x,top,w,ch);x-=8.0*s;(rect,text)});
+    let mut actions=Vec::new();
+    if opacity>0.0{
+        let list:&[(&str,&str)]=if state.post_ai{&[("Copy","copy"),("Rerun","rerun")]}else{&[("Copy","copy"),("Rerun","rerun"),("Ask agent","send")]};
+        let mut placed=Vec::new();
+        for (label,action) in list.iter().rev(){let w=p.width(label,13.0*s,500)+16.0*s;x-=w;placed.push((r(x,top,w,ch),*label,*action));x-=2.0*s;}
+        placed.reverse();actions=placed;x+=2.0*s;
+    }
+    let focus=state.block_action_focus.as_ref().filter(|(tab,id,_)|*tab==data.id&&*id==block.id).map(|(_,_,i)|*i);
+    Some(CardGeometry{id:block.id.clone(),frame,header,first_row:block.first_row,clear_from:x-2.0*s,command:block.command.clone(),badge,duration,actions,opacity,
+        hovered:frame.contains(p.pointer.0,p.pointer.1),running:block.running,failed:!block.running&&block.exit_code.is_some_and(|c|c!=0),focus})
+}
+fn card_under_grid(p:&mut Paint,card:&CardGeometry,snapshot:&mut clanky_core::TerminalSnapshot,layout:&Layout,origin:[f32;2]){
+    let theme=p.theme;let c=&theme.colors;let s=p.scale;
+    let band=if card.running{blend(c.muted,c.agent,0.07)}else{c.muted};
+    // Header band: rounded top corners in the 6 px margins, square below them; the cells take the same fill.
+    p.shape(card.header,8.0*s,band,None);
+    p.shape(r(card.header.x,card.header.y+card.header.h/2.0,card.header.w,card.header.h/2.0),0.0,band,None);
+    let background=rgb(c.background);let cw=layout.cell_px[0] as f32;
+    if card.first_row<snapshot.rows{
+        for col in 0..snapshot.cols{
+            let cell=&mut snapshot.cells[card.first_row*snapshot.cols+col];
+            if cell.bg==background{cell.bg=rgb(band);}
+            // Controls sit on the right of the header row; text under them is hidden, not overdrawn.
+            if origin[0]+(col+1) as f32*cw>card.clear_from{cell.ch=' ';}
+        }
+    }
+    let _=&card.command;
+}
+fn card_over_grid(p:&mut Paint,card:&CardGeometry,tab:&str,state:&LookState){
+    let theme=p.theme;let c=&theme.colors;let s=p.scale;
+    let border=if card.failed{blend(c.border,c.err,0.30)}else if card.hovered{blend(c.border,c.foreground,0.14)}else{c.border};
+    p.shape(card.frame,8.0*s,[0;4],Some(border));
+    if let Some((rect,text))=&card.duration{p.text(*rect,text,12.0*s,c.muted_foreground,400,false);}
+    if let Some((rect,text,kind))=&card.badge{
+        let tone=match kind{0=>c.ok,1=>c.err,_=>c.agent};
+        p.shape(*rect,6.0*s,alpha(tone,0.10),Some(alpha(tone,0.35)));
+        let mut tx=rect.x+8.0*s;
+        if *kind!=2{
+            let mut path=Path::builder();
+            if *kind==0{path.begin(point(2.5,6.2));path.line_to(point(4.8,8.5));path.line_to(point(9.5,3.6));path.end(false);}
+            else{path.begin(point(3.0,3.0));path.line_to(point(9.0,9.0));path.end(false);path.begin(point(9.0,3.0));path.line_to(point(3.0,9.0));path.end(false);}
+            p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.6,color:tone}),
+                transform:Matrix4::scale(s,s,1.0).then(Matrix4::translate(tx,rect.y+3.0*s,0.0))}],clip:p.clip,opacity:1.0}));
+            tx+=16.0*s;
+        }
+        p.text(r(tx,rect.y,rect.x+rect.w-7.0*s-tx,rect.h),text,12.0*s,tone,500,false);
+    }
+    for (index,(rect,label,action)) in card.actions.iter().enumerate(){
+        let over=rect.contains(p.pointer.0,p.pointer.1);
+        if over{p.shape(*rect,6.0*s,alpha(if p.pressed{c.pressed}else{c.accent},card.opacity),None);}
+        if card.focus==Some(index){p.shape(*rect,6.0*s,[0;4],Some(alpha(c.ring,card.opacity)));p.shape(r(rect.x+s,rect.y+s,rect.w-2.0*s,rect.h-2.0*s),5.0*s,[0;4],Some(alpha(c.ring,card.opacity)));}
+        p.text(r(rect.x+8.0*s,rect.y,rect.w-16.0*s,rect.h),label,13.0*s,alpha(c.foreground,card.opacity),500,false);
+        p.hit(*rect,HitAction::Block{tab_id:tab.into(),block_id:card.id.clone(),action:(*action).into()});
+    }
+    let _=state;
 }
