@@ -15,6 +15,8 @@ pub struct LookState {
     pub post_ai: bool,
     /// The command palette is open: its top-bar field shows the focus ring.
     pub palette_open: bool,
+    /// Exit codes known for Recent entries, parallel to timeline: Some(code) when finished.
+    pub timeline_exits: Vec<Option<i32>>,
     pub pane_labels: std::collections::BTreeMap<String,String>,
     pub sessions: Vec<SessionItem>,
     pub session_counts: std::collections::BTreeMap<String, usize>,
@@ -35,7 +37,7 @@ pub struct LookState {
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
-            panes: vec![], post_ai:false, palette_open:false, pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
+            panes: vec![], post_ai:false, palette_open:false, timeline_exits: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
             masking_ready: false, panels: vec![] }
     }

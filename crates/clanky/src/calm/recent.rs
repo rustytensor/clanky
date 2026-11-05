@@ -7,7 +7,9 @@ pub fn uptime_label(seconds:u64)->String {
     if seconds<3600{format!("server up · {} min",seconds/60)}else{format!("server up · {} h",seconds/3600)}
 }
 pub fn pane_label(tab:&str,index:usize)->String{format!("{tab} · pane {}",index+1)}
-pub fn human_recent(records:&Value,labels:&BTreeMap<String,String>,agents:&Value)->Vec<(u64,TimelineItem)>{
+/// Each entry: age, the item, and for a typed command its (tab, command) so the window
+/// can add the exit badge it knows from the pane's command cards.
+pub fn human_recent(records:&Value,labels:&BTreeMap<String,String>,agents:&Value)->Vec<(u64,TimelineItem,Option<(String,String)>)>{
     let mut out=Vec::new();
     for record in records.as_array().into_iter().flatten(){
         let mut tab=record["tab_id"].as_str().unwrap_or("");
@@ -21,13 +23,21 @@ pub fn human_recent(records:&Value,labels:&BTreeMap<String,String>,agents:&Value
         }
         let pane=labels.get(tab).map(String::as_str).unwrap_or(if tab.is_empty(){"No pane assigned"}else{"Closed pane"});
         let (label,detail)=match record["kind"].as_str(){
-            Some("command_run")=>("Command run",record["program"].as_str().filter(|name|!name.is_empty()).map(|name|format!("{name} · {pane}")).unwrap_or_else(||pane.into())),
+            // The command itself is the title (calm.html: "Running gate-m5.sh"), the pane its detail.
+            Some("command_run")=>{
+                let command=record["program"].as_str().and_then(|text|text.lines().next()).map(|line|line.chars().map(|c|if c.is_control(){' '}else{c}).collect::<String>())
+                    .map(|line|line.trim().to_owned()).filter(|line|!line.is_empty());
+                match command {
+                    Some(command)=>{out.push((record["age_ms"].as_u64().unwrap_or(0),TimelineItem{label:command.clone(),detail:pane.into()},Some((tab.to_owned(),command))));continue;}
+                    None=>("Command run",pane.into()),
+                }
+            }
             Some("command_finished")=>(if record["exit_code"].as_i64().is_some_and(|code|code!=0){"Command failed"}else{"Command finished"},pane.into()),
             Some("agent_connected")=>("Agent connected",agent_name.map(|name|format!("{name} · {pane}")).unwrap_or_else(||pane.into())),
             Some("pane_closed")=>("Pane closed",pane.into()),
             _=>continue,
         };
-        out.push((record["age_ms"].as_u64().unwrap_or(0),TimelineItem{label:label.into(),detail}));
+        out.push((record["age_ms"].as_u64().unwrap_or(0),TimelineItem{label:label.into(),detail},None));
     }
     out
 }
@@ -49,8 +59,9 @@ mod tests{
         ]);
         let shown=human_recent(&events,&labels,&json!([]));
         assert_eq!(shown.len(),2);
-        assert_eq!(shown[0].1.label,"Command run");
-        assert_eq!(shown[0].1.detail,"sh · marcm · pane 2");
+        assert_eq!(shown[0].1.label,"sh");
+        assert_eq!(shown[0].1.detail,"marcm · pane 2");
+        assert_eq!(shown[0].2,Some(("t2".to_owned(),"sh".to_owned())));
         assert_eq!(shown[1].1.detail,"worker · marcm · pane 1");
     }
 }
