@@ -525,7 +525,7 @@ impl App {
         for pane in &layout.panes {
             if pane.rows == 0 || pane.cols == 0 { continue; }
             let mut snapshot;
-            let mut title = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).unwrap_or(&pane.id).to_owned();
+            let mut title = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).map(home_short).unwrap_or_else(||pane.id.clone());
             let mut editor_rows = None;
             if self.files.panes.contains_key(&pane.id) {
                 snapshot = cells(pane.rows, pane.cols, &state.theme);
@@ -780,9 +780,7 @@ impl App {
             let px=if card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
             if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise],text:truncate(&text,rect.w/px),px,color:state.theme.ink,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
         }
-        if let Some(status) = &self.status {
-            presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
-        }
+        let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {
             panel.forced_post_ai=self.startup_flags.post_ai;
             let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
@@ -793,6 +791,7 @@ impl App {
             presentation.scene.layers.extend(self.palette.draw(&layout,&self.studio.calm_theme,&palette_context,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             ime = self.palette.ime_position();
         }
+        if let Some(layers) = status_layers { presentation.scene.layers.extend(layers); }
         self.studio.hits = presentation.hits;
         if let Some(window) = &self.window {
             let title=format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points());
@@ -819,6 +818,14 @@ impl App {
         let animation_end=self.animation_deadline(&state).into_iter().chain(self.robot_deadline()).max();
         self.frame_clock.presented(Instant::now(),animation_end);
         Ok(())
+    }
+}
+/// Mockup pane titles name the home folder "~" (~/git/clanky).
+fn home_short(cwd: &str) -> String {
+    match clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned)) {
+        Some(home) if cwd == home => "~".into(),
+        Some(home) if cwd.starts_with(&(home.clone() + "/")) => format!("~{}", &cwd[home.len()..]),
+        _ => cwd.into(),
     }
 }
 fn truncate(text: &str, chars: f32) -> String {

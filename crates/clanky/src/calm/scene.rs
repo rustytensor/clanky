@@ -157,30 +157,54 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let split=r(new_tab.x-8.0*s-split_width,by,split_width,32.0*s);
     p.button(split,"Split",HitAction::Split,false);
     // Search and run field (sheets: 300 x 32, radius 8, 14 px, kbd chip); it opens the palette.
-    let field=r(split.x-8.0*s-300.0*s,by,300.0*s,32.0*s);
+    // At least the sheet's 300 px; wider when the per-key chips would clip the placeholder.
+    let chips:f32=["Ctrl","Shift","P"].iter().map(|k|p.mono_width(k,12.0*s,400)+14.0*s).sum();
+    let field_w=(300.0*s).max(32.0*s+p.width("Search or run a command…",14.0*s,400)+12.0*s+chips+8.0*s).ceil();
+    let field=r(split.x-8.0*s-field_w,by,field_w,32.0*s);
     if field.x>toggle.x+160.0*s{
         let over=field.contains(pointer.0,pointer.1);
         if state.palette_open{p.shape(r(field.x-4.0*s,field.y-4.0*s,field.w+8.0*s,field.h+8.0*s),12.0*s,[0;4],Some(c.ring));p.shape(r(field.x-3.0*s,field.y-3.0*s,field.w+6.0*s,field.h+6.0*s),11.0*s,[0;4],Some(c.ring));}
         p.out.scene.layers.push(Layer::Shape(Shape{rect:field.array(),radius:8.0*s,fill:Fill::Solid(c.background),border:None,shadow:Some(clanky_render::Shadow{offset:[0.0,s],blur:2.0*s,spread:0.0,color:shadow_color(theme)})}));
         p.shape(field,8.0*s,c.background,Some(if over{blend(c.input,c.foreground,0.2)}else{c.input}));
         p.icon("search",field.x+10.0*s,field.y+9.0*s,c.muted_foreground);
-        let hint=p.kbd(field.x+field.w-8.0*s,field.y+6.0*s,&["Ctrl⇧P"]);
+        let hint=p.kbd(field.x+field.w-8.0*s,field.y+6.0*s,&["Ctrl","Shift","P"]);
         p.text(r(field.x+32.0*s,field.y,(hint-field.x-40.0*s).max(0.0),field.h),"Search or run a command…",14.0*s,c.muted_foreground,400,false);
         p.hit(field,HitAction::Palette);
     }
+    // calm.html: toggle, a 1 x 16 separator (margin 0 4), then "session / ~/folder" crumbs, gap 8.
     let title_right=if field.x>toggle.x+160.0*s{field.x-16.0*s}else{split.x-16.0*s};
-    let title=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.as_str()).unwrap_or("Clanky");
-    p.text(r(toggle.x+48.0*s,bar.y,(title_right-toggle.x-48.0*s).max(0.0),bar.h),title,14.0*s,c.foreground,400,false);
+    p.shape(r(toggle.x+44.0*s,bar.y+(bar.h-16.0*s)/2.0,s,16.0*s),0.0,c.border,None);
+    let folder=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.clone()).unwrap_or_else(||"Clanky".into());
+    let session=state.sessions.iter().find(|item|item.active).map(|item|item.title.clone());
+    let mut x=toggle.x+57.0*s;
+    if let Some(session)=session{
+        let sw=p.width(&session,14.0*s,400).min(((title_right-x)*0.4).max(0.0));
+        p.text(r(x,bar.y,sw,bar.h),&session,14.0*s,c.muted_foreground,400,false);x+=sw+8.0*s;
+        let slash=p.width("/",14.0*s,400);p.text(r(x,bar.y,slash,bar.h),"/",14.0*s,c.muted_foreground,400,false);x+=slash+8.0*s;
+    }
+    p.text(r(x,bar.y,(title_right-x).max(0.0),bar.h),&folder,14.0*s,c.foreground,400,false);
     p.shape(r(bar.x+s,bar.y+bar.h-s,bar.w-2.0*s,s),0.0,c.border,None);
     for pane in &layout.panes{
         let data=state.panes.iter().find(|data|data.id==pane.id);let focus=state.focused.as_ref()==Some(&pane.id);
-        p.shape(pane.rect,10.0*s,c.background,Some(if focus{c.ring}else{c.border}));
+        let driving=data.is_some_and(|d|d.agent_running);
+        // Only themes that ask for it (glow: true) glow, as v0.6.1 drew it: 6 px, no spread.
+        if theme.glow && (focus || driving){
+            let color=if driving{c.agent}else{alpha(c.ring,if theme.appearance==Appearance::Light{0.22}else{0.35})};
+            p.out.scene.layers.push(Layer::Shape(Shape{rect:pane.rect.array(),radius:10.0*s,fill:Fill::Solid([0;4]),border:None,
+                shadow:Some(clanky_render::Shadow{offset:[0.0,0.0],blur:6.0*s,spread:0.0,color})}));
+        }
+        p.shape(pane.rect,10.0*s,c.background,Some(if driving{blend(c.border,c.agent,0.45)}else if focus{c.ring}else{c.border}));
         p.shape(r(pane.rect.x+s,pane.rect.y+40.0*s-s,pane.rect.w-2.0*s,s),0.0,c.border,None);
         let Some(data)=data else{continue;};
         let access=if data.allow_agent{"read + run"}else{"agents off"};let badge_width=if state.post_ai{0.0}else{p.width(access,12.0*s,500)+16.0*s};
         let badge=r(pane.rect.x+pane.rect.w-8.0*s-badge_width,pane.rect.y+9.0*s,badge_width,22.0*s);
-        if !state.post_ai {p.shape(badge,6.0*s,if data.allow_agent{alpha(c.agent,0.1)}else{alpha(c.background,0.0)},Some(if data.allow_agent{alpha(c.agent,0.35)}else{c.border}));
-        p.text(r(badge.x+8.0*s,badge.y,badge.w-16.0*s,badge.h),access,12.0*s,if data.allow_agent{c.agent}else{c.muted_foreground},500,false);}
+        // Sheets: off is the plain badge, allowed the neutral solid badge; clay only while an agent drives.
+        if !state.post_ai {
+            let (fill,border,ink)=if data.agent_running{(alpha(c.agent,0.1),Some(alpha(c.agent,0.35)),c.agent)}
+                else if data.allow_agent{(c.muted,None,c.foreground)}else{([0;4],Some(c.border),c.muted_foreground)};
+            p.shape(badge,6.0*s,fill,border);
+            p.text(r(badge.x+8.0*s,badge.y,badge.w-16.0*s,badge.h),access,12.0*s,ink,500,false);
+        }
         let available=(badge.x-pane.rect.x-24.0*s).max(0.0);let driver_width=p.width(&data.driver,12.0*s,400).min(available*0.3);
         let title_width=p.width(&data.title,14.0*s,500).min((available-driver_width-8.0*s).max(0.0));
         p.text(r(pane.rect.x+12.0*s,pane.rect.y,title_width,40.0*s),&data.title,14.0*s,c.foreground,500,false);
@@ -201,10 +225,15 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         let x=side.x+12.0*s;let width=(side.w-24.0*s).max(0.0);let mut y=side.y+12.0*s;
         p.shape(r(x,y,width,164.0*s),10.0*s,c.card,Some(c.border));
         p.text(r(x+12.0*s,y+12.0*s,width-90.0*s,22.0*s),"Agent activity",14.0*s,c.foreground,500,false);
-        p.text(r(x+width-64.0*s,y+12.0*s,52.0*s,22.0*s),"30 min",12.0*s,c.muted_foreground,400,false);
+        // calm.html: <span class="badge muted">30 min</span>, 22 tall, radius 6, 12 px / 500, padding 0 8.
+        let span_w=p.width("30 min",12.0*s,500);let span=r(x+width-12.0*s-span_w-16.0*s,y+12.0*s,span_w+16.0*s,22.0*s);
+        p.shape(span,6.0*s,[0;4],Some(c.border));
+        p.text(r(span.x+8.0*s,span.y,span_w,span.h),"30 min",12.0*s,c.muted_foreground,500,false);
         let total: u64=state.activity.iter().filter(|n|n.is_finite() && **n>0.0).map(|n|*n as u64).fold(0,u64::saturating_add);
         p.text(r(x+12.0*s,y+42.0*s,70.0*s,28.0*s),&total.to_string(),24.0*s,c.foreground,600,false);
-        p.text(r(x+84.0*s,y+48.0*s,width-96.0*s,22.0*s),"commands",12.0*s,c.muted_foreground,400,false);
+        // calm.html: "47 commands", the label 6 px after the number on its baseline.
+        let number_w=p.width(&total.to_string(),24.0*s,600);
+        p.text(r(x+12.0*s+number_w+6.0*s,y+48.0*s,(width-30.0*s-number_w).max(0.0),22.0*s),"commands",12.0*s,c.muted_foreground,400,false);
         let chart=r(x+12.0*s,y+82.0*s,width-24.0*s,40.0*s);let mut path=Path::builder();
         let samples:Vec<_>=state.activity.iter().rev().take(30).copied().collect();let max=samples.iter().filter(|v|v.is_finite()).copied().fold(1.0_f32,f32::max);
         let has_commands=samples.iter().any(|value|value.is_finite() && *value>0.0);
@@ -223,18 +252,38 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             p.text(r(x+30.0*s,ey+18.0*s,width-42.0*s,16.0*s),&event.detail,12.0*s,c.muted_foreground,400,false);
             p.text(r(x+width-12.0*s-tw,ey,tw,18.0*s),time,12.0*s,c.muted_foreground,400,false);
         }y+=height+12.0*s;
-        let height=(48.0+32.0*state.panes.len() as f32)*s;
+        // Sheets card: padding 12, grid gap 8, title 22, rows 32 with the switch centred.
+        let height=(46.0+40.0*state.panes.len() as f32)*s;
         p.shape(r(x,y,width,height),10.0*s,c.card,Some(c.border));p.text(r(x+12.0*s,y+12.0*s,width-24.0*s,22.0*s),"Agent access",14.0*s,c.foreground,500,false);
-        for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(40.0+32.0*index as f32)*s,width-24.0*s,32.0*s);
+        for (index,pane)in state.panes.iter().enumerate(){let row=r(x+12.0*s,y+(42.0+40.0*index as f32)*s,width-24.0*s,32.0*s);
             if row.y+row.h>side.y+side.h-8.0*s{break;}
-            if row.contains(pointer.0,pointer.1){p.shape(row,6.0*s,c.accent,None);}
-            p.pane_label(r(row.x,row.y,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400);
-            p.text(r(row.x,row.y+18.0*s,row.w-44.0*s,14.0*s),if pane.allow_agent{"read + run"}else{"off"},12.0*s,c.muted_foreground,400,false);
-            let sw=r(row.x+row.w-32.0*s,row.y,32.0*s,18.0*s);
-            p.shape(sw,9.0*s,if pane.allow_agent{c.primary}else{c.input},None);
-            p.shape(r(sw.x+if pane.allow_agent{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if pane.allow_agent{c.primary_foreground}else{c.background},None);
+            let over=row.contains(pointer.0,pointer.1);
+            if over{p.shape(r(row.x-6.0*s,row.y-4.0*s,row.w+12.0*s,row.h+8.0*s),6.0*s,if pressed{c.pressed}else{c.accent},None);}
+            p.pane_label(r(row.x,row.y-1.0*s,row.w-44.0*s,18.0*s),state.pane_labels.get(&pane.id).unwrap_or(&pane.title),14.0*s,c.foreground,400);
+            p.text(r(row.x,row.y+17.0*s,row.w-44.0*s,16.0*s),if pane.allow_agent{"read + run"}else{"off"},12.0*s,c.muted_foreground,400,false);
+            let sw=r(row.x+row.w-32.0*s,row.y+7.0*s,32.0*s,18.0*s);
+            let track=match (pane.allow_agent,over){(true,true)=>blend(c.primary,c.background,0.12),(true,false)=>c.primary,(false,true)=>blend(c.input,c.foreground,0.12),(false,false)=>c.input};
+            p.shape(sw,9.0*s,track,None);
+            let thumb=r(sw.x+if pane.allow_agent{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s);
+            p.out.scene.layers.push(Layer::Shape(Shape{rect:thumb.array(),radius:7.0*s,fill:Fill::Solid([0;4]),border:None,shadow:Some(clanky_render::Shadow{offset:[0.0,s],blur:2.0*s,spread:0.0,color:[0,0,0,64]})}));
+            p.shape(thumb,7.0*s,if pane.allow_agent{c.primary_foreground}else{c.background},None);
             p.hit(row,HitAction::Access(pane.id.clone()));
         }
     }
     p.out
+}
+
+/// A short message from the window (an error or a notice) as a small card at the
+/// bottom right of the main area: card fill, hairline border, the sheets' shadow.
+pub fn notice(layout:&Layout,theme:&Theme,text:&str,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
+    let s=layout.scale as f32;let c=&theme.colors;let area=super::inset(layout);
+    let mut p=Paint::empty(theme,measure,s,layout.window_px,(-1.0,-1.0),false);
+    let max=(480.0*s).min((area.w-32.0*s).max(0.0));
+    let width=(p.width(text,13.0*s,400)+24.0*s).min(max).ceil();
+    let card=r((area.x+area.w-16.0*s-width).round(),(area.y+area.h-16.0*s-36.0*s).round(),width,36.0*s);
+    p.out.scene.layers.push(Layer::Shape(Shape{rect:card.array(),radius:8.0*s,fill:Fill::Solid(c.card),border:None,
+        shadow:Some(clanky_render::Shadow{offset:[0.0,s],blur:2.0*s,spread:0.0,color:shadow_color(theme)})}));
+    p.shape(card,8.0*s,c.card,Some(c.border));
+    p.text(r(card.x+12.0*s,card.y,card.w-24.0*s,card.h),text,13.0*s,c.foreground,400,false);
+    p.out.scene.layers
 }
