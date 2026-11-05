@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/robot.gif" width="420" alt="Clanky the robot rolls in, looks around and waves">
+  <img src="docs/media/robot.webp" width="420" alt="Clanky the robot rolls in, looks around and waves">
 </p>
 
 <h1 align="center">Clanky</h1>
