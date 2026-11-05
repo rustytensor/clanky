@@ -17,7 +17,7 @@ run_step() {
     if "$@"; then echo "PASS: $name"; else local rc=$?; echo "FAIL: $name (exit $rc)" >&2; failed=1; fi
 }
 if ! flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky \
-    --bin clanky-calm-gate --bin clanky-look-gate --bin clanky --bin clanky-agent-gate -j 8; then
+    --bin clanky-calm-gate --bin clanky-settings-gate --bin clanky-look-gate --bin clanky --bin clanky-agent-gate -j 8; then
     echo 'FAIL: M12 build' >&2; exit 1
 fi
 run_step 'idle scheduler' "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
@@ -42,6 +42,11 @@ fi
 run_step 'built-in themes and Catppuccin' flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib themes::tests::builtin_documents -- --exact --nocapture
 run_step 'theme contrast and storage' scripts/gate-m12-themes.sh
 run_step 'Post-AI server' python3 scripts/gate-m12-post-ai.py
+if "$CARGO_TARGET_DIR/debug/clanky-settings-gate" "$work" > "$work/settings.json"; then
+    run_step 'Settings geometry, pixels and labels' python3 scripts/gate-m12-settings.py < "$work/settings.json"
+else
+    echo 'FAIL: M12 Settings observations' >&2; failed=1
+fi
 if "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json"; then
     run_step 'layout, PTYs, restore, pixels and text floor' python3 scripts/gate-m12-calm.py --no-idle < "$work/observations.json"
     run_step 'theme pictures' python3 scripts/m12-pictures.py "$work" "$CARGO_TARGET_DIR/look"
@@ -49,8 +54,8 @@ else
     echo 'FAIL: M12 scene observations' >&2; failed=1
 fi
 # The calm scene has no command-card action hit target yet; neither click
-# fixture proves hover/copy. Settings geometry and raw-label checks also remain.
-echo 'FAIL: M12 block hover/copy and Settings geometry/raw-label checks are not implemented' >&2
+# fixture proves real-window block hover and clipboard copy.
+echo 'FAIL: M12 block hover/copy check is not implemented' >&2
 failed=1
 if [[ ${CLANKY_RC_NO_NESTED:-0} != 1 ]]; then
     run_step 'release regression' env -u CLANKY_GATE_FAULT -u CLANKY_RC_NO_NESTED CLANKY_M12_PARENT=1 scripts/gate-rc.sh
