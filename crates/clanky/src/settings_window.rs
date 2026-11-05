@@ -5,8 +5,9 @@ use clanky::settings_panel::Effect;
 impl App {
     pub(super) fn settings_open(&self) -> bool { self.settings.as_ref().is_some_and(|panel|panel.open) }
     pub(super) fn toggle_settings(&mut self) -> Result<(),String> {
-        // Never fall back to the legacy form while the replacement is being built.
-        self.status=Some("Settings is being rebuilt.".into());
+        let Some(panel)=&mut self.settings else{self.status=self.settings_error.clone();return Ok(());};
+        panel.toggle();
+        self.clear_card_focus();self.studio.drag=None;self.files.dragging=None;self.compose_dragging=false;self.reset_ime();
         Ok(())
     }
     pub(super) fn settings_effect(&mut self,effect:Effect) -> Result<(),String> {
@@ -33,7 +34,8 @@ impl App {
     }
     fn apply_settings(&mut self)->Result<(),String> {
         let Some(panel)=&self.settings else{return Ok(());};
-        let config=panel.store.config().clone();
+        let mut config=panel.store.config().clone();
+        self.startup_flags.apply(&mut config);
         self.frame_clock.invalidate();
         let font_changed=config.font_size_pt!=self.config.font_size_pt;
         let geometry_changed=config.columns!=self.config.columns || config.rows!=self.config.rows;

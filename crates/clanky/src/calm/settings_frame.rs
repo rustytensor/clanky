@@ -11,7 +11,7 @@ impl Section {
     pub fn title(self)->&'static str {match self{Self::General=>"General",Self::Appearance=>"Appearance",Self::Terminal=>"Terminal",Self::Agents=>"Agents",Self::Keys=>"Keys"}}
 }
 #[derive(Clone,Debug,PartialEq)]
-pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontSize(f32),Opacity,Toggle(&'static str,bool) }
+pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool) }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry}
@@ -55,12 +55,18 @@ fn hover(p:&mut Paint<'_>,rect:PixelRect,pointer:(f64,f64),pressed:bool,theme:&T
 /// Frame and Terminal controls. Other pages are supplied by the Settings controller;
 /// the live entry remains hidden until that controller is complete.
 pub fn draw(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
+    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&Section::ALL)
+}
+pub fn draw_live(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
+    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&[Section::General,Section::Terminal])
+}
+fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,ready:&[Section])->Frame{
     let g=geometry(window,scale);let s=scale;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,window,pointer,pressed);let mut hits=Vec::new();
     for (offset,blur,alpha) in [(16.0,48.0,89),(2.0,6.0,51)]{p.out.scene.layers.push(Layer::Shape(Shape{rect:g.panel.array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:None,shadow:Some(Shadow{offset:[0.0,offset*s],blur:blur*s,spread:0.0,color:[0,0,0,alpha]})}));}
     p.shape(g.panel,12.0*s,c.background,Some(c.border));
     p.shape(g.nav,11.0*s,c.sidebar,None);p.shape(g.local(190.0,1.0,11.0,598.0),0.0,c.sidebar,None);p.shape(g.local(200.0,1.0,1.0,598.0),0.0,c.border,None);
     heading(&mut p,g.local(17.0,21.0,167.0,21.0),"Settings",theme,s);
-    for (i,item) in Section::ALL.into_iter().enumerate(){let y=58.0+i as f32*34.0;let rect=g.local(9.0,y,183.0,32.0);let selected=item==section;let over=rect.contains(pointer.0,pointer.1);
+    for (i,item) in Section::ALL.into_iter().enumerate(){if !ready.contains(&item){continue;}let y=58.0+i as f32*34.0;let rect=g.local(9.0,y,183.0,32.0);let selected=item==section;let over=rect.contains(pointer.0,pointer.1);
         if selected || over{p.shape(rect,6.0*s,if over && pressed{c.pressed}else{c.sidebar_accent},None);}
         let color=if selected || over{c.foreground}else{c.muted_foreground};icon(&mut p,item.title(),g.local(17.0,y+8.0,16.0,16.0),color,s);
         p.text(g.local(41.0,y,143.0,32.0),item.title(),14.0*s,color,if selected{500}else{400},false);hits.push(Hit{rect,action:Action::Section(item)});
@@ -68,6 +74,14 @@ pub fn draw(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config
     heading(&mut p,g.local(229.0,1.0,490.0,56.0),section.title(),theme,s);
     p.shape(g.local(201.0,56.0,578.0,1.0),0.0,c.border,None);
     let close=g.local(735.0,13.0,32.0,32.0);hover(&mut p,close,pointer,pressed,theme,s,8.0);icon(&mut p,"close",g.local(743.0,21.0,16.0,16.0),c.foreground,s);hits.push(Hit{rect:close,action:Action::Close});
+    if section==Section::General{
+        p.text(g.local(229.0,79.0,466.0,18.0),"Post-AI mode",14.0*s,c.foreground,500,false);
+        for (i,line) in ["A plain terminal with tabs and splits. No agents, no AI features.","For coding and AI purists."].into_iter().enumerate(){p.text(g.local(229.0,100.0+i as f32*18.85,466.0,18.85),line,13.0*s,c.muted_foreground,400,false);}
+        let sw=g.local(719.0,108.0,32.0,18.0);
+        p.shape(sw,9.0*s,if config.post_ai{c.primary}else{c.input},None);
+        p.shape(r(sw.x+if config.post_ai{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if config.post_ai{c.primary_foreground}else{c.background},None);
+        hits.push(Hit{rect:g.local(229.0,65.0,522.0,104.0),action:Action::Toggle("post_ai",!config.post_ai)});
+    }
     if section==Section::Terminal{terminal(&mut p,&g,theme,config,pointer,pressed,&mut hits);}
     p.shape(g.local(201.0,543.0,578.0,1.0),0.0,c.border,None);
     let label="Open settings file";let width=p.width(label,13.0*s,500)+20.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+557.0*s,width,28.0*s);

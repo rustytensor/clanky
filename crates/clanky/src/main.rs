@@ -179,7 +179,7 @@ struct App {
     next_polish: Instant,
     persistence: Option<(PathBuf, PathBuf)>,
     studio: studio::Studio,
-    settings: Option<clanky::settings_panel::SettingsPanel>,
+    settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     settings_error: Option<String>,
     next_settings: Instant,
     startup_flags: clanky::config::StartupOverrides,
@@ -197,7 +197,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         Ok(runtime) => (Some(runtime), None), Err(error) => (None, Some(error)),
     };
     let (settings,settings_error)=match settings_path.map(clanky::settings::Settings::open) {
-        Some(Ok(store))=>(Some(clanky::settings_panel::SettingsPanel::new(store)),None),
+        Some(Ok(store))=>(Some(clanky::calm::settings_panel::SettingsPanel::new(store)),None),
         Some(Err(error))=>(None,Some(error)),
         None=>(None,Some("No settings path is available".into())),
     };
@@ -265,8 +265,10 @@ impl App {
                 Ok(reply) => {
                     self.applied_post_ai = reply["post_ai"].as_bool().unwrap_or(true);
                     self.config.post_ai = self.applied_post_ai;
+                    self.studio.drag=None;
+                    if let Err(error)=self.resize_panes(){self.status=Some(error);}
                 }
-                Err(error) => { self.status = Some(error.message); }
+                Err(error) => { self.config.post_ai=self.applied_post_ai;self.status = Some(error.message); }
             }
             self.frame_clock.invalidate();
         }
@@ -694,7 +696,7 @@ impl App {
                         "d" => return self.split(Axis::Columns),
                         "e" => return self.split(Axis::Rows),
                         "w" => return self.close_pane(),
-                        "a" if self.files.focus == TERMINALS => {
+                        "a" if self.files.focus == TERMINALS && !self.applied_post_ai => {
                             if let Some(id) = self.focused() {
                                 let old =
                                     self.engine.agent_permission(id).map_err(|e| e.message)?;

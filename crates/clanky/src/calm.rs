@@ -5,6 +5,7 @@ use clanky_core::layout::Layout as Tree;
 mod scene;
 mod recent;
 pub mod settings_frame;
+pub mod settings_panel;
 pub use recent::{human_recent,pane_label,uptime_label};
 pub use scene::{presentation,legacy_palette};
 

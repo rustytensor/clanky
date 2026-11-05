@@ -1,31 +1,28 @@
-# Settings rebuild: frame
+# Settings rebuild: General and Terminal
 
-The replacement frame is in `crates/clanky/src/calm/settings_frame.rs`. It is not
-connected to the live window yet. Its Terminal page draws the approved copy,
-select, stepper, percentage slider and switches; input handling is unfinished.
-Appearance, General, Agents and Keys still need their page contents.
+General and Terminal are live in the rebuilt 780×600 Settings panel. Open it from
+the sidebar or Ctrl+comma. Appearance, Agents and Keys remain hidden until rebuilt;
+there is no fallback to the legacy form.
 
-The frame uses the approved HTML's measured 780×600 panel, 200-pixel sidebar,
-56-pixel header/footer and 68.84375-pixel bordered Terminal rows at scale 1.
-`settings_frame_geometry` passed after its planted +1-pixel width fault failed.
-The `settings-frame` example resolves themes through `ThemeStore` and
-`Config::resolved_document`, then renders a 2× comparison image.
+General's Post-AI switch saves immediately and applies the merged server policy.
+The window hides Agents, the right column, badges and access switches. Pane A uses
+the existing checked layout: (268,76,952,326), with 116 columns at 13 px. Turning
+Post-AI off restores the column and 81-column panes; revoked permissions stay revoked.
 
-Comparison files are under `/srv/devops/build/clanky-editor-m12-reference/`:
-`settings-terminal-2x.png` and `settings-terminal-reference-2x.png`.
-These are frame previews, not evidence that the Settings controls work.
+Terminal's font selector, size stepper, opacity slider, side-column switch and
+animation switch save and apply. The selector offers the three bundled monospace
+families. Escape/close dismisses the panel; the footer opens the settings file with
+the system editor. Tab/Enter operate controls; arrow keys adjust a focused slider.
+The window also draws the theme runtime's last-good active theme.
 
-Legacy Settings, palette, search, compose and editor opening routes are hidden
-in the calm review build, including keyboard and terminal-path mouse routes.
-A private-window check pressed Settings and palette shortcuts, then typed a
-command; its exact output still reached the shell. This check preceded the lead's
-robot integration. The combined tree passed a binary/library compile check.
+Check: `python3 /srv/devops/build/clanky-settings-live-check.py` passed in a private
+Xvfb window. It clicked General on/off (81→116→81 columns), changed font and size,
+set opacity to 75% then 100%, toggled columns and animations, checked saved JSON,
+and confirmed that shell input resumed after closing Settings. The release build
+passed. No full regression suite was run.
 
-Live-window defaults are Geist Mono 13 px, Geist UI and full opacity. Explicit
-older font settings remain intact. The default-font check passed after its
-planted fault failed. The ANSI provenance check passed with unchanged colour
-expectations, sampling the new renderer's 8×20 cell centres.
+Screenshots under `/srv/devops/build/clanky-editor-m12-reference/`:
+`post-ai-live.png` and `settings-terminal-live.png`.
 
-Next: connect Settings controls to the shared settings/theme APIs, complete the
-remaining pages, and enforce Post-AI at the server and MCP boundaries. Post-AI
-config parsing alone is not enforcement; that part is not implemented yet.
+Next: Appearance/theme storage controls, Agents and Keys. Existing unrelated
+palette, search, compose and editor entries remain hidden in this review build.
