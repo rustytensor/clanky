@@ -71,6 +71,22 @@ def main():
                 after=call('workspace_get',{},3)
                 raise RuntimeError(f"new tab sessions: expected 2, observed {len(after['groups'])}")
             print(f"PASS: real New tab click: sessions 1 → {len(after['groups'])}")
+            def click(x,y):
+                xdo('mousemove','--window',wid,x,y);xdo('click',1)
+            def workspace(): return call('workspace_get',{},3)
+            def pane_count(tree):
+                if 'Leaf' in tree:return 1
+                split=tree['Split'];return pane_count(split['first'])+pane_count(split['second'])
+            click(40,120)
+            until(lambda:workspace()['active']==0,'first session selected')
+            for expected in (2,3):
+                click(1080,36)
+                until(lambda:pane_count(workspace()['groups'][0]['layout'])==expected,
+                      f'split creates {expected} panes')
+                time.sleep(.2)
+            click(40,154)
+            until(lambda:workspace()['active']==1,'second session selected')
+            print('PASS: real Split clicks: 1 → 2 → 3 panes; sidebar selected second session')
         finally:
             for p in reversed(children):stop(p)
 
