@@ -566,6 +566,11 @@ impl App {
             let effect=self.settings.as_mut().unwrap().key(key,text,composing);
             return self.settings_effect(effect);
         }
+        // No legacy dialogs in the calm review build, including keyboard routes.
+        if self.modifiers.control_key() && self.modifiers.shift_key()
+            && (*key==Key::Named(NamedKey::Enter) || matches!(key,Key::Character(ch) if ["p","f","o"].contains(&ch.to_lowercase().as_str()))) {
+            self.status=Some("This screen is being rebuilt.".into());return Ok(());
+        }
         if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
             && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))

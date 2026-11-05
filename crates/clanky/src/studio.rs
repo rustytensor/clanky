@@ -341,13 +341,7 @@ impl App {
         if window_tools::url_click(hit.as_ref(), self.modifiers.control_key(), |url| {
             self.url_opener.open(url).map_err(|_| "Could not open URL".to_owned())
         })? { return Ok(()); }
-        if location_at(&snapshot, y, x).is_some() {
-            if !self.local_files { return Err("Remote terminal file clicks are not supported".into()); }
-            let cwd = self.cwd(Some(&id)).unwrap_or(None);
-            let editor = EditorPane::from_click(&snapshot, y, x, cwd.as_deref())?;
-            self.files.add(TERMINALS, editor, Axis::Columns, self.rect()?)?;
-            self.reset_ime(); self.resize_panes()?;
-        }
+        // File/editor entry stays unavailable until its calm controls are rebuilt.
         Ok(())
     }
     pub(super) fn drag_studio(&mut self) -> Result<(), String> {

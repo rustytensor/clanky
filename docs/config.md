@@ -1,5 +1,9 @@
 # Configuration
 
+M12 preview: the calm window currently uses Stone dark. Legacy Settings, palette,
+search, compose and editor entries are hidden, including their opening shortcuts,
+until their replacement screens are ready. Edit the JSON file to change settings.
+
 Clanky reads a JSON object from `$XDG_CONFIG_HOME/clanky/config.json`, or
 `$HOME/.config/clanky/config.json` if XDG_CONFIG_HOME is unset or empty.
 `clanky --config PATH` selects another file. A missing default file uses defaults;
@@ -7,9 +11,13 @@ a missing explicit file, invalid value or unknown key is an error.
 
 | Key | Type | Default | Allowed values / effect |
 | --- | --- | --- | --- |
-| `font_size` | number | 16 | Finite, 8–32 logical pixels inclusive |
-| `font_size_pt` | number | 12 | Legacy: finite, 6–48 points inclusive; font_size wins when both exist |
+| `font_size` | number | 13 | Finite, 8–32 logical pixels inclusive |
+| `font_size_pt` | number | 9.75 | Legacy: finite, 6–48 points inclusive; font_size wins when both exist |
 | `theme` | string | `system` | `dark`, `light` or `system`; system follows desktop changes live, falling back to dark |
+| `theme_dark` | string | `stone-dark` | Dark built-in ID or safe `user:<slug>` ID |
+| `theme_light` | string | `stone-light` | Light built-in ID or safe `user:<slug>` ID |
+| `post_ai` | boolean | false | Requests Post-AI mode; runtime enforcement is not yet integrated in this preview |
+| `startup_animation` | boolean | true | Show the robot greeting; `animations: false` also disables it |
 | `colors` | object | `{}` | Overrides the active theme's named tokens with `#rrggbb` strings |
 | `columns` | integer | 80 | 1–1000 inclusive |
 | `rows` | integer | 24 | 1–1000 inclusive; columns × rows must not exceed 250,000 |
@@ -20,11 +28,11 @@ a missing explicit file, invalid value or unknown key is an error.
 | `osc52_read` | boolean | false | Explicitly allow clipboard reads, capped at 64 KiB |
 | `notify_after_seconds` | integer | 10 | Nonnegative u64 seconds; 0 disables command-finished notifications |
 | `restore_layout` | boolean | true | Save/restore local terminal layout and directories; existing server state wins |
-| `opacity` | number | 0.94 | Finite, 0.5–1.0; M11 scene background alpha |
+| `opacity` | number | 1.0 | Finite, 0.5–1.0; window background alpha |
 | `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
 | `rails` | boolean | true | Initially show both Studio rails |
-| `font_family` | string | `JetBrains Mono` | Bundled terminal default; otherwise name an installed family |
-| `ui_font_family` | string | `Inter` | Bundled UI default; otherwise name an installed family |
+| `font_family` | string | `Geist Mono` | Bundled terminal default; otherwise name an installed family |
+| `ui_font_family` | string | `Geist` | Bundled UI default; otherwise name an installed family |
 
 ```json
 {"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}
@@ -36,7 +44,8 @@ Ctrl+, or the top-bar Settings button opens the same file as a point-and-click
 panel; see [Settings](settings.md). Zoom changes remain window-local and do not
 rewrite the file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
-The bundled scene fonts are JetBrains Mono and Inter. Legacy M1/M2 offscreen
+The default scene fonts are Geist Mono and Geist. JetBrains Mono and Inter remain
+bundled and explicit font settings are preserved. Legacy M1/M2 offscreen
 fixtures retain DejaVu Sans Mono. Legacy font_size_pt remains accepted without
 clamping it to the new key's narrower range; 12 points equals 16 logical pixels.
 

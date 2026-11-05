@@ -5,16 +5,8 @@ use clanky::settings_panel::Effect;
 impl App {
     pub(super) fn settings_open(&self) -> bool { self.settings.as_ref().is_some_and(|panel|panel.open) }
     pub(super) fn toggle_settings(&mut self) -> Result<(),String> {
-        let Some(panel)=self.settings.as_mut() else {
-            self.status=Some(self.settings_error.clone().unwrap_or_else(||"No settings path is available".into()));
-            return Ok(());
-        };
-        panel.toggle();
-        self.clear_card_focus();
-        self.studio.drag=None;
-        self.files.dragging=None;
-        self.compose_dragging=false;
-        self.reset_ime();
+        // Never fall back to the legacy form while the replacement is being built.
+        self.status=Some("Settings is being rebuilt.".into());
         Ok(())
     }
     pub(super) fn settings_effect(&mut self,effect:Effect) -> Result<(),String> {
