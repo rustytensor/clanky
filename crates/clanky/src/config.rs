@@ -25,6 +25,7 @@ pub struct Config {
     pub restore_layout: bool,
     pub opacity: f32,
     pub animations: bool,
+    pub startup_animation: bool,
     pub rails: bool,
     pub font_family: String,
     pub ui_font_family: String,
@@ -52,6 +53,7 @@ impl Default for Config {
             restore_layout: true,
             opacity: 0.94,
             animations: true,
+            startup_animation: true,
             rails: true,
             font_family: "JetBrains Mono".into(),
             ui_font_family: "Inter".into(),
@@ -247,6 +249,9 @@ impl Config {
                         return Err("opacity must be finite and between 0.5 and 1.0".into());
                     }
                     config.opacity = opacity as f32;
+                }
+                "startup_animation" => {
+                    config.startup_animation = value.as_bool().ok_or("startup_animation must be boolean")?;
                 }
                 "animations" | "rails" => {
                     let enabled = value.as_bool().ok_or_else(|| format!("{key} must be a boolean"))?;
