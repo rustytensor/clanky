@@ -13,6 +13,22 @@ impl FrameTrace {
             OpenOptions::new().create_new(true).write(true).open(path).map_err(|e|e.to_string())).transpose()?;
         Ok(Self{file,started:Instant::now(),sequence:0,pending:Vec::new()})
     }
+    pub fn robot_started(&mut self,duration_ms:u64){
+        if let Some(file)=&mut self.file{
+            let _=writeln!(file,"robot_start,{duration_ms},{}",self.started.elapsed().as_micros());
+        }
+    }
+    pub fn robot_sample(&mut self,elapsed_ms:u64){
+        if let Some(file)=&mut self.file{
+            let _=writeln!(file,"robot_sample,{elapsed_ms},{}",self.started.elapsed().as_micros());
+        }
+    }
+    pub fn robot_stopped(&mut self,skipped:bool){
+        if let Some(file)=&mut self.file{
+            let event=if skipped {"robot_skip"}else{"robot_end"};
+            let _=writeln!(file,"{event},0,{}",self.started.elapsed().as_micros());
+        }
+    }
     pub fn key_event(&mut self){
         if let Some(file)=&mut self.file{
             self.sequence+=1;let time=self.started.elapsed().as_micros();
