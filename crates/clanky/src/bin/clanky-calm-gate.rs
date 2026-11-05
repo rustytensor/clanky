@@ -119,6 +119,11 @@ fn run() -> Result<(), String> {
     let (dark,sizes) = render(&shown,&state,"stone-dark",output,fault)?;
     let (light,_) = render(&shown,&state,"stone-light",output,false)?;
     let (bedazzled,_) = render(&shown,&state,"ai-bedazzled",output,false)?;
+    for theme in themes::BUILTINS {
+        if !["stone-dark","stone-light","ai-bedazzled"].contains(&theme.id) {
+            render(&shown,&state,theme.id,output,false)?;
+        }
+    }
     println!("{}",json!({
         "layout":{"inset":calm::inset(&shown).array(),"a":pane(&shown,"A")?,"b":pane(&shown,"B")?,"pty_a":pty_a,"pty_b":pty_b},
         "hidden":{"inset":calm::inset(&hidden).array(),"a":pane(&hidden,"A")?},

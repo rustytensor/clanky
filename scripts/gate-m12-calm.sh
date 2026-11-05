@@ -25,5 +25,6 @@ flock "$CLANKY_BUILD_LOCK" cargo test --offline --locked -p clanky --lib themes:
 python3 scripts/gate-m12-post-ai.py
 "$CARGO_TARGET_DIR/debug/clanky-calm-gate" "$work" > "$work/observations.json"
 python3 scripts/gate-m12-calm.py --no-idle < "$work/observations.json"
-echo 'FAIL: M12 gate incomplete: clicks, key echo, theme contrast and storage, robot input routing, pictures and regression are not yet checked' >&2
+python3 scripts/m12-pictures.py "$work" "$CARGO_TARGET_DIR/look"
+echo 'FAIL: M12 gate incomplete: clicks, key echo, theme contrast and storage, robot input routing and regression are not yet checked' >&2
 exit 1
