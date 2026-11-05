@@ -142,7 +142,7 @@ limits include 128 tasks and 64 KiB per selected payload. See [block actions](de
 hello is public; auth attempts owner authentication. **Every other v3 operation
 below is owner-only**, including focus, metadata, search and clipboard operations.
 
-Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"0.6.1","executable":"64768:1234567"}}}`. `build.executable` is the device and inode of the server's running executable (null if unreadable); a window running a different file warns that its server is another build.
+Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"0.6.1","executable":"64768:1234567"},"row_delta":true}}`. `build.executable` is the device and inode of the server's running executable (null if unreadable); a window running a different file warns that its server is another build. `row_delta: true` says the server accepts known_rows/known_cols on snapshot.
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
 Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 
@@ -209,7 +209,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | workspace_get / workspace_set | Layout, focus, active group and revision; stale update revisions conflict |
 | shell_defaults | Server argv, startup cwd and home (home may be null) |
 | window_changes | Owner-only change revision; after/timeout_ms (0–1000); no terminal payload |
-| snapshot | Owner-display-masked cells/cursor/images; unconfirmed prefixes remain visible; known_generation/known_images avoid retransfers; known_rows (one `clanky_core::row_hash` per held row, same row count) gets `delta: true` with empty `snapshot.cells` and `changed_rows` as `[row, cells]` pairs; block_anchors accompanies changed snapshots |
+| snapshot | Owner-display-masked cells/cursor/images; unconfirmed prefixes remain visible; known_generation/known_images avoid retransfers; known_rows (one `clanky_core::row_hash` per held row) with known_cols, when both match the terminal's size, gets `delta: true` with empty `snapshot.cells` and `changed_rows` as `[row, cells]` pairs; block_anchors accompanies changed snapshots |
 | history | Raw retained history with offset/limit (at most 64), total and next_offset |
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |
