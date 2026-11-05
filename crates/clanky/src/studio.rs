@@ -33,7 +33,7 @@ pub struct Studio {
     ime:Option<([u32;2],[u32;2])>,
     hits: Vec<Hotspot>,
     metadata: Value,
-    permissions: BTreeMap<String, bool>,
+    pub(super) permissions: BTreeMap<String, bool>,
     blocks: BTreeMap<String, Value>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
@@ -109,7 +109,7 @@ impl App {
     pub(super) fn layout_with(&self, server: &Tree) -> Result<look::Layout, String> {
         let m = self.metrics()?;
         let size = self.window.as_ref().ok_or("window not ready")?.inner_size();
-        Ok(clanky::calm::layout([size.width, size.height], self.scale, self.panels.visible,false,
+        Ok(clanky::calm::layout([size.width, size.height], self.scale, self.panels.visible,self.applied_post_ai,
             &expand(&self.files.layout, server), [m.cell_width, m.cell_height]))
     }
     pub(super) fn pixel_layout(&self) -> Result<look::Layout, String> {
@@ -414,10 +414,11 @@ impl App {
     pub(super) fn draw_studio(&mut self) -> Result<(), String> {
         if self.stop || self.is_suspended() { return Ok(()); }
         let layout = self.pixel_layout()?;
+        if let Some(theme)=self.theme_runtime.as_ref().and_then(|runtime|runtime.active()) {self.studio.calm_theme=theme.clone();}
         self.studio.theme=clanky::calm::legacy_palette(&self.studio.calm_theme);
         self.files.viewport = Some(layout.clone());
         let now = Instant::now();
-        let mut state = LookState { theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
+        let mut state = LookState { post_ai:self.applied_post_ai, theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
             elapsed_ms: self.studio.started.elapsed().as_secs_f32()*1000.0,
             focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
@@ -727,8 +728,9 @@ impl App {
             presentation.scene.layers.push(Layer::Text(TextRun { origin:[layout.metrics.outer_gap as f32,layout.window_px[1] as f32-layout.metrics.panel_line_height as f32],text:truncate(status,(layout.window_px[0] as f32-2.0*layout.metrics.outer_gap as f32)/layout.metrics.small_font_px as f32),px:layout.metrics.small_font_px as f32,color:state.theme.accent,weight:500,mono:false,opacity:1.0,letter_spacing:0.0 }));
         }
         if let Some(panel)=&mut self.settings {
-            let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|(pane.id.clone(),pane.allow_agent)).collect();
-            presentation.scene.layers.extend(panel.draw_with_measure(&layout,&state.theme,&access,&mut |run|renderer.measure_text(run)));
+            panel.forced_post_ai=self.startup_flags.post_ai;
+            let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
+            presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,&access,state.masking_ready,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             if panel.open{ime=panel.ime_position();}
         }
         self.studio.hits = presentation.hits;
@@ -746,9 +748,11 @@ impl App {
         }
         self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
         self.frame_trace.presented();
+        self.frame_trace.gate_frame(self.gate_clock.as_ref().map(|clock| clock.elapsed_ms()));
         self.terminal_dirty=false;
         let animation_end=self.animation_deadline(&state).into_iter().chain(self.robot_deadline()).max();
-        self.frame_clock.presented(Instant::now(),animation_end);
+        let presented_at=self.clock_now();
+        self.frame_clock.presented(presented_at,animation_end);
         Ok(())
     }
 }

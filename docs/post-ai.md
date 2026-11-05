@@ -29,9 +29,12 @@ the owner must explicitly resume agents and grant the required tab permissions a
 
 ## Window controls
 
-The Settings → General switch and hiding agent-only controls are still being connected.
-You may still see agent controls, but server refusal is enforced. The completed plain-terminal
-view keeps tabs, splits, command cards, search, Settings, editing, themes and masking; it hides
-Agents, activity, agent badges/access controls, Take over, Ask agent, agent compose and change review.
+Settings → General now switches the mode live. The window hides Agents, the right
+column, agent badges and access switches; terminal panes use the freed width.
+At the 1240×760 reference size, pane A is 952 pixels wide with 116 columns.
+Settings → Agents provides explicit Resume and per-pane grants after leaving the mode.
+
+Tabs, splits, Settings, themes and masking remain available. Unconverted palette,
+search, compose and editor entries stay hidden in this review build in either mode.
 
 See [verification results](m12-postai-results.md) and [agent access](getting-started.md#agents-and-safety).

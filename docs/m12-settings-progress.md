@@ -1,31 +1,44 @@
-# Settings rebuild: frame
+# Settings: all five rebuilt pages are live
 
-The replacement frame is in `crates/clanky/src/calm/settings_frame.rs`. It is not
-connected to the live window yet. Its Terminal page draws the approved copy,
-select, stepper, percentage slider and switches; input handling is unfinished.
-Appearance, General, Agents and Keys still need their page contents.
+General, Appearance, Terminal, Agents and Keys use the new 780×600 frame.
+Open it from the sidebar or Ctrl+comma. No legacy Settings fallback exists.
 
-The frame uses the approved HTML's measured 780×600 panel, 200-pixel sidebar,
-56-pixel header/footer and 68.84375-pixel bordered Terminal rows at scale 1.
-`settings_frame_geometry` passed after its planted +1-pixel width fault failed.
-The `settings-frame` example resolves themes through `ThemeStore` and
-`Config::resolved_document`, then renders a 2× comparison image.
+- General applies Post-AI server policy and hides agent UI. Pane A becomes
+  (268,76,952,326), with 116 columns; normal mode returns it to 81 columns.
+- Appearance selects themes, edits/resets colours, and saves/exports/imports through
+  ThemeStore. Built-ins remain unchanged; exported/imported bytes are preserved.
+- Terminal applies font, size, opacity, side columns and animations immediately.
+- Agents displays masking and named pane permissions. Stop revokes access and
+  blocks new agents. Resume does not silently restore pane permissions.
+- Keys lists only available shortcuts in key chips. Agents and agent shortcuts
+  disappear in Post-AI. Long pages support the wheel and Page Up/Down.
 
-Comparison files are under `/srv/devops/build/clanky-editor-m12-reference/`:
-`settings-terminal-2x.png` and `settings-terminal-reference-2x.png`.
-These are frame previews, not evidence that the Settings controls work.
+## Checks
 
-Legacy Settings, palette, search, compose and editor opening routes are hidden
-in the calm review build, including keyboard and terminal-path mouse routes.
-A private-window check pressed Settings and palette shortcuts, then typed a
-command; its exact output still reached the shell. This check preceded the lead's
-robot integration. The combined tree passed a binary/library compile check.
+All three private-window checks passed, once each:
+- `clanky-settings-live-check.py`: 81→116→81 columns; font, size, opacity, columns
+  and animation settings saved; shell input resumed after Settings closed.
+- `clanky-appearance-live-check.py`: pinned Light/Graphite window pixels, colour
+  (1,2,3), Reset, and byte-identical save→export→import.
+- `clanky-access-live-check.py`: a real agent read after a pane grant, revocation,
+  blocked creation, explicit resume, hidden Agents entry and scrolling Keys.
 
-Live-window defaults are Geist Mono 13 px, Geist UI and full opacity. Explicit
-older font settings remain intact. The default-font check passed after its
-planted fault failed. The ANSI provenance check passed with unchanged colour
-expectations, sampling the new renderer's 8×20 cell centres.
+These scripts/logs are under `/srv/devops/build/`. Frame geometry and clipping
+pixel checks passed after their planted faults failed. The release build and
+documentation gate passed. Full regression was not run.
 
-Next: connect Settings controls to the shared settings/theme APIs, complete the
-remaining pages, and enforce Post-AI at the server and MCP boundaries. Post-AI
-config parsing alone is not enforcement; that part is not implemented yet.
+## Visual review
+
+Native 2× crops: `/srv/devops/build/clanky-editor-m12-reference/`
+`settings-{general,appearance,terminal,agents,keys}-live-2x.png` and
+`settings-terminal-light-live-2x.png`. The approved browser reference is unchanged.
+Keyboard rings are 2 pixels; ordinary mouse clicks do not show keyboard focus.
+
+Review follow-up: Catppuccin cards show the flavour above a 12 px muted family
+label. Other built-ins remain one line. The focused label check passed for all
+13 built-ins, including space for the selected checkmark. Updated native crops:
+`settings-appearance-{dark,light}-labels-live-2x.png` in the same folder.
+
+Next UI task: rebuild the palette, then restore the top-bar search entry with it.
+The lead still owns the 2× comparison and full regression. Unconverted palette,
+search, compose and editor entries remain hidden in either mode.
