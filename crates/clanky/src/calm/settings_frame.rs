@@ -19,7 +19,12 @@ pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry}
 pub struct Geometry {pub panel:PixelRect,pub nav:PixelRect,pub header:PixelRect,pub body:PixelRect,pub footer:PixelRect,pub scale:f32}
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w,h}}
 impl Geometry {
-    pub fn local(&self,x:f32,y:f32,w:f32,h:f32)->PixelRect{let s=self.scale;r(self.panel.x+x*s,self.panel.y+y*s,w*s,h*s)}
+    /// Panel-relative rectangle snapped to whole device pixels, so 1 px dividers stay crisp
+    /// at every scale (the layout's fractional Chrome offsets would smear them over 3 px at 2x).
+    pub fn local(&self,x:f32,y:f32,w:f32,h:f32)->PixelRect{let s=self.scale;
+        let (x0,y0)=((self.panel.x+x*s).round(),(self.panel.y+y*s).round());
+        let (x1,y1)=((self.panel.x+(x+w)*s).round(),(self.panel.y+(y+h)*s).round());
+        r(x0,y0,(x1-x0).max(if w>0.0{1.0}else{0.0}),(y1-y0).max(if h>0.0{1.0}else{0.0}))}
 }
 pub fn geometry(window:[u32;2],scale:f32)->Geometry{
     let x=(window[0] as f32-780.0*scale)/2.0;let y=(window[1] as f32-600.0*scale)/2.0;
