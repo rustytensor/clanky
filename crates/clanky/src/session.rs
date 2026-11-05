@@ -118,8 +118,8 @@ pub fn server_build_notice(client: &Client) -> Option<String> {
     let ours = platform::executable_identity()?;
     let build = &hello["build"];
     if build["executable"].as_str() == Some(ours.as_str()) { return None; }
-    let version = build["version"].as_str().map_or_else(|| "an older build".to_owned(), |v| format!("v{v}"));
-    Some(format!("Session server runs {version}, not this window's build. Restart it to update (this closes its shells)."))
+    let version = build["version"].as_str().map_or_else(|| "an older build".to_owned(), |v| format!("another v{v} build"));
+    Some(format!("Session server is {version}. Restart it to update; that closes its shells."))
 }
 
 pub fn run_server(socket: &Path) -> Result<(), String> {

@@ -14,7 +14,7 @@ pub enum Command {
 }
 
 #[derive(Clone,Debug,PartialEq)]
-pub struct Entry { pub group:&'static str, pub label:String, pub keys:&'static str, pub command:Command }
+pub struct Entry { pub group:&'static str, pub label:String, pub keys:&'static [&'static str], pub command:Command }
 
 /// What the window knows when the palette lists its commands.
 #[derive(Clone,Debug,Default)]
@@ -49,24 +49,24 @@ pub struct Palette {
 fn base(context:&Context)->Vec<Entry>{
     let e=|group,label:&str,keys,command|Entry{group,label:label.into(),keys,command};
     let mut out=vec![
-        e("Terminal","New tab","Ctrl⇧T",Command::NewTab),
-        e("Terminal","Split right","Ctrl⇧D",Command::SplitRight),
-        e("Terminal","Split down","Ctrl⇧E",Command::SplitDown),
-        e("Terminal","Close pane","Ctrl⇧W",Command::ClosePane),
+        e("Terminal","New tab",&["Ctrl","Shift","T"],Command::NewTab),
+        e("Terminal","Split right",&["Ctrl","Shift","D"],Command::SplitRight),
+        e("Terminal","Split down",&["Ctrl","Shift","E"],Command::SplitDown),
+        e("Terminal","Close pane",&["Ctrl","Shift","W"],Command::ClosePane),
     ];
     if !context.post_ai && context.terminal.is_some() {
-        out.push(e("Agents","Allow or block agents in this pane","Ctrl⇧A",Command::ToggleAgentAccess));
+        out.push(e("Agents","Allow or block agents in this pane",&["Ctrl","Shift","A"],Command::ToggleAgentAccess));
     }
-    if !context.post_ai { out.push(e("Agents","Stop every agent now","Ctrl⇧Esc",Command::StopAgents)); }
+    if !context.post_ai { out.push(e("Agents","Stop every agent now",&["Ctrl","Shift","Esc"],Command::StopAgents)); }
     out.extend([
-        e("View","Show or hide sidebars","Ctrl⇧B",Command::ToggleSidebars),
-        e("View","Zoom in","Ctrl +",Command::ZoomIn),
-        e("View","Zoom out","Ctrl −",Command::ZoomOut),
-        e("View","Reset zoom","Ctrl 0",Command::ZoomReset),
-        e("View","Settings","Ctrl ,",Command::Settings),
+        e("View","Show or hide sidebars",&["Ctrl","Shift","B"],Command::ToggleSidebars),
+        e("View","Zoom in",&["Ctrl","+"],Command::ZoomIn),
+        e("View","Zoom out",&["Ctrl","-"],Command::ZoomOut),
+        e("View","Reset zoom",&["Ctrl","0"],Command::ZoomReset),
+        e("View","Settings",&["Ctrl",","],Command::Settings),
     ]);
     for (id,title,active) in &context.sessions {
-        if !active { out.push(Entry{group:"Sessions",label:format!("Go to {title}"),keys:"",command:Command::Session(id.clone())}); }
+        if !active { out.push(Entry{group:"Sessions",label:format!("Go to {title}"),keys:&[],command:Command::Session(id.clone())}); }
     }
     out
 }
@@ -92,7 +92,7 @@ pub fn entries(context:&Context,query:&str)->Vec<Entry>{
     let typed=query.trim();
     if !typed.is_empty() && !typed.chars().any(char::is_control) {
         if let Some(pane)=&context.terminal {
-            out.push(Entry{group:"Run",label:format!("Run “{typed}” in {pane}"),keys:"",command:Command::Run(typed.into())});
+            out.push(Entry{group:"Run",label:format!("Run “{typed}” in {pane}"),keys:&[],command:Command::Run(typed.into())});
         }
     }
     out
@@ -206,7 +206,7 @@ impl Palette {
                 let over=rect.contains(pointer.0,pointer.1);
                 p.shape(rect,6.0*s,if over && pressed{c.pressed}else{c.accent},None);
             }
-            let keys_left=if entry.keys.is_empty(){rect.x+rect.w-8.0*s}else{p.kbd(rect.x+rect.w-8.0*s,rect.y+6.0*s,&[entry.keys])-8.0*s};
+            let keys_left=if entry.keys.is_empty(){rect.x+rect.w-8.0*s}else{p.kbd(rect.x+rect.w-8.0*s,rect.y+6.0*s,entry.keys)-8.0*s};
             p.text(PixelRect{x:rect.x+8.0*s,y:rect.y,w:(keys_left-rect.x-8.0*s).max(0.0),h:rect.h},&entry.label,14.0*s,c.foreground,400,false);
             self.rows.push((rect,index));
         }
