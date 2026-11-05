@@ -16,7 +16,7 @@ a missing explicit file, invalid value or unknown key is an error.
 | `theme` | string | `system` | `dark`, `light` or `system`; system follows desktop changes live, falling back to dark |
 | `theme_dark` | string | `stone-dark` | Dark built-in ID or safe `user:<slug>` ID |
 | `theme_light` | string | `stone-light` | Light built-in ID or safe `user:<slug>` ID |
-| `post_ai` | boolean | false | Requests Post-AI mode; runtime enforcement is not yet integrated in this preview |
+| `post_ai` | boolean | false | Plain terminal: agents refused, `clanky mcp` exits 2; see [Post-AI mode](post-ai.md) |
 | `startup_animation` | boolean | true | Show the robot greeting; `animations: false` also disables it |
 | `colors` | object | `{}` | Overrides the active theme's named tokens with `#rrggbb` strings |
 | `columns` | integer | 80 | 1–1000 inclusive |
