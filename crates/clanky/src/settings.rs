@@ -104,7 +104,7 @@ impl Settings {
 }
 fn validate(path: &Path, bytes: &[u8]) -> Result<Config, String> {
     let text = std::str::from_utf8(bytes).map_err(|_| "settings file must be UTF-8")?;
-    let mut config = Config::from_json(text)?;
+    let mut config = Config::window_from_json(text)?;
     config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
     Ok(config)
 }
