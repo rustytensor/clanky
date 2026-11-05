@@ -356,6 +356,8 @@ impl App {
             }
             HitAction::PaletteChoice(index) => { self.panels.choose(&self.engine, index); self.local_request()?; self.reset_ime(); }
             HitAction::Block { tab_id, block_id, action } => self.card_action(&tab_id, &block_id, &action)?,
+            HitAction::Find(0) => { self.search.close(); self.reset_ime(); }
+            HitAction::Find(direction) => self.search.step(&self.engine, direction < 0)?,
         }
         Ok(())
     }
@@ -372,7 +374,12 @@ impl App {
             }
             return Ok(());
         }
-        if self.files.modal() || self.search.active_target().is_some() { return Ok(()); }
+        if self.search.active_target().is_some() {
+            // Only the find bar takes clicks while the pinned view is shown.
+            if let Some(action) = self.studio.hits.iter().rev().find(|h| h.rect.contains(self.mouse.0, self.mouse.1) && matches!(h.action, HitAction::Find(_))).map(|h| h.action.clone()) { return self.activate_studio(action); }
+            return Ok(());
+        }
+        if self.files.modal() { return Ok(()); }
         if let Some(action) = self.studio.hits.iter().rev().find(|h| h.rect.contains(self.mouse.0, self.mouse.1)).map(|h| h.action.clone()) {
             if !self.panels.open || matches!(action, HitAction::PaletteChoice(_)) { return self.activate_studio(action); }
         }
@@ -606,14 +613,11 @@ impl App {
                 self.studio.blocks.insert(pane.id.clone(), anchors);
             }
             if self.search.active_target() == Some(pane.id.as_str()) {
-                let mut search = cells(pane.rows+1,pane.cols,&state.theme);
-                self.search.draw(&mut search,&Rect { row: 1,col: 0,rows: pane.rows,cols:pane.cols });
-                let prompt = row_text(&search,0);
-                snapshot = cells(pane.rows,pane.cols,&state.theme);
-                snapshot.cells.clone_from_slice(&search.cells[pane.cols..]);
-                let mut card = panel("search", modal_rect(&layout,4), "Search retained terminal text", vec![line(prompt)]);
-                card.lines.push(line("Snapshot is pinned to the captured terminal · Escape closes"));
-                state.panels.push(card);
+                // The pinned search view replaces the live grid; matches use calm stone tints.
+                let c=&self.studio.calm_theme.colors;let mix=|t:f32|std::array::from_fn(|i|(c.background[i] as f32*(1.0-t)+c.foreground[i] as f32*t).round() as u8);
+                let blank=clanky_core::Cell{ch:' ',fg:[c.foreground[0],c.foreground[1],c.foreground[2]],bg:[c.background[0],c.background[1],c.background[2]],color_source:None};
+                if let Some(pinned)=self.search.pinned(pane.rows,pane.cols,blank,mix(0.16),mix(0.34)) { snapshot = pinned; }
+                state.find = Some((pane.id.clone(),self.search.query().to_owned(),self.search.total()));
             }
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;

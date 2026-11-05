@@ -242,6 +242,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             if ch!=' ' {p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&ch.to_string(),font_px,c.background,400,true);}
         }}
     }
+    if let Some((id,query,total))=&state.find{if let Some(pane)=layout.panes.iter().find(|pane|pane.id==*id){find_bar(&mut p,pane,query,*total);}}
     if let Some(side)=layout.right_rail{
         p.shape(r(side.x,side.y,s,side.h),0.0,c.border,None);
         let x=side.x+12.0*s;let width=(side.w-24.0*s).max(0.0);let mut y=side.y+12.0*s;
@@ -404,4 +405,34 @@ fn exit_badge(p:&mut Paint,rect:PixelRect,text:&str,ok:bool,tone:Color){
     p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.6,color:tone}),
         transform:Matrix4::scale(s,s,1.0).then(Matrix4::translate(tx,rect.y+(rect.h-12.0*s)/2.0,0.0))}],clip:p.clip,opacity:1.0}));
     p.text(r(tx+16.0*s,rect.y,rect.x+rect.w-7.0*s-tx-16.0*s,rect.h),text,12.0*s,tone,500,false);
+}
+
+/// Find bar over a pane's top right: the sheets' field (radius 8, input border, shadow)
+/// holding the query, the match count, previous / next and close, each clickable.
+fn find_bar(p:&mut Paint,pane:&look::PaneLayout,query:&str,total:usize){
+    let theme=p.theme;let c=&theme.colors;let s=p.scale;
+    let w=(360.0*s).min((pane.rect.w-16.0*s).max(0.0));if w<200.0*s{return;}
+    let bar=r((pane.rect.x+pane.rect.w-8.0*s-w).round(),(pane.rect.y+48.0*s).round(),w,40.0*s);
+    p.out.scene.layers.push(Layer::Shape(Shape{rect:bar.array(),radius:8.0*s,fill:Fill::Solid(c.background),border:None,shadow:Some(clanky_render::Shadow{offset:[0.0,2.0*s],blur:6.0*s,spread:0.0,color:shadow_color(theme)})}));
+    p.shape(bar,8.0*s,c.background,Some(c.ring));
+    p.icon("search",bar.x+12.0*s,bar.y+13.0*s,c.muted_foreground);
+    // Right to left: close, next, previous (28 px ghost buttons, 2 px apart), then the count.
+    let mut x=bar.x+bar.w-6.0*s;let mut buttons=Vec::new();
+    for (kind,action) in [("close",0i8),("down",1),("up",-1)]{x-=28.0*s;buttons.push((r(x,bar.y+6.0*s,28.0*s,28.0*s),kind,action));x-=2.0*s;}
+    for (rect,kind,action) in &buttons{
+        if rect.contains(p.pointer.0,p.pointer.1){p.shape(*rect,6.0*s,if p.pressed{c.pressed}else{c.accent},None);}
+        let mut path=Path::builder();
+        match *kind{"close"=>{path.begin(point(4.0,4.0));path.line_to(point(12.0,12.0));path.end(false);path.begin(point(12.0,4.0));path.line_to(point(4.0,12.0));path.end(false);}
+            "down"=>{path.begin(point(4.0,6.0));path.line_to(point(8.0,10.0));path.line_to(point(12.0,6.0));path.end(false);}
+            _=>{path.begin(point(4.0,10.0));path.line_to(point(8.0,6.0));path.line_to(point(12.0,10.0));path.end(false);}}
+        let disabled=*action!=0 && total==0;let color=if disabled{alpha(c.foreground,0.45)}else{c.foreground};
+        p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path:path.build(),fill:None,stroke:Some(PathStroke{width:1.5,color}),
+            transform:Matrix4::scale(s,s,1.0).then(Matrix4::translate(rect.x+6.0*s,rect.y+6.0*s,0.0))}],clip:p.clip,opacity:1.0}));
+        p.hit(*rect,HitAction::Find(*action));
+    }
+    let count=if query.is_empty(){String::new()}else if total==0{"No matches".into()}else if total==1{"1 match".into()}else{format!("{total} matches")};
+    let cw=p.width(&count,12.0*s,400);x-=cw+4.0*s;p.text(r(x,bar.y,cw,bar.h),&count,12.0*s,c.muted_foreground,400,false);
+    let text=r(bar.x+36.0*s,bar.y,(x-8.0*s-bar.x-36.0*s).max(0.0),bar.h);
+    if query.is_empty(){p.text(text,"Find in this pane",14.0*s,c.muted_foreground,400,false);p.shape(r(text.x,bar.y+12.0*s,s,16.0*s),0.0,c.foreground,None);}
+    else{p.text(text,query,14.0*s,c.foreground,400,false);let qw=p.width(query,14.0*s,400).min(text.w);p.shape(r((text.x+qw+2.0*s).round(),bar.y+12.0*s,s,16.0*s),0.0,c.foreground,None);}
 }
