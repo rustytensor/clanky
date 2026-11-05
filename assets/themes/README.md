@@ -18,8 +18,15 @@ not the design example's #ffefe1. `robot_paint` is required: Stone dark #6b5236 
 ANSI colours are a warm palette
 chosen for readable terminal text; they are not fixed by the mockup.
 
-Known spec conflict, reported to the lead: Stone light secondary text on `muted` is 4.40:1; success is 4.36:1
-and agent is 4.45:1. The approved colours are preserved, not silently darkened to satisfy the 4.5:1 gate.
+Marc approved the Stone light contrast correction (Y1, 2026-11-04, relayed by the lead):
+`muted_foreground` #6b6259, `ok` #456e4d, `err` #a14938, `agent` #8c5925.
+Matching Stone ANSI entries use the corrected colours too; other themes are unchanged.
+The earlier gate found 15 failing pairs, minimum 3.8150:1 at muted_foreground/pressed.
+The corrected WCAG minima are 4.55523812, 4.50939641, 4.55863803 and 4.52410773:1,
+respectively. Secondary text is checked on pressed; the three status minima include
+10% badge tints over muted (alpha 26/255). The required threshold is 4.5:1, not 4.55:1.
+Verification: `gate-m12-themes.sh --contrast-only` (unchanged gate from 01168ab) passed
+all 7 own themes with 0 failing pairs; the 6 approved exemptions remain explicit.
 
 ## Remaining built-ins
 

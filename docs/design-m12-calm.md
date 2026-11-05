@@ -48,6 +48,10 @@ A theme is a JSON file. Built-in themes ship inside the binary; user themes live
 - **`glow: true`** lets the focused pane and agent-driven panes glow, the way v0.6.1 drew them.
 - **Built-in themes:**
   - **Stone** (default, dark and light): the approved values, as on the sheets.
+    Marc's approved light contrast correction (Y1, 2026-11-04): `muted_foreground` #6b6259,
+    `ok` #456e4d, `err` #a14938, `agent` #8c5925. Their WCAG minimums are 4.55523812,
+    4.50939641, 4.55863803 and 4.52410773:1 respectively, including pressed surfaces and
+    10% status-badge tints. The requirement is 4.5:1; 4.55 was only a rounding margin.
   - **Paper:** warmer, with softer contrast, dark and light.
   - **Graphite:** cool neutral, shadcn's own neutral greys, dark and light.
   - **Catppuccin** (Marc's yes, 2026-11-04): Latte (light), Frappé, Macchiato and Mocha (dark). MIT. Colours are taken from the upstream
