@@ -732,10 +732,14 @@ impl App {
                 if self.studio.ime!=Some(area){window.set_ime_cursor_area(PhysicalPosition::new(area.0[0],area.0[1]),PhysicalSize::new(area.1[0],area.1[1]));self.studio.ime=Some(area);}
             }
         }
+        if let Some(pane) = layout.panes.first() {
+            let theme = self.studio.calm_theme.clone();
+            self.draw_robot(&mut presentation.scene, pane.rect.array(), &theme)?;
+        }
         self.renderer.as_mut().ok_or("renderer not ready")?.draw_scene(&presentation.scene)?;
         self.frame_trace.presented();
         self.terminal_dirty=false;
-        let animation_end=self.animation_deadline(&state);
+        let animation_end=self.animation_deadline(&state).into_iter().chain(self.robot_deadline()).max();
         self.frame_clock.presented(Instant::now(),animation_end);
         Ok(())
     }
