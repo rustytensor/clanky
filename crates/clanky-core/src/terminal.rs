@@ -105,6 +105,7 @@ struct Observer {
     marker: Option<u8>,
     prompt_start: Option<u64>,
     command_start: Option<(u64, usize)>,
+    command_starts: VecDeque<String>,
     kitty: crate::kitty::Kitty,
     cursor: (usize, usize),
     viewport: (usize, usize),
@@ -393,6 +394,10 @@ impl Terminal {
                     }
                     Some(command.trim_end_matches([' ', '\n']).to_owned())
                 });
+                if let Some(text)=command.as_ref().filter(|text|!text.trim().is_empty()) {
+                    self.observer.command_starts.push_back(text.chars().take(128).collect());
+                    while self.observer.command_starts.len()>20{self.observer.command_starts.pop_front();}
+                }
                 if let Some(block) = &mut self.observer.active {
                     block.command = command;
                     block.prompt_line = self.observer.prompt_start;
@@ -598,6 +603,7 @@ impl Terminal {
     pub fn set_focus_tracker(&mut self, focus: Arc<Mutex<Option<(u64, String)>>>) {
         self.observer.focus = Some(focus);
     }
+    pub(crate) fn take_command_starts(&mut self)->Vec<String>{self.observer.command_starts.drain(..).collect()}
     pub fn block_events(&self) -> Vec<BlockEvent> {
         self.observer.blocks.iter().chain(self.observer.active.iter()).map(|b| BlockEvent {
             block_id: b.block_id.clone(), complete: b.complete, exit_code: b.exit_code, duration_ms: b.duration_ms,

@@ -8,6 +8,7 @@ struct Connection {
     busy: bool,
     client_name: Option<String>,
     model: Option<String>,
+    announced: bool,
 }
 
 pub(super) struct Driver {
@@ -86,7 +87,7 @@ impl Engine {
         let _lifecycle = tab.map(|t| t.lifecycle.lock().unwrap());
         let tab_id = tab_id.filter(|_| tab.is_some_and(|t| !t.closed.load(Ordering::Acquire)));
         self.0.1.status.connections.lock().unwrap().insert(connection_id,
-            Connection { peer_pid: peer.pid, tab_id, busy: false, client_name: None, model: None });
+            Connection { peer_pid: peer.pid, tab_id, busy: false, client_name: None, model: None, announced: false });
     }
 
     /// Untrusted display labels only; never an authentication or permission input.
@@ -99,6 +100,16 @@ impl Engine {
         }
     }
 
+    /// Called only after an actual agent request, never an owner's pre-auth hello.
+    pub fn agent_connection_announced(&self,connection_id:u64){
+        let event={let mut connections=self.0.1.status.connections.lock().unwrap();
+            connections.get_mut(&connection_id).and_then(|peer|{
+                if peer.announced{return None;}peer.announced=true;
+                Some((peer.tab_id.clone().unwrap_or_default(),json!({"connection_id":connection_id,"client_name":peer.client_name,"model":peer.model})))
+            })
+        };
+        if let Some((tab,value))=event{self.0.1.record_recent("agent_connected",&tab,value);}
+    }
     pub fn agent_connection_closed(&self, connection_id: u64) {
         self.0.1.status.connections.lock().unwrap().remove(&connection_id);
     }
@@ -163,6 +174,6 @@ impl Engine {
         };
         json!({"uptime_ms":self.0.1.status.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "masking_ready":self.0.1.policy.stream().is_ok(),
-            "agents":agents,"drivers":drivers,"events":self.0.1.look_events(),"activity":activity})
+            "agents":agents,"drivers":drivers,"events":self.0.1.look_events(),"recent":self.0.1.look_recent(),"activity":activity})
     }
 }

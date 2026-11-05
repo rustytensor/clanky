@@ -242,6 +242,7 @@ fn client(
                     // Only successful runs supply a real, generated command ID.
                     let version = request["v"].as_u64().unwrap_or(0);
                     let op = request["op"].as_str().unwrap_or("");
+                    if response["ok"]==true && !(version==3 && matches!(op,"hello"|"auth")) {engine.agent_connection_announced(connection);}
                     if response["ok"] == true && ((version == 1 && op == "run") || (version == 2 && op == "rerun")) {
                         let tab = if op == "rerun" { &response["result"]["tab_id"] } else { &request["tab_id"] };
                         if let (Some(tab), Some(command)) = (tab.as_str(), response["result"]["command_id"].as_str()) {
