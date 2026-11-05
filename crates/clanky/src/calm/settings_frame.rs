@@ -11,7 +11,7 @@ impl Section {
     pub fn title(self)->&'static str {match self{Self::General=>"General",Self::Appearance=>"Appearance",Self::Terminal=>"Terminal",Self::Agents=>"Agents",Self::Keys=>"Keys"}}
 }
 #[derive(Clone,Debug,PartialEq)]
-pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool) }
+pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool),Mode(&'static str),Theme(String),Color(&'static str),ResetColor(&'static str),SaveTheme,ImportTheme,ExportTheme,Field(usize),Confirm,Cancel,PickColor(String) }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry}
@@ -26,7 +26,7 @@ pub fn geometry(window:[u32;2],scale:f32)->Geometry{
     let rect=|a,b,w,h|r(x+a*scale,y+b*scale,w*scale,h*scale);
     Geometry{panel:rect(0.0,0.0,780.0,600.0),nav:rect(1.0,1.0,200.0,598.0),header:rect(201.0,1.0,578.0,56.0),body:rect(201.0,57.0,578.0,486.0),footer:rect(201.0,543.0,578.0,56.0),scale}
 }
-fn icon(p:&mut Paint<'_>,kind:&str,rect:PixelRect,mut color:Color,s:f32){
+pub(super) fn icon(p:&mut Paint<'_>,kind:&str,rect:PixelRect,mut color:Color,s:f32){
     let mut path=Path::builder();let mut fill=None;
     let rounded=|p:&mut clanky_render::vector::lyon::path::Builder,x,y,w,h,radius|p.add_rounded_rectangle(&Box2D::new(point(x,y),point(x+w,y+h)),&BorderRadii{top_left:radius,top_right:radius,bottom_left:radius,bottom_right:radius},Winding::Positive);
     match kind{
@@ -35,12 +35,13 @@ fn icon(p:&mut Paint<'_>,kind:&str,rect:PixelRect,mut color:Color,s:f32){
         "Terminal"=>{rounded(&mut path,1.8,2.8,12.4,10.4,2.0);path.begin(point(4.5,6.5));path.line_to(point(6.5,8.0));path.line_to(point(4.5,9.5));path.end(false);path.begin(point(8.5,10.0));path.line_to(point(11.5,10.0));path.end(false);},
         "Agents"=>{rounded(&mut path,3.0,5.0,10.0,8.0,2.0);for(a,b)in[([8.0,5.0],[8.0,2.5]),([6.0,9.0],[6.01,9.0]),([10.0,9.0],[10.01,9.0])]{path.begin(point(a[0],a[1]));path.line_to(point(b[0],b[1]));path.end(false);}},
         "Keys"=>{rounded(&mut path,1.8,4.0,12.4,8.0,1.6);for x in[4.5,7.0,9.5,12.0]{path.begin(point(x,7.0));path.line_to(point(x+0.01,7.0));path.end(false);}path.begin(point(5.0,9.5));path.line_to(point(11.0,9.5));path.end(false);},
+        "check"=>{path.begin(point(3.5,8.5));path.line_to(point(6.5,11.5));path.line_to(point(12.5,4.5));path.end(false);},
         "close"=>{path.begin(point(4.0,4.0));path.line_to(point(12.0,12.0));path.end(false);path.begin(point(12.0,4.0));path.line_to(point(4.0,12.0));path.end(false);},
         _=>{path.begin(point(4.5,6.5));path.line_to(point(8.0,10.0));path.line_to(point(11.5,6.5));path.end(false);}
     }
     if Section::ALL.iter().any(|section|section.title()==kind){color[3]=(color[3] as f32*0.8).round() as u8;}
     let transform=Matrix4::scale(s,s,1.0).then(Matrix4::translate(rect.x,rect.y,0.0));
-    let stroke=PathStroke{width:if kind=="close" || kind=="chevron"{1.6}else{1.4},color};
+    let stroke=PathStroke{width:if kind=="check"{2.0}else if kind=="close" || kind=="chevron"{1.6}else{1.4},color};
     let mut paths=vec![VectorPath{path:path.build(),fill:None,stroke:Some(stroke.clone()),transform}];
     if let Some(path)=fill{paths.push(VectorPath{path,fill:Some(color),stroke:Some(stroke),transform});}
     p.out.scene.layers.push(Layer::Vector(VectorLayer{paths,clip:rect.array(),opacity:1.0}));
@@ -58,7 +59,7 @@ pub fn draw(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config
     draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&Section::ALL)
 }
 pub fn draw_live(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
-    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&[Section::General,Section::Terminal])
+    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&[Section::General,Section::Appearance,Section::Terminal])
 }
 fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,ready:&[Section])->Frame{
     let g=geometry(window,scale);let s=scale;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,window,pointer,pressed);let mut hits=Vec::new();
