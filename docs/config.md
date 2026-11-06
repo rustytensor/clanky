@@ -33,6 +33,9 @@ a missing explicit file, invalid value or unknown key is an error.
 | `rails` | boolean | true | Initially show both Studio rails |
 | `font_family` | string | `Geist Mono` | Bundled terminal default; otherwise name an installed family |
 | `ui_font_family` | string | `Geist` | Bundled UI default; otherwise name an installed family |
+| `history` | boolean | true | Save every command to the [history file](history.md); false creates no file and writes nothing |
+| `history_days` | integer | 90 | 0–3650; saved commands older than this are deleted at server start and daily; 0 keeps everything |
+| `history_output_kib` | integer | 256 | 1–65536; masked output stored per command, cut on a UTF-8 boundary |
 
 ```json
 {"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}

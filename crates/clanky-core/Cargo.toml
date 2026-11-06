@@ -12,3 +12,10 @@ libc = "=0.2.191"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 base64 = "=0.23.1"
+
+# Linux links the system libsqlite3 (Fedora rule); other platforms bundle it.
+[target.'cfg(target_os = "linux")'.dependencies]
+rusqlite = "=0.41.1"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rusqlite = { version = "=0.41.1", features = ["bundled"] }

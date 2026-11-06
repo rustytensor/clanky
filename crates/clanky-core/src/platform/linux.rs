@@ -1437,3 +1437,40 @@ mod runtime_directory_tests {
         fs::remove_dir_all(&base).unwrap();
     }
 }
+
+/// Saved command history: `$XDG_DATA_HOME/clanky/history.sqlite3`, or under
+/// `$HOME/.local/share` when XDG_DATA_HOME is unset or empty.
+pub fn history_path() -> Option<PathBuf> {
+    let data = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").filter(|v| !v.is_empty()).map(|home| PathBuf::from(home).join(".local/share")))?;
+    data.is_absolute().then(|| data.join("clanky/history.sqlite3"))
+}
+
+/// Create the history directory (0700) and an empty owner-only file (0600) if missing.
+/// An existing file keeps its bytes; only its mode is narrowed.
+pub fn prepare_history_file(path: &Path) -> io::Result<()> {
+    let dir = path.parent().ok_or_else(|| io::Error::other("history file has no directory"))?;
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    match fs::OpenOptions::new().write(true).create_new(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            if fs::symlink_metadata(path)?.file_type().is_symlink() {
+                return Err(io::Error::other("history file is a symbolic link"));
+            }
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// This machine's host name, or an empty string when the system has none.
+pub fn host_name() -> String {
+    let mut bytes = [0u8; 256];
+    if unsafe { libc::gethostname(bytes.as_mut_ptr().cast(), bytes.len()) } != 0 {
+        return String::new();
+    }
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}

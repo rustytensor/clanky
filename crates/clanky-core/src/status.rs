@@ -177,3 +177,24 @@ impl Engine {
             "agents":agents,"drivers":drivers,"events":self.0.1.look_events(),"recent":self.0.1.look_recent(),"activity":activity})
     }
 }
+
+thread_local! {
+    /// The agent connection this transport thread serves (None for none or owners).
+    static REQUEST_CONNECTION: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+/// Called by the transport on each connection's own thread before it handles requests.
+pub fn set_request_connection(connection: Option<u64>) {
+    REQUEST_CONNECTION.with(|c| c.set(connection));
+}
+impl Engine {
+    /// A connection's display name from its v4 hello, already masked; "agent" without one.
+    pub(super) fn agent_name(&self, connection: u64) -> String {
+        self.0.1.status.connections.lock().unwrap().get(&connection)
+            .and_then(|peer| peer.client_name.clone()).filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "agent".into())
+    }
+    /// The name of the agent whose request this thread is handling.
+    pub(super) fn request_agent_name(&self) -> String {
+        REQUEST_CONNECTION.with(|c| c.get()).map_or_else(|| "agent".into(), |id| self.agent_name(id))
+    }
+}

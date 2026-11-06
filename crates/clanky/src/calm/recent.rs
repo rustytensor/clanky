@@ -35,6 +35,13 @@ pub fn human_recent(records:&Value,labels:&BTreeMap<String,String>,agents:&Value
             Some("command_finished")=>(if record["exit_code"].as_i64().is_some_and(|code|code!=0){"Command failed"}else{"Command finished"},pane.into()),
             Some("agent_connected")=>("Agent connected",agent_name.map(|name|format!("{name} · {pane}")).unwrap_or_else(||pane.into())),
             Some("pane_closed")=>("Pane closed",pane.into()),
+            // One line from the server, such as a saved-history file problem.
+            Some("notice")=>{
+                if let Some(message)=record["message"].as_str().filter(|m|!m.is_empty()){
+                    out.push((record["age_ms"].as_u64().unwrap_or(0),TimelineItem{label:message.into(),detail:"Server notice".into()},None));
+                }
+                continue;
+            }
             _=>continue,
         };
         out.push((record["age_ms"].as_u64().unwrap_or(0),TimelineItem{label:label.into(),detail},None));

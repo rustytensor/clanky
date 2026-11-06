@@ -168,6 +168,8 @@ fn client(
     connection_id: u64,
 ) {
     let connection = connection_id;
+    // Saved history names the agent whose input submitted a command line.
+    clanky_core::set_request_connection(Some(connection_id));
     let admission_epoch = engine.post_ai_epoch();
     let _connection_guard = ConnectionGuard { engine: engine.clone(), connection };
     engine.agent_connection_role(connection, &peer, false);

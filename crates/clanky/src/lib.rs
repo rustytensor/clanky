@@ -1,5 +1,6 @@
 //! Shared application configuration and input state.
 pub mod config;
+pub mod history_cli;
 pub mod frame_trace;
 pub mod frame_clock;
 pub mod themes;

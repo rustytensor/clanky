@@ -13,7 +13,7 @@ Clanky is a GPU-rendered terminal in Rust, built for people who work alongside c
 - Run the one check that exercises your change, once. The full gate runs at the end of a milestone.
 - Builds: at most 8 jobs (`cargo build -j 8`). Keep `target/` where `CARGO_TARGET_DIR` points.
 - Commits: plain English, what changed and why. No AI tool names in commits or code.
-- New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0, MPL-2.0 (spellbook only), or Unlicense (Unlicense only where MIT is also offered). Bundled fonts may use OFL-1.1 (Marc, 2026-11-04: JetBrains Mono and Inter).
+- New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0, MPL-2.0 (spellbook only), or Unlicense (Unlicense only where MIT is also offered). Bundled fonts may use OFL-1.1 (Marc, 2026-11-04: JetBrains Mono and Inter). SQLite: public domain (Marc, 2026-11-04); rusqlite is MIT.
 - Never weaken an expected value to make a test pass.
 - M12 review builds must never expose an old-style M11 screen. Hide its mouse entries and keyboard routes
   until its replacement is ready. Settings must match `/srv/devops/build/clanky/mockups/settings.html`
