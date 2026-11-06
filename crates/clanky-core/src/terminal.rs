@@ -81,6 +81,15 @@ pub(crate) struct Block {
     #[serde(skip)]
     pub focused_tab_at_completion: Option<String>,
     pub truncated: bool,
+    /// Wall clock at the C marker (Unix ms), for saved history.
+    #[serde(skip)]
+    pub started_unix_ms: i64,
+    /// OSC 7 directory reported before the C marker, if any.
+    #[serde(skip)]
+    pub reported_cwd: Option<String>,
+    /// (cwd, actor) for saved history, filled by the tab when it first sees the block.
+    #[serde(skip)]
+    pub origin: Option<(Option<String>, String)>,
 }
 #[derive(Serialize)]
 pub(crate) struct BlockEvent {
@@ -110,6 +119,9 @@ struct Observer {
     cursor: (usize, usize),
     viewport: (usize, usize),
     responses: Option<SyncSender<Vec<u8>>>,
+    /// Sealed blocks kept for saved history until the tab takes them.
+    history: bool,
+    sealed: Vec<Block>,
 }
 impl Observer {
     fn seal(&mut self, code: Option<i32>, complete: bool) {
@@ -128,6 +140,7 @@ impl Observer {
             } else {
                 None
             };
+            if self.history { self.sealed.push(b.clone()); }
             self.blocks.push_back(b);
             while self.blocks.len() > 1024 {
                 self.blocks.pop_front();
@@ -217,6 +230,9 @@ impl vte::Perform for Observer {
                     duration_ms: None,
                     focused_tab_at_completion: None,
                     truncated: false,
+                    started_unix_ms: crate::history::now_ms(),
+                    reported_cwd: self.cwd.clone(),
+                    origin: None,
                 });
                 self.started = Some(Instant::now());
             }
@@ -645,6 +661,26 @@ impl Terminal {
     }
     pub fn set_focus_tracker(&mut self, focus: Arc<Mutex<Option<(u64, String)>>>) {
         self.observer.focus = Some(focus);
+    }
+    /// Saved history: turn recording of sealed blocks on or off.
+    pub(crate) fn record_history(&mut self, on: bool) {
+        self.observer.history = on;
+        if !on { self.observer.sealed.clear(); }
+    }
+    /// Give each block seen for the first time its origin, then hand over the
+    /// blocks sealed since the last call.
+    pub(crate) fn take_sealed(&mut self, mut origin: impl FnMut(&Block) -> (Option<String>, String)) -> Vec<Block> {
+        for block in self.observer.sealed.iter_mut().chain(self.observer.active.iter_mut()) {
+            if block.origin.is_none() { block.origin = Some(origin(block)); }
+        }
+        std::mem::take(&mut self.observer.sealed)
+    }
+    pub(crate) fn needs_origin(&self) -> bool {
+        self.observer.sealed.iter().chain(self.observer.active.iter()).any(|b| b.origin.is_none())
+    }
+    /// Seal a running block as interrupted (server shutdown).
+    pub(crate) fn interrupt(&mut self) {
+        self.observer.seal(None, false);
     }
     pub(crate) fn take_command_starts(&mut self)->Vec<String>{self.observer.command_starts.drain(..).collect()}
     pub fn block_events(&self) -> Vec<BlockEvent> {

@@ -8,6 +8,7 @@ mod events;
 mod masking;
 #[path = "status.rs"]
 mod status;
+pub use status::set_request_connection;
 #[path = "window_changes.rs"]
 mod window_changes;
 #[path = "readiness.rs"]
@@ -221,6 +222,8 @@ pub(crate) struct Tab {
     commands: Mutex<Commands>,
     process: Mutex<Option<Process>>,
     actions: Mutex<actions::ActionState>,
+    /// Saved history's actor: 'you' or the agent whose input came last.
+    last_actor: Mutex<String>,
 }
 impl Tab {
     fn new(
@@ -252,7 +255,43 @@ impl Tab {
             }),
             process: Mutex::new(None),
             actions: Mutex::new(actions::ActionState::default()),
+            last_actor: Mutex::new("you".into()),
         }
+    }
+    pub(crate) fn set_actor(&self, actor: String) {
+        *self.last_actor.lock().unwrap() = actor;
+    }
+    /// Send blocks sealed since the last call to saved history, masked by the strict
+    /// policy and capped. Raw text never leaves this function.
+    fn save_history(&self) {
+        let Some(history) = self.safety.history.get() else { return; };
+        let enabled = history.enabled();
+        let needs_origin = {
+            let mut terminal = self.terminal.lock().unwrap();
+            terminal.record_history(enabled);
+            if !enabled { return; }
+            terminal.needs_origin()
+        };
+        // Never hold the terminal lock while taking the process lock.
+        let cwd = if needs_origin { self.process.lock().unwrap().as_ref().and_then(Process::cwd) } else { None };
+        let actor = self.last_actor.lock().unwrap().clone();
+        let sealed = self.terminal.lock().unwrap()
+            .take_sealed(|block| (block.reported_cwd.clone().or_else(|| cwd.clone()), actor.clone()));
+        for mut block in sealed {
+            if self.safety.policy.block(&mut block, true).is_err() { continue; }
+            let cut = crate::history::cap_output(&mut block.output, history.output_cap());
+            let (cwd, actor) = block.origin.take().unwrap_or((None, "you".into()));
+            history.command(crate::history::Record {
+                tab_id: self.id.clone(), started_at: block.started_unix_ms, cwd, actor, command: block.command,
+                exit_code: block.exit_code, duration_ms: block.duration_ms, complete: block.complete,
+                output: block.output, output_truncated: cut || block.truncated,
+            });
+        }
+    }
+    /// Server shutdown: a running block is saved as interrupted.
+    pub(crate) fn interrupt_for_history(&self) {
+        self.terminal.lock().unwrap().interrupt();
+        self.save_history();
     }
     pub fn feed(&self, command: &str, bytes: &[u8]) {
         *self.last_output.lock().unwrap() = Instant::now();
@@ -262,6 +301,7 @@ impl Tab {
             (responses,terminal.take_command_starts())
         };
         for command in starts{self.safety.record_recent("command_run",&self.id,json!({"program":command}));}
+        self.save_history();
         if !bytes.is_empty() {
             *self.last_output.lock().unwrap()=Instant::now();
             self.safety.readiness.activity(&self.id);
@@ -277,6 +317,7 @@ impl Tab {
     }
     pub fn eof(&self, _: &str) {
         self.terminal.lock().unwrap().eof();
+        self.save_history();
     }
     fn command(&self, id: &str) -> Result<Arc<Command>, CoreError> {
         self.commands
@@ -354,6 +395,26 @@ impl Engine {
         engine.start_monitor();
         engine
     }
+    /// Saved history for this server; set once, before the first tab.
+    pub fn set_history(&self, history: crate::history::History) {
+        let _ = self.0.1.history.set(history);
+    }
+    pub fn history(&self) -> Option<crate::history::History> {
+        self.0.1.history.get().cloned()
+    }
+    /// Shutdown: save every running block as interrupted, then write, end the
+    /// session and checkpoint. Call before the shells are stopped.
+    pub fn finish_history(&self) {
+        let Some(history) = self.0.1.history.get() else { return; };
+        let tabs: Vec<_> = self.0.0.lock().unwrap().tabs.values().cloned().collect();
+        for tab in tabs { tab.interrupt_for_history(); }
+        history.finish();
+    }
+    /// A one-line notice the person should see (Recent activity and the server log).
+    pub fn notice(&self, message: &str) {
+        eprintln!("clanky: {message}");
+        self.0.1.record_recent("notice", "", json!({"message": self.mask_message(message)}));
+    }
     /// Publish focus only from an authenticated owner connection.
     pub fn set_window_focus(&self, connection: u64, tab: Option<&str>) -> Result<(), CoreError> {
         if let Some(id) = tab {
@@ -426,6 +487,7 @@ impl Engine {
             .as_ref()
             .ok_or_else(|| error("not_found", "no active process"))?;
         *t.last_input.lock().unwrap() = Some(Instant::now());
+        t.set_actor("you".into());
         t.terminal.lock().unwrap().input_submitted();
         let result=p.input(bytes.to_vec()).map_err(|e| error("resource_limit", e.to_string()));
         if result.is_ok(){self.0.1.readiness.activity(tab_id);}

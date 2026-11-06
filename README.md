@@ -73,6 +73,7 @@ Pick one for dark and one for light, and Clanky follows your system. Save, impor
 - **An editor with change review.** Ctrl+Shift+O opens a file. When an agent proposes changes, you accept or reject each one.
 - **Compose** with Ctrl+Shift+Enter: a spell-checked box for long prompts.
 - **Post-AI mode.** `clanky --post-ai`, or one switch in Settings, makes Clanky a plain terminal: agents are refused and every agent control disappears. [More](docs/post-ai.md).
+- **Saved history.** Every command, who ran it and its masked output are kept in one SQLite file you can search, export and edit: `clanky history`. [More](docs/history.md).
 - **Clanky the robot** says hello the first time you start (7 s; any key skips it). `clanky +hello` brings him back. [More](docs/robot.md).
 
 ## Install

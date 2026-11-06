@@ -251,6 +251,7 @@ impl Engine {
                     .ok_or_else(|| error("not_found", "no active process"))?;
                 let sent = bytes.len();
                 *tab.last_input.lock().unwrap() = Some(Instant::now());
+                tab.set_actor(if trusted { "you".into() } else { self.request_agent_name() });
                 process
                     .input(bytes)
                     .map_err(|_| error("resource_limit", "PTY input unavailable"))?;

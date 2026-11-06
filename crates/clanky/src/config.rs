@@ -29,6 +29,18 @@ pub struct Config {
     pub rails: bool,
     pub font_family: String,
     pub ui_font_family: String,
+    /// Saved command history (the server's SQLite file).
+    pub history: bool,
+    /// Days of saved history to keep; 0 keeps everything.
+    pub history_days: u32,
+    /// Stored output per command, in KiB.
+    pub history_output_kib: u32,
+}
+
+impl Config {
+    pub fn history_settings(&self) -> clanky_core::history::Settings {
+        clanky_core::history::Settings { enabled: self.history, days: self.history_days, output_kib: self.history_output_kib }
+    }
 }
 
 impl Default for Config {
@@ -57,6 +69,9 @@ impl Default for Config {
             rails: true,
             font_family: "JetBrains Mono".into(),
             ui_font_family: "Inter".into(),
+            history: true,
+            history_days: 90,
+            history_output_kib: 256,
         }
     }
 }
@@ -289,6 +304,17 @@ impl Config {
                         return Err(format!("{key} must be a nonempty font family of at most 256 bytes without controls"));
                     }
                     if key == "font_family" { config.font_family = family.into(); } else { config.ui_font_family = family.into(); }
+                }
+                "history" => {
+                    config.history = value.as_bool().ok_or("history must be a boolean")?;
+                }
+                "history_days" => {
+                    config.history_days = value.as_u64().filter(|n| *n <= 3650)
+                        .ok_or("history_days must be an integer between 0 and 3650")? as u32;
+                }
+                "history_output_kib" => {
+                    config.history_output_kib = value.as_u64().filter(|n| (1..=65536).contains(n))
+                        .ok_or("history_output_kib must be an integer between 1 and 65536")? as u32;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }

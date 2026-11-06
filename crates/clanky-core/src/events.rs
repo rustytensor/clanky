@@ -29,6 +29,10 @@ struct Audits {
     next: u64,
     tabs: BTreeMap<String, AuditRing>,
 }
+/// Agent requests that only read; saved history keeps the ones that act.
+const READ_ONLY_OPS: &[&str] = &["hello", "input_state", "wait_input", "screen", "list_tabs", "list_blocks",
+    "read_output", "events", "wait", "block_events", "terminal_info", "terminal_cwd", "snapshot", "permission_get",
+    "audit", "look_state", "shell_defaults", "history", "window_changes", "window_search", "clipboard_events"];
 pub(super) struct Safety {
     pub policy: masking::Policy,
     pub status: status::Status,
@@ -45,6 +49,7 @@ pub(super) struct Safety {
     pub window_signal: window_changes::WindowSignal,
     pub readiness: readiness::ReadinessSchedule,
     audit: Mutex<Audits>,
+    pub history: std::sync::OnceLock<crate::history::History>,
 }
 impl Safety {
     pub fn new() -> Self {
@@ -64,6 +69,7 @@ impl Safety {
             window_signal: window_changes::WindowSignal::new(),
             readiness: readiness::ReadinessSchedule::new(),
             audit: Mutex::new(Audits::default()),
+            history: std::sync::OnceLock::new(),
         }
     }
     /// Project only protocol metadata; never clone output or other event payloads.
@@ -342,6 +348,16 @@ impl Engine {
             if let Some(id) = oldest {
                 audit.tabs.remove(&id);
             }
+        }
+        if let Some(history) = self.0.1.history.get().filter(|h| h.enabled() && !READ_ONLY_OPS.contains(&op)) {
+            let agent = self.agent_name(connection_id);
+            history.agent_event(crate::history::AgentEvent {
+                at: time.min(i64::MAX as u128) as i64, agent,
+                tab_id: (tab_id != "_connection").then(|| tab_id.to_owned()),
+                action: self.0.1.policy.text(op, true).unwrap_or_else(|_| "unavailable".into()),
+                detail: serde_json::to_string(&masked).unwrap_or_default(),
+                result: result_code.into(),
+            });
         }
         let ring = audit.tabs.entry(tab_id.into()).or_default();
         ring.last = seq;

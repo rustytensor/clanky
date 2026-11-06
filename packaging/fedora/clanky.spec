@@ -11,6 +11,8 @@ URL:            https://github.com/rustytensor/clanky
 Source0:        https://github.com/rustytensor/clanky/archive/v%{version}/clanky-%{version}.tar.gz
 BuildRequires:  cargo
 BuildRequires:  rust
+# Saved history links the system SQLite (rusqlite without its bundled copy).
+BuildRequires:  sqlite-devel
 Provides:       bundled(crate(clanky-vt)) = 0.26.0
 Provides:       bundled(crate(clanky-vte)) = 0.15.0
 

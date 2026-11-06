@@ -148,6 +148,10 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
     }
     let engine = Shutdown(Engine::new());
     engine.0.configure_post_ai(config.post_ai, flags.post_ai);
+    let history_settings = settings.as_ref().map_or_else(|| config.history_settings(), |s| s.config().history_settings());
+    let notices = engine.0.clone();
+    engine.0.set_history(clanky_core::history::History::start(platform::history_path(), history_settings,
+        Box::new(move |message| notices.notice(&message))));
     let stop = Arc::new(AtomicBool::new(false));
     let monitor_stop = stop.clone();
     let monitor_engine = engine.0.clone();
@@ -155,7 +159,10 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
         while !monitor_stop.load(std::sync::atomic::Ordering::Acquire) {
             if let Some(settings) = &mut settings {
                 match settings.reload() {
-                    Ok(true) => { monitor_engine.set_post_ai(settings.config().post_ai); }
+                    Ok(true) => {
+                        monitor_engine.set_post_ai(settings.config().post_ai);
+                        if let Some(history) = monitor_engine.history() { history.configure(settings.config().history_settings()); }
+                    }
                     Err(error) => eprintln!("clanky: {error}"),
                     _ => (),
                 }
@@ -168,6 +175,8 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
     stop.store(true, std::sync::atomic::Ordering::Release);
     monitor.thread().unpark();
     let _ = monitor.join();
+    // Running commands are saved as interrupted before the shells stop.
+    engine.0.finish_history();
     result
 }
 

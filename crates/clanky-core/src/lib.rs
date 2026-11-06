@@ -1,12 +1,13 @@
 //! Terminal state, command transcripts, and Linux platform lifecycle.
 mod engine;
+pub mod history;
 mod kitty;
 pub mod layout;
 pub mod platform;
 mod session;
 mod terminal;
 pub(crate) use engine::{Command, Tab};
-pub use engine::{CoreError, Engine};
+pub use engine::{CoreError, Engine, set_request_connection};
 pub const POST_AI_REASON: &str = "agents are off (Post-AI mode)";
 use serde::{Deserialize, Serialize};
 pub use session::{Workspace, WorkspaceGroup};
