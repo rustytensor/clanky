@@ -34,3 +34,18 @@ Checks: real PTY read/input/exit fixture passed (`readygot:hello`, exit 0). Rele
 build passed. Shared-scheduler headless idle gate: **0 frames/2 s** after startup;
 planted continuous-redraw fault: **47 frames**, caught. The full regression suite
 was not rerun. No sleep inhibitor, new dependency or existing-process restart.
+
+## Re-measured, 2026-11-09
+
+The same benchmark, run on a release build of `main` at a373596 with 30 keys instead of 10 and the
+start-up robot turned off (`startup_animation: false`; on a fresh home it plays during the idle window).
+Latency is still key-event timestamp to completed present call, not photons: the compositor and the
+display add up to one refresh on top.
+
+| Display | Mean | Median | Max | Idle frames / 10 s | Idle CPU window / server |
+|---|---:|---:|---:|---:|---:|
+| Private rootful Xwayland, Radeon RX 7900 (Vulkan) | **1.89 ms** | 1.81 ms | 3.54 ms | 0 | 0.2% / 0.3% |
+| Private Xvfb, software rendering (llvmpipe, LP_NUM_THREADS=8) | 6.06 ms | 6.02 ms | 7.34 ms | 0 | 0.2% / 0.3% |
+
+The M11 table above is the software-rendering case. The README's figure is the GPU row. Software
+rendering is about 1 ms slower than at M11 (4.99 ms); the cause was not measured (M12, the calm look, came in between).

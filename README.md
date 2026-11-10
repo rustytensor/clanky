@@ -44,7 +44,7 @@ Hover a card to **Copy** it, **Rerun** it, or hand it to an agent.
 ## Calm by design
 
 Warm greys, the Geist fonts, no text under 12 px, and no glow outside the joke themes. Nothing moves once the window is idle.
-An idle Clanky window draws **0 frames**, and a key press reaches the screen in about **3 ms** on a desktop GPU.
+An idle Clanky window draws **0 frames**, and a key press is drawn and presented in about **2 ms** on a desktop GPU ([measured](docs/design-m11-idle.md#re-measured-2026-11-09)).
 
 <p align="center">
   <img src="docs/media/hero-light.png" width="49%" alt="The same scene in Catppuccin Latte, a light theme">
