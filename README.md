@@ -84,6 +84,10 @@ Pick one for dark and one for light, and Clanky follows your system. Save, impor
 sudo dnf install ./clanky-*.x86_64.rpm
 ```
 
+**Debian 13 and Ubuntu 26.04:** download the .deb from the [latest release](https://github.com/rustytensor/clanky/releases/latest), then `sudo apt install ./clanky_*_amd64.deb`.
+
+**Arch Linux:** `clanky` in the AUR (coming).
+
 **From source** (Rust and Cargo):
 
 ```sh
