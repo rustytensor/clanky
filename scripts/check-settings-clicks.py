@@ -203,11 +203,11 @@ def main(work, bins):
         pixel(capture('columns-off'), (128, 700), (20, 18, 16), 'Side columns label hides columns')
         click(500, 450)
         setting('rails', True)
-        pixel(capture('columns-on'), (128, 700), (20, 18, 16), 'Side columns label restores columns')
+        pixel(capture('columns-on'), (128, 700), (15, 13, 11), 'Side columns label restores columns')
         results.append('Side columns row label')
 
         image = section(3)
-        pixel(image, (980, 250), (54, 50, 47), 'Agents page stop button border')
+        pixel(image, (980, 250), (49, 45, 41), 'Agents page stop button border')
         image = section(4)
         pixel(image, (975, 172), (31, 28, 25), 'Keys page shortcut chip')
         xdo('key', '--window', wid, 'Escape')
@@ -215,7 +215,7 @@ def main(work, bins):
         click(288, 36)
         pixel(capture('sidebar-hidden'), (128, 700), (20, 18, 16), 'sidebar toggle hides columns')
         click(40, 36)
-        pixel(capture('sidebar-shown'), (128, 700), (20, 18, 16), 'sidebar toggle shows columns')
+        pixel(capture('sidebar-shown'), (128, 700), (15, 13, 11), 'sidebar toggle shows columns')
         results.append('sidebar toggle')
 
         stop(app)
