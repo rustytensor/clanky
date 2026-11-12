@@ -8,8 +8,8 @@
     "muted": "#2b1034",
     "foreground": "#fff4ff",
     "muted_foreground": "#ff99ee",
-    "accent": "#8a00ff",
-    "pressed": "#d000ff",
+    "accent": "#5200a0",
+    "pressed": "#6a009c",
     "border": "#00ffff",
     "input": "#ffff00",
     "ring": "#00ff00",
@@ -17,7 +17,7 @@
     "primary_foreground": "#120416",
     "sidebar_accent": "#46005c",
     "ok": "#00ff00",
-    "err": "#ff3344",
+    "err": "#ff5566",
     "agent": "#00ffff",
     "robot_paint": "#ff00aa",
     "primary_pressed": "#ec009e"
@@ -41,12 +41,12 @@
     "#ffffff"
   ],
   "window_gradient": [
-    "#ff0000",
-    "#ff8000",
-    "#ffff00",
-    "#00ff00",
-    "#0000ff",
-    "#8000ff"
+    "#7a0019",
+    "#7a3000",
+    "#524000",
+    "#005522",
+    "#002a7a",
+    "#4a0088"
   ],
   "glow": true,
   "description": "Every colour at once. You were warned."

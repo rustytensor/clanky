@@ -21,7 +21,7 @@ fn recreated_theme_clears_old_error() {
     fs::remove_file(&path).unwrap();
     store.save_new("repaired", &crate::themes::builtin("stone-dark").unwrap()).unwrap();
     assert!(store.issues().is_empty());
-    assert_eq!(store.get("user:repaired").unwrap().colors.background, [26, 24, 22, 255]);
+    assert_eq!(store.get("user:repaired").unwrap().colors.background, [20, 18, 16, 255]);
     assert!(!store.reload().unwrap());
 }
 
@@ -36,14 +36,14 @@ fn theme_store_round_trip() {
     let folder = root.join("themes");
     let mut store = ThemeStore::open(&folder).unwrap();
     assert!(!folder.exists());
-    assert_eq!(store.picker(None).unwrap().len(), 13);
+    assert_eq!(store.picker(None).unwrap().len(), 14);
     assert!(store.issues().is_empty());
 
     // Input is the literal approved Stone document, with three explicit edits.
     // Expected custom background is (1,2,3,255); exports must preserve these bytes.
     let source = include_str!("../../../assets/themes/stone-dark.json")
         .replace("\"Stone\"", "\"Workshop\"")
-        .replace("\"background\": \"#1a1816\"", "\"background\": \"#010203\"");
+        .replace("\"background\": \"#141210\"", "\"background\": \"#010203\"");
     let incoming = root.join("incoming.json");
     fs::write(&incoming, &source).unwrap();
     let id = store.import(&incoming, "workshop").unwrap();
@@ -58,7 +58,7 @@ fn theme_store_round_trip() {
     assert_eq!(custom.name, "Workshop");
     assert_eq!(custom.swatches.background, [1, 2, 3, 255]);
     assert!(!custom.builtin);
-    assert_eq!(custom.swatches.agent, [210, 164, 118, 255]);
+    assert_eq!(custom.swatches.agent, [220, 164, 104, 255]);
 
     let export = root.join("export.json");
     store.export(&id, &export).unwrap();
@@ -85,7 +85,7 @@ fn theme_store_round_trip() {
     assert_eq!(store.get(&saved).unwrap().colors.agent, [10, 20, 30, 255]);
     assert_eq!(
         store.get("stone-dark").unwrap().colors.agent,
-        [210, 164, 118, 255]
+        [220, 164, 104, 255]
     );
 
     let path = folder.join("workshop.json");
@@ -120,7 +120,7 @@ fn theme_store_round_trip() {
     let resolved = config.resolved_document(&store, true).unwrap();
     assert_eq!(resolved.colors.background, [1, 2, 3, 255]);
     assert_eq!(resolved.colors.agent, [16, 32, 48, 128]);
-    assert_eq!(store.get(&id).unwrap().colors.agent, [210, 164, 118, 255]);
+    assert_eq!(store.get(&id).unwrap().colors.agent, [220, 164, 104, 255]);
     assert_eq!(
         Config::from_json(r#"{"post_ai":"true"}"#).unwrap_err(),
         "post_ai must be a boolean"

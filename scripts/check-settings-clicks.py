@@ -162,7 +162,7 @@ def main(work, bins):
             click(330, 154 + 34 * index)
             image = capture('section-' + names[index].lower())
             for i in range(5):
-                pixel(image, (410, 154 + 34 * i), (34, 31, 28) if i == index else (20, 18, 16),
+                pixel(image, (410, 154 + 34 * i), (26, 24, 21) if i == index else (15, 13, 11),
                       names[index] + ' selected section')
             results.append('section ' + names[index])
             return image
@@ -174,7 +174,7 @@ def main(work, bins):
         if fault != 'click':
             click(520, 300)  # First card is Stone, as in the approved sheet.
         image = capture('stone-card')
-        pixel(image, (997, 600), (26, 24, 22), 'theme card applies Stone pixel')
+        pixel(image, (997, 600), (20, 18, 16), 'theme card applies Stone pixel')
         setting('theme_dark', 'stone-dark')
         results.append('theme card pixel')
 
@@ -182,7 +182,7 @@ def main(work, bins):
         setting('theme', 'system')
         click(880, 179)
         setting('theme', 'dark')
-        pixel(capture('dark-mode'), (997, 600), (26, 24, 22), 'Dark segment background')
+        pixel(capture('dark-mode'), (997, 600), (20, 18, 16), 'Dark segment background')
         results.append('System and Dark segments')
 
         section(0)
@@ -191,7 +191,7 @@ def main(work, bins):
         pixel(capture('post-ai-on'), (955, 197), (235, 230, 223), 'Post-AI label toggles on')
         click(500, 175)
         setting('post_ai', False)
-        pixel(capture('post-ai-off'), (955, 197), (26, 24, 22), 'Post-AI label toggles off')
+        pixel(capture('post-ai-off'), (955, 197), (20, 18, 16), 'Post-AI label toggles off')
         results.append('Post-AI row label')
 
         section(2)
@@ -200,7 +200,7 @@ def main(work, bins):
         results.append('stepper minus 14 to 13')
         click(500, 450)
         setting('rails', False)
-        pixel(capture('columns-off'), (128, 700), (26, 24, 22), 'Side columns label hides columns')
+        pixel(capture('columns-off'), (128, 700), (20, 18, 16), 'Side columns label hides columns')
         click(500, 450)
         setting('rails', True)
         pixel(capture('columns-on'), (128, 700), (20, 18, 16), 'Side columns label restores columns')
@@ -209,11 +209,11 @@ def main(work, bins):
         image = section(3)
         pixel(image, (980, 250), (54, 50, 47), 'Agents page stop button border')
         image = section(4)
-        pixel(image, (975, 172), (38, 34, 31), 'Keys page shortcut chip')
+        pixel(image, (975, 172), (31, 28, 25), 'Keys page shortcut chip')
         xdo('key', '--window', wid, 'Escape')
         settle()
         click(288, 36)
-        pixel(capture('sidebar-hidden'), (128, 700), (26, 24, 22), 'sidebar toggle hides columns')
+        pixel(capture('sidebar-hidden'), (128, 700), (20, 18, 16), 'sidebar toggle hides columns')
         click(40, 36)
         pixel(capture('sidebar-shown'), (128, 700), (20, 18, 16), 'sidebar toggle shows columns')
         results.append('sidebar toggle')

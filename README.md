@@ -51,9 +51,9 @@ An idle Clanky window draws **0 frames**, and a key press is drawn and presented
   <img src="docs/media/palette.png" width="49%" alt="The command palette: typing split offers Split right, Split down, and running split in the focused pane">
 </p>
 
-## 13 themes, and your own
+## 14 themes, and your own
 
-Stone, Paper and Graphite in dark and light, the four official Catppuccin flavours, and three for fun: **AI Bedazzled**, **Unicorn Tears** and **Unicorn Vomit**.
+Stone, Paper and Graphite in dark and light, **Ink** (near-black, for late nights), the four official Catppuccin flavours, and three for fun: **AI Bedazzled**, **Unicorn Tears** and **Unicorn Vomit**.
 Pick one for dark and one for light, and Clanky follows your system. Save, import and export your own themes as JSON.
 
 <p align="center">

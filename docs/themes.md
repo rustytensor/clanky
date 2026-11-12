@@ -1,6 +1,6 @@
 # Themes
 
-Clanky has 13 built-in themes. Settings → Appearance picks one for dark and one for light
+Clanky has 14 built-in themes. Settings → Appearance picks one for dark and one for light
 appearance, and saves, imports and exports your own themes as JSON.
 
 ## Choose a theme
@@ -14,6 +14,7 @@ appearances. Config `colors` overrides individual theme colours.
 | Stone | Dark / light | `stone-dark`, `stone-light` |
 | Paper | Dark / light | `paper-dark`, `paper-light` |
 | Graphite | Dark / light | `graphite-dark`, `graphite-light` |
+| Ink | Dark | `ink` |
 | Catppuccin Latte | Light | `catppuccin-latte` |
 | Catppuccin Frappé | Dark | `catppuccin-frappe` |
 | Catppuccin Macchiato | Dark | `catppuccin-macchiato` |
@@ -22,9 +23,9 @@ appearances. Config `colors` overrides individual theme colours.
 | Unicorn Tears | Light | `unicorn-tears` |
 | Unicorn Vomit | Dark | `unicorn-vomit` |
 
-Stone is warm grey; Paper is warmer; Graphite is neutral. Catppuccin keeps its upstream
+Stone is warm grey; Paper is warmer; Graphite is neutral; Ink is near-black with blue buttons. Catppuccin keeps its upstream
 palette. The last three use gradients and glows: violet/blue, soft pastels and a rainbow.
-Not every theme or custom colour has the same contrast.
+Every built-in theme except Catppuccin keeps interface text and terminal colours at 4.5:1 contrast or more (3:1 for dim grey hints), the joke themes included. Custom colours are not checked.
 
 ```json
 {"theme":"system","theme_dark":"catppuccin-mocha","theme_light":"paper-light"}

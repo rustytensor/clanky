@@ -8,8 +8,8 @@
     "muted": "#291c42",
     "foreground": "#faf5ff",
     "muted_foreground": "#c4b5fd",
-    "accent": "#6d28d9",
-    "pressed": "#7c3aed",
+    "accent": "#4c1d95",
+    "pressed": "#5b21b6",
     "border": "#8b5cf680",
     "input": "#a78bfa80",
     "ring": "#22d3ee",
@@ -41,9 +41,9 @@
     "#ffffff"
   ],
   "window_gradient": [
-    "#7c3aed",
-    "#2563eb"
+    "#4c1d95",
+    "#1e3a8a"
   ],
   "glow": true,
-  "description": "Every AI cliché, lovingly assembled. For the rare person who wants it."
+  "description": "Every AI clich\u00e9, lovingly assembled. For the rare person who wants it."
 }

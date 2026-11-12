@@ -64,13 +64,14 @@ def compare(data, scene_only=False, no_idle=False):
     exact(pane['rect'], [268, 76, 952, 326], 'Post-AI pane')
     exact(pane['cols'], 116, 'Post-AI columns')
     coords = ['128,700', '257,9', '264,16', '600,63', '939,250', '939,600', '930,390', '968,200']
-    dark = [[20,18,16,255], [20,18,16,255], [26,24,22,255], [44,41,38,255],
-            [44,41,38,255], [138,129,120,255], [26,24,22,255], [32,29,26,255]]
+    # Darker Stone, approved 2026-11-12; border = #fff0e1 at 20/255 over #141210.
+    dark = [[15,13,11,255], [15,13,11,255], [20,18,16,255], [38,35,32,255],
+            [38,35,32,255], [138,129,120,255], [20,18,16,255], [25,23,20,255]]
     light = [[243,240,235,255], [243,240,235,255], [251,250,248,255], [231,225,217,255],
              [231,225,217,255], [163,154,143,255], [251,250,248,255], [255,255,255,255]]
     pixels(data['pixels']['dark'], dict(zip(coords, dark)), 'Stone dark')
     pixels(data['pixels']['light'], dict(zip(coords, light)), 'Stone light')
-    pixels(data['pixels']['bedazzled'], {'128,20':[122,59,237,255], '128,740':[39,98,235,255]}, 'AI Bedazzled')
+    pixels(data['pixels']['bedazzled'], {'128,20':[75,30,149,255], '128,740':[31,57,138,255]}, 'AI Bedazzled')  # stops #4c1d95 -> #1e3a8a at t=0.023 / 0.977
     sizes = data['ui_text_px']
     if not isinstance(sizes, list) or not sizes or not all(type(x) in (int, float) and math.isfinite(x) and x >= 12 for x in sizes):
         raise Mismatch('UI text runs: expected nonempty list of finite sizes >= 12 px')
