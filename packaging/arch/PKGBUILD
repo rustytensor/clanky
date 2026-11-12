@@ -1,0 +1,50 @@
+# Maintainer: Marc Mironescu
+pkgname=clanky
+pkgver=1.1.0
+pkgrel=1
+pkgdesc='GPU-rendered terminal for coding agents'
+arch=('x86_64')
+url='https://github.com/rustytensor/clanky'
+# Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
+license=('MIT OR Apache-2.0' 'OFL-1.1' 'Bitstream-Vera')
+# The window opens libxkbcommon, Vulkan or EGL, and Wayland or X11 at run time.
+depends=('glibc' 'libgcc' 'sqlite' 'hicolor-icon-theme' 'libxkbcommon' 'vulkan-icd-loader' 'wayland')
+makedepends=('cargo')
+optdepends=('libx11: X11 sessions'
+            'libxkbcommon-x11: keyboard input on X11'
+            'libxcursor: mouse cursors on X11'
+            'libglvnd: EGL when Vulkan is not available')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release -p clanky --bin clanky
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    target/release/clanky --help > /dev/null
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 target/release/clanky "$pkgdir/usr/bin/clanky"
+    install -Dm644 packaging/linux/clanky.desktop "$pkgdir/usr/share/applications/clanky.desktop"
+    install -Dm644 packaging/linux/io.github.rustytensor.Clanky.metainfo.xml \
+        "$pkgdir/usr/share/metainfo/io.github.rustytensor.Clanky.metainfo.xml"
+    install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg"
+    install -Dm644 packaging/linux/clanky.1 "$pkgdir/usr/share/man/man1/clanky.1"
+    install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE-MIT LICENSE-APACHE NOTICE \
+        assets/fonts/OFL-Geist.txt assets/fonts/OFL-JetBrainsMono.txt assets/fonts/OFL-Inter.txt \
+        assets/fonts/LICENSE-DejaVu.txt assets/themes/upstream/LICENSE-Catppuccin
+}
