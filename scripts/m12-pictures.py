@@ -13,8 +13,8 @@ def chunk(kind, data):
 
 
 images = sorted(work.glob('*.rgba'))
-if len(images) != 13:
-    raise SystemExit(f'FAIL: expected 13 theme pictures, found {len(images)}')
+if len(images) != 14:
+    raise SystemExit(f'FAIL: expected 14 theme pictures, found {len(images)}')
 w, h = 1240, 760
 for image in images:
     pixels = bytearray(image.read_bytes())
@@ -29,4 +29,4 @@ for image in images:
     png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB',w,h,8,6,0,0,0))
            + chunk(b'IDAT',zlib.compress(rows)) + chunk(b'IEND',b''))
     (target / (image.stem + '.png')).write_bytes(png)
-print('PASS: wrote 13 theme pictures')
+print('PASS: wrote 14 theme pictures')

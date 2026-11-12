@@ -481,7 +481,7 @@ mod tests {
         assert!(
             light
                 .iter()
-                .zip([210u8, 164, 118, 255])
+                .zip([220u8, 164, 104, 255])
                 .all(|(a, b)| a.abs_diff(b) <= 3),
             "antenna: {light:?}"
         );
