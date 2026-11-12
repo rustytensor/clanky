@@ -71,7 +71,7 @@ pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeS
 fn theme_card_names_fit(){
     // Literal display names from the approved label correction. Selected cards
     // leave 101.5 px after reserving the 14 px check and 6 px gap.
-    let expected=["Stone","Stone","Paper","Paper","Graphite","Graphite","Latte","Frappé","Macchiato","Mocha","AI Bedazzled","Unicorn Tears","Unicorn Vomit"];
+    let expected=["Stone","Stone","Paper","Paper","Graphite","Graphite","Ink","Latte","Frappé","Macchiato","Mocha","AI Bedazzled","Unicorn Tears","Unicorn Vomit"];
     for (entry,expected) in crate::themes::BUILTINS.iter().zip(expected){
         let theme=entry.load().unwrap();let(title,family)=card_label(&theme.name);assert_eq!(title,expected);
         assert_eq!(family,entry.id.starts_with("catppuccin-").then_some("Catppuccin"));

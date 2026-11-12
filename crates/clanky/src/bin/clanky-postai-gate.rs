@@ -242,7 +242,7 @@ fn main() {
     assert!(!runtime.poll(&config, false));
     fs::write(
         folder.join("custom.json"),
-        source.replace("#1a1816", "#010203"),
+        source.replace("#141210", "#010203"),
     )
     .unwrap();
     assert!(runtime.poll(&config, false));

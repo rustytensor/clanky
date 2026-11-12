@@ -17,7 +17,7 @@ def main():
                           ('header',[431,81,578,56]),('footer',[431,623,578,56]),
                           ('panel_radii',[12,12])]:
         require(data[name]==expected,f'{name}: expected {expected}, observed {data[name]}')
-    for theme,values in [('stone-dark',{'nav':[20,18,16,255],'header':[26,24,22,255]}),
+    for theme,values in [('stone-dark',{'nav':[15,13,11,255],'header':[20,18,16,255]}),
                          ('stone-light',{'nav':[243,240,235,255],'header':[251,250,248,255]})]:
         for point,expected in values.items():
             value=data['pixels'][theme][point]

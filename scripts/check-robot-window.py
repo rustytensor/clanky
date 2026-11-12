@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """M12 check 15. Capture actual X11 pixels; never call offscreen_scene.
-Expected before running: antenna RGB 210,164,118 (tolerance 3); base/torso
+Expected before running: antenna RGB 220,164,104 (tolerance 3); base/torso
 mid-turn pixels differ from their fixed before/after samples; no frames beyond
 7000/1200 ms; key x at logical 300 ms reaches the PTY and skips before one frame.
 """
@@ -228,8 +228,8 @@ def main(work, bins):
         # Antenna: (200,62), -7deg about (200,130), then 1.07 about (200,260),
         # plus padding -> (215.133,72.682); use its nearest centre pixel (215,73).
         antenna = images[7000].getpixel((215, 73))
-        require(all(abs(a - b) <= 3 for a, b in zip(antenna, (210, 164, 118))),
-                f'antenna expected (210,164,118), observed {antenna}')
+        require(all(abs(a - b) <= 3 for a, b in zip(antenna, (220, 164, 104))),
+                f'antenna expected (220,164,104), observed {antenna}')
         base = [images[ms].getpixel((194, 324)) for ms in (5400, 5850, 6300)]
         torso = [images[ms].getpixel((202, 229)) for ms in (2400, 3200, 4000)]
         require(base[1] != base[0] and base[1] != base[2], '5850 ms base differs from 5400/6300')

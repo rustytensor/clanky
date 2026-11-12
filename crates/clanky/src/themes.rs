@@ -314,6 +314,10 @@ pub const BUILTINS: &[Builtin] = &[
         source: include_str!("../../../assets/themes/graphite-light.json"),
     },
     Builtin {
+        id: "ink", name: "Ink", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/ink.json"),
+    },
+    Builtin {
         id: "catppuccin-latte", name: "Catppuccin Latte", appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/catppuccin-latte.json"),
     },
@@ -366,7 +370,7 @@ mod tests {
     fn builtin_documents() {
         let expected_ids = [
             "stone-dark", "stone-light", "paper-dark", "paper-light",
-            "graphite-dark", "graphite-light", "catppuccin-latte",
+            "graphite-dark", "graphite-light", "ink", "catppuccin-latte",
             "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
             "ai-bedazzled", "unicorn-tears", "unicorn-vomit",
         ];
@@ -411,21 +415,21 @@ mod tests {
             }
         }
         for (id, stops) in [
-            ("ai-bedazzled", vec!["#7c3aed", "#2563eb"]),
+            ("ai-bedazzled", vec!["#4c1d95", "#1e3a8a"]),
             ("unicorn-tears", vec!["#fde2f3", "#e4dcff"]),
-            ("unicorn-vomit", vec!["#ff0000", "#ff8000", "#ffff00", "#00ff00", "#0000ff", "#8000ff"]),
+            ("unicorn-vomit", vec!["#7a0019", "#7a3000", "#524000", "#005522", "#002a7a", "#4a0088"]),
         ] {
             let theme = builtin(id).unwrap();
             assert!(theme.glow);
             assert_eq!(theme.window_gradient.unwrap(), stops.into_iter().map(|c| parse_color(c).unwrap()).collect::<Vec<_>>());
         }
         assert_eq!(builtin("unicorn-tears").unwrap().colors.foreground, [59, 42, 77, 255]);
-        for entry in BUILTINS.iter().take(10) {
+        for entry in BUILTINS.iter().take(11) {
             let theme = entry.load().unwrap();
             assert!(!theme.glow);
             assert!(theme.window_gradient.is_none());
         }
-        println!("PASS: 13 built-ins load, complete ANSI palettes round-trip, four Catppuccin palettes match upstream, three joke gradients match design");
+        println!("PASS: 14 built-ins load, complete ANSI palettes round-trip, four Catppuccin palettes match upstream, three joke gradients match design");
     }
 
     // Literal expected channels are transcribed from the approved component
@@ -434,28 +438,28 @@ mod tests {
     fn stone_documents() {
         let mut source = BUILTINS[0].source.to_owned();
         if std::env::var_os("CLANKY_THEME_FAULT").is_some() {
-            source = source.replace("#141210", "#000000");
+            source = source.replace("#0f0d0b", "#000000");
         }
         let dark = Theme::from_json(&source).unwrap();
         let light = builtin("stone-light").unwrap();
         let expected_dark = [
+            [15, 13, 11, 255], // darker Stone, approved 2026-11-12
             [20, 18, 16, 255],
-            [26, 24, 22, 255],
-            [32, 29, 26, 255],
-            [38, 34, 31, 255],
+            [25, 23, 20, 255],
+            [31, 28, 25, 255],
             [235, 230, 223, 255],
             [160, 151, 141, 255],
-            [43, 39, 36, 255],
-            [51, 46, 42, 255],
+            [36, 32, 29, 255],
+            [44, 40, 36, 255],
             [255, 240, 225, 20],
             [255, 240, 225, 31],
             [138, 129, 120, 255],
             [235, 230, 223, 255],
-            [26, 24, 22, 255],
-            [34, 31, 28, 255],
-            [147, 184, 154, 255],
-            [217, 139, 126, 255],
-            [210, 164, 118, 255],
+            [20, 18, 16, 255],
+            [26, 24, 21, 255],
+            [134, 190, 142, 255],
+            [228, 132, 114, 255],
+            [220, 164, 104, 255],
             [107, 82, 54, 255], // robot6, Stone dark #6b5236
             [214, 208, 200, 255], // approved primary_pressed #d6d0c8
         ];

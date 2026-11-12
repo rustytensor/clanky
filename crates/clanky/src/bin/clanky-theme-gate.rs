@@ -32,7 +32,7 @@ fn storage() -> Result<(), String> {
         "saved custom values differ",
     )?;
     require(
-        themes::builtin("stone-dark")?.colors.background == [26, 24, 22, 255],
+        themes::builtin("stone-dark")?.colors.background == [20, 18, 16, 255],
         "saving a copy changed Stone",
     )?;
 

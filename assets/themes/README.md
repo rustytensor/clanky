@@ -30,7 +30,7 @@ all 7 own themes with 0 failing pairs; the 6 approved exemptions remain explicit
 
 ## Remaining built-ins
 
-Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`,
+Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`, `ink`,
 `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`,
 `ai-bedazzled`, `unicorn-tears`, `unicorn-vomit`. Stone remains the default.
 Paper uses warm parchment colours. Graphite uses shadcn's neutral grey scale;
@@ -68,3 +68,11 @@ palettes to the upstream file, and checks the three literal gradients and glow f
 Focused Stone check: `cargo test -p clanky --lib themes::tests::stone_documents -- --exact`.
 It compares all 19 Stone tokens with literal sheet channels, refuses a missing ring, and preserves a literal
 six-stop gradient. `CLANKY_THEME_FAULT=1` substitutes black for Stone's sidebar and must fail.
+
+## Darker dark themes (Marc approved, 2026-11-12)
+
+The dark Stone, Paper and Graphite backgrounds are about 30% darker (#141210, #1f1c17, #111111) and their
+terminal colours are richer; the old shared ANSI set was too pale. Ink is new: neutral near-black (#121212)
+with blue primary buttons. Unicorn Vomit and AI Bedazzled keep their gradients in deeper tones so sidebar text
+reads on every band, and lose their contrast exemption. `scripts/gate-t1-themes.sh` checks every own theme:
+interface text 4.5:1, ANSI 1-7 and 9-15 4.5:1 on the background, ANSI 8 3:1. Catppuccin stays upstream.
