@@ -1,0 +1,13 @@
+Package: clanky
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Clanky contributors <noreply@github.com>
+Installed-Size: @SIZE@
+Depends: @DEPENDS@, libxkbcommon0
+Recommends: libvulkan1 | libegl1, libwayland-client0 | libx11-xcb1, libxkbcommon-x11-0
+Section: x11
+Priority: optional
+Homepage: https://github.com/rustytensor/clanky
+Description: GPU-rendered terminal for coding agents
+ Clanky is a GPU-rendered terminal with tabs, split panes, and a local socket
+ API for coding agents.
