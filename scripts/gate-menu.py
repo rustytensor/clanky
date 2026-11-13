@@ -44,8 +44,8 @@ Expected results, fixed before the work:
   K16 Split right (Down x4) and Split below (Down x5) each add one pane.
   K17 Agent access (Down x7) flips the pane's allow_agent from false to true, and again back to false.
   K18 Close pane (Up, Enter) removes the pane it was opened on.
-  K19 opened at the bottom-right cell of a pane, the menu stays in the window: every changed pixel is left of and
-      above the pointer (+2 px).
+  K19 opened at the window's bottom-right corner (rails hidden with Ctrl+Shift+B, bottom-right cell of the bottom
+      pane), the menu flips to stay in the window: every changed pixel is left of and above the pointer (+2 px).
   K20 Post-AI window: Down x7, Enter is Reset and clear (the agent rows are gone), so the screen is cleared.
 """
 import importlib.util, os, re, shutil, subprocess, sys, time
@@ -253,13 +253,29 @@ def reset_story(win, p):
 
 
 def flip_story(win, p):
-    x, y = p.at(p.cols, p.rows)
-    p.move(p.cols, p.rows)
-    a = win.shot('k19-before')
-    menu(win, p, p.cols, p.rows)
-    box = diff_box(a, win.shot('k19-open'))
-    win.key('Escape')
-    require(box and box[2] <= x + 2 and box[3] <= y + 2, f'K19 menu at the corner stays inside: box {box}, pointer {x},{y}')
+    """At the window's real bottom-right corner: rails hidden, the bottom-right cell of the bottom pane (the window
+    starts with two stacked panes; the gate's pane is the top one)."""
+    win.key('ctrl+shift+b')
+    time.sleep(.8)
+    win.x('mousemove', '--window', win.wid, '700', '800', 'click', '1')
+    time.sleep(.5)
+    q = Pane(win)
+    q.measure()
+    PANE['p'] = q
+    try:
+        x, y = q.at(q.cols, q.rows)
+        require(x > 1400 - 252 and y > 900 - 300, f'setup: the corner cell {x},{y} leaves no room right or below')
+        q.move(q.cols, q.rows)
+        a = win.shot('k19-before')
+        menu(win, q, q.cols, q.rows)
+        box = diff_box(a, win.shot('k19-open'))
+        win.key('Escape')
+        require(box and box[2] <= x + 2 and box[3] <= y + 2, f'K19 menu at the corner stays inside: box {box}, pointer {x},{y}')
+    finally:
+        PANE['p'] = p
+        win.key('ctrl+shift+b')
+        time.sleep(.8)
+        p.click(40, 10)
 
 
 def layout_story(win, p):
