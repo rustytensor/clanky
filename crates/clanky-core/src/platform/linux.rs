@@ -41,6 +41,11 @@ impl Clipboard {
     /// Copies at most 1 MiB without writing into a potentially blocked pipe.
     /// Success means the helper was spawned, not that the display accepted it.
     pub fn copy(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.copy_to(bytes, false)
+    }
+
+    /// Like copy, into the PRIMARY selection (middle-click paste) when `primary`.
+    pub fn copy_to(&mut self, bytes: &[u8], primary: bool) -> io::Result<()> {
         if bytes.len() > 1024 * 1024 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -50,10 +55,11 @@ impl Clipboard {
         let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
             let mut command = HelperCommand::new("wl-copy");
             command.args(["--foreground", "--type", "text/plain;charset=utf-8"]);
+            if primary { command.arg("--primary"); }
             command
         } else {
             let mut command = HelperCommand::new("xclip");
-            command.args(["-selection", "clipboard", "-in", "-quiet"]);
+            command.args(["-selection", if primary { "primary" } else { "clipboard" }, "-in", "-quiet"]);
             command
         };
 
@@ -104,14 +110,20 @@ impl Drop for Clipboard {
 /// Read only the clipboard selection with a bounded capture and helper lifetime.
 /// Helpers' stderr and clipboard bytes are never used in diagnostics.
 pub fn clipboard_read() -> io::Result<Vec<u8>> {
+    selection_read(false)
+}
+
+/// clipboard_read for the PRIMARY selection when `primary`.
+pub fn selection_read(primary: bool) -> io::Result<Vec<u8>> {
     const LIMIT: usize = 64 * 1024;
     let mut command = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         let mut command = HelperCommand::new("wl-paste");
         command.args(["--no-newline", "--type", "text/plain;charset=utf-8"]);
+        if primary { command.arg("--primary"); }
         command
     } else {
         let mut command = HelperCommand::new("xclip");
-        command.args(["-selection", "clipboard", "-out"]);
+        command.args(["-selection", if primary { "primary" } else { "clipboard" }, "-out"]);
         command
     };
     let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped())

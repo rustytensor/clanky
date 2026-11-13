@@ -27,7 +27,7 @@ fn blank(rows: usize, cols: usize) -> TerminalSnapshot {
         ],
         cursor: None,
         images: Vec::new(),
-        app_cursor: false,
+        app_cursor: false, ..Default::default()
     }
 }
 fn image(alpha: u8) -> ImagePlacement {

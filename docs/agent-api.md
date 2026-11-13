@@ -199,6 +199,8 @@ Request: `{"v":3,"id":"1","op":"history","tab_id":"t0","offset":0,"limit":64}` R
 Request: `{"v":3,"id":"1","op":"scroll","tab_id":"t0","delta":1}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"input","tab_id":"t0","data":"aGVsbG8="}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"resize","tab_id":"t0","rows":24,"cols":80}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"reset","tab_id":"t0","clear":false}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"finished_shells"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_get","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_set","tab_id":"t0","allow_agent":true}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"agent_tool_set","tab_id":"t0","name":"Claude Code"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
@@ -220,6 +222,8 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | scroll | Signed delta; returns display_offset |
 | input | Base64 bytes, at most 64 KiB per request; returns {} |
 | resize | rows/cols in 1–1000, product at most 250,000; returns {} |
+| finished_shells | `tab_ids` of terminals whose process, started by the owner, has exited and been read to the end; the window closes their panes. A process an agent started is never listed, so its result stays readable |
+| reset | The window's Reset terminal: modes off, text kept; `clear: true` is Reset and clear (full reset, screen and history emptied); returns {} |
 | permission_get / permission_set | Read/set allow_agent on one terminal |
 | agent_tool_set | Name (1–256 bytes, no controls) of the agent tool the terminal was opened for; shown by the window as the pane title; returns {} |
 | terminal_cwd | Absolute cwd or null; source osc7, proc or null; no guessed directory |

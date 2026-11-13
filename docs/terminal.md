@@ -35,6 +35,44 @@ clanky terminal-colors import ~/.local/share/org.gnome.Ptyxis/palettes/riley.pal
 
 Both use the palette's `[Dark]` section: Background, Foreground, Cursor and Color0–Color15.
 
+## Mouse
+
+When a program asks for the mouse (mc, vim with `mouse=a`, htop), clicks, drags and the
+wheel go to it as xterm reports them: modes 1000 (buttons), 1002 (motion with a button held),
+1003 (all motion), with the 1006 (SGR) or 1005 (UTF-8) encodings or the original byte form.
+Reports carry Shift, Alt and Ctrl, as VTE sends them; each wheel notch is one report. Nothing is
+reported while the view is scrolled back into the history. The pointer is an arrow while a program
+has the mouse and an I-beam over terminal text otherwise. Hold Shift to select or middle-click
+paste anyway. Programs that ask for focus reports (1004) get `ESC [I` and `ESC [O` when the
+window gains and loses focus.
+
+Otherwise the mouse selects text, as in Ptyxis: drag for characters (Ctrl+drag for a rectangle),
+double-click for a word, triple-click for the line, Shift+click to extend. The selection is drawn
+in the theme's selection colour, works over the history, and goes to the PRIMARY selection, so
+a middle click pastes it. It stays put as output scrolls and goes away when the text it covers
+changes. Ctrl+Shift+C copies it to the clipboard; Ctrl+Shift+V pastes the clipboard.
+
+Pasting follows VTE: control characters become visible symbols (U+2400 and up) instead of
+running, line feeds become carriage returns, and the text is wrapped in `ESC [200~` …
+`ESC [201~` when the program turned on bracketed paste.
+
+A right-click opens the pane's menu: copy and paste, links, the command under the pointer, find,
+splits, the agent, agent access, reset and close (see [shortcuts](shortcuts.md#mouse-in-a-terminal-pane)).
+While a program has the mouse, the pane's top bar says so ("mc · has the mouse"): a plain
+right-click goes to the program, and Shift+right-click opens the menu. **Reset terminal** turns off
+what a crashed program can leave on (mouse reporting, bracketed paste, application keys, the
+alternate screen, a scroll region, colours and character sets) and keeps the text, as VTE's reset
+does. **Reset and clear** is a full reset: the screen and the history go too.
+
+When the shell in a pane exits (`exit`, Ctrl+D, or killed by a signal), the pane closes, as in
+Ptyxis: its tab goes with it when it was the tab's last pane, and after the last pane the window
+and its server exit, as Ctrl+Shift+W does. A command an agent started in a tab of its own leaves
+the tab in place, so the agent can still read its output and exit code.
+
+On a full-screen program's screen (the alternate screen) with no mouse mode, a wheel notch sends
+max(1, ⌈lines ÷ 10⌉) Up or Down keys, as VTE does (mode 1007, on by default). On the normal
+screen the wheel scrolls the history. Ctrl+wheel zooms.
+
 ## Keys
 
 `TERM` is `xterm-256color`, and keys are sent as xterm sends them; see

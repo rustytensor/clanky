@@ -2,6 +2,8 @@ mod studio;
 mod robot_window;
 mod hello;
 mod settings_window;
+mod terminal_mouse;
+mod terminal_menu;
 mod window_events;
 mod panels;
 mod editor_workspace;
@@ -166,6 +168,8 @@ struct App {
     modifiers: ModifiersState,
     mouse: (f64, f64),
     pointer_pressed: bool,
+    term_mouse: terminal_mouse::TermMouse,
+    wheel_releases: u8,
     input: InputState,
     occluded: bool,
     error: Option<String>,
@@ -198,6 +202,7 @@ struct App {
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     palette: clanky::calm::palette::Palette,
     agent_picker: clanky::calm::agent_picker::AgentPicker,
+    context_menu: clanky::calm::context_menu::ContextMenu,
     /// The terminal font's [advance, ascent, descent] in em, once the renderer has loaded it.
     terminal_face: Option<[f32; 3]>,
     /// Cursor blinking: resolved settings, GNOME's values, the last restart, and the state last drawn.
@@ -266,6 +271,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer_pressed: false,
+        term_mouse: Default::default(),
+        wheel_releases: 0,
         input: InputState::default(),
         occluded: false,
         error: None,
@@ -283,7 +290,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
-        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
+        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),context_menu:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
         gate_clock,
@@ -449,8 +456,24 @@ impl App {
         }
         Ok(())
     }
+    /// A pane closes when the shell the window started in it exits, as in Ptyxis.
+    fn close_finished_shells(&mut self) -> Result<(), String> {
+        if self.engine.is_closed() { return Ok(()); }
+        let finished = self.engine.exchange(3, "finished_shells", &json!({})).map_err(|e| e.message)?;
+        for id in finished["tab_ids"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if self.stop { break; }
+            self.sync_groups()?;
+            if !self.groups.iter().any(|g| g.layout.leaves().iter().any(|leaf| leaf == id)) { continue; }
+            if self.context_menu.pane == id { self.context_menu.close(); }
+            self.close_terminal(Some(id.to_owned()))?;
+            self.frame_clock.invalidate();
+        }
+        Ok(())
+    }
     fn poll_session(&mut self) -> Result<(), String> {
         self.sync_groups()?;
+        self.close_finished_shells()?;
+        if self.stop { return Ok(()); }
         self.publish_focus()?;
         let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         let focused = self.focused().map(str::to_owned);
@@ -623,6 +646,11 @@ impl App {
         // Use the displayed target, even if another window just changed focus.
         let target = self.focused().map(str::to_owned);
         self.sync_groups()?;
+        self.close_terminal(target)
+    }
+    /// Close one terminal pane, its tab when it was the tab's last pane, and after the last
+    /// pane the window and its server.
+    fn close_terminal(&mut self, target: Option<String>) -> Result<(), String> {
         if let Some(id) = target {
             let last = self
                 .groups
@@ -664,6 +692,11 @@ impl App {
             self.call("v4.revoke_all", json!({}))?;
             self.status = Some("Agent access revoked; pending waits cancelled".into());
             return Ok(());
+        }
+        // An open menu takes every key: Up, Down, Enter, Escape; the rest do nothing.
+        if self.context_menu.open {
+            let effect = self.context_menu.key(key);
+            return self.menu_effect(effect);
         }
         if self.modifiers.control_key() && matches!(key,Key::Character(ch) if ch==",") {return self.toggle_settings();}
         if self.settings_open() {
@@ -798,6 +831,11 @@ impl App {
                         "d" => return self.split(Axis::Columns),
                         "e" => return self.split(Axis::Rows),
                         "w" => return self.close_pane(),
+                        "c" if self.files.focus == TERMINALS => return self.copy_selection(),
+                        "v" if self.files.focus == TERMINALS => {
+                            let Some(id) = self.focused().map(str::to_owned) else { return Ok(()); };
+                            return self.paste_selection(&id, false);
+                        }
                         "a" if self.files.focus == TERMINALS && !self.applied_post_ai => {
                             if let Some(id) = self.focused() {
                                 let old =
@@ -853,6 +891,11 @@ impl App {
         ))
     }
     fn click(&mut self) -> Result<(), String> {
+        // A click outside the menu only closes it.
+        if self.context_menu.open {
+            let effect = self.context_menu.click(self.mouse.0, self.mouse.1);
+            return self.menu_effect(effect);
+        }
         if self.agent_picker.open {
             let context=self.agent_context();
             let effect=self.agent_picker.click(self.mouse.0,self.mouse.1,&context);
@@ -888,6 +931,11 @@ impl App {
 }
 
 impl ApplicationHandler<window_events::WindowNotice> for App {
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device: winit::event::DeviceId, event: winit::event::DeviceEvent) {
+        if let winit::event::DeviceEvent::Button { button: 4..=7, state: ElementState::Released } = event {
+            self.wheel_releases = self.wheel_releases.saturating_add(1).min(8);
+        }
+    }
     fn user_event(&mut self,_event_loop:&ActiveEventLoop,event:window_events::WindowNotice){
         match event {
             window_events::WindowNotice::Changed=>{
@@ -982,7 +1030,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.mouse = (position.x, position.y);
                 if self.palette.open { self.palette.pointer(position.x, position.y); }
                 if self.agent_picker.open { let context=self.agent_context(); self.agent_picker.pointer(position.x, position.y, &context); }
+                if self.context_menu.open { self.context_menu.pointer(position.x, position.y); self.frame_clock.invalidate(); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
+                if let Err(e) = self.terminal_motion() { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::MouseInput {
@@ -1002,10 +1052,31 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.files.dragging = None;
                 self.compose_dragging = false;
                 self.studio.drag = None;
+                if let Err(e) = self.terminal_release(1) { self.status = Some(e); }
+                Ok(())
+            }
+            WindowEvent::MouseInput { state, button: button @ (MouseButton::Middle | MouseButton::Right), .. } => {
+                let button = if button == MouseButton::Middle { 2 } else { 3 };
+                let result = if state == ElementState::Pressed && self.context_menu.open {
+                    // Another right-click moves the menu; a middle click only closes it.
+                    self.context_menu.close();
+                    self.frame_clock.invalidate();
+                    if button == 3 { self.secondary_press() } else { Ok(()) }
+                } else if state == ElementState::Pressed && button == 3 { self.secondary_press() }
+                else if state == ElementState::Pressed { self.terminal_press(button) } else { self.terminal_release(button) };
+                if let Err(e) = result { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let Err(e) = self.scroll(delta) { self.status = Some(e); }
+                // winit 0.30 on X11 reports a wheel button's release as a second notch when the
+                // button is not emulated (XTEST, mice without scroll valuators); its raw release
+                // arrived as a device event, so drop one wheel event for it.
+                if self.wheel_releases > 0 && matches!(delta, MouseScrollDelta::LineDelta(..)) {
+                    self.wheel_releases -= 1;
+                } else if self.context_menu.open {
+                    self.context_menu.close();
+                    self.frame_clock.invalidate();
+                } else if let Err(e) = self.scroll(delta) { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. }
@@ -1110,6 +1181,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             }
             WindowEvent::Focused(focused) => {
                 if !focused{self.pointer_pressed=false;}
+                if focused != self.window_focused { if let Err(e) = self.terminal_focus(focused) { self.status = Some(e); } }
                 self.window_focused = focused;
                 self.blink_start = Instant::now();
                 if focused {

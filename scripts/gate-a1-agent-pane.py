@@ -48,6 +48,17 @@ class Fail(Exception):
     pass
 
 
+def free_display():
+    """A display number no X server uses: 100 and up, with no lock file and no socket file. Never :0: Marc's
+    desktop Xwayland listens there under the socket name X0_, so Xvfb took :0, replaced /tmp/.X11-unix/X0 and
+    deleted it on exit, cutting new X11 apps off his desktop (2026-11-13)."""
+    for n in range(100, 200):
+        if not os.path.exists(f'/tmp/.X{n}-lock') and not os.path.lexists(f'/tmp/.X11-unix/X{n}') \
+                and not os.path.lexists(f'/tmp/.X11-unix/X{n}_'):
+            return str(n)
+    raise Fail('no free X display between :100 and :199')
+
+
 PROCS = []
 SERVER_PIDS = []  # real server process IDs (a strace wrapper does not pass SIGTERM on)
 
@@ -207,7 +218,7 @@ def post_ai():
 def window(post):
     w, env, config = setup('window-postai' if post else 'window', agents=AGENTS, post_ai=post)
     rd, wr = os.pipe()
-    x = subprocess.Popen(['Xvfb', '-displayfd', str(wr), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'],
+    x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'],
                          pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     PROCS.append(x)
     os.close(wr)
