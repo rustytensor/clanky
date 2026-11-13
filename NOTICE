@@ -1,8 +1,6 @@
 Clanky
 Copyright (c) 2026 Marc Mironescu
-Licensed under the GNU General Public License, version 3 or (at your option) any later version
-(COPYING), from version 1.3.1. Versions up to 1.3.0 were released under the MIT License or the
-Apache License, Version 2.0, at your option. The forked crates below keep their own licences.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option.
 
 This product includes software from the Alacritty project
 (https://github.com/alacritty/alacritty), forked and renamed:

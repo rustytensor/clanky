@@ -99,7 +99,6 @@ cat > "$work/expected-files" <<'EOF'
 /usr/share/applications/clanky.desktop
 /usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
 /usr/share/licenses/clanky
-/usr/share/licenses/clanky/COPYING
 /usr/share/licenses/clanky/LICENSE-APACHE
 /usr/share/licenses/clanky/LICENSE-Catppuccin
 /usr/share/licenses/clanky/LICENSE-DejaVu.txt
