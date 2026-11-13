@@ -270,7 +270,7 @@ impl SettingsPanel {
     }
 }
 fn label(out:&mut Drawing<'_>,r:[f32;4],text:&str,px:f32,color:[u8;4]){
-    let mut run=TextRun{origin:[r[0],r[1]],text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(4096).collect(),px,color,weight:400,mono:false,opacity:1.0,letter_spacing:0.0};
+    let mut run=TextRun{origin:[r[0],r[1]],text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(4096).collect(),px,color,weight:400,mono:false,opacity:1.0,letter_spacing:0.0,italic:false};
     if (out.measure)(&run).width>r[2] {
         let chars:Vec<char>=run.text.chars().collect();let tail=run.text.ends_with('▏');
         let (mut low,mut high)=(0,chars.len());
