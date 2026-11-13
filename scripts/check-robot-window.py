@@ -75,7 +75,7 @@ def main(work, bins):
     config = work / 'config.json'
     config.write_text(json.dumps(dict(columns=124, rows=37, theme='dark', theme_dark='stone-dark',
                                      restore_layout=False, animations=True, startup_animation=True,
-                                     osc52_write=False, osc52_read=False)))
+                                     osc52_write=False, osc52_read=False, cursor_blink='off')))
     reader = work / 'reader.py'
     reader.write_text("import os,tty\ntty.setraw(0)\nopen('reader-ready','w').close()\n"
                       "while True:\n b=os.read(0,1)\n if not b: break\n"
