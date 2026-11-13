@@ -25,6 +25,8 @@ until the window's plain-terminal view is connected.
 | `Ctrl+Shift+G` | Open the [agent picker](agent-pane.md); Enter starts the highlighted tool |
 | `Ctrl+Shift+O` | Open local file prompt |
 | `Ctrl+Shift+F` | Search retained terminal text, including soft wraps |
+| `Ctrl+Shift+C` | Copy the terminal selection to the clipboard |
+| `Ctrl+Shift+V` | Paste the clipboard into the focused terminal (bracketed when the program asks) |
 | `Ctrl+Shift+Enter` | Open compose docked to the focused terminal; does not send a draft |
 | `Ctrl+=` | Zoom in |
 | `Ctrl++` | Zoom in |
@@ -41,6 +43,23 @@ until the window's plain-terminal view is connected.
 The top-bar New tab, Split, Agent and search controls are mouse alternatives to these shortcuts.
 In the agent picker, Up and Down choose a tool, Tab or Left/Right switch between a split and a new tab, and Escape closes it.
 Drag a pane divider to resize it; click anywhere on an agent-access row to toggle it.
+
+## Mouse in a terminal pane
+
+The mouse works as in Ptyxis (VTE). See [the terminal](terminal.md#mouse) for what programs receive.
+
+| Mouse | Action |
+| --- | --- |
+| Drag | Select text; selecting copies it to the PRIMARY selection |
+| Ctrl+drag | Select a rectangle |
+| Double-click | Select a word: letters, digits and `-#%&+,./=?@\_~·`, so a path is one word |
+| Triple-click | Select the whole line |
+| Shift+click | Extend the selection |
+| Click | Clear the selection |
+| Middle click | Paste the PRIMARY selection |
+| Wheel | Scroll the history; on a full-screen program's screen, send Up/Down keys |
+| Ctrl+wheel | Zoom in and out |
+| Shift + any of these | Select and paste even while the program takes the mouse (mc, vim, htop) |
 
 Block actions appear only while the card is hovered or keyboard-focused. They
 fade in over 120 ms; animations off makes them immediate. Card focus consumes

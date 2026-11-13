@@ -22,6 +22,7 @@ pub mod look;
 pub mod clipboard;
 pub mod scrollback_search;
 pub mod window_tools;
+pub mod mouse;
 pub mod compose;
 pub mod editor;
 pub mod input;

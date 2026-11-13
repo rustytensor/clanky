@@ -42,7 +42,7 @@ pub struct Studio {
     card_keys: Vec<(String,String)>,
     card_focus: Option<(String,String)>,
     card_action: usize,
-    snapshots: BTreeMap<String, TerminalSnapshot>,
+    pub(super) snapshots: BTreeMap<String, TerminalSnapshot>,
     shown: BTreeMap<String, (TerminalSnapshot, f32)>,
     reviews: BTreeMap<String, Review>,
     scrolls: BTreeMap<String, Scroll>,
@@ -89,7 +89,21 @@ fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
     TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],
-        cursor: None, images: Vec::new(), app_cursor: false }
+        cursor: None, images: Vec::new(), app_cursor: false, ..Default::default() }
+}
+/// Draw selected cells on the theme's selection colour; the text keeps its colour.
+fn highlight(snapshot: &mut TerminalSnapshot, spans: &[clanky::mouse::Span], color: [u8; 3]) {
+    let top = clanky::mouse::top_line(snapshot);
+    for &(line, start, end) in spans {
+        let row = line - top;
+        if row < 0 || row as usize >= snapshot.rows { continue; }
+        let base = row as usize * snapshot.cols;
+        for cell in &mut snapshot.cells[base + start.min(snapshot.cols)..base + end.min(snapshot.cols)] {
+            let fg = cell.color_source.map_or(clanky_core::ColorSource::Truecolor, |s| if s.inverse { s.bg } else { s.fg });
+            cell.bg = color;
+            cell.color_source = Some(clanky_core::CellColorSource { fg, bg: clanky_core::ColorSource::Truecolor, inverse: false });
+        }
+    }
 }
 fn local_rect(pane: &PaneLayout) -> Rect { Rect { row: 0, col: 0, rows: pane.rows, cols: pane.cols } }
 fn row_text(snapshot: &TerminalSnapshot, row: usize) -> String {
@@ -432,7 +446,7 @@ impl App {
             self.url_opener.open(url).map_err(|_| "Could not open URL".to_owned())
         })? { return Ok(()); }
         // File/editor entry stays unavailable until its calm controls are rebuilt.
-        Ok(())
+        self.terminal_press(1)
     }
     pub(super) fn drag_studio(&mut self) -> Result<(), String> {
         if self.compose.active_target().is_some() {
@@ -494,7 +508,10 @@ impl App {
             let row = self.studio.reviews.get(&id).filter(|r|r.content.contains(self.mouse.0,self.mouse.1)).map(|r|r.first_row+((self.mouse.1-r.content.y as f64)/layout.cell_px[1] as f64) as usize)
                 .unwrap_or_else(||point(pane,self.mouse,layout.cell_px,true).map_or(0,|(_,row)|row+EDITOR_TITLE_ROWS));
             self.files.scroll(&id, row, lines.round() as i32, columns.round() as i32)?;
-        } else { self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?; }
+        } else {
+            if self.terminal_wheel(delta, layout.cell_px)? { return Ok(()); }
+            self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?;
+        }
         if self.config.animations {
             if let Some(old) = self.studio.snapshots.get(&id) { self.studio.scrolls.insert(id, Scroll { old: old.clone(), start: Instant::now() }); }
         }
@@ -710,6 +727,9 @@ impl App {
                         view.blocks.clear(); view.underlines.clear(); view.cursor = None; view.snapshot.cursor = None;
                     }
                 }
+            }
+            if !self.files.panes.contains_key(&pane.id) && view.scroll_px == 0.0 && self.search.active_target() != Some(pane.id.as_str()) {
+                if let Some(spans) = self.selection_spans(&pane.id, &snapshot) { highlight(&mut view.snapshot, &spans, rgb(state.theme.selection)); }
             }
             self.studio.shown.insert(pane.id.clone(),(view.snapshot.clone(),view.scroll_px));
             view.snapshot.images.retain(|image| {
@@ -961,7 +981,7 @@ fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockC
 fn stitch_region(old: &TerminalSnapshot,new: &TerminalSnapshot,start: usize,end: usize,cell_h: f32) -> Option<(TerminalSnapshot,f32,f32)> {
     if old.cols!=new.cols || old.rows!=new.rows || start>=end || end>new.rows { return None; }
     if start==0 && end==new.rows { return stitch(old,new,cell_h); }
-    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new(),app_cursor:false };
+    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new(),app_cursor:false,..Default::default() };
     let (middle,from,to)=stitch(&region(old),&region(new),cell_h)?;
     let mut result=new.clone(); result.cursor=None; result.images.clear(); result.rows+=middle.rows-(end-start);
     result.cells=new.cells[..start*new.cols].iter().chain(&middle.cells).chain(&new.cells[end*new.cols..]).cloned().collect();
