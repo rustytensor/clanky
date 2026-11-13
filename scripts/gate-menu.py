@@ -171,7 +171,7 @@ def selection_story(win, p):
     p.move(13, 3)
     a = win.shot('k7-before')
     menu(win, p, 13, 3)
-    p.click(30, 9)
+    p.click(5, 9)  # left of the menu, which covers about 252 x 320 px right of and below the pointer
     time.sleep(.4)
     require(diff_box(a, win.shot('k7-after')) is None, 'K7 a click outside closes the menu and changes nothing else')
     p.click(30, 9)  # nothing open now: this click clears the selection
