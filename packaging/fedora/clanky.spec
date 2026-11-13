@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.2.2
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -59,6 +59,10 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Thu Nov 12 2026 Clanky contributors <noreply@github.com> - 1.3.0-1
+- Start an agent in a pane: the Agent button, Ctrl+Shift+G or clanky agent NAME opens a pane running that tool with agent access for that pane only.
+- Recent credits commands an agent ran to the agent.
+
 * Thu Nov 12 2026 Clanky contributors <noreply@github.com> - 1.2.2-1
 - File opens that must not follow symlinks use the system flag names, so the guard also holds on ARM64.
 
