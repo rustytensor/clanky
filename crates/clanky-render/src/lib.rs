@@ -32,6 +32,35 @@ pub const CELL_HEIGHT: u32 = 32;
 const ATLAS_SIZE: u32 = 2048;
 const FONT: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSansMono.ttf");
 
+/// The surface format and the view format frames are drawn through. Colours are
+/// already sRGB-encoded 8-bit values, so they must reach an 8-bit UNORM view
+/// unchanged: a float or 16-bit surface is shown as linear light by some
+/// compositors (Hyprland), brightening everything, and an sRGB view would encode
+/// them a second time. An 8-bit sRGB surface is used through its UNORM view.
+pub fn surface_format(formats: &[wgpu::TextureFormat]) -> Option<(wgpu::TextureFormat, wgpu::TextureFormat)> {
+    use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba8Unorm, Rgba8UnormSrgb};
+    for want in [Bgra8Unorm, Rgba8Unorm] {
+        if formats.contains(&want) { return Some((want, want)); }
+    }
+    for want in [Bgra8UnormSrgb, Rgba8UnormSrgb] {
+        if formats.contains(&want) { return Some((want, want.remove_srgb_suffix())); }
+    }
+    None
+}
+
+#[cfg(test)]
+#[test]
+fn surface_format_hyprland_radv() {
+    use wgpu::TextureFormat::*;
+    // vulkaninfo on Marc's Hyprland session (RX 7900 XT, RADV), in its order, as wgpu names them:
+    // R16G16B16A16_SFLOAT, R16G16B16A16_UNORM, A2B10G10R10_UNORM, B8G8R8A8_SRGB, B8G8R8A8_UNORM,
+    // R8G8B8A8_SRGB, R8G8B8A8_UNORM (A2R10G10B10 and R5G6B5 have no wgpu surface format).
+    let listed = [Rgba16Float, Rgba16Unorm, Rgb10a2Unorm, Bgra8UnormSrgb, Bgra8Unorm, Rgba8UnormSrgb, Rgba8Unorm];
+    assert_eq!(surface_format(&listed), Some((Bgra8Unorm, Bgra8Unorm)));
+    // Only sRGB 8-bit offered: draw through its UNORM view, never the float format.
+    assert_eq!(surface_format(&[Rgba16Float, Bgra8UnormSrgb]), Some((Bgra8UnormSrgb, Bgra8Unorm)));
+}
+
 /// Drive the native wgpu futures without an async runtime or a busy loop.
 pub fn block_on<F: Future>(future: F) -> F::Output {
     struct ThreadWake(std::thread::Thread);
@@ -657,13 +686,11 @@ impl Renderer {
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or("Surface unsupported")?;
-        if let Some(format) = surface
-            .get_capabilities(&adapter)
-            .formats
-            .into_iter()
-            .find(|f| !f.is_srgb())
-        {
+        // Colours are sRGB-encoded bytes and are written as they are, so the surface
+        // must be an 8-bit UNORM view (see surface_format).
+        if let Some((format, view)) = surface_format(&surface.get_capabilities(&adapter).formats) {
             config.format = format;
+            config.view_formats = if view == format { vec![] } else { vec![view] };
         }
         let alpha_modes = surface.get_capabilities(&adapter).alpha_modes;
         if alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
@@ -671,7 +698,7 @@ impl Renderer {
         } else if alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
         }
-        let text = TextPipeline::new(&adapter, config.format).await?;
+        let text = TextPipeline::new(&adapter, config.view_formats.first().copied().unwrap_or(config.format)).await?;
         surface.configure(&text.device, &config);
         let info = adapter.get_info();
         let adapter_summary = format!("{} {:?} {:?}", info.name, info.backend, info.device_type);
@@ -689,6 +716,13 @@ impl Renderer {
             adapter_summary,
             surface_summary,
         })
+    }
+    /// The format pipelines render in: the UNORM view of an sRGB surface, else the surface format.
+    pub(crate) fn view_format(&self) -> wgpu::TextureFormat {
+        self.config.view_formats.first().copied().unwrap_or(self.config.format)
+    }
+    pub(crate) fn view_descriptor(&self) -> wgpu::TextureViewDescriptor<'static> {
+        wgpu::TextureViewDescriptor { format: Some(self.view_format()), ..Default::default() }
     }
     /// Set physical-pixel metrics after a DPI or zoom change.
     pub fn set_metrics(
@@ -733,7 +767,7 @@ impl Renderer {
             }
             other => return Err(format!("Surface acquisition failed: {other:?}")),
         };
-        let view = frame.texture.create_view(&Default::default());
+        let view = frame.texture.create_view(&self.view_descriptor());
         let commands = self
             .text
             .render(snapshot, &view, self.config.width, self.config.height, underlines)?;

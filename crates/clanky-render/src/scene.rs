@@ -124,10 +124,30 @@ pub fn measure_text(text: &TextRun) -> TextMetrics {
 impl Renderer {
     /// Measure using this window's configured font families, without drawing.
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
+        let format = self.view_format();
         let painter = self.scene.get_or_insert_with(|| {
-            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+            crate::scene_gpu::Painter::new(&self.text.device, format, true)
         });
         painter.measure_text(text)
+    }
+
+    /// The configured terminal face in em: [widest ASCII advance, ascent, descent].
+    /// The window sizes cells from it the way VTE does.
+    pub fn terminal_face(&mut self) -> Option<[f32; 3]> {
+        let format = self.view_format();
+        let painter = self.scene.get_or_insert_with(|| {
+            crate::scene_gpu::Painter::new(&self.text.device, format, true)
+        });
+        painter.terminal_face()
+    }
+
+    /// Monospace families the terminal font menu can offer.
+    pub fn monospace_families(&mut self) -> Vec<String> {
+        let format = self.view_format();
+        let painter = self.scene.get_or_insert_with(|| {
+            crate::scene_gpu::Painter::new(&self.text.device, format, true)
+        });
+        painter.monospace_families()
     }
 
     /// Whether the compositor accepts premultiplied window transparency.
@@ -138,8 +158,9 @@ impl Renderer {
 
     /// Configure installed or bundled scene families. Legacy fixture fonts stay fixed.
     pub fn set_font_families(&mut self, terminal: &str, ui: &str) -> Result<(), String> {
+        let format = self.view_format();
         let painter = self.scene.get_or_insert_with(|| {
-            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+            crate::scene_gpu::Painter::new(&self.text.device, format, true)
         });
         painter.set_families(&self.text.device, terminal, ui)
     }
@@ -163,10 +184,11 @@ impl Renderer {
             other => return Err(format!("Surface acquisition failed: {other:?}")),
         };
         let acquired = std::time::Instant::now();
-        let view = frame.texture.create_view(&Default::default());
+        let view = frame.texture.create_view(&self.view_descriptor());
         let opaque = !self.supports_transparency();
+        let format = self.view_format();
         let painter = self.scene.get_or_insert_with(|| {
-            crate::scene_gpu::Painter::new(&self.text.device, self.config.format, true)
+            crate::scene_gpu::Painter::new(&self.text.device, format, true)
         });
         let commands = painter.render(
             &self.text.device,

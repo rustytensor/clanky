@@ -21,11 +21,13 @@ fn blank(rows: usize, cols: usize) -> TerminalSnapshot {
                 fg: [255, 255, 255],
                 bg: [0, 0, 0],
                 color_source: None,
+                style: 0,
             };
             rows * cols
         ],
         cursor: None,
         images: Vec::new(),
+        app_cursor: false,
     }
 }
 fn image(alpha: u8) -> ImagePlacement {

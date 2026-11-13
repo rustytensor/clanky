@@ -87,7 +87,7 @@ fn theme_card_names_fit(){
 }
 
 #[derive(Clone)]
-pub(super) enum EditKind{Color(&'static str),Save,Import,Export}
+pub(super) enum EditKind{Color(&'static str),Save,Import,Export,TerminalColor(&'static str),Palette}
 pub(super) struct Editor{pub kind:EditKind,pub values:Vec<String>,pub focus:usize,caret:usize,all:bool}
 impl Editor{
     pub fn new(kind:EditKind,values:Vec<String>)->Self{let caret=values[0].len();Self{kind,values,focus:0,caret,all:true}}
@@ -108,7 +108,8 @@ impl Editor{
     pub fn draw(&self,window:[u32;2],g:&Geometry,t:&Theme,error:Option<&str>,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->(Vec<Layer>,Vec<Hit>){
         let s=g.scale;let mut p=Paint::empty(t,measure,s,window,pointer,pressed);let mut hits=vec![];
         p.shape(g.panel,12.0*s,[0,0,0,100],None);let box_rect=g.local(220.0,140.0,548.0,330.0);p.shape(box_rect,12.0*s,t.colors.card,Some(t.colors.border));
-        let (title,labels)=match self.kind{EditKind::Color(_)=>("Choose colour",vec!["Hex colour"]),EditKind::Save=>("Save as new theme",vec!["Name","File name"]),EditKind::Import=>("Import theme",vec!["Source file","File name"]),EditKind::Export=>("Export theme",vec!["Destination file"])};
+        let (title,labels)=match self.kind{EditKind::Color(_)=>("Choose colour",vec!["Hex colour"]),EditKind::Save=>("Save as new theme",vec!["Name","File name"]),EditKind::Import=>("Import theme",vec!["Source file","File name"]),EditKind::Export=>("Export theme",vec!["Destination file"]),
+            EditKind::TerminalColor(_)=>("Choose terminal colour",vec!["Hex colour"]),EditKind::Palette=>("Import Ptyxis palette",vec!["Palette file (its [Dark] colours are used)"])};
         p.text(g.local(240.0,156.0,500.0,32.0),title,16.0*s,t.colors.foreground,600,false);
         for(i,(name,value))in labels.iter().zip(&self.values).enumerate(){let y=202.0+i as f32*68.0;p.text(g.local(240.0,y-20.0,500.0,18.0),name,13.0*s,t.colors.muted_foreground,400,false);let input=g.local(240.0,y,508.0,32.0);p.shape(input,8.0*s,t.colors.background,Some(if self.focus==i{t.colors.ring}else{t.colors.input}));
             let caret=if self.focus==i{self.caret}else{value.len()};let mut start=0;while p.mono_width(&value[start..caret],13.0*s,400)>488.0*s{start+=value[start..].chars().next().unwrap().len_utf8();}
@@ -116,7 +117,7 @@ impl Editor{
             if self.focus==i{let x=input.x+10.0*s+p.mono_width(&value[start..caret],13.0*s,400);p.shape(r(x,input.y+8.0*s,s,16.0*s),0.0,t.colors.foreground,None);}
             hits.push(Hit{rect:input,action:Action::Field(i)});
         }
-        if let EditKind::Color(_)=self.kind{for(i,color)in t.ansi.iter().enumerate(){let rect=g.local(240.0+i as f32*31.0,256.0,26.0,26.0);p.shape(rect,5.0*s,*color,Some(t.colors.input));hits.push(Hit{rect,action:Action::PickColor(hex(*color))});}}
+        if let EditKind::Color(_)|EditKind::TerminalColor(_)=self.kind{for(i,color)in t.ansi.iter().enumerate(){let rect=g.local(240.0+i as f32*31.0,256.0,26.0,26.0);p.shape(rect,5.0*s,*color,Some(t.colors.input));hits.push(Hit{rect,action:Action::PickColor(hex(*color))});}}
         if let Some(error)=error{p.text(g.local(240.0,350.0,508.0,42.0),error,13.0*s,t.colors.err,400,false);}
         for (x,name,action)in[(568.0,"Cancel",Action::Cancel),(664.0,"Apply",Action::Confirm)]{let rect=g.local(x,416.0,84.0,32.0);button(&mut p,rect,name,t,s,pointer,pressed,true);hits.push(Hit{rect,action});}
         (p.out.scene.layers,hits)

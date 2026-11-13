@@ -88,8 +88,8 @@ fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
     for cell in &mut snapshot.cells { cell.fg = theme.ui_color(cell.fg,false); cell.bg = theme.ui_color(cell.bg,true); cell.color_source = None; }
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
-    TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None }; rows * cols],
-        cursor: None, images: Vec::new() }
+    TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],
+        cursor: None, images: Vec::new(), app_cursor: false }
 }
 fn local_rect(pane: &PaneLayout) -> Rect { Rect { row: 0, col: 0, rows: pane.rows, cols: pane.cols } }
 fn row_text(snapshot: &TerminalSnapshot, row: usize) -> String {
@@ -237,16 +237,19 @@ impl App {
     pub(super) fn reset_ime_position(&mut self){self.studio.ime=None;}
     pub(super) fn invalidate_scene_fonts(&mut self){self.studio.scene_cache.clear();}
     pub fn clear_card_focus(&mut self) {self.studio.card_focus=None;}
+    /// Whether the pane's program asked for application cursor keys (DECCKM).
+    pub(super) fn app_cursor(&self,id:&str)->bool {self.studio.snapshots.get(id).is_some_and(|s|s.app_cursor)}
     pub fn card_focused(&self)->bool {self.studio.card_focus.is_some()}
+    /// Ctrl+Shift+F6: focus the next visible command card (plain F6 goes to the program, ESC[17~).
+    pub(super) fn cycle_card_focus(&mut self) {
+        if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return;}
+        if !self.studio.card_keys.is_empty() {
+            let next=self.studio.card_focus.as_ref().and_then(|key|self.studio.card_keys.iter().position(|k|k==key)).map_or(0,|i|(i+1)%self.studio.card_keys.len());
+            self.studio.card_focus=Some(self.studio.card_keys[next].clone());self.studio.card_action=0;self.reset_ime();
+        }
+    }
     pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
         if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return Ok(false);}
-        if *key==Key::Named(NamedKey::F6) {
-            if !self.studio.card_keys.is_empty() {
-                let next=self.studio.card_focus.as_ref().and_then(|key|self.studio.card_keys.iter().position(|k|k==key)).map_or(0,|i|(i+1)%self.studio.card_keys.len());
-                self.studio.card_focus=Some(self.studio.card_keys[next].clone());self.studio.card_action=0;self.reset_ime();
-            }
-            return Ok(true);
-        }
         let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
         let count=if self.applied_post_ai{2}else{3};
         match key {
@@ -512,6 +515,7 @@ impl App {
             elapsed_ms: self.studio.started.elapsed().as_secs_f32()*1000.0,
             focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
+            terminal: self.config.terminal_colors.clone(), cursor_visible: { self.blink_shown=self.cursor_visible(); self.blink_shown },
             ..LookState::default() };
         state.palette_open = self.palette.open;
         state.user_name = self.studio.user_name.get_or_insert_with(|| clanky_core::platform::user_display_name().unwrap_or_default()).clone();
@@ -650,7 +654,7 @@ impl App {
             if self.search.active_target() == Some(pane.id.as_str()) {
                 // The pinned search view replaces the live grid; matches use calm stone tints.
                 let c=&self.studio.calm_theme.colors;let mix=|t:f32|std::array::from_fn(|i|(c.background[i] as f32*(1.0-t)+c.foreground[i] as f32*t).round() as u8);
-                let blank=clanky_core::Cell{ch:' ',fg:[c.foreground[0],c.foreground[1],c.foreground[2]],bg:[c.background[0],c.background[1],c.background[2]],color_source:None};
+                let blank=clanky_core::Cell{ch:' ',fg:[c.foreground[0],c.foreground[1],c.foreground[2]],bg:[c.background[0],c.background[1],c.background[2]],color_source:None,style:0};
                 if let Some(pinned)=self.search.pinned(pane.rows,pane.cols,blank,mix(0.16),mix(0.34)) { snapshot = pinned; }
                 state.find = Some((pane.id.clone(),self.search.query().to_owned(),self.search.total()));
             }
@@ -957,7 +961,7 @@ fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockC
 fn stitch_region(old: &TerminalSnapshot,new: &TerminalSnapshot,start: usize,end: usize,cell_h: f32) -> Option<(TerminalSnapshot,f32,f32)> {
     if old.cols!=new.cols || old.rows!=new.rows || start>=end || end>new.rows { return None; }
     if start==0 && end==new.rows { return stitch(old,new,cell_h); }
-    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new() };
+    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new(),app_cursor:false };
     let (middle,from,to)=stitch(&region(old),&region(new),cell_h)?;
     let mut result=new.clone(); result.cursor=None; result.images.clear(); result.rows+=middle.rows-(end-start);
     result.cells=new.cells[..start*new.cols].iter().chain(&middle.cells).chain(&new.cells[end*new.cols..]).cloned().collect();

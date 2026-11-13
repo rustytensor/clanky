@@ -339,7 +339,7 @@ fn paint(frame: &mut TerminalSnapshot, rect: &Rect, row: usize, text: &str) {
     for col in rect.col..rect.col.saturating_add(rect.cols).min(frame.cols) {
         let ch = chars.next().map_or(' ', |ch| if ch.is_control() { ' ' } else { ch });
         if let Some(cell) = row.checked_mul(frame.cols).and_then(|i| i.checked_add(col)).and_then(|i| frame.cells.get_mut(i)) {
-            *cell = Cell { ch, fg: [220, 220, 225], bg: NORMAL, color_source: None };
+            *cell = Cell { ch, fg: [220, 220, 225], bg: NORMAL, color_source: None, style: 0 };
         }
     }
 }

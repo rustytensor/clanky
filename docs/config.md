@@ -36,6 +36,12 @@ a missing explicit file, invalid value or unknown key is an error.
 | `history` | boolean | true | Save every command to the [history file](history.md); false creates no file and writes nothing |
 | `history_days` | integer | 90 | 0–3650; saved commands older than this are deleted at server start and daily; 0 keeps everything |
 | `history_output_kib` | integer | 256 | 1–65536; masked output stored per command, cut on a UTF-8 boundary |
+| `cell_width_scale` | number | 1.0 | 1.0–2.0; multiplies the cell width (VTE's cell-width-scale) |
+| `cell_height_scale` | number | 1.0 | 1.0–2.0; multiplies the cell height, as Ptyxis's line height (VTE's cell-height-scale) |
+| `cursor_blink` | string | `system` | `system` follows GNOME's cursor-blink, cursor-blink-time and cursor-blink-timeout (on, 1200, 10 when unreadable); `on` or `off` |
+| `cursor_blink_time_ms` | integer | 1200 | 100–10000; one full on-and-off cycle, for `on` (and `system` without GNOME) |
+| `cursor_blink_timeout_s` | integer | 10 | Seconds after the last key that blinking stops, with the cursor shown |
+| `terminal_colors` | object | `{}` | `background`, `foreground`, `cursor` (`#rrggbb`) and `ansi` (16 colours); the terminal's colours only, unset ones follow the theme; see [the terminal](terminal.md) |
 | `agents` | list | Claude Code `claude`, Codex `codex`, Pi `pi` | Up to 32 `{"name": ..., "command": ...}` objects, each a nonempty string of at most 256 bytes; the tools the [agent picker](agent-pane.md) and `clanky agent` can start |
 | `agent_pane_access` | string | `read+run` | `read+run` or `off`: agent access of a pane started for an agent |
 

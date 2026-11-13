@@ -46,6 +46,16 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "history") {
         std::process::exit(clanky::history_cli::main(&args[1..]));
     }
+    if args.first().is_some_and(|arg| arg == "terminal-colors") {
+        std::process::exit(match args.get(1..).unwrap_or_default() {
+            [import, path] if import == "import" => match std::fs::read_to_string(path).map_err(|e| e.to_string())
+                .and_then(|text| clanky::config::import_ptyxis_palette(&text)) {
+                Ok(colors) => { println!("{}", serde_json::to_string_pretty(&colors).unwrap_or_default()); 0 }
+                Err(error) => { eprintln!("clanky terminal-colors: {path}: {error}"); 1 }
+            },
+            _ => { eprintln!("clanky terminal-colors import FILE.palette: print a Ptyxis palette's [Dark] colours as \"terminal_colors\" JSON"); 2 }
+        });
+    }
     if args.first().is_some_and(|arg| arg == "agent") {
         std::process::exit(clanky::agent_cli::main(&args[1..]));
     }
@@ -95,7 +105,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky agent [--tab] NAME [DIR]: start an agent tool in a new pane (--list shows them)\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access; Ctrl+Shift+G: start an agent\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky agent [--tab] NAME [DIR]: start an agent tool in a new pane (--list shows them)\nclanky terminal-colors import FILE.palette: print a Ptyxis palette as terminal_colors JSON\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access; Ctrl+Shift+G: start an agent\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
@@ -188,6 +198,13 @@ struct App {
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     palette: clanky::calm::palette::Palette,
     agent_picker: clanky::calm::agent_picker::AgentPicker,
+    /// The terminal font's [advance, ascent, descent] in em, once the renderer has loaded it.
+    terminal_face: Option<[f32; 3]>,
+    /// Cursor blinking: resolved settings, GNOME's values, the last restart, and the state last drawn.
+    blink: clanky::cursor_blink::Blink,
+    gnome_blink: Option<(bool, u32, u32)>,
+    blink_start: Instant,
+    blink_shown: bool,
     /// The agent tool the next new terminal starts (set only while start_agent runs).
     pending_agent: Option<clanky::config::AgentTool>,
     settings_error: Option<String>,
@@ -222,6 +239,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
     let rails = config.rails;
+    let gnome_blink = clanky::platform::gnome_cursor_blink();
+    let blink = clanky::cursor_blink::Blink::from_config(&config, gnome_blink);
     let gate_clock = clanky::robot_gate_clock::RobotGateClock::from_env()?;
     let force_redraw = gate_clock.as_ref().is_some_and(|clock| clock.force_redraw());
     let mut app = App {
@@ -264,7 +283,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
-        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),pending_agent:None,
+        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
         gate_clock,
@@ -294,8 +313,12 @@ impl App {
     fn call(&self, op: &str, args: Value) -> Result<Value, String> {
         self.engine.request(op, &args, true).map_err(|e| e.message)
     }
+    /// Whether the focused pane's cursor shows now (always, when unfocused or not blinking).
+    fn cursor_visible(&self) -> bool {
+        !self.window_focused || self.blink.visible(self.blink_start.elapsed())
+    }
     fn metrics(&self) -> Result<Metrics, String> {
-        clanky::calm::font_metrics(&self.zoom,self.scale)
+        clanky::calm::font_metrics(&self.zoom,self.scale,self.terminal_face,[self.config.cell_width_scale,self.config.cell_height_scale])
     }
     fn full_rect(&self) -> Result<Rect, String> {
         let m = self.metrics()?;
@@ -676,6 +699,10 @@ impl App {
             let effect=self.agent_picker.key(key,&context);
             return self.agent_picker_effect(effect);
         }
+        if self.modifiers.control_key() && self.modifiers.shift_key() && *key == Key::Named(NamedKey::F6) {
+            self.cycle_card_focus();
+            return Ok(());
+        }
         if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
             && matches!(key, Key::Character(ch) if ch.eq_ignore_ascii_case("b"))
@@ -816,11 +843,13 @@ impl App {
             pane.key(key, text, modifiers, composing)?;
             return Ok(());
         }
+        let app_cursor = self.focused().is_some_and(|id| self.app_cursor(id));
         self.send(&key_bytes(
             key,
             text,
             self.modifiers,
             self.input.composing(),
+            app_cursor,
         ))
     }
     fn click(&mut self) -> Result<(), String> {
@@ -880,7 +909,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             return;
         }
         let result = (|| {
-            let base = clanky::calm::font_metrics(&self.zoom,1.0)?;
+            let base = clanky::calm::font_metrics(&self.zoom,1.0,None,[self.config.cell_width_scale,self.config.cell_height_scale])?;
             let window = Arc::new(
                 event_loop
                     .create_window(
@@ -901,6 +930,8 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             if self.frame_trace.enabled() { eprintln!("clanky: frame trace on {} ({})", renderer.adapter_summary, renderer.surface_summary); }
             renderer.set_font_families(&self.config.font_family, &self.config.ui_font_family)
                 .map_err(|error| format!("Configuration: {error}"))?;
+            self.terminal_face = renderer.terminal_face();
+            if let Some(panel) = &mut self.settings { panel.mono_fonts = renderer.monospace_families(); }
             if !renderer.supports_transparency() {
                 self.status = Some("Compositor transparency unavailable; using opaque background".into());
             }
@@ -984,6 +1015,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.frame_trace.key_event();
+                self.blink_start = Instant::now();
                 if event.repeat && self.card_focused() { return; }
                 // Hold the consumed chord until release: releasing Ctrl first must
                 // not turn an auto-repeat after Send into ordinary PTY Enter.
@@ -1079,6 +1111,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             WindowEvent::Focused(focused) => {
                 if !focused{self.pointer_pressed=false;}
                 self.window_focused = focused;
+                self.blink_start = Instant::now();
                 if focused {
                     if let Some(pane) = self.files.editor() { let _ = pane.command("refresh", &json!({})); }
                 } else {
@@ -1185,6 +1218,11 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
         let now=self.clock_now();
         let mut wake=self.next_settings.min(self.next_polish);
         if !self.is_suspended(){
+            // A blink phase change is a frame; once blinking rests there are none.
+            if self.cursor_visible() != self.blink_shown { self.frame_clock.invalidate(); }
+            if self.window_focused {
+                if let Some(at) = self.blink.next_change(self.blink_start, Instant::now()) { wake = wake.min(at); }
+            }
             if self.frame_clock.request_due(now){if let Some(window)=&self.window{window.request_redraw();}}
             if self.gate_clock.is_none() {
                 if let Some(deadline)=self.frame_clock.deadline(now){wake=wake.min(deadline);}

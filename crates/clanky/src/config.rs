@@ -35,10 +35,78 @@ pub struct Config {
     pub history_days: u32,
     /// Stored output per command, in KiB.
     pub history_output_kib: u32,
+    /// Terminal cell width and height multipliers (VTE's cell-width/height-scale), 1.0–2.0.
+    pub cell_width_scale: f32,
+    pub cell_height_scale: f32,
+    /// Terminal colours apart from the window theme.
+    pub terminal_colors: TerminalColors,
+    pub cursor_blink: CursorBlink,
+    /// Full blink cycle (on then off) and how long blinking lasts after the last key.
+    pub cursor_blink_time_ms: u32,
+    pub cursor_blink_timeout_s: u32,
     /// Agent command-line tools the picker and `clanky agent` can start, in order.
     pub agents: Vec<AgentTool>,
     /// Whether a pane started for an agent gets agent access (read + run) or none.
     pub agent_pane_access: bool,
+}
+
+/// Terminal colours set apart from the window theme; each unset one follows the theme.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalColors {
+    pub background: Option<crate::themes::Color>,
+    pub foreground: Option<crate::themes::Color>,
+    pub cursor: Option<crate::themes::Color>,
+    pub ansi: Option<[crate::themes::Color; 16]>,
+}
+
+/// Cursor blinking: follow GNOME's setting, or always on or off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorBlink { #[default] System, On, Off }
+
+impl TerminalColors {
+    pub fn from_value(value: &serde_json::Value) -> Result<Self, String> {
+        let object = value.as_object().ok_or("terminal_colors must be an object")?;
+        let color = |key: &str, value: &serde_json::Value| -> Result<crate::themes::Color, String> {
+            let text = value.as_str().ok_or_else(|| format!("terminal_colors.{key} must be #rrggbb"))?;
+            crate::themes::parse_color(text).map(|c| [c[0], c[1], c[2], 255]).map_err(|_| format!("terminal_colors.{key} must be #rrggbb"))
+        };
+        let mut out = Self::default();
+        for (key, value) in object {
+            match key.as_str() {
+                "background" => out.background = Some(color(key, value)?),
+                "foreground" => out.foreground = Some(color(key, value)?),
+                "cursor" => out.cursor = Some(color(key, value)?),
+                "ansi" => {
+                    let list = value.as_array().filter(|l| l.len() == 16).ok_or("terminal_colors.ansi must list 16 colours")?;
+                    let mut ansi = [[0; 4]; 16];
+                    for (slot, value) in ansi.iter_mut().zip(list) { *slot = color("ansi", value)?; }
+                    out.ansi = Some(ansi);
+                }
+                _ => return Err(format!("unknown terminal_colors field: {key}")),
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The [Dark] section of a Ptyxis .palette file as a terminal_colors object
+/// (background, foreground, cursor, ansi from Color0..Color15, lowercase #rrggbb).
+pub fn import_ptyxis_palette(text: &str) -> Result<serde_json::Value, String> {
+    let mut section = "";
+    let mut found = std::collections::BTreeMap::new();
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') && line.ends_with(']') { section = &line[1..line.len() - 1]; continue; }
+        if section != "Dark" { continue; }
+        if let Some((key, value)) = line.split_once('=') { found.insert(key.trim().to_owned(), value.trim().to_owned()); }
+    }
+    let hex = |key: &str| -> Result<String, String> {
+        let value = found.get(key).ok_or_else(|| format!("the palette's [Dark] section has no {key}"))?;
+        let color = crate::themes::parse_color(value).map_err(|_| format!("{key}={value} is not #rrggbb"))?;
+        Ok(format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2]))
+    };
+    let ansi = (0..16).map(|i| hex(&format!("Color{i}"))).collect::<Result<Vec<_>, _>>()?;
+    Ok(serde_json::json!({"background": hex("Background")?, "foreground": hex("Foreground")?,
+        "cursor": hex("Cursor").or_else(|_| hex("Foreground"))?, "ansi": ansi}))
 }
 
 /// One agent tool: a display name and the command typed into the new pane's shell.
@@ -90,6 +158,12 @@ impl Default for Config {
             history: true,
             history_days: 90,
             history_output_kib: 256,
+            cell_width_scale: 1.0,
+            cell_height_scale: 1.0,
+            terminal_colors: TerminalColors::default(),
+            cursor_blink: CursorBlink::System,
+            cursor_blink_time_ms: 1200,
+            cursor_blink_timeout_s: 10,
             agents: default_agents(),
             agent_pane_access: true,
         }
@@ -348,6 +422,28 @@ impl Config {
                         agents.push(AgentTool { name: text("name")?, command: text("command")? });
                     }
                     config.agents = agents;
+                }
+                "cell_width_scale" | "cell_height_scale" => {
+                    let scale = value.as_f64().filter(|v| v.is_finite() && (1.0..=2.0).contains(v))
+                        .ok_or_else(|| format!("{key} must be a number from 1.0 to 2.0"))? as f32;
+                    if key == "cell_width_scale" { config.cell_width_scale = scale; } else { config.cell_height_scale = scale; }
+                }
+                "terminal_colors" => config.terminal_colors = TerminalColors::from_value(value)?,
+                "cursor_blink" => {
+                    config.cursor_blink = match value.as_str() {
+                        Some("system") => CursorBlink::System,
+                        Some("on") => CursorBlink::On,
+                        Some("off") => CursorBlink::Off,
+                        _ => return Err("cursor_blink must be \"system\", \"on\" or \"off\"".into()),
+                    };
+                }
+                "cursor_blink_time_ms" => {
+                    config.cursor_blink_time_ms = value.as_u64().filter(|n| (100..=10_000).contains(n))
+                        .ok_or("cursor_blink_time_ms must be an integer from 100 to 10000")? as u32;
+                }
+                "cursor_blink_timeout_s" => {
+                    config.cursor_blink_timeout_s = value.as_u64().filter(|n| (1..=2_147_483).contains(n))
+                        .ok_or("cursor_blink_timeout_s must be a positive integer")? as u32;
                 }
                 "agent_pane_access" => {
                     config.agent_pane_access = match value.as_str() {
