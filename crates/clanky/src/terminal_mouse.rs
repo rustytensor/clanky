@@ -46,14 +46,14 @@ impl App {
     }
 
     /// Whether a card, prompt or panel takes the mouse instead of the panes.
-    fn mouse_overlay(&self) -> bool {
+    pub(super) fn mouse_overlay(&self) -> bool {
         self.settings_open() || self.palette.open || self.agent_picker.open || self.panels.open || self.files.modal()
             || self.compose.active_target().is_some() || self.search.active_target().is_some()
     }
 
     /// The terminal pane cell under the pointer; `pane` keeps it to that pane, clamped to its edges.
     fn pointer_cell(&self, pane: Option<&str>) -> Option<Hit> {
-        if self.mouse_overlay() { return None; }
+        if self.mouse_overlay() || self.context_menu.open { return None; }
         let layout = self.pixel_layout().ok()?;
         let pane = match pane {
             Some(id) => layout.pane(id)?,
@@ -113,6 +113,11 @@ impl App {
                     self.term_mouse.handled |= bit;
                     return self.paste_selection(&hit.id, true);
                 }
+                // The menu; the selection stays as it is.
+                3 => {
+                    self.term_mouse.handled |= bit;
+                    return self.open_menu(&hit.id);
+                }
                 _ => {}
             }
         }
@@ -170,7 +175,7 @@ impl App {
         self.report(&hit.id, bytes)
     }
 
-    fn end_selection(&mut self) -> Result<(), String> {
+    pub(super) fn end_selection(&mut self) -> Result<(), String> {
         let Some(held) = &mut self.term_mouse.selection else { return Ok(()); };
         held.dragging = false;
         let Some(snapshot) = self.studio.snapshots.get(&held.pane) else { return Ok(()); };
@@ -182,6 +187,11 @@ impl App {
         }
         held.lines = line_texts(&held.sel, snapshot);
         self.term_mouse.primary.copy_to(text.as_bytes(), true).map_err(|_| "Could not set the selection".to_owned())
+    }
+
+    pub(super) fn copy_text(&mut self, text: &str) -> Result<(), String> {
+        if text.is_empty() { return Ok(()); }
+        self.term_mouse.clipboard.copy_to(text.as_bytes(), false).map_err(|_| "Could not copy".to_owned())
     }
 
     /// Ctrl+Shift+C: the selection to the clipboard.

@@ -3,6 +3,7 @@ mod robot_window;
 mod hello;
 mod settings_window;
 mod terminal_mouse;
+mod terminal_menu;
 mod window_events;
 mod panels;
 mod editor_workspace;
@@ -201,6 +202,7 @@ struct App {
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     palette: clanky::calm::palette::Palette,
     agent_picker: clanky::calm::agent_picker::AgentPicker,
+    context_menu: clanky::calm::context_menu::ContextMenu,
     /// The terminal font's [advance, ascent, descent] in em, once the renderer has loaded it.
     terminal_face: Option<[f32; 3]>,
     /// Cursor blinking: resolved settings, GNOME's values, the last restart, and the state last drawn.
@@ -288,7 +290,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
-        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
+        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),context_menu:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
         gate_clock,
@@ -670,6 +672,11 @@ impl App {
             self.status = Some("Agent access revoked; pending waits cancelled".into());
             return Ok(());
         }
+        // An open menu takes every key: Up, Down, Enter, Escape; the rest do nothing.
+        if self.context_menu.open {
+            let effect = self.context_menu.key(key);
+            return self.menu_effect(effect);
+        }
         if self.modifiers.control_key() && matches!(key,Key::Character(ch) if ch==",") {return self.toggle_settings();}
         if self.settings_open() {
             if self.modifiers.control_key() {
@@ -863,6 +870,11 @@ impl App {
         ))
     }
     fn click(&mut self) -> Result<(), String> {
+        // A click outside the menu only closes it.
+        if self.context_menu.open {
+            let effect = self.context_menu.click(self.mouse.0, self.mouse.1);
+            return self.menu_effect(effect);
+        }
         if self.agent_picker.open {
             let context=self.agent_context();
             let effect=self.agent_picker.click(self.mouse.0,self.mouse.1,&context);
@@ -997,6 +1009,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.mouse = (position.x, position.y);
                 if self.palette.open { self.palette.pointer(position.x, position.y); }
                 if self.agent_picker.open { let context=self.agent_context(); self.agent_picker.pointer(position.x, position.y, &context); }
+                if self.context_menu.open { self.context_menu.pointer(position.x, position.y); self.frame_clock.invalidate(); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
                 if let Err(e) = self.terminal_motion() { self.status = Some(e); }
                 Ok(())
@@ -1023,7 +1036,13 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             }
             WindowEvent::MouseInput { state, button: button @ (MouseButton::Middle | MouseButton::Right), .. } => {
                 let button = if button == MouseButton::Middle { 2 } else { 3 };
-                let result = if state == ElementState::Pressed { self.terminal_press(button) } else { self.terminal_release(button) };
+                let result = if state == ElementState::Pressed && self.context_menu.open {
+                    // Another right-click moves the menu; a middle click only closes it.
+                    self.context_menu.close();
+                    self.frame_clock.invalidate();
+                    if button == 3 { self.secondary_press() } else { Ok(()) }
+                } else if state == ElementState::Pressed && button == 3 { self.secondary_press() }
+                else if state == ElementState::Pressed { self.terminal_press(button) } else { self.terminal_release(button) };
                 if let Err(e) = result { self.status = Some(e); }
                 Ok(())
             }
@@ -1033,6 +1052,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 // arrived as a device event, so drop one wheel event for it.
                 if self.wheel_releases > 0 && matches!(delta, MouseScrollDelta::LineDelta(..)) {
                     self.wheel_releases -= 1;
+                } else if self.context_menu.open {
+                    self.context_menu.close();
+                    self.frame_clock.invalidate();
                 } else if let Err(e) = self.scroll(delta) { self.status = Some(e); }
                 Ok(())
             }

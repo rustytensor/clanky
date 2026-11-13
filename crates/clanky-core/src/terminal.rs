@@ -110,6 +110,9 @@ struct Observer {
     evicted: u64,
     command_id: String,
     cr: bool,
+    /// OSC 133;C came mid-line, at the end of the typed command: the line break that
+    /// ends that line is not output.
+    after_command: bool,
     prompt_waiting: bool,
     marker: Option<u8>,
     prompt_start: Option<u64>,
@@ -150,6 +153,9 @@ impl Observer {
         self.cr = false;
     }
     fn push(&mut self, ch: char) {
+        if std::mem::take(&mut self.after_command) && ch == '\n' && self.active.as_ref().is_some_and(|b| b.output.is_empty()) {
+            return;
+        }
         if let Some(b) = &mut self.active {
             if b.output.len() + ch.len_utf8() <= 1024 * 1024 {
                 b.output.push(ch);
@@ -173,8 +179,11 @@ impl vte::Perform for Observer {
     }
     fn execute(&mut self, byte: u8) {
         match byte {
+            // The tty's onlcr makes a program's "\r\n" arrive as "\r\r\n": one line break.
             b'\r' => {
-                self.push('\n');
+                if !self.cr {
+                    self.push('\n');
+                }
                 self.cr = true;
             }
             b'\n' => {
@@ -235,6 +244,7 @@ impl vte::Perform for Observer {
                     origin: None,
                 });
                 self.started = Some(Instant::now());
+                self.after_command = self.cursor.1 != 0;
             }
             Some(b"D") => {
                 self.prompt_waiting = false;
@@ -363,6 +373,27 @@ impl Terminal {
             }
         }
         self.responses.try_iter().collect()
+    }
+    /// The window's Reset terminal and Reset and clear, as VTE's vte_terminal_reset.
+    /// Reset turns off the modes a crashed program can leave on (mouse reporting,
+    /// bracketed paste, application keys, the alternate screen, a scroll region,
+    /// colours and character sets) and keeps the text and the cursor where they are.
+    /// Reset and clear is a full reset (RIS): the screen and the history go too.
+    pub fn reset(&mut self, clear: bool) {
+        self.processor = ansi::Processor::new();
+        self.parser = vte::Parser::new();
+        let alternate = self.term.mode().contains(TermMode::ALT_SCREEN);
+        if clear {
+            self.processor.advance(&mut self.term, b"\x1bc");
+        } else {
+            let point = self.term.grid().cursor.point;
+            let mut seq = b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1004l\x1b[?2004l\x1b[?1007l\x1b[?1l\x1b>\x1b[?6l\x1b[?7h\x1b[?25h\x1b[4l\x1b[0m\x1b[r\x1b(B\x1b)B\x0f\x1b[?1049l".to_vec();
+            // DECSTBM homes the cursor; put it back unless the alternate screen restored its own.
+            if !alternate { seq.extend(format!("\x1b[{};{}H", point.line.0.max(0) + 1, point.column.0 + 1).bytes()); }
+            self.processor.advance(&mut self.term, &seq);
+        }
+        if clear || alternate { self.invalidate_anchors(); }
+        self.generation += 1;
     }
     fn invalidate_anchors(&mut self) {
         self.observer.prompt_start = None;
