@@ -2,22 +2,41 @@
 
 Clanky is a GPU-rendered terminal in Rust, built for people who work alongside coding agents. Read README.md first.
 
+Global rules checked: v30 2026-11-12
+
 ## Rules
 
 - Build on the libraries in README.md. The terminal engine and parser are our forks of Alacritty's
   (`crates/clanky-vt`, `crates/clanky-vte`): change them freely, list every change in their FORK.md, and put the
   notice line at the top of each changed file. Do not write another VT parser, font shaper or window system.
 - Every milestone ends at a gate: one command that says PASS or FAIL on inputs whose expected results were
-  worked out before the run. A gate is shown to fail once (a planted fault) before it counts.
+  worked out before the run. A gate is shown to fail once (a planted fault) before it counts. Quality is kept by
+  gates, not by code review: no review or audit rounds. Every risk a code read would catch (unescaped output,
+  unsafe input, a broken contract) gets a gate check with its expected result worked out in advance, proven on a
+  planted fault.
 - Tests compare real output with an expected value worked out in advance. No tests for wiring, no test matrices.
 - Run the one check that exercises your change, once. The full gate runs at the end of a milestone.
 - Builds: at most 8 jobs (`cargo build -j 8`). Keep `target/` where `CARGO_TARGET_DIR` points.
-- Commits: plain English, what changed and why. No AI tool names in commits or code.
-- New dependencies: name each one and why in the commit message. MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0, MPL-2.0 (spellbook only), or Unlicense (Unlicense only where MIT is also offered). Bundled fonts may use OFL-1.1 (Marc, 2026-11-04: JetBrains Mono and Inter). SQLite: public domain (Marc, 2026-11-04); rusqlite is MIT.
+- Commits: plain English, what changed and why, in Marc's voice. No sign of AI tools anywhere: no Co-Authored-By
+  line naming an AI tool or model, no "generated with" line or badge, no tool, model, agent or session names, no
+  robot emoji, in commits, pull requests, issues, release notes, changelogs, docs, code, comments or file headers.
+- New dependencies: name each one and its licence in the commit message. Any permissive licence is fine and needs
+  no approval (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, PSF, Unlicense and the like). MPL-2.0 for spellbook
+  only. Ask Marc before GPL, AGPL, SSPL, BSL, source-available, no-commercial-use, or any licence that could stop
+  Clanky being sold or shipped closed. Bundled fonts may use OFL-1.1 (Marc, 2026-11-04: JetBrains Mono and Inter).
+  SQLite: public domain (Marc, 2026-11-04); rusqlite is MIT.
 - Never weaken an expected value to make a test pass.
 - M12 review builds must never expose an old-style M11 screen. Hide its mouse entries and keyboard routes
   until its replacement is ready. Settings must match `/srv/devops/build/clanky/mockups/settings.html`
   exactly (Marc's approval via the lead, 2026-11-04); do not restyle the legacy modal.
+
+## Steered and unsteered work
+
+Work is steered by Marc unless listed here as unsteered (global rules: "work I don't steer").
+
+- Unsteered: P1 packaging (.deb, Arch PKGBUILD) (Marc, 2026-11-12).
+- Steered, mockup first (Marc approves a mockup before any code): starting an agent in a pane; a git worktree
+  per pane (Marc, 2026-11-12).
 
 ## Versions and tags
 
