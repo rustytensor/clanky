@@ -39,7 +39,7 @@ pub const STYLE_BOLD: u8 = 1;
 /// SGR 2: drawn with reduced contrast against the background.
 pub const STYLE_FAINT: u8 = 2;
 fn is_zero(value: &u8) -> bool { *value == 0 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TerminalSnapshot {
     pub rows: usize,
     pub cols: usize,
@@ -49,7 +49,40 @@ pub struct TerminalSnapshot {
     /// DECCKM (ESC[?1h): cursor keys send ESC O x instead of ESC [ x.
     #[serde(default)]
     pub app_cursor: bool,
+    /// Mouse, focus and paste modes the program turned on (MODE_* bits).
+    #[serde(default, skip_serializing_if = "is_zero32")]
+    pub modes: u32,
+    /// Scrollback lines above the screen, and how many of them the view is scrolled back.
+    /// Row r of the view is line `history - display_offset + r` counted from the oldest line.
+    #[serde(default)]
+    pub history: usize,
+    #[serde(default)]
+    pub display_offset: usize,
+    /// View rows whose line goes on in the next row (soft wrap).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wrapped: Vec<usize>,
 }
+fn is_zero32(value: &u32) -> bool { *value == 0 }
+/// ESC[?1000h: report button presses and releases.
+pub const MODE_MOUSE_CLICK: u32 = 1;
+/// ESC[?1002h: also report motion while a button is held.
+pub const MODE_MOUSE_DRAG: u32 = 1 << 1;
+/// ESC[?1003h: report all motion.
+pub const MODE_MOUSE_MOTION: u32 = 1 << 2;
+/// ESC[?1006h: SGR report encoding.
+pub const MODE_MOUSE_SGR: u32 = 1 << 3;
+/// ESC[?1005h: UTF-8 report encoding.
+pub const MODE_MOUSE_UTF8: u32 = 1 << 4;
+/// ESC[?1007h (on by default): the wheel sends cursor keys on the alternate screen.
+pub const MODE_ALTERNATE_SCROLL: u32 = 1 << 5;
+/// ESC[?1004h: report window focus in and out.
+pub const MODE_FOCUS: u32 = 1 << 6;
+/// ESC[?1049h and friends: the alternate screen is shown.
+pub const MODE_ALT_SCREEN: u32 = 1 << 7;
+/// ESC[?2004h: bracketed paste.
+pub const MODE_BRACKETED_PASTE: u32 = 1 << 8;
+/// Any of the three mouse reporting modes.
+pub const MODE_MOUSE_REPORT: u32 = MODE_MOUSE_CLICK | MODE_MOUSE_DRAG | MODE_MOUSE_MOTION;
 /// Stable FNV-1a hash of one row of cells, shared by the session server and its
 /// windows so a window can name the rows it already holds.
 pub fn row_hash(cells: &[Cell]) -> u64 {

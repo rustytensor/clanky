@@ -135,7 +135,7 @@ impl Search {
     pub fn pinned(&self, rows: usize, cols: usize, blank: Cell, matched: [u8; 3], selected: [u8; 3]) -> Option<TerminalSnapshot> {
         let view = self.view.as_ref().filter(|_| self.target.is_some())?;
         let source = &view.snapshot;
-        let mut out = TerminalSnapshot { rows, cols, cells: vec![blank; rows * cols], cursor: None, images: Vec::new(), app_cursor: false };
+        let mut out = TerminalSnapshot { rows, cols, cells: vec![blank; rows * cols], cursor: None, images: Vec::new(), app_cursor: false, ..Default::default() };
         for row in 0..rows.min(source.rows) { for col in 0..cols.min(source.cols) {
             out.cells[row * cols + col] = source.cells[row * source.cols + col].clone();
         } }

@@ -834,7 +834,33 @@ impl Terminal {
                 Vec::new()
             },
             app_cursor: self.term.mode().contains(TermMode::APP_CURSOR),
+            modes: self.modes(),
+            history: self.term.grid().history_size(),
+            display_offset: offset,
+            wrapped: (0..self.size.0)
+                .filter(|r| {
+                    let line = Line(*r as i32 - offset as i32);
+                    self.term.grid()[Point::new(line, Column(self.size.1 - 1))].flags.contains(Flags::WRAPLINE)
+                })
+                .collect(),
         }
+    }
+    fn modes(&self) -> u32 {
+        let mode = self.term.mode();
+        [
+            (TermMode::MOUSE_REPORT_CLICK, crate::MODE_MOUSE_CLICK),
+            (TermMode::MOUSE_DRAG, crate::MODE_MOUSE_DRAG),
+            (TermMode::MOUSE_MOTION, crate::MODE_MOUSE_MOTION),
+            (TermMode::SGR_MOUSE, crate::MODE_MOUSE_SGR),
+            (TermMode::UTF8_MOUSE, crate::MODE_MOUSE_UTF8),
+            (TermMode::ALTERNATE_SCROLL, crate::MODE_ALTERNATE_SCROLL),
+            (TermMode::FOCUS_IN_OUT, crate::MODE_FOCUS),
+            (TermMode::ALT_SCREEN, crate::MODE_ALT_SCREEN),
+            (TermMode::BRACKETED_PASTE, crate::MODE_BRACKETED_PASTE),
+        ]
+        .into_iter()
+        .filter(|(flag, _)| mode.contains(*flag))
+        .fold(0, |bits, (_, bit)| bits | bit)
     }
 }
 fn cell_text_len(cell: &clanky_vt::term::cell::Cell) -> usize {

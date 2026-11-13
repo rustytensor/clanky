@@ -2,6 +2,7 @@ mod studio;
 mod robot_window;
 mod hello;
 mod settings_window;
+mod terminal_mouse;
 mod window_events;
 mod panels;
 mod editor_workspace;
@@ -166,6 +167,8 @@ struct App {
     modifiers: ModifiersState,
     mouse: (f64, f64),
     pointer_pressed: bool,
+    term_mouse: terminal_mouse::TermMouse,
+    wheel_releases: u8,
     input: InputState,
     occluded: bool,
     error: Option<String>,
@@ -266,6 +269,8 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         modifiers: ModifiersState::empty(),
         mouse: (0.0, 0.0),
         pointer_pressed: false,
+        term_mouse: Default::default(),
+        wheel_releases: 0,
         input: InputState::default(),
         occluded: false,
         error: None,
@@ -798,6 +803,11 @@ impl App {
                         "d" => return self.split(Axis::Columns),
                         "e" => return self.split(Axis::Rows),
                         "w" => return self.close_pane(),
+                        "c" if self.files.focus == TERMINALS => return self.copy_selection(),
+                        "v" if self.files.focus == TERMINALS => {
+                            let Some(id) = self.focused().map(str::to_owned) else { return Ok(()); };
+                            return self.paste_selection(&id, false);
+                        }
                         "a" if self.files.focus == TERMINALS && !self.applied_post_ai => {
                             if let Some(id) = self.focused() {
                                 let old =
@@ -888,6 +898,11 @@ impl App {
 }
 
 impl ApplicationHandler<window_events::WindowNotice> for App {
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device: winit::event::DeviceId, event: winit::event::DeviceEvent) {
+        if let winit::event::DeviceEvent::Button { button: 4..=7, state: ElementState::Released } = event {
+            self.wheel_releases = self.wheel_releases.saturating_add(1).min(8);
+        }
+    }
     fn user_event(&mut self,_event_loop:&ActiveEventLoop,event:window_events::WindowNotice){
         match event {
             window_events::WindowNotice::Changed=>{
@@ -983,6 +998,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 if self.palette.open { self.palette.pointer(position.x, position.y); }
                 if self.agent_picker.open { let context=self.agent_context(); self.agent_picker.pointer(position.x, position.y, &context); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
+                if let Err(e) = self.terminal_motion() { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::MouseInput {
@@ -1002,10 +1018,22 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.files.dragging = None;
                 self.compose_dragging = false;
                 self.studio.drag = None;
+                if let Err(e) = self.terminal_release(1) { self.status = Some(e); }
+                Ok(())
+            }
+            WindowEvent::MouseInput { state, button: button @ (MouseButton::Middle | MouseButton::Right), .. } => {
+                let button = if button == MouseButton::Middle { 2 } else { 3 };
+                let result = if state == ElementState::Pressed { self.terminal_press(button) } else { self.terminal_release(button) };
+                if let Err(e) = result { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let Err(e) = self.scroll(delta) { self.status = Some(e); }
+                // winit 0.30 on X11 reports a wheel button's release as a second notch when the
+                // button is not emulated (XTEST, mice without scroll valuators); its raw release
+                // arrived as a device event, so drop one wheel event for it.
+                if self.wheel_releases > 0 && matches!(delta, MouseScrollDelta::LineDelta(..)) {
+                    self.wheel_releases -= 1;
+                } else if let Err(e) = self.scroll(delta) { self.status = Some(e); }
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. }
@@ -1110,6 +1138,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             }
             WindowEvent::Focused(focused) => {
                 if !focused{self.pointer_pressed=false;}
+                if focused != self.window_focused { if let Err(e) = self.terminal_focus(focused) { self.status = Some(e); } }
                 self.window_focused = focused;
                 self.blink_start = Instant::now();
                 if focused {
