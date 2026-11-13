@@ -153,7 +153,7 @@ def main_story():
     require(len(before) == 1 and list(before.values()) == [False], 'one owner terminal, agents off')
     r = agent(env, config, sock, 'fake', w / 'project', trace=w / 'cli.strace')
     require(r.returncode == 0, f'A1 exit code {r.returncode}')
-    after = until(lambda: (t := tabs(o)) if len(t) == 2 else None, 'A1 one new terminal')
+    after = until(lambda: t if len(t := tabs(o)) == 2 else None, 'A1 one new terminal')
     new = [t for t in after if t not in before]
     require(len(new) == 1, 'A1 exactly one new terminal')
     tab = new[0]
@@ -190,7 +190,7 @@ def access_off():
     sock, o = server(w, env, config)
     before = tabs(o)
     require(agent(env, config, sock, 'fake').returncode == 0, 'A5 exit code')
-    after = until(lambda: (t := tabs(o)) if len(t) == 2 else None, 'A5 one new terminal')
+    after = until(lambda: t if len(t := tabs(o)) == 2 else None, 'A5 one new terminal')
     require([after[t] for t in after if t not in before] == [False], 'A5 access off when configured off')
 
 
@@ -230,7 +230,7 @@ def window(post):
         time.sleep(3)
         require(len(tabs(o)) == len(before), 'A8 Post-AI window opens nothing')
         return
-    after = until(lambda: (t := tabs(o)) if len(t) == len(before) + 1 else None, 'A8 shortcut opens one terminal')
+    after = until(lambda: t if len(t := tabs(o)) == len(before) + 1 else None, 'A8 shortcut opens one terminal')
     new = [t for t in after if t not in before][0]
     require(after[new] is True, 'A8 new terminal agent access on')
     until(lambda: 'FAKE-AGENT' in text(o, new), 'A8 tool ran in the new pane')
@@ -256,6 +256,9 @@ def main():
             print(f'ok: {name}')
     except Fail as e:
         print(f'FAIL: A1 {e}')
+        return 1
+    except Exception as e:  # a crash in the harness or the product still reports FAIL, never PASS
+        print(f'FAIL: A1 unexpected {type(e).__name__}: {e}')
         return 1
     finally:
         for pid in SERVER_PIDS:
