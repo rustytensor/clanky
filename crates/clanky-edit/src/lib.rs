@@ -95,6 +95,34 @@ pub struct Hunk {
     pub state: HunkState,
 }
 
+/// One text change as byte offsets and (row, byte column) points, in the order the
+/// changes happened. A syntax tree can replay these to re-parse incrementally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextEdit {
+    pub start: usize,
+    pub old_end: usize,
+    pub new_end: usize,
+    pub start_point: (usize, usize),
+    pub old_end_point: (usize, usize),
+    pub new_end_point: (usize, usize),
+}
+
+/// The (row, byte column) of a byte offset; rows end at LF.
+fn point(text: &str, offset: usize) -> (usize, usize) {
+    let before = &text.as_bytes()[..offset];
+    let row = before.iter().filter(|&&b| b == b'\n').count();
+    let col = before.iter().rposition(|&b| b == b'\n').map_or(offset, |nl| offset - nl - 1);
+    (row, col)
+}
+
+/// The point reached after writing `inserted` at `start`.
+fn advance(start: (usize, usize), inserted: &str) -> (usize, usize) {
+    match inserted.rfind('\n') {
+        Some(nl) => (start.0 + inserted.matches('\n').count(), inserted.len() - nl - 1),
+        None => (start.0, start.1 + inserted.len()),
+    }
+}
+
 struct Change {
     start: usize,
     removed: String,
@@ -115,6 +143,7 @@ pub struct Document {
     hunks: Vec<Hunk>,
     next_id: u64,
     conflict: bool,
+    edits: Vec<TextEdit>,
 }
 
 impl Document {
@@ -138,6 +167,7 @@ impl Document {
             hunks: Vec::new(),
             next_id: 1,
             conflict: false,
+            edits: Vec::new(),
         }
     }
 
@@ -220,7 +250,22 @@ impl Document {
                 hunk.range.end = hunk.range.end - range.len() + replacement.len();
             }
         }
+        let start_point = point(&self.text, range.start);
+        let old_end_point = point(&self.text, range.end);
+        self.edits.push(TextEdit {
+            start: range.start,
+            old_end: range.end,
+            new_end: range.start + replacement.len(),
+            start_point,
+            old_end_point,
+            new_end_point: advance(start_point, replacement),
+        });
         self.text.replace_range(range, replacement);
+    }
+
+    /// Text changes since the last call, oldest first (edit, undo, redo and accept).
+    pub fn take_edits(&mut self) -> Vec<TextEdit> {
+        std::mem::take(&mut self.edits)
     }
 
     /// Restore text and selection; pending hunks are shifted or made stale.
