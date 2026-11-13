@@ -7,10 +7,14 @@ See [shortcuts](shortcuts.md) and [configuration](config.md).
 
 ## The calm window
 
-Sessions and files are in the left sidebar. Click New tab or Split in the top bar;
-drag the gap between panes to resize them. The right column shows agent activity and access.
-Click an access row, not just its switch, to toggle permission. Ctrl+Shift+B hides both side areas.
-Open [Settings](settings.md) from the sidebar or with Ctrl+,.
+Tabs sit in the title bar, each named for its folder, with a green dot while a command runs
+and an amber one while an agent works; **+** opens a tab and the mark beside the active tab
+closes it. The search field opens the command palette, and the gear opens [Settings](settings.md)
+(or Ctrl+,). The tools panel on the left lists the focused pane's folder (Files), recent events
+(Recent) and agent activity with each pane's agent access (Agents); Ctrl+Shift+B or the title
+bar's left button hides it. Drag the hairline between panes to resize them. The status line at
+the bottom names the session, the tabs, the server and masking. Settings › Appearance › Layout
+moves tabs down the left, hides the status line or brings back the older command cards.
 
 [Clanky the robot](robot.md) greets you once for 7 seconds, then for 1.2 seconds on later windows.
 Any key or click skips it and still acts normally. [Themes](themes.md) describe the built-in

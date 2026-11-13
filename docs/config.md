@@ -30,7 +30,13 @@ a missing explicit file, invalid value or unknown key is an error.
 | `restore_layout` | boolean | true | Save/restore local terminal layout and directories; existing server state wins |
 | `opacity` | number | 1.0 | Finite, 0.5–1.0; window background alpha |
 | `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
-| `rails` | boolean | true | Initially show both Studio rails |
+| `rails` | boolean | true | Legacy: read as `tools_panel` (`true` on, `false` off) when `tools_panel` is absent; Settings removes it the first time it writes `tools_panel` |
+| `tools_panel` | string | `on` | `on` or `off`: the tools panel on the left at start; Ctrl+Shift+B shows or hides it for the session |
+| `tools` | list | `["files","recent","agents"]` | Distinct ids from `files`, `recent`, `agents`: the tools the panel offers, written in that order |
+| `tab_style` | string | `horizontal` | `horizontal`: tabs in the title bar; `vertical`: a tab list down the left with folder, branch and last command |
+| `command_input` | string | `editor` | `editor` or `classic`; stored for the command editor at the bottom of each pane (`classic` keeps the shell's own prompt) |
+| `block_style` | string | `quiet` | `quiet`: a hairline between commands, bold command row, meta text and one hover bar; `cards`: a card around each command |
+| `status_line` | string | `show` | `show` or `hide`: the status line along the bottom of the window |
 | `font_family` | string | `Geist Mono` | Bundled terminal default; otherwise name an installed family |
 | `ui_font_family` | string | `Geist` | Bundled UI default; otherwise name an installed family |
 | `history` | boolean | true | Save every command to the [history file](history.md); false creates no file and writes nothing |
@@ -51,7 +57,10 @@ a missing explicit file, invalid value or unknown key is an error.
 
 Settings load at startup and apply live when the file changes (checked every
 500 ms). Invalid edits retain the last good settings and show the error once.
-Ctrl+, or the top-bar Settings button opens the same file as a point-and-click
+Settings writing a Layout value that is the default removes its key, so a file
+with only defaults stays readable by Clanky 1.5; a file holding any of `tab_style`,
+`tools_panel`, `tools`, `command_input`, `block_style` or `status_line` needs
+Clanky 1.6 or later. Ctrl+, or the title bar's gear opens the same file as a point-and-click
 panel; see [Settings](settings.md). Zoom changes remain window-local and do not
 rewrite the file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.

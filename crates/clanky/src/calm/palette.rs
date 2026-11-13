@@ -74,7 +74,7 @@ fn base(context:&Context)->Vec<Entry>{
         out.push(e("Agents","Stop every agent now",&["Ctrl","Shift","Esc"],Command::StopAgents));
     }
     out.extend([
-        e("View","Show or hide sidebars",&["Ctrl","Shift","B"],Command::ToggleSidebars),
+        e("View","Show or hide the tools panel",&["Ctrl","Shift","B"],Command::ToggleSidebars),
         e("View","Zoom in",&["Ctrl","+"],Command::ZoomIn),
         e("View","Zoom out",&["Ctrl","-"],Command::ZoomOut),
         e("View","Reset zoom",&["Ctrl","0"],Command::ZoomReset),

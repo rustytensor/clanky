@@ -15,8 +15,8 @@ until the window's plain-terminal view is connected.
 | --- | --- |
 | `Ctrl+Shift+Escape` | Revoke all agents, including while a panel, search or compose prompt is open |
 | `Ctrl+Shift+P` | Toggle palette |
-| `Ctrl+,` | Open/close Settings; the sidebar Settings item does the same |
-| `Ctrl+Shift+B` | Show/hide the sidebar and activity column |
+| `Ctrl+,` | Open/close Settings; the gear at the right of the title bar does the same |
+| `Ctrl+Shift+B` | Show/hide the tools panel for this window (the title bar's left button does the same; Settings › Appearance › Layout sets it at start) |
 | `Ctrl+Shift+T` | New terminal tab in the focused terminal folder, or server home when unknown |
 | `Ctrl+Shift+D` | Split right; with editor focus, prompt for another file |
 | `Ctrl+Shift+E` | Split below; with editor focus, prompt for another file |

@@ -23,7 +23,7 @@ Nothing is redrawn once it stops, or with `cursor_blink` `off`.
 ## Colours
 
 `terminal_colors` sets the terminal's background, text, cursor and 16 ANSI colours apart from the
-window theme; the sidebar, cards and top bar keep the theme. Unset entries follow the theme, and
+window theme; the title bar, tools panel and status line keep the theme. Unset entries follow the theme, and
 **Use theme colours** in Settings removes them all.
 
 To use a Ptyxis palette, choose **Import Ptyxis palette…** in Settings > Terminal (palettes live in
@@ -77,3 +77,15 @@ screen the wheel scrolls the history. Ctrl+wheel zooms.
 
 `TERM` is `xterm-256color`, and keys are sent as xterm sends them; see
 [keyboard shortcuts](shortcuts.md). Programs such as mc get F1–F12 and application cursor keys.
+
+## Command blocks
+
+With `block_style` `quiet` (the default), commands that the shell marks with OSC 133 are drawn
+as quiet blocks: a 1 px hairline above each command (none above the first row; red, with
+"exit N" in the error colour, when the command failed), the command row in bold, and the
+folder, start time (HH:MM) and duration right-aligned on the command row. Hovering a block
+shows one floating bar: **Copy output**, **Copy command**, **Run again**, **Ask agent** (not in
+Post-AI mode) and **⋯** (the right-click menu). When a block's command row has scrolled off the
+top while its output still shows, a sticky line at the top of the pane names the command; while
+it runs it counts "running N s", redrawing once a second and no more. `block_style` `cards`
+keeps the older card around each command.
