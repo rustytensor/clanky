@@ -54,8 +54,8 @@ pub struct LookState {
     pub access: Vec<AccessRow>,
     /// Older command cards instead of quiet blocks.
     pub block_cards: bool,
-    /// Per (pane, block): the folder and the start time (HH:MM) for a quiet block's meta text.
-    pub block_meta: std::collections::BTreeMap<(String,String),(String,String)>,
+    /// Per (pane, block): the folder, the start time (HH:MM) and, while it runs, its seconds so far.
+    pub block_meta: std::collections::BTreeMap<(String,String),(String,String,Option<u64>)>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct TabItem {
