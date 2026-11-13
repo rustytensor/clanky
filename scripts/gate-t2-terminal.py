@@ -37,6 +37,13 @@ Expected results, fixed before the work from independent sources:
      window draws at least 14 frames in the next 10 s (a 600 ms half-cycle gives 16-17) and 0 frames from
      11 s to 16 s, and the cursor cell shows the cursor colour at the end (blinking stops with it visible).
   B2 cursor_blink "off": 0 frames from 1 s to 6 s after a key press.
+  G1 surface format on Marc's desktop. `vulkaninfo` on his Hyprland session with the RX 7900 XT (RADV) lists, in
+     this order: R16G16B16A16_SFLOAT, R16G16B16A16_UNORM, A2R10G10B10_UNORM, A2B10G10R10_UNORM, B8G8R8A8_SRGB,
+     B8G8R8A8_UNORM, R8G8B8A8_SRGB, R8G8B8A8_UNORM, R5G6B5_UNORM (sRGB non-linear colour space). Clanky 1.2.2
+     takes the first non-sRGB one, the float format, which Hyprland shows as linear light: every colour is drawn
+     brighter (Graphite sidebar #080808 shown #323232, card #111111 shown #494949, Ink red #f0716a shown #f8b2ac in
+     Marc's screenshots). The lib test `cargo test -p clanky-render surface_format_hyprland_radv` must exist, feed
+     that list in that order to the window's real format choice, and expect Bgra8Unorm.
 """
 import os, re, shutil, socket, json, subprocess, sys, time
 from pathlib import Path
@@ -357,6 +364,13 @@ def main():
         print(f'FAIL: T2 unexpected {type(e).__name__}: {e}')
         return 1
     if FAULT is None:
+        r = subprocess.run(['cargo', 'test', '-q', '--offline', '-j', '8', '-p', 'clanky-render', '--lib',
+                            'surface_format_hyprland_radv'], capture_output=True, text=True, timeout=1800)
+        m = re.search(r'test result: ok\. (\d+) passed', r.stdout)
+        if not (r.returncode == 0 and m and int(m.group(1)) >= 1):
+            print('FAIL: T2 G1 surface_format_hyprland_radv test exists and passes')
+            return 1
+        print('ok: surface format')
         shutil.rmtree(ROOT, ignore_errors=True)
     print('PASS: T2 terminal')
     return 0
