@@ -49,14 +49,19 @@ Expected results, fixed before the work:
      #6fb5a8 c, #a0978d m, #ebe6df p).
   C2 stone-light window: cursor_blink.rs and tokens.py match stone-light.json (#805c53 k, #526b7d f, #805e25 t,
      #426b4b s, #a34737 n, #416e63 c, #6b6259 m, #2a2622 p).
-  C3 italic comments: in cursor_blink.rs, the six lone `l` glyphs of the comment on line 8 lean right relative to
-     the three lone plain `l` identifiers on line 10: (top-half ink centroid x - bottom-half ink centroid x) is larger
+  C3 italic comments: in cursor_blink.rs, the six lone `|` glyphs of the comment on line 8 lean right relative to
+     the three lone plain `|` operators on line 10: (top-half ink centroid x - bottom-half ink centroid x) is larger
      for the comment by at least half of what a 9.4 degree slant gives over the distance between the two half
      centroids (9.4 is the smallest italicAngle among IBM Plex Mono Italic -9.5, JetBrains Mono Italic -9.4 and
-     Geist Mono Italic -12.0, read from the fonts' post tables). Upright text gives exactly 0.
+     Geist Mono Italic -12.0, read from the fonts' post tables). Upright text gives exactly 0. The glyph is `|`, a
+     straight bar in upright and italic faces alike, so it leans by exactly the face's angle: FreeType renders of
+     GeistMono-Regular/-Italic.ttf v1.9.1 at 400 px give `|` 0.00 and 12.01 degrees with this metric. `l` does not:
+     the italic face redraws its tail, and the same renders give `l` -5.09 and -1.91 degrees (3.2 apart, not 12).
   E1 incremental re-parse, on a copy of cursor_blink.rs, judged after each step:
      a. line 13 Home, type "// ": line 13 is all comment; line 18 still `impl` k, `Blink` t.
      b. BackSpace x3: line 13 is `pub struct` k, `Blink` t again.
+     In a and b the caret would sit on a judged cell of line 13 (13:4, 13:1), so it is parked at line 1 column 1 for
+     their screenshots and brought back after (the block caret redraws its cell in the cursor colour).
      c. line 11 (empty), type "const NN: u8 = 7;" and Enter: line 11 is const k, NN c, u8 t, 7 n; every mockup line
         moved down by one (12-26 -> 13-27) keeps its mockup classes.
      d. line 6 Home, type "/*"; line 7 End, type "*/": lines 6-7 are all comment; line 10 `fn tilt` is back to
@@ -122,7 +127,7 @@ RUST = {
     6: [('const', 'k'), (' ', 'p'), ('LIMIT', 'c'), (': ', 'p'), ('u64', 't'), (' = ', 'p'), ('0x1F', 'n'), (';', 'p')],
     7: [('static', 'k'), (' ', 'p'), ('NAME', '?'), (': &', 'p'), ('str', 't'), (' = ', 'p'), ('"blink\\n"', 's'), (';', 'p')],
     8: [(None, 'm')],
-    10: [('fn', 'k'), (' ', 'p'), ('tilt', 'f'), ('(l: ', 'p'), ('u8', 't'), (') -> ', 'p'), ('u8', 't'), (' { l + l * l }', 'p')],
+    10: [('fn', 'k'), (' ', 'p'), ('tilt', 'f'), ('(l: ', 'p'), ('u8', 't'), (') -> ', 'p'), ('u8', 't'), (' { l | l | l | l }', 'p')],
     12: [(None, 'm')],
     13: [('pub struct', 'k'), (' ', 'p'), ('Blink', 't'), (' {', 'p')],
     14: [('    pub', 'k'), (' half: ', 'p'), ('Duration', 't'), (',', 'p')],
@@ -498,16 +503,16 @@ def slant(im, geo, bg, line, col0):
 
 
 def italic_check(im, geo, bg):
-    # line 8 "// l l l l l l": l at columns 4, 6, ... 14; line 10 "fn tilt(l: u8) -> u8 { l + l * l }": the three
-    # l's after "{" (columns 24, 28, 32), each with a space on both sides like the comment's
-    plain = [(10, 23), (10, 27), (10, 31)]
+    # line 8 "// | | | | | |": | at columns 4, 6, ... 14; line 10 "fn tilt(l: u8) -> u8 { l | l | l | l }": the three
+    # |'s after "{" (columns 26, 30, 34), each with a space on both sides like the comment's
+    plain = [(10, 25), (10, 29), (10, 33)]
     comment = plain if FAULT == 'italic' else [(8, col) for col in range(3, 14, 2)]
     c = [slant(im, geo, bg, ln, col) for ln, col in comment]
     p = [slant(im, geo, bg, ln, col) for ln, col in plain]
     lean = sum(s for s, _ in c) / len(c) - sum(s for s, _ in p) / len(p)
     dy = sum(d for _, d in c + p) / len(c + p)
     want = .5 * dy * math.tan(math.radians(SLANT_DEG))
-    require(lean >= want, f'C3 comment glyphs are italic: comment "l" leans {lean:.2f} px more than plain "l" '
+    require(lean >= want, f'C3 comment glyphs are italic: comment "|" leans {lean:.2f} px more than plain "|" '
                           f'(want >= {want:.2f} px)')
 
 
@@ -519,6 +524,13 @@ def edit_story(win, palette):
     shutil.copy(src, path)
     lines = src.read_text().split('\n')
     geo = open_file(win, path, 'edit-open')
+
+    def park():
+        # The block caret covers its cell with the cursor colour and redraws the glyph on it in the background
+        # colour, so the cell under it can never read as its token's class. Park it at line 1 column 1 (a marker
+        # line, never judged) before a screenshot whose judged lines hold the caret, as in step f.
+        win.x('key', '--delay', '40', *['Up'] * 12, 'Home')
+        time.sleep(.5)
 
     def look(label, model, checks):
         im = shot(win, label)
@@ -532,15 +544,17 @@ def edit_story(win, palette):
         win.type('// ')
     model = list(lines)
     model[12] = '// ' + model[12]
-    time.sleep(.5)
+    park()
     look('edit-a', model, {13: [(None, 'm')], 18: RUST[18]})
-    # b. remove it again
+    # b. remove it again (back to 13:4, after the "// ")
+    win.x('key', '--delay', '40', *['Down'] * 12, 'Home', 'Right', 'Right', 'Right')
     win.key('BackSpace', 'BackSpace', 'BackSpace')
     model[12] = lines[12]
-    time.sleep(.5)
+    park()
     look('edit-b', model, {13: RUST[13]})
     # c. a new line 11
-    win.key('Up', 'Up', 'End')
+    win.x('key', '--delay', '40', *['Down'] * 10)
+    win.key('End')
     win.type('const NN: u8 = 7;')
     win.key('Return')
     model[10] = 'const NN: u8 = 7;'
