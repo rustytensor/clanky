@@ -99,6 +99,8 @@ pub struct PanelLine { pub text: String, pub selected: bool, pub action: Option<
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HitAction {
     Palette, Settings, ToggleRails, NewTab, Split, Session(String), File(String),
+    /// The Agent button: open the agent picker.
+    StartAgent,
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),
     Block { tab_id: String, block_id: String, action: String }, PaletteChoice(usize),
     /// Find bar: -1 previous match, 1 next match, 0 close.

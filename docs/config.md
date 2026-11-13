@@ -36,6 +36,8 @@ a missing explicit file, invalid value or unknown key is an error.
 | `history` | boolean | true | Save every command to the [history file](history.md); false creates no file and writes nothing |
 | `history_days` | integer | 90 | 0–3650; saved commands older than this are deleted at server start and daily; 0 keeps everything |
 | `history_output_kib` | integer | 256 | 1–65536; masked output stored per command, cut on a UTF-8 boundary |
+| `agents` | list | Claude Code `claude`, Codex `codex`, Pi `pi` | Up to 32 `{"name": ..., "command": ...}` objects, each a nonempty string of at most 256 bytes; the tools the [agent picker](agent-pane.md) and `clanky agent` can start |
+| `agent_pane_access` | string | `read+run` | `read+run` or `off`: agent access of a pane started for an agent |
 
 ```json
 {"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}

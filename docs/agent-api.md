@@ -201,6 +201,7 @@ Request: `{"v":3,"id":"1","op":"input","tab_id":"t0","data":"aGVsbG8="}` Respons
 Request: `{"v":3,"id":"1","op":"resize","tab_id":"t0","rows":24,"cols":80}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_get","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"permission_set","tab_id":"t0","allow_agent":true}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
+Request: `{"v":3,"id":"1","op":"agent_tool_set","tab_id":"t0","name":"Claude Code"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"terminal_cwd","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"terminal_info","tab_id":"t0"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 Request: `{"v":3,"id":"1","op":"block_events","tab_id":"t0","after":null,"limit":64}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
@@ -220,6 +221,7 @@ Request: `{"v":3,"id":"1","op":"clipboard_reply","tab_id":"t0","request_id":1,"d
 | input | Base64 bytes, at most 64 KiB per request; returns {} |
 | resize | rows/cols in 1–1000, product at most 250,000; returns {} |
 | permission_get / permission_set | Read/set allow_agent on one terminal |
+| agent_tool_set | Name (1–256 bytes, no controls) of the agent tool the terminal was opened for; shown by the window as the pane title; returns {} |
 | terminal_cwd | Absolute cwd or null; source osc7, proc or null; no guessed directory |
 | focus_set | tab_id string or null; publish/clear this owner's focus claim, cleared on disconnect |
 | terminal_info | Process cwd/exe and rows/cols; no process or unavailable data is an error |
@@ -235,7 +237,8 @@ block IDs; evicted cursors return not_found, not the v4 events gap format.
 
 `terminal_info` also returns nullable `program`: the validated foreground process
 invocation name (argv[0] basename), so invoking sh through a bash symlink displays
-sh. Other arguments are never read into this field. The existing resolved `exe`
+sh. Other arguments are never read into this field. It also returns nullable
+`agent_tool`, the name set by `agent_tool_set` ([agent pane](agent-pane.md)). The existing resolved `exe`
 path remains unchanged for callers that need it.
 
 #### Optional cell colour provenance

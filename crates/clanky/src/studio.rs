@@ -24,7 +24,7 @@ pub struct Studio {
     pub drag: Option<Capture>,
     pub(crate) theme: look::Theme,
     calm_theme: clanky::themes::Theme,
-    terminal_info:BTreeMap<String,Value>,
+    pub(super) terminal_info:BTreeMap<String,Value>,
     user_name:Option<String>,
     pane_labels:BTreeMap<String,String>,
     seen_files:std::collections::BTreeSet<String>,
@@ -294,7 +294,9 @@ impl App {
         }).collect();
         let terminal = (self.files.focus == TERMINALS).then(|| self.focused()).flatten()
             .map(|id| self.studio.pane_labels.get(id).cloned().unwrap_or_else(|| "this pane".into()));
-        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal, editor: self.files.panes.contains_key(&self.files.focus) }
+        let path = std::env::var_os("PATH");
+        let agents = self.config.agents.iter().map(|tool| (tool.name.clone(), clanky::agent_launch::installed(&tool.command, path.as_deref()))).collect();
+        clanky::calm::palette::Context { sessions, post_ai: self.applied_post_ai, terminal, editor: self.files.panes.contains_key(&self.files.focus), agents }
     }
     pub(super) fn palette_effect(&mut self, effect: clanky::calm::palette::Effect) -> Result<(), String> {
         use clanky::calm::palette::{Command, Effect};
@@ -325,6 +327,8 @@ impl App {
             Command::OpenFile => { let tab = self.focused().map(str::to_owned); self.open_prompt(Axis::Columns, false, tab, self.files.focus.clone()) }
             Command::LoadChanges => { let target = self.files.focus.clone(); self.open_prompt(Axis::Columns, true, None, target) }
             Command::Session(id) => self.activate_studio(HitAction::Session(id)),
+            Command::StartAgent(None) => { self.open_agent_picker(); Ok(()) }
+            Command::StartAgent(Some(index)) => self.start_agent(index, false),
             Command::Run(text) => {
                 let id = self.focused().ok_or("No terminal has focus")?.to_owned();
                 self.engine.input(&id, format!("{text}\r").as_bytes()).map_err(|e| e.message)?;
@@ -339,6 +343,7 @@ impl App {
             HitAction::NewTab=>{self.new_tab()?;},
             HitAction::Split=>{self.split(Axis::Columns)?;},
             HitAction::Palette => { self.open_palette(); self.reset_ime(); }
+            HitAction::StartAgent => self.open_agent_picker(),
             HitAction::ToggleRails => { self.panels.visible = !self.panels.visible; self.studio.drag = None; self.resize_panes()?; }
             HitAction::Session(id) => {
                 let index = self.groups.iter().position(|g| g.layout.contains(&id)).ok_or("Session was closed")?;
@@ -549,7 +554,7 @@ impl App {
                 }
             }
         }
-        let mut recent=clanky::calm::human_recent(&self.studio.metadata["recent"],&state.pane_labels,&self.studio.metadata["agents"]);
+        let mut recent=clanky::calm::human_recent(&self.studio.metadata["recent"],&state.pane_labels,&self.studio.metadata["agents"],&self.config.agents);
         recent.extend(self.studio.local_recent.iter().map(|(at,item)|(at.elapsed().as_millis().min(u64::MAX as u128) as u64,item.clone(),None)));
         recent.sort_by_key(|(age,_,_)|std::cmp::Reverse(*age));
         for (age,item,command) in recent.into_iter().rev().take(20).collect::<Vec<_>>().into_iter().rev(){
@@ -660,6 +665,15 @@ impl App {
                     view.agent_running = true;
                     view.driver = driver["connection_id"].as_u64().and_then(|id|state.agent_labels.get(&id)).cloned().unwrap_or_else(||format!("agent {}",driver["peer_pid"]));
                 } else if view.driver.is_empty() && !self.studio.metadata.is_null() { view.driver = "Terminal".into(); }
+            }
+            // A pane opened for an agent tool, with access on, is named for the tool and
+            // drawn as an agent pane (amber edge and chip).
+            if !view.agent_running && view.allow_agent && !self.applied_post_ai && !self.files.panes.contains_key(&pane.id) {
+                if let Some(tool) = self.studio.terminal_info.get(&pane.id).and_then(|info| info["agent_tool"].as_str()) {
+                    view.title = format!("{tool} · {}", view.title);
+                    view.driver = String::new();
+                    view.agent_running = true;
+                }
             }
             if state.focused.as_deref() == Some(pane.id.as_str()) {
                 if let Some((row,col)) = snapshot.cursor.filter(|(r,c)| *r<pane.rows && *c<pane.cols) {
@@ -782,6 +796,7 @@ impl App {
         self.update_card_actions(&layout,&mut state,now);
         let terminal_px=self.metrics()?.font_px;
         let palette_context=self.palette_context();
+        let agent_context=self.agent_picker.open.then(||self.agent_context());
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
         let trace_state=Instant::now();
         let mut presentation = clanky::calm::presentation(&layout,&state,&self.studio.calm_theme,terminal_px,self.mouse,self.pointer_pressed,&mut |run| renderer.measure_text(run));
@@ -852,6 +867,9 @@ impl App {
             let access:Vec<_>=state.panes.iter().filter(|pane|!self.files.panes.contains_key(&pane.id)).map(|pane|clanky::calm::settings_panel::PaneAccess{id:pane.id.clone(),label:state.pane_labels.get(&pane.id).cloned().unwrap_or_else(||pane.title.clone()),allowed:pane.allow_agent}).collect();
             presentation.scene.layers.extend(panel.draw(&layout,&self.studio.calm_theme,&self.config,&access,state.masking_ready,self.theme_runtime.as_ref().map(|runtime|&runtime.store),self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)),self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
             if panel.open{ime=panel.ime_position();}
+        }
+        if let Some(context)=&agent_context {
+            presentation.scene.layers.extend(self.agent_picker.draw(&layout,&self.studio.calm_theme,context,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));
         }
         if self.palette.open {
             presentation.scene.layers.extend(self.palette.draw(&layout,&self.studio.calm_theme,&palette_context,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run)));

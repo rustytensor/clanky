@@ -4,6 +4,7 @@ use clanky_core::layout::Layout as Tree;
 
 mod scene;
 pub mod palette;
+pub mod agent_picker;
 mod recent;
 pub mod settings_frame;
 pub mod settings_panel;

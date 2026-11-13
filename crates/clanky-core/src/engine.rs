@@ -224,6 +224,8 @@ pub(crate) struct Tab {
     actions: Mutex<actions::ActionState>,
     /// Saved history's actor: 'you' or the agent whose input came last.
     last_actor: Mutex<String>,
+    /// The configured agent tool this terminal was opened for, named by the owner.
+    agent_tool: Mutex<Option<String>>,
 }
 impl Tab {
     fn new(
@@ -256,6 +258,7 @@ impl Tab {
             process: Mutex::new(None),
             actions: Mutex::new(actions::ActionState::default()),
             last_actor: Mutex::new("you".into()),
+            agent_tool: Mutex::new(None),
         }
     }
     pub(crate) fn set_actor(&self, actor: String) {
@@ -560,6 +563,7 @@ impl Engine {
             "permission_get" | "terminal_cwd" | "terminal_info" => &["tab_id"],
             "block_events" => &["tab_id", "after", "limit"],
             "permission_set" => &["tab_id", "allow_agent"],
+            "agent_tool_set" => &["tab_id", "name"],
             "window_search" => &["tab_id", "query", "after", "backwards"],
             "clipboard_events" => &["tab_id", "write", "read"],
             "clipboard_reply" => &["tab_id", "request_id", "data"],
@@ -820,10 +824,20 @@ impl Engine {
                 };
                 let cwd = cwd.to_str().ok_or_else(|| invalid("terminal directory is not UTF-8"))?;
                 let exe = exe.to_str().ok_or_else(|| invalid("terminal executable is not UTF-8"))?;
+                let agent_tool = tab.agent_tool.lock().unwrap().clone();
                 let terminal = tab.terminal.lock().unwrap();
-                Ok(json!({"cwd":cwd,"exe":exe,"program":program.map(|name|self.mask_message(&name)),"rows":terminal.size.0,"cols":terminal.size.1}))
+                Ok(json!({"cwd":cwd,"exe":exe,"program":program.map(|name|self.mask_message(&name)),"rows":terminal.size.0,"cols":terminal.size.1,"agent_tool":agent_tool}))
             }
             "permission_get" => Ok(json!({"allow_agent":tab.allowed.load(Ordering::Acquire)})),
+            "agent_tool_set" => {
+                let name = string(args, "name")?;
+                if name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+                    return Err(invalid("name must be 1-256 bytes without control characters"));
+                }
+                *tab.agent_tool.lock().unwrap() = Some(name.to_owned());
+                self.0.1.window_signal.notify();
+                Ok(json!({}))
+            }
             "permission_set" => {
                 let allowed = args
                     .get("allow_agent")
@@ -971,7 +985,9 @@ impl Engine {
                 *tab.last_input.lock().unwrap()=None;
                 self.0.1.readiness.activity(tab_id);
                 let program=Path::new(&argv[0]).file_name().and_then(|name|name.to_str()).unwrap_or("command");
-                self.0.1.record_recent("command_run",tab_id,json!({"program":self.mask_message(program)}));
+                // "by" lets the window credit an agent's command to the agent, not the pane.
+                let by = if trusted { "owner" } else { "agent" };
+                self.0.1.record_recent("command_run",tab_id,json!({"program":self.mask_message(program),"by":by}));
                 Ok(json!({"command_id": id, "state": "running"}))
             }
             "wait" | "get_exit_code" => {

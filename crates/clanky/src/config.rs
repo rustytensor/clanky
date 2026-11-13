@@ -35,6 +35,24 @@ pub struct Config {
     pub history_days: u32,
     /// Stored output per command, in KiB.
     pub history_output_kib: u32,
+    /// Agent command-line tools the picker and `clanky agent` can start, in order.
+    pub agents: Vec<AgentTool>,
+    /// Whether a pane started for an agent gets agent access (read + run) or none.
+    pub agent_pane_access: bool,
+}
+
+/// One agent tool: a display name and the command typed into the new pane's shell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentTool {
+    pub name: String,
+    pub command: String,
+}
+
+pub fn default_agents() -> Vec<AgentTool> {
+    [("Claude Code", "claude"), ("Codex", "codex"), ("Pi", "pi")]
+        .into_iter()
+        .map(|(name, command)| AgentTool { name: name.into(), command: command.into() })
+        .collect()
 }
 
 impl Config {
@@ -72,6 +90,8 @@ impl Default for Config {
             history: true,
             history_days: 90,
             history_output_kib: 256,
+            agents: default_agents(),
+            agent_pane_access: true,
         }
     }
 }
@@ -315,6 +335,26 @@ impl Config {
                 "history_output_kib" => {
                     config.history_output_kib = value.as_u64().filter(|n| (1..=65536).contains(n))
                         .ok_or("history_output_kib must be an integer between 1 and 65536")? as u32;
+                }
+                "agents" => {
+                    let list = value.as_array().ok_or("agents must be a list of {\"name\", \"command\"} objects")?;
+                    if list.len() > 32 { return Err("agents holds at most 32 tools".into()); }
+                    let mut agents = Vec::new();
+                    for item in list {
+                        let entry = item.as_object().filter(|o| o.len() == 2 && o.contains_key("name") && o.contains_key("command"))
+                            .ok_or("each agents entry must have exactly \"name\" and \"command\"")?;
+                        let text = |field: &str| entry[field].as_str().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 256 && !t.chars().any(char::is_control))
+                            .map(str::to_owned).ok_or_else(|| format!("agents {field} must be a nonempty string of at most 256 bytes without controls"));
+                        agents.push(AgentTool { name: text("name")?, command: text("command")? });
+                    }
+                    config.agents = agents;
+                }
+                "agent_pane_access" => {
+                    config.agent_pane_access = match value.as_str() {
+                        Some("read+run") => true,
+                        Some("off") => false,
+                        _ => return Err("agent_pane_access must be \"read+run\" or \"off\"".into()),
+                    };
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }

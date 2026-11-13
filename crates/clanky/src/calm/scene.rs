@@ -175,11 +175,17 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let split_width=p.width("Split",14.0*s,500)+24.0*s;
     let split=r(new_tab.x-8.0*s-split_width,by,split_width,32.0*s);
     p.button(split,"Split",HitAction::Split,false);
+    // The Agent button sits left of Split; Post-AI removes it.
+    let left=if state.post_ai{split.x}else{
+        let agent_width=p.width("Agent",14.0*s,500)+24.0*s;
+        let agent=r(split.x-8.0*s-agent_width,by,agent_width,32.0*s);
+        p.button(agent,"Agent",HitAction::StartAgent,false);agent.x
+    };
     // Search and run field (sheets: 300 x 32, radius 8, 14 px, kbd chip); it opens the palette.
     // At least the sheet's 300 px; wider when the per-key chips would clip the placeholder.
     let chips:f32=["Ctrl","Shift","P"].iter().map(|k|p.mono_width(k,12.0*s,400)+14.0*s).sum();
     let field_w=(300.0*s).max(32.0*s+p.width("Search or run a command…",14.0*s,400)+12.0*s+chips+8.0*s).ceil();
-    let field=r(split.x-8.0*s-field_w,by,field_w,32.0*s);
+    let field=r(left-8.0*s-field_w,by,field_w,32.0*s);
     if field.x>toggle.x+160.0*s{
         let over=field.contains(pointer.0,pointer.1);
         if state.palette_open{p.shape(r(field.x-4.0*s,field.y-4.0*s,field.w+8.0*s,field.h+8.0*s),12.0*s,[0;4],Some(c.ring));p.shape(r(field.x-3.0*s,field.y-3.0*s,field.w+6.0*s,field.h+6.0*s),11.0*s,[0;4],Some(c.ring));}
@@ -191,7 +197,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         p.hit(field,HitAction::Palette);
     }
     // calm.html: toggle, a 1 x 16 separator (margin 0 4), then "session / ~/folder" crumbs, gap 8.
-    let title_right=if field.x>toggle.x+160.0*s{field.x-16.0*s}else{split.x-16.0*s};
+    let title_right=if field.x>toggle.x+160.0*s{field.x-16.0*s}else{left-16.0*s};
     p.shape(r(toggle.x+44.0*s,bar.y+(bar.h-16.0*s)/2.0,s,16.0*s),0.0,c.border,None);
     let folder=state.panes.iter().find(|pane|state.focused.as_ref()==Some(&pane.id)).or_else(||state.panes.first()).map(|pane|pane.title.clone()).unwrap_or_else(||"Clanky".into());
     let session=state.sessions.iter().find(|item|item.active).map(|item|item.title.clone());
