@@ -20,6 +20,8 @@ Global rules checked: v30 2026-11-12
 - Commits: plain English, what changed and why, in Marc's voice. No sign of AI tools anywhere: no Co-Authored-By
   line naming an AI tool or model, no "generated with" line or badge, no tool, model, agent or session names, no
   robot emoji, in commits, pull requests, issues, release notes, changelogs, docs, code, comments or file headers.
+- Clanky itself is GPL-3.0-or-later from 1.3.1 (Marc, 2026-11-12); crates/clanky-vt keeps Apache-2.0 and
+  crates/clanky-vte keeps MIT OR Apache-2.0. Releases up to 1.3.0 stay MIT OR Apache-2.0.
 - New dependencies: name each one and its licence in the commit message. Any permissive licence is fine and needs
   no approval (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, PSF, Unlicense and the like). MPL-2.0 for spellbook
   only. Ask Marc before GPL, AGPL, SSPL, BSL, source-available, no-commercial-use, or any licence that could stop

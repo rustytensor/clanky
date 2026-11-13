@@ -2,11 +2,11 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.3.0
+Version:        1.3.1
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
-# Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
-License:        (MIT OR Apache-2.0) AND OFL-1.1 AND Bitstream-Vera
+# Clanky is GPL-3.0-or-later (its forked terminal crates keep Apache-2.0 and MIT OR Apache-2.0); its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
+License:        GPL-3.0-or-later AND Apache-2.0 AND (MIT OR Apache-2.0) AND OFL-1.1 AND Bitstream-Vera
 URL:            https://github.com/rustytensor/clanky
 Source0:        https://github.com/rustytensor/clanky/archive/v%{version}/clanky-%{version}.tar.gz
 BuildRequires:  cargo
@@ -48,7 +48,7 @@ install -Dm644 packaging/linux/clanky.1 %{buildroot}%{_mandir}/man1/clanky.1
 find %{buildroot} -type d -exec chmod 00755 {} +
 
 %files
-%license LICENSE-MIT LICENSE-APACHE NOTICE
+%license COPYING LICENSE-MIT LICENSE-APACHE NOTICE
 %license assets/fonts/OFL-JetBrainsMono.txt assets/fonts/OFL-Inter.txt assets/fonts/LICENSE-DejaVu.txt
 %license assets/fonts/OFL-Geist.txt
 %license assets/themes/upstream/LICENSE-Catppuccin
@@ -59,6 +59,9 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Thu Nov 12 2026 Clanky contributors <noreply@github.com> - 1.3.1-1
+- Clanky is now licensed GPL-3.0-or-later; the forked terminal crates keep their licences.
+
 * Thu Nov 12 2026 Clanky contributors <noreply@github.com> - 1.3.0-1
 - Start an agent in a pane: the Agent button, Ctrl+Shift+G or clanky agent NAME opens a pane running that tool with agent access for that pane only.
 - Recent credits commands an agent ran to the agent.
