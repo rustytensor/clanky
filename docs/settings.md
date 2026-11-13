@@ -25,6 +25,8 @@ The old Settings modal is never used as a fallback. Ctrl+Shift+Escape still revo
 
 Click a swatch/colour row to choose an ANSI swatch or enter a hex colour. Reset
 appears only for a changed value. Invalid values keep the previous file/display.
+The theme's ANSI 1–6 and muted text colours also colour code in editor panes
+(see [editor colours](config.md#editor-colours)); the Terminal page's colours do not.
 
 **Save as new theme** asks for a display name and a safe file-name stem. It copies
 the edited theme through `ThemeStore`, selects that copy and clears the baked-in

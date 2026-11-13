@@ -107,6 +107,33 @@ The minimum among required default light colours is 4.860:1. Light colours deriv
 from the theme tokens; bright yellow/blue/magenta/cyan mix 18% ink into their normal
 token. Custom token overrides can lower contrast.
 
+## Editor colours
+
+Editor panes colour code with tree-sitter for Rust (`.rs`), Python (`.py`, `.pyi`), TypeScript
+(`.ts`, `.mts`, `.cts`), TSX (`.tsx`), JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`), Go (`.go`),
+C (`.c`, `.h`), bash (`.sh`, `.bash`, `.bashrc`, `.profile`, or a `#!` line naming bash or sh),
+JSON, TOML (and `Cargo.lock`), YAML (`.yaml`, `.yml`) and Markdown (`.md`). Other files stay
+plain. The colours come from the window theme (`theme`, `theme_dark`, `theme_light`), never from
+`terminal_colors`, so every theme has matching code colours and a theme switch recolours open
+files at once:
+
+| Token | Colour |
+| --- | --- |
+| keyword | ANSI 5 |
+| function | ANSI 4 |
+| type | ANSI 3 |
+| string | ANSI 2 |
+| number | ANSI 1 |
+| constant, macro, attribute | ANSI 6 |
+| comment | `muted_foreground`, italic |
+| everything else | `foreground` |
+
+In Markdown a heading's text is keyword, inline and fenced code are string, and prose is plain.
+A font without an italic face (the bundled Geist Mono has none) draws comments slanted from its
+upright face. Each keystroke re-parses only what changed, and only the visible lines are
+coloured. Files over 2 MiB, or that take longer than 50 ms to parse, stay plain. There is no
+setting for this.
+
 ## Other settings
 
 Personal spelling words go in `compose-words.txt` beside the selected config file,
