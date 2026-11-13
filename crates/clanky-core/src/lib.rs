@@ -30,7 +30,15 @@ pub struct Cell {
     /// Optional presentation provenance; legacy readers continue using fg/bg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_source: Option<CellColorSource>,
+    /// SGR attributes the renderer draws: STYLE_BOLD, STYLE_FAINT.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub style: u8,
 }
+/// SGR 1: drawn with the bold face (colour unchanged; bold is not bright).
+pub const STYLE_BOLD: u8 = 1;
+/// SGR 2: drawn with reduced contrast against the background.
+pub const STYLE_FAINT: u8 = 2;
+fn is_zero(value: &u8) -> bool { *value == 0 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerminalSnapshot {
     pub rows: usize,
@@ -38,6 +46,9 @@ pub struct TerminalSnapshot {
     pub cells: Vec<Cell>,
     pub cursor: Option<(usize, usize)>,
     pub images: Vec<ImagePlacement>,
+    /// DECCKM (ESC[?1h): cursor keys send ESC O x instead of ESC [ x.
+    #[serde(default)]
+    pub app_cursor: bool,
 }
 /// Stable FNV-1a hash of one row of cells, shared by the session server and its
 /// windows so a window can name the rows it already holds.
@@ -64,6 +75,7 @@ pub fn row_hash(cells: &[Cell]) -> u64 {
                 eat(u8::from(source.inverse));
             }
         }
+        eat(cell.style);
     }
     hash
 }

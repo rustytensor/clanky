@@ -62,6 +62,7 @@ fn prompt_icons_use_installed_fallback() {
         cols: 3,
         cursor: None,
         images: vec![],
+        app_cursor: false,
         cells: chars
             .into_iter()
             .chain([' '])
@@ -70,6 +71,7 @@ fn prompt_icons_use_installed_fallback() {
                 fg: [255; 3],
                 bg: [0; 3],
                 color_source: None,
+                style: 0,
             })
             .collect(),
     };
