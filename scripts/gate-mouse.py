@@ -66,7 +66,7 @@ fd = sys.stdin.fileno(); old = termios.tcgetattr(fd); tty.setraw(fd)
 w = lambda s: os.write(1, s.encode())
 if modes != "-": w("\x1b[?" + modes + "h")
 w("\x1b[2J\x1b[H")
-rows, cols = os.get_terminal_size()
+cols, rows = os.get_terminal_size()
 w("\x1b[3;1H" + "alpha beta gamma /srv/devops/x-y.txt")
 for cell in mark.split(","):
     if cell:
