@@ -22,6 +22,7 @@ until the window's plain-terminal view is connected.
 | `Ctrl+Shift+E` | Split below; with editor focus, prompt for another file |
 | `Ctrl+Shift+W` | Close focused pane; dirty editor refuses; last terminal closes its server |
 | `Ctrl+Shift+A` | Toggle agent access to the focused terminal |
+| `Ctrl+Shift+G` | Open the [agent picker](agent-pane.md); Enter starts the highlighted tool |
 | `Ctrl+Shift+O` | Open local file prompt |
 | `Ctrl+Shift+F` | Search retained terminal text, including soft wraps |
 | `Ctrl+Shift+Enter` | Open compose docked to the focused terminal; does not send a draft |
@@ -37,7 +38,8 @@ until the window's plain-terminal view is connected.
 | `Card:Enter` | Activate the chosen block action |
 | `Card:Escape` | Return keyboard input to the pane |
 
-The top-bar New tab, Split and search controls are mouse alternatives to these shortcuts.
+The top-bar New tab, Split, Agent and search controls are mouse alternatives to these shortcuts.
+In the agent picker, Up and Down choose a tool, Tab or Left/Right switch between a split and a new tab, and Escape closes it.
 Drag a pane divider to resize it; click anywhere on an agent-access row to toggle it.
 
 Block actions appear only while the card is hovered or keyboard-focused. They

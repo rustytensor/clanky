@@ -65,11 +65,25 @@ pub fn new_terminal(
     rows: usize,
     cols: usize,
 ) -> Result<String, String> {
+    new_terminal_with(client, focused, None, false, rows, cols)
+}
+
+/// A new terminal running the server's shell. `cwd` overrides the focused pane's
+/// folder; `allow_agent` sets the new terminal's agent access from the start.
+pub fn new_terminal_with(
+    client: &Client,
+    focused: Option<&str>,
+    cwd: Option<&str>,
+    allow_agent: bool,
+    rows: usize,
+    cols: usize,
+) -> Result<String, String> {
     // Resolve everything on the server before creating anything. Never consult GUI cwd/HOME.
     let defaults = client.exchange(3, "shell_defaults", &json!({})).map_err(|e| e.message)?;
-    let reported = match focused {
-        Some(tab) => client.exchange(3, "terminal_cwd", &json!({"tab_id":tab})).map_err(|e| e.message)?,
-        None => json!({"cwd":null}),
+    let reported = match (cwd, focused) {
+        (Some(cwd), _) => json!({"cwd":cwd}),
+        (None, Some(tab)) => client.exchange(3, "terminal_cwd", &json!({"tab_id":tab})).map_err(|e| e.message)?,
+        (None, None) => json!({"cwd":null}),
     };
     let cwd = reported.get("cwd").ok_or("Missing terminal directory")?;
     let cwd = if cwd.is_null() {
@@ -80,7 +94,7 @@ pub fn new_terminal(
     let argv = defaults.get("argv").and_then(Value::as_array).filter(|a| {
         !a.is_empty() && a.iter().all(|v| v.as_str().is_some())
     }).ok_or("Invalid server shell arguments")?;
-    let tab = client.request("open_tab", &json!({"rows":rows,"cols":cols,"allow_agent":false}), true)
+    let tab = client.request("open_tab", &json!({"rows":rows,"cols":cols,"allow_agent":allow_agent}), true)
         .map_err(|e| e.message)?;
     let id = tab["tab_id"].as_str().ok_or("Missing tab ID")?.to_owned();
     if let Err(run) = client.request("run", &json!({"tab_id":id,"argv":argv,"cwd":cwd}), true) {

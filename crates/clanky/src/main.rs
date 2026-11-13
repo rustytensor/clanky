@@ -46,6 +46,9 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "history") {
         std::process::exit(clanky::history_cli::main(&args[1..]));
     }
+    if args.first().is_some_and(|arg| arg == "agent") {
+        std::process::exit(clanky::agent_cli::main(&args[1..]));
+    }
     if let Err(error) = run() {
         if error == clanky_core::POST_AI_REASON {
             eprintln!("{error}");
@@ -92,7 +95,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky agent [--tab] NAME [DIR]: start an agent tool in a new pane (--list shows them)\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access; Ctrl+Shift+G: start an agent\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
@@ -184,6 +187,9 @@ struct App {
     studio: studio::Studio,
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     palette: clanky::calm::palette::Palette,
+    agent_picker: clanky::calm::agent_picker::AgentPicker,
+    /// The agent tool the next new terminal starts (set only while start_agent runs).
+    pending_agent: Option<clanky::config::AgentTool>,
     settings_error: Option<String>,
     next_settings: Instant,
     startup_flags: clanky::config::StartupOverrides,
@@ -258,7 +264,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
-        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),
+        settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),pending_agent:None,
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
         gate_clock,
@@ -470,7 +476,50 @@ impl App {
         self.resize_panes()
     }
     fn spawn_terminal(&self, focused: Option<&str>, rows: usize, cols: usize) -> Result<String, String> {
-        window_tools::new_terminal(&self.engine, focused, rows, cols)
+        match &self.pending_agent {
+            Some(tool) => clanky::agent_launch::start(&self.engine, tool, focused, None, self.config.agent_pane_access, rows, cols),
+            None => window_tools::new_terminal(&self.engine, focused, rows, cols),
+        }
+    }
+    /// Start a configured agent tool in a split to the right of the focused pane, or a new tab.
+    fn start_agent(&mut self, index: usize, tab: bool) -> Result<(), String> {
+        if self.applied_post_ai { return Ok(()); }
+        let tool = self.config.agents.get(index).cloned().ok_or("That agent is no longer configured")?;
+        if !clanky::agent_launch::installed(&tool.command, std::env::var_os("PATH").as_deref()) {
+            return Err(format!("{} is not installed: {} is not on PATH", tool.name, clanky::agent_launch::program(&tool.command)));
+        }
+        self.pending_agent = Some(tool);
+        let result = if tab || self.files.focus != TERMINALS { self.new_tab() } else { self.split(Axis::Columns) };
+        self.pending_agent = None;
+        result
+    }
+    fn agent_context(&self) -> clanky::calm::agent_picker::Context {
+        let path = std::env::var_os("PATH");
+        let tools = self.config.agents.iter().map(|tool| clanky::calm::agent_picker::Choice {
+            name: tool.name.clone(), command: tool.command.clone(),
+            found: clanky::agent_launch::installed(&tool.command, path.as_deref()) }).collect();
+        let folder = self.focused().and_then(|id| self.studio.terminal_info.get(id)).and_then(|info| info["cwd"].as_str())
+            .map(|cwd| match clanky_core::platform::home_dir().and_then(|home| std::path::Path::new(cwd).strip_prefix(home).ok().map(|rest| rest.to_owned())) {
+                Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+                Some(rest) => format!("~/{}", rest.display()),
+                None => cwd.to_owned(),
+            }).unwrap_or_else(|| "the focused pane's folder".into());
+        clanky::calm::agent_picker::Context { tools, folder, access: self.config.agent_pane_access }
+    }
+    fn open_agent_picker(&mut self) {
+        if self.applied_post_ai { return; }
+        if self.settings_open() { let _ = self.toggle_settings(); }
+        self.palette.close();
+        let context = self.agent_context();
+        self.agent_picker.show(&context);
+        self.reset_ime();
+    }
+    fn agent_picker_effect(&mut self, effect: clanky::calm::agent_picker::Effect) -> Result<(), String> {
+        match effect {
+            clanky::calm::agent_picker::Effect::Start { index, tab } => { self.reset_ime(); self.start_agent(index, tab) }
+            clanky::calm::agent_picker::Effect::Close => { self.reset_ime(); Ok(()) }
+            clanky::calm::agent_picker::Effect::None => Ok(()),
+        }
     }
     fn new_tab(&mut self) -> Result<(), String> {
         let layout=self.layout_with(&clanky_core::layout::Layout::leaf("__new__"))?;
@@ -617,6 +666,15 @@ impl App {
             let context=self.palette_context();
             let effect=self.palette.key(key,text,self.input.composing(),&context);
             return self.palette_effect(effect);
+        }
+        if self.modifiers.control_key() && self.modifiers.shift_key() && matches!(key,Key::Character(ch) if ch.eq_ignore_ascii_case("g")) {
+            if self.agent_picker.open {self.agent_picker.close();self.reset_ime();} else {self.open_agent_picker();}
+            return Ok(());
+        }
+        if self.agent_picker.open {
+            let context=self.agent_context();
+            let effect=self.agent_picker.key(key,&context);
+            return self.agent_picker_effect(effect);
         }
         if self.card_key(key)? { return Ok(()); }
         if self.modifiers.control_key() && self.modifiers.shift_key()
@@ -766,6 +824,11 @@ impl App {
         ))
     }
     fn click(&mut self) -> Result<(), String> {
+        if self.agent_picker.open {
+            let context=self.agent_context();
+            let effect=self.agent_picker.click(self.mouse.0,self.mouse.1,&context);
+            return self.agent_picker_effect(effect);
+        }
         if self.palette.open {
             let context=self.palette_context();
             let effect=self.palette.click(self.mouse.0,self.mouse.1,&context);
@@ -887,6 +950,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if self.palette.open { self.palette.pointer(position.x, position.y); }
+                if self.agent_picker.open { let context=self.agent_context(); self.agent_picker.pointer(position.x, position.y, &context); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
                 Ok(())
             }

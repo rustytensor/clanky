@@ -69,6 +69,7 @@ Pick one for dark and one for light, and Clanky follows your system. Save, impor
 - **Tabs and splits.** Ctrl+Shift+T opens a tab; Ctrl+Shift+D and Ctrl+Shift+E split right and down.
 - **Sessions that survive.** A background server keeps your shells running when you close the window. Reopen it to reattach, or attach over SSH with `clanky attach HOST`.
 - **A command palette.** Ctrl+Shift+P runs any action, or types a command into the focused pane.
+- **Start an agent in a pane.** The Agent button or Ctrl+Shift+G opens Claude Code, Codex, Pi or any tool you configure in a split beside you, with agent access for that pane only; also `clanky agent NAME`. [More](docs/agent-pane.md).
 - **Find** with Ctrl+Shift+F searches everything still on screen and in scrollback, including wrapped lines.
 - **An editor with change review.** Ctrl+Shift+O opens a file. When an agent proposes changes, you accept or reject each one.
 - **Compose** with Ctrl+Shift+Enter: a spell-checked box for long prompts.

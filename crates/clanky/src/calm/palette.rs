@@ -12,6 +12,8 @@ pub enum Command {
     NewTab, SplitRight, SplitDown, ClosePane, ToggleAgentAccess, ToggleSidebars,
     ZoomIn, ZoomOut, ZoomReset, Settings, StopAgents, Session(String), Run(String),
     OpenFile, LoadChanges,
+    /// Open the agent picker (None) or start a configured tool directly.
+    StartAgent(Option<usize>),
 }
 
 #[derive(Clone,Debug,PartialEq)]
@@ -27,6 +29,8 @@ pub struct Context {
     pub terminal:Option<String>,
     /// A file editor has focus (Load changes applies to it).
     pub editor:bool,
+    /// Configured agent tools: (name, installed).
+    pub agents:Vec<(String,bool)>,
 }
 
 pub enum Effect { None, Close, Run(Command) }
@@ -62,7 +66,13 @@ fn base(context:&Context)->Vec<Entry>{
     if !context.post_ai && context.terminal.is_some() {
         out.push(e("Agents","Allow or block agents in this pane",&["Ctrl","Shift","A"],Command::ToggleAgentAccess));
     }
-    if !context.post_ai { out.push(e("Agents","Stop every agent now",&["Ctrl","Shift","Esc"],Command::StopAgents)); }
+    if !context.post_ai {
+        out.push(e("Agents","Start an agent…",&["Ctrl","Shift","G"],Command::StartAgent(None)));
+        for (index,(name,found)) in context.agents.iter().enumerate() {
+            if *found { out.push(Entry{group:"Agents",label:format!("Start agent {name}"),keys:&[],command:Command::StartAgent(Some(index))}); }
+        }
+        out.push(e("Agents","Stop every agent now",&["Ctrl","Shift","Esc"],Command::StopAgents));
+    }
     out.extend([
         e("View","Show or hide sidebars",&["Ctrl","Shift","B"],Command::ToggleSidebars),
         e("View","Zoom in",&["Ctrl","+"],Command::ZoomIn),
@@ -225,7 +235,7 @@ mod tests{
     fn labels(context:&Context,query:&str)->Vec<String>{entries(context,query).into_iter().map(|e|e.label).collect()}
     #[test]
     fn typing_finds_commands_and_offers_to_run_the_rest(){
-        let context=Context{sessions:vec![("a".into(),"clanky".into(),true),("b".into(),"larra".into(),false)],post_ai:false,terminal:Some("clanky · pane 1".into()),editor:false};
+        let context=Context{sessions:vec![("a".into(),"clanky".into(),true),("b".into(),"larra".into(),false)],post_ai:false,terminal:Some("clanky · pane 1".into()),editor:false,agents:vec![("Pi".into(),true)]};
         // Worked out by hand from the command list: prefix matches first, then word starts.
         assert_eq!(labels(&context,"spl"),["Split right","Split down","Run “spl” in clanky · pane 1"]);
         assert_eq!(labels(&context,"zoom"),["Zoom in","Zoom out","Reset zoom","Run “zoom” in clanky · pane 1"]);

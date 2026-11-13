@@ -76,3 +76,24 @@ mod linux {
 // Other desktop ports must supply their usual settings location here.
 #[cfg(not(target_os = "linux"))]
 pub fn settings_path() -> Option<PathBuf> { None }
+
+/// Whether a path is a regular file someone may execute (agent tools on PATH).
+pub fn is_executable(path: &std::path::Path) -> bool {
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))] { path.is_file() }
+}
+
+/// Start a detached copy of this executable (a window for `clanky agent`), with its
+/// own process group so the caller's terminal signals do not reach it.
+pub fn spawn_detached(args: &[std::ffi::OsString]) -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut command = std::process::Command::new(exe);
+    command.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    #[cfg(unix)] { use std::os::unix::process::CommandExt; command.process_group(0); }
+    let mut child = command.spawn()?;
+    std::thread::spawn(move || { let _ = child.wait(); });
+    Ok(())
+}
