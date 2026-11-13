@@ -260,6 +260,7 @@ def flip_story(win, p):
     win.x('mousemove', '--window', win.wid, '700', '800', 'click', '1')
     time.sleep(.5)
     q = Pane(win)
+    q.n = 100  # its own prog-*.log names; the top pane's prog-1.log.size says 12 x 89
     q.measure()
     PANE['p'] = q
     try:
