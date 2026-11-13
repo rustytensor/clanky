@@ -11,11 +11,21 @@ Source: https://github.com/rustytensor/clanky
 
 Files: *
 Copyright: 2026 Marc Mironescu
-License: MIT or Apache-2.0
-Comment: crates/clanky-vt is forked from alacritty_terminal 0.26.0 and crates/clanky-vte
- from vte 0.15.0, Copyright Christian Duerr, Joe Wilm and the Alacritty contributors.
- The binary statically links Rust crates under MIT, Apache-2.0 and similar licences;
+License: GPL-3.0+
+Comment: The binary statically links Rust crates under MIT, Apache-2.0 and similar licences;
  see NOTICE in the source.
+
+Files: crates/clanky-vt/*
+Copyright: Christian Duerr, Joe Wilm and the Alacritty contributors
+           2026 Marc Mironescu
+License: Apache-2.0
+Comment: Forked from alacritty_terminal 0.26.0.
+
+Files: crates/clanky-vte/*
+Copyright: Christian Duerr, Joe Wilm and the Alacritty contributors
+           2026 Marc Mironescu
+License: MIT or Apache-2.0
+Comment: Forked from vte 0.15.0.
 
 Files: assets/themes/upstream/*
 Copyright: 2021 Catppuccin
@@ -47,6 +57,14 @@ cat <<'MID'
 License: Apache-2.0
  On Debian systems, the full text of the Apache License, Version 2.0 is in
  /usr/share/common-licenses/Apache-2.0.
+
+License: GPL-3.0+
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License as published by the Free Software
+ Foundation, either version 3 of the License, or (at your option) any later version.
+ .
+ On Debian systems, the full text of the GNU General Public License version 3 is in
+ /usr/share/common-licenses/GPL-3.
 
 License: OFL-1.1
 MID

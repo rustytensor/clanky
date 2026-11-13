@@ -142,7 +142,7 @@ limits include 128 tasks and 64 KiB per selected payload. See [block actions](de
 hello is public; auth attempts owner authentication. **Every other v3 operation
 below is owner-only**, including focus, metadata, search and clipboard operations.
 
-Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"1.3.0","executable":"64768:1234567"},"row_delta":true}}`
+Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"1.3.1","executable":"64768:1234567"},"row_delta":true}}`
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
 Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 

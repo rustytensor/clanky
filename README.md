@@ -13,7 +13,7 @@
   <a href="https://github.com/rustytensor/clanky/releases/latest"><img src="https://img.shields.io/github/v/release/rustytensor/clanky?style=flat-square&color=d2a476&label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Linux-93b89a?style=flat-square" alt="Linux">
   <img src="https://img.shields.io/badge/GPU-wgpu-a0978d?style=flat-square" alt="GPU rendered with wgpu">
-  <img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-a0978d?style=flat-square" alt="MIT or Apache-2.0">
+  <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-a0978d?style=flat-square" alt="GPL-3.0-or-later">
 </p>
 
 <p align="center">
@@ -116,7 +116,10 @@ A clanker is a robot. This is where they work.
 
 ## Licence
 
-Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Clanky is licensed under the [GNU General Public License, version 3 or later](COPYING) (GPL-3.0-or-later), from version 1.3.1.
+Releases up to 1.3.0 were published under MIT or Apache-2.0 and stay available under those terms.
+The terminal core in `crates/clanky-vt` (from Alacritty) keeps its Apache-2.0 licence, and `crates/clanky-vte` keeps MIT or Apache-2.0;
+their texts are [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT).
 Dependencies keep their own licences, including MPL-2.0 for spellbook.
 The bundled Geist, Geist Mono, JetBrains Mono and Inter fonts are under the SIL Open Font License 1.1.
 See [NOTICE](NOTICE) for attributions.
