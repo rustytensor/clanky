@@ -24,6 +24,8 @@ pub struct SyntaxColors {
     pub number: [u8; 3],
     pub constant: [u8; 3],
     pub comment: [u8; 3],
+    /// Line numbers in the gutter: dim, well behind the code.
+    pub gutter: [u8; 3],
 }
 impl SyntaxColors {
     fn of(&self, token: Token) -> Option<[u8; 3]> {
@@ -112,6 +114,8 @@ pub struct EditorPane {
     dragging: bool,
     syntax: Option<Syntax>,
     spans: Option<SpanCache>,
+    /// Columns of the line-number gutter as last drawn (0 when drawn without one).
+    gutter: usize,
 }
 
 fn line_starts(text: &str) -> Vec<usize> {
@@ -160,7 +164,7 @@ impl EditorPane {
         Self { document, path, saved, dirty: false, lines,
             top, left: 0, page: 16, columns: 80, newline, review: 0, review_top: 0,
             previews: HashMap::new(), find: None, query: String::new(), error: None,
-            was_focused: false, dragging: false, syntax, spans: None }
+            was_focused: false, dragging: false, syntax, spans: None, gutter: 0 }
     }
     pub fn from_click(snapshot: &TerminalSnapshot, row: usize, col: usize, cwd: Option<&Path>) -> Result<Self> {
         let location = location_at(snapshot, row, col).ok_or("no source location")?;
@@ -445,7 +449,7 @@ impl EditorPane {
         let line = self.top.saturating_add(row - rect.row - 1).min(self.lines.len() - 1);
         let start = self.lines[line];
         let end = line_end(self.text(), &self.lines, line);
-        let target = self.left.saturating_add(col - rect.col);
+        let target = self.left.saturating_add((col - rect.col).saturating_sub(self.gutter));
         let mut visual = 0usize;
         for (i, ch) in self.text()[start..end].char_indices() {
             let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
@@ -538,16 +542,24 @@ impl EditorPane {
         }
         self.was_focused = focused;
         let (text_rows, review_rows) = self.geometry(rect);
+        // Panes drawn with window colours get a line-number gutter: one blank column, the numbers right-aligned in
+        // as many digits as the last line needs (at least 2), then a 2-column gap before the code. Narrow panes keep
+        // every column for code.
+        let digits = self.lines.len().to_string().len().max(2);
+        self.gutter = if colors.is_some() && rect.cols >= digits + 3 + 20 { digits + 3 } else { 0 };
+        let full = rect;
+        let text = Rect { col: rect.col.saturating_add(self.gutter), cols: rect.cols - self.gutter, ..*rect };
+        let rect = &text;
         self.page = text_rows.max(1);
         self.columns = rect.cols.max(1);
         let mut info = DrawInfo { text_rows, ..DrawInfo::default() };
-        for row in rect.row..rect.row.saturating_add(rect.rows).min(frame.rows) {
-            for col in rect.col..rect.col.saturating_add(rect.cols).min(frame.cols) {
+        for row in full.row..full.row.saturating_add(full.rows).min(frame.rows) {
+            for col in full.col..full.col.saturating_add(full.cols).min(frame.cols) {
                 put(frame, row, col, ' ', NORMAL);
             }
         }
         let title = format!("{}{}  column scroll {}", self.path.display(), if self.dirty { " *" } else { "" }, self.left);
-        paint(frame, rect, rect.row, &title, NORMAL);
+        paint(frame, full, full.row, &title, NORMAL);
         let selection = self.selection();
         let low = selection.anchor.min(selection.cursor);
         let high = selection.anchor.max(selection.cursor);
@@ -560,6 +572,17 @@ impl EditorPane {
             let row = rect.row.saturating_add(1 + visible);
             if row >= frame.rows { break; }
             info.source_lines += 1;
+            if let Some(colors) = colors.filter(|_| self.gutter > 0) {
+                let number = (index + 1).to_string();
+                let first = full.col + self.gutter - 2 - number.len();
+                for (i, ch) in number.chars().enumerate() {
+                    put(frame, row, first + i, ch, NORMAL);
+                    if let Some(cell) = frame.cells.get_mut(row * frame.cols + first + i).filter(|_| first + i < frame.cols) {
+                        cell.fg = colors.gutter;
+                        cell.color_source = Some(SYNTAX_SOURCE);
+                    }
+                }
+            }
             let mut visual = 0usize;
             for (offset, ch) in self.text()[start..end].char_indices() {
                 let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
@@ -588,6 +611,8 @@ impl EditorPane {
                 }
             }
         }
+        // Review and status rows span the whole pane, gutter included.
+        let rect = full;
         if review_rows > 0 {
             let row = rect.row.saturating_add(1 + text_rows);
             if let Some(hunk) = self.document.hunks().get(self.review) {
