@@ -8,10 +8,11 @@ See [shortcuts](shortcuts.md) and [configuration](config.md).
 ## The calm window
 
 Tabs sit in the title bar, each named for its folder, with a green dot while a command runs
-and an amber one while an agent works; **+** opens a tab and the mark beside the active tab
+and an amber one on an agent's tab (the agent's tab stays amber while its program runs); **+** opens a tab and the mark beside the active tab
 closes it. The search field opens the command palette, and the gear opens [Settings](settings.md)
 (or Ctrl+,). The tools panel on the left lists the focused pane's folder (Files), recent events
-(Recent) and agent activity with each pane's agent access (Agents); Ctrl+Shift+B or the title
+(Recent) and agent activity with each pane's agent access (Agents); above the Files list, the
+search icon opens the command palette and **+** opens a tab; Ctrl+Shift+B or the title
 bar's left button hides it. Drag the hairline between panes to resize them. The status line at
 the bottom names the session, the tabs, the server and masking. Settings › Appearance › Layout
 moves tabs down the left, hides the status line or brings back the older command cards.

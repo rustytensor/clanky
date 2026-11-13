@@ -79,9 +79,17 @@ impl SettingsPanel{
         let next=match (start,down){(Some(i),true)=>(i+1).min(last),(Some(i),false)=>i.saturating_sub(1),(None,true)=>0,(None,false)=>last};
         self.highlight=Some(next);
         self.preview=match &self.picks[next].kind{PickKind::Theme{theme,..}=>(Some((**theme).clone()),None),PickKind::Palette{colors,..}=>(None,Some(colors.clone()))};
-        // Keep the highlighted row inside the page body.
+        // Keep the highlighted row inside the page body, and show the whole list at once when it
+        // fits (mockup section 5: every row and the hint under them): first the list with its
+        // column heads, Ptyxis palettes and hint, else the built-in themes with their heads.
         let y=self.picks[next].y;let (top,bottom)=(57.0+8.0,543.0-8.0);
-        if y-self.scroll<top{self.scroll=(y-top).max(0.0);}else if y+38.0-self.scroll>bottom{self.scroll=(y+38.0-bottom).min(self.max_scroll.max(y+38.0-bottom));}
+        let heads=if self.effective.theme==crate::config::ThemePreference::System{22.0}else{0.0};
+        let first=self.picks.iter().map(|item|item.y).fold(f32::MAX,f32::min)-heads;
+        let all=self.picks.iter().map(|item|item.y+38.0).fold(first,f32::max)+50.0;
+        let themes=self.picks.iter().filter(|item|matches!(item.kind,PickKind::Theme{..})).map(|item|item.y+38.0).fold(first,f32::max);
+        let span=[(first,all),(first,themes),(y,y+38.0)].into_iter().find(|(a,b)|b-a<=bottom-top).unwrap_or((y,y+38.0));
+        if span.0-self.scroll<top{self.scroll=span.0-top;}else if span.1-self.scroll>bottom{self.scroll=span.1-bottom;}
+        self.scroll=self.scroll.max(0.0).min(self.max_scroll.max(y+38.0-bottom));
         Effect::Preview
     }
     pub fn theme_complete(&mut self){self.editor=None;self.error=None;}

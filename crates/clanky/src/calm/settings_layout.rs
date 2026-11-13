@@ -37,13 +37,35 @@ pub fn scan_palettes()->Vec<(String,serde_json::Value)>{
     out
 }
 
-/// A segmented control (mockup .segc): card track with a hairline, the chosen segment pressed.
-fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,row_h:f32,options:&[(&str,&'static str,&'static str)],selected:&str,hits:&mut Vec<Hit>,label:&str,description:&str,last:bool)->PixelRect{
+/// Greedy word wrap of `text` at `px` into lines no wider than `width`.
+fn wrap(p:&mut Paint<'_>,text:&str,px:f32,width:f32)->Vec<String>{
+    let mut lines:Vec<String>=Vec::new();let mut line=String::new();
+    for word in text.split(' '){
+        let candidate=if line.is_empty(){word.to_owned()}else{format!("{line} {word}")};
+        if !line.is_empty() && p.width(&candidate,px,400)>width{lines.push(std::mem::replace(&mut line,word.to_owned()));}else{line=candidate;}
+    }
+    if !line.is_empty(){lines.push(line);}
+    lines
+}
+/// Description lines shift everything under the first one down by this much (page px).
+const LINE:f32=17.0;
+/// A Layout row (mockup .row): label, the full description wrapped onto as many lines as it
+/// needs, and a segmented control (mockup .segc) on the right. Returns the row's height.
+#[allow(clippy::too_many_arguments)]
+fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&str,&'static str,&'static str)],selected:&str,hits:&mut Vec<Hit>,label:&str,description:&str,last:bool)->f32{
     let s=g.scale;let c=&t.colors;
     let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).collect();
     let total=widths.iter().sum::<f32>()+6.0;
-    let control=settings_frame::row(p,g,t,y,total,label,description,last || row_h>69.0);
-    let control=PixelRect{y:g.local(0.0,y+18.0,0.0,0.0).y,..control};
+    let text_width=522.0-total-24.0;
+    let lines=wrap(p,description,13.0*s,text_width*s);
+    let height=(if last{67.84375}else{68.84375})+extra+LINE*(lines.len().max(1)-1) as f32;
+    p.pane_label(g.local(229.0,y+14.0,text_width,18.0),label,14.0*s,c.foreground,500);
+    for (i,text) in lines.iter().enumerate(){p.text(g.local(229.0,y+35.0+LINE*i as f32,text_width,18.84375),text,13.0*s,c.muted_foreground,400,false);}
+    if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,c.border,None);}
+    // The control sits level with the label when the row holds more under its text (the tool
+    // chips, mockup align-items:start); otherwise it is centred, as the mockup's other rows.
+    let grown=extra>0.0;
+    let control=g.local(751.0-total,if grown{y+18.0}else{y+(height-if last{0.0}else{1.0}-32.0)/2.0},total,32.0);
     p.shape(control,8.0*s,c.card,Some(c.border));
     let mut x=control.x+3.0*s;
     for ((name,key,value),w) in options.iter().zip(widths){
@@ -53,8 +75,7 @@ fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,row_h:f32,options:&[(&st
         p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,13.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
         hits.push(Hit{rect:b,action:Action::Choice(key,value)});x+=w*s;
     }
-    if row_h>69.0{p.shape(g.local(229.0,y+row_h-1.0,522.0,1.0),0.0,c.border,None);}
-    control
+    height
 }
 
 /// The Layout group; returns the page y where it ends.
@@ -62,10 +83,11 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
     let s=g0.scale;let c=&t.colors;let g=g0;
     p.text(g.local(229.0,85.0,522.0,16.0),"Layout",12.0*s,c.muted_foreground,500,false);
     let tab=match cfg.tab_style{TabStyle::Horizontal=>"horizontal",TabStyle::Vertical=>"vertical"};
-    segments(p,g,t,105.0,68.84375,&[("Horizontal","tab_style","horizontal"),("Vertical","tab_style","vertical")],tab,hits,
-        "Tab style","Across the top, or a list down the left with folder and branch.",false);
-    let tools_y=173.84375;
-    segments(p,g,t,tools_y,104.0,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
+    let mut y=105.0;
+    y+=segments(p,g,t,y,0.0,&[("Horizontal","tab_style","horizontal"),("Vertical","tab_style","vertical")],tab,hits,
+        "Tab style","Tabs across the top, or a list down the left with folder, branch and last command.",false);
+    let tools_y=y;
+    y+=segments(p,g,t,y,35.15625,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
         "Tools panel","A panel on the left, shown and hidden with Ctrl+Shift+B.",false);
     // Tool chips (mockup .tok): a check in the ok colour when the tool is in the panel.
     let mut x=229.0;
@@ -81,14 +103,14 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
         hits.push(Hit{rect:chip,action:Action::ToolChip(tool)});x+=w+6.0;
     }
     let input=match cfg.command_input{CommandInput::Editor=>"editor",CommandInput::Classic=>"classic"};
-    segments(p,g,t,277.84375,68.84375,&[("Editor","command_input","editor"),("Classic","command_input","classic")],input,hits,
+    y+=segments(p,g,t,y,0.0,&[("Editor","command_input","editor"),("Classic","command_input","classic")],input,hits,
         "Command input","An editor at the bottom of each pane, or the shell's own prompt.",false);
     let blocks=match cfg.block_style{BlockStyle::Quiet=>"quiet",BlockStyle::Cards=>"cards"};
-    segments(p,g,t,346.6875,68.84375,&[("Quiet","block_style","quiet"),("Cards","block_style","cards")],blocks,hits,
-        "Blocks","Hairlines between commands, or a card around each.",false);
-    segments(p,g,t,415.53125,67.84375,&[("Show","status_line","show"),("Hide","status_line","hide")],if cfg.status_line{"show"}else{"hide"},hits,
-        "Status line","Session, server and masking in one row at the bottom.",true);
-    483.375
+    y+=segments(p,g,t,y,0.0,&[("Quiet","block_style","quiet"),("Cards","block_style","cards")],blocks,hits,
+        "Blocks","Quiet hairlines, or today's cards.",false);
+    y+=segments(p,g,t,y,0.0,&[("Show","status_line","show"),("Hide","status_line","hide")],if cfg.status_line{"show"}else{"hide"},hits,
+        "Status line","Session, server and masking, in one row at the bottom.",true);
+    y
 }
 
 /// One picker row (mockup .th): name, and a chip of the theme's background with four dots
@@ -116,7 +138,7 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
     let options=[("On","","on"),("Off","","off")];
     let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).collect();
     let total=widths.iter().sum::<f32>()+6.0;
-    let control=settings_frame::row(p,g,t,row_y,total,"Follow the system","Use the dark or light theme the desktop asks for.",false);
+    let control=settings_frame::row(p,g,t,row_y,total,"Follow the system","Use one theme in dark mode and another in light mode.",false);
     p.shape(control,8.0*s,c.card,Some(c.border));
     let mut x=control.x+3.0*s;
     for ((name,_,value),w) in options.iter().zip(widths){
@@ -169,8 +191,11 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
         }
     }
     y+=6.0;
-    p.text(g.local(229.0,y,522.0,18.0),"Up and Down move the highlight and preview it; Enter applies.",12.0*s,faint,400,false);y+=18.0;
-    p.text(g.local(229.0,y,522.0,18.0),"Escape puts the old theme back.",12.0*s,faint,400,false);y+=26.0;
+    // Mockup .th-foot, wrapped to the page width.
+    for text in wrap(p,"Up and Down move, Enter applies. Moving the highlight previews the theme in the window behind Settings; Escape puts the old one back.",12.0*s,522.0*s){
+        p.text(g.local(229.0,y,522.0,18.0),&text,12.0*s,faint,400,false);y+=18.0;
+    }
+    y+=8.0;
     let _=Tool::Files;
     Ok((y,items))
 }
