@@ -64,6 +64,11 @@ what a crashed program can leave on (mouse reporting, bracketed paste, applicati
 alternate screen, a scroll region, colours and character sets) and keeps the text, as VTE's reset
 does. **Reset and clear** is a full reset: the screen and the history go too.
 
+When the shell in a pane exits (`exit`, Ctrl+D, or killed by a signal), the pane closes, as in
+Ptyxis: its tab goes with it when it was the tab's last pane, and after the last pane the window
+and its server exit, as Ctrl+Shift+W does. A command an agent started in a tab of its own leaves
+the tab in place, so the agent can still read its output and exit code.
+
 On a full-screen program's screen (the alternate screen) with no mouse mode, a wheel notch sends
 max(1, ⌈lines ÷ 10⌉) Up or Down keys, as VTE does (mode 1007, on by default). On the normal
 screen the wheel scrolls the history. Ctrl+wheel zooms.

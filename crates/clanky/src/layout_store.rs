@@ -105,13 +105,24 @@ pub fn restore(client: &Client, path: &Path, fresh: bool) -> Result<bool, String
     result
 }
 
+fn shell_finished(client: &Client, id: &str) -> bool {
+    call(client, "v3.finished_shells", json!({})).ok()
+        .is_some_and(|v| v["tab_ids"].as_array().is_some_and(|ids| ids.iter().any(|t| t.as_str() == Some(id))))
+}
+
 /// Persist only a complete, current snapshot. Never include command or output.
 pub fn save(client: &Client, path: &Path) -> Result<(), String> {
     let workspace = client.workspace_get().map_err(|e| e.message)?;
     let mut terminals = serde_json::Map::new();
     for group in &workspace.groups {
         for id in group.layout.leaves() {
-            let info = call(client, "v3.terminal_info", json!({"tab_id":id}))?;
+            // A pane whose shell just exited has no folder left to read; the window closes it
+            // and saves the layout again then.
+            let info = match call(client, "v3.terminal_info", json!({"tab_id":id})) {
+                Ok(info) => info,
+                Err(_) if shell_finished(client, &id) => return Ok(()),
+                Err(e) => return Err(e),
+            };
             terminals.insert(id, json!({"cwd":info["cwd"],"rows":info["rows"],"cols":info["cols"]}));
         }
     }

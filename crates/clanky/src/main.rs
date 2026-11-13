@@ -456,8 +456,24 @@ impl App {
         }
         Ok(())
     }
+    /// A pane closes when the shell the window started in it exits, as in Ptyxis.
+    fn close_finished_shells(&mut self) -> Result<(), String> {
+        if self.engine.is_closed() { return Ok(()); }
+        let finished = self.engine.exchange(3, "finished_shells", &json!({})).map_err(|e| e.message)?;
+        for id in finished["tab_ids"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if self.stop { break; }
+            self.sync_groups()?;
+            if !self.groups.iter().any(|g| g.layout.leaves().iter().any(|leaf| leaf == id)) { continue; }
+            if self.context_menu.pane == id { self.context_menu.close(); }
+            self.close_terminal(Some(id.to_owned()))?;
+            self.frame_clock.invalidate();
+        }
+        Ok(())
+    }
     fn poll_session(&mut self) -> Result<(), String> {
         self.sync_groups()?;
+        self.close_finished_shells()?;
+        if self.stop { return Ok(()); }
         self.publish_focus()?;
         let ids: Vec<_> = self.groups.iter().flat_map(|g| g.layout.leaves()).collect();
         let focused = self.focused().map(str::to_owned);
@@ -630,6 +646,11 @@ impl App {
         // Use the displayed target, even if another window just changed focus.
         let target = self.focused().map(str::to_owned);
         self.sync_groups()?;
+        self.close_terminal(target)
+    }
+    /// Close one terminal pane, its tab when it was the tab's last pane, and after the last
+    /// pane the window and its server.
+    fn close_terminal(&mut self, target: Option<String>) -> Result<(), String> {
         if let Some(id) = target {
             let last = self
                 .groups
