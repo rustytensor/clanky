@@ -99,7 +99,13 @@ fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
 fn syntax_colors(theme: &clanky::themes::Theme) -> clanky::editor::SyntaxColors {
     let c = |color: clanky::themes::Color| [color[0], color[1], color[2]];
     clanky::editor::SyntaxColors { keyword: c(theme.ansi[5]), function: c(theme.ansi[4]), type_: c(theme.ansi[3]),
-        string: c(theme.ansi[2]), number: c(theme.ansi[1]), constant: c(theme.ansi[6]), comment: c(theme.colors.muted_foreground) }
+        string: c(theme.ansi[2]), number: c(theme.ansi[1]), constant: c(theme.ansi[6]), comment: c(theme.colors.muted_foreground),
+        // Gutter numbers: 39% of the way from the background to the muted foreground (Graphite: #111111 -> #4a4a4a,
+        // the mockup's gutter colour).
+        gutter: std::array::from_fn(|i| {
+            let (bg, muted) = (theme.colors.background[i] as f32, theme.colors.muted_foreground[i] as f32);
+            (bg + 0.39 * (muted - bg)).round() as u8
+        }) }
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
     TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],
