@@ -59,6 +59,8 @@ pub struct Studio {
     pub(super) tick: Option<Instant>,
     /// Running state per pane of every tab, for the title bar's dots.
     running: BTreeMap<String, bool>,
+    /// Per pane: the newest block id and its command as the screen shows it.
+    shown_commands: BTreeMap<String, (String, String)>,
 }
 impl Default for Studio {
     fn default() -> Self {
@@ -66,7 +68,7 @@ impl Default for Studio {
             blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
-            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new() }
+            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new() }
     }
 }
 
@@ -624,26 +626,6 @@ impl App {
             let name=state.sessions.get(index).map(|session|session.title.as_str()).unwrap_or("Session");
             for (pane,id) in group.layout.leaves().iter().enumerate(){self.studio.pane_labels.insert(id.clone(),clanky::calm::pane_label(name,pane));}
         }
-        // Tabs: the folder of each tab's focused pane, a dot while a command runs or an agent works.
-        for (index, group) in self.groups.iter().enumerate() {
-            let leaves = group.layout.leaves();
-            let Some(first) = leaves.first().cloned() else { continue; };
-            let info = self.studio.terminal_info.get(&group.focus);
-            let cwd = info.and_then(|info| info["cwd"].as_str()).map(str::to_owned);
-            let mut title = cwd.as_deref().map(folder_name).unwrap_or_else(|| format!("Session {}", index + 1));
-            let running = leaves.iter().any(|id| self.studio.running.get(id).copied().unwrap_or(false)
-                || self.studio.blocks.get(id).is_some_and(|view| view["blocks"].as_array().is_some_and(|b| b.iter().any(|b| b["complete"] != true))));
-            let driving = |id: &String| self.studio.metadata["drivers"].as_array().is_some_and(|d| d.iter().any(|d| d["tab_id"].as_str() == Some(id.as_str()) && d["running"] == true));
-            let tool = |id: &String| self.studio.terminal_info.get(id).and_then(|info| info["agent_tool"].as_str()).filter(|_| self.studio.permissions.get(id).copied().unwrap_or(false)).map(str::to_owned);
-            let agent = !self.applied_post_ai && leaves.iter().any(|id| driving(id) || tool(id).is_some());
-            if !self.applied_post_ai { if let Some(name) = tool(&group.focus) { title = format!("{name} · {title}"); } }
-            let path = cwd.as_deref().map(|cwd| match git_branch(cwd) { Some(branch) => format!("{} · ⎇ {branch}", home_short(cwd)), None => home_short(cwd) }).unwrap_or_default();
-            let last_command = self.studio.blocks.get(&group.focus).and_then(|view| view["blocks"].as_array().and_then(|b| b.last()).or_else(|| view.get("sticky").filter(|s| s.is_object())))
-                .and_then(|b| b["command"].as_str()).map(|c| c.trim().to_owned()).unwrap_or_default();
-            let mut state_text = if running { "running".to_string() } else if agent { "agent".to_string() } else { "terminal".to_string() };
-            if leaves.len() > 1 { state_text = format!("{state_text} · {} panes", leaves.len()); }
-            state.tabs.push(look::TabItem { id: first, panes: leaves.clone(), title, active: index == self.active, running, agent, path, last_command, state: state_text });
-        }
         let mut retained:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
         if let Some(recent)=self.studio.metadata["recent"].as_array(){retained.extend(recent.iter().filter_map(|event|event["tab_id"].as_str().map(str::to_owned)));}
         self.studio.pane_labels.retain(|id,_|retained.contains(id));state.pane_labels=self.studio.pane_labels.clone();
@@ -826,6 +808,17 @@ impl App {
                 if let Some(blocks) = self.studio.blocks.get(&pane.id) {
                     view.blocks = matched_blocks(&snapshot,blocks);
                     let cwd = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).map(home_short).unwrap_or_default();
+                    // The newest block's command as the screen shows it: the server's copy masks more strictly,
+                    // so where its unmasked characters agree with the row's end, the row's text is used.
+                    if let (Some(card), Some(server)) = (view.blocks.last(), blocks["blocks"].as_array().and_then(|b| b.last())) {
+                        if let Some(command) = server["command"].as_str().map(str::trim).filter(|c| !c.is_empty() && server["block_id"].as_str() == Some(card.id.as_str())) {
+                            let row = row_text(&snapshot, card.first_row);
+                            let n = command.chars().count();
+                            let tail: String = row.chars().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect();
+                            let agrees = tail.chars().count() == n && tail.chars().zip(command.chars()).all(|(a, b)| b == '*' || a == b);
+                            self.studio.shown_commands.insert(pane.id.clone(), (card.id.clone(), if agrees { tail } else { command.to_owned() }));
+                        }
+                    }
                     for block in blocks["blocks"].as_array().into_iter().flatten() {
                         let Some(id) = block["block_id"].as_str() else { continue; };
                         let folder = block["cwd"].as_str().map(home_short).unwrap_or_else(|| cwd.clone());
@@ -862,6 +855,30 @@ impl App {
                 !view.underlines.iter().any(|u|left<right && top<bottom && left<u.end_col && right>u.start_col && top<=u.row && bottom>u.row)
             });
             state.panes.push(view);
+        }
+        // Tabs: the folder of each tab's focused pane, a dot while a command runs or an agent works.
+        for (index, group) in self.groups.iter().enumerate() {
+            let leaves = group.layout.leaves();
+            let Some(first) = leaves.first().cloned() else { continue; };
+            let info = self.studio.terminal_info.get(&group.focus);
+            let cwd = info.and_then(|info| info["cwd"].as_str()).map(str::to_owned);
+            let mut title = cwd.as_deref().map(folder_name).unwrap_or_else(|| format!("Session {}", index + 1));
+            let running = leaves.iter().any(|id| self.studio.running.get(id).copied().unwrap_or(false)
+                || self.studio.blocks.get(id).is_some_and(|view| view["blocks"].as_array().is_some_and(|b| b.iter().any(|b| b["complete"] != true))));
+            let driving = |id: &String| self.studio.metadata["drivers"].as_array().is_some_and(|d| d.iter().any(|d| d["tab_id"].as_str() == Some(id.as_str()) && d["running"] == true));
+            let tool = |id: &String| self.studio.terminal_info.get(id).and_then(|info| info["agent_tool"].as_str()).filter(|_| self.studio.permissions.get(id).copied().unwrap_or(false)).map(str::to_owned);
+            let agent = !self.applied_post_ai && leaves.iter().any(|id| driving(id) || tool(id).is_some());
+            if !self.applied_post_ai { if let Some(name) = tool(&group.focus) { title = format!("{name} · {title}"); } }
+            let path = cwd.as_deref().map(|cwd| match git_branch(cwd) { Some(branch) => format!("{} · ⎇ {branch}", home_short(cwd)), None => home_short(cwd) }).unwrap_or_default();
+            let last = self.studio.blocks.get(&group.focus).and_then(|view| view["blocks"].as_array().and_then(|b| b.last()).or_else(|| view.get("sticky").filter(|s| s.is_object())));
+            // The command as the pane shows it (the screen's lighter masking), when it is the same block.
+            let last_command = last.and_then(|b| {
+                let shown = self.studio.shown_commands.get(&group.focus).filter(|(id, _)| b["block_id"].as_str() == Some(id.as_str())).map(|(_, text)| text.clone());
+                shown.or_else(|| b["command"].as_str().map(|c| c.trim().to_owned()))
+            }).unwrap_or_default();
+            let mut state_text = if running { "running".to_string() } else if agent { "agent".to_string() } else { "terminal".to_string() };
+            if leaves.len() > 1 { state_text = format!("{state_text} · {} panes", leaves.len()); }
+            state.tabs.push(look::TabItem { id: first, panes: leaves.clone(), title, active: index == self.active, running, agent, path, last_command, state: state_text });
         }
         // Agent access for every terminal pane in every tab (the Agents tool).
         if !self.applied_post_ai {
