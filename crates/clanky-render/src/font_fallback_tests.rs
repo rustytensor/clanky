@@ -74,6 +74,7 @@ fn prompt_icons_use_installed_fallback() {
                 style: 0,
             })
             .collect(),
+        ..Default::default()
     };
     let scene = Scene {
         clear: [0, 0, 0, 255],

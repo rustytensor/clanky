@@ -123,9 +123,11 @@ pub(crate) struct Command {
     tab_id: String,
     allowed: Arc<AtomicBool>,
     safe_terminal: Arc<Mutex<Terminal>>,
+    /// Started by the window's owner connection: its pane closes when it ends, as in Ptyxis.
+    owner: bool,
 }
 impl Command {
-    fn new(id: String, tab_id: String, tab: &Tab) -> Result<Self, CoreError> {
+    fn new(id: String, tab_id: String, tab: &Tab, owner: bool) -> Result<Self, CoreError> {
         Ok(Self {
             id,
             state: Mutex::new(ResultState {
@@ -147,6 +149,7 @@ impl Command {
             tab_id,
             allowed: tab.allowed.clone(),
             safe_terminal: tab.safe_terminal.clone(),
+            owner,
         })
     }
     fn append_safe(&self, s: &mut ResultState, bytes: &[u8]) {
@@ -163,6 +166,7 @@ impl Command {
     fn completion(&self, s: &mut ResultState) {
         if s.done() && !s.finished_event {
             s.finished_event = true;
+            self.safety.window_signal.notify();
             self.safety.publish(&self.tab_id, &self.allowed, json!({"kind":"command_finished", "command_id":self.id,"exit_code":s.code,"signal":s.signal}));
         }
     }
@@ -552,7 +556,7 @@ impl Engine {
     /// Deliberately separate from the unprivileged v1/v2 dispatcher.
     pub fn owner_request(&self, op: &str, args: &Value) -> Result<Value, CoreError> {
         let allowed: &[&str] = match op {
-            "workspace_get" | "shell_defaults" | "look_state" => &[],
+            "workspace_get" | "shell_defaults" | "look_state" | "finished_shells" => &[],
             "workspace_set" => &["revision", "groups", "active"],
             "window_changes" => &["after", "timeout_ms"],
             "snapshot" => &["tab_id", "known_generation", "known_images", "known_rows", "known_cols"],
@@ -560,6 +564,7 @@ impl Engine {
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
             "resize" => &["tab_id", "rows", "cols"],
+            "reset" => &["tab_id", "clear"],
             "permission_get" | "terminal_cwd" | "terminal_info" => &["tab_id"],
             "block_events" => &["tab_id", "after", "limit"],
             "permission_set" => &["tab_id", "allow_agent"],
@@ -578,6 +583,16 @@ impl Engine {
         }
         if op == "look_state" {
             return Ok(self.look_state());
+        }
+        if op == "finished_shells" {
+            // Tabs whose window-started process has exited and been read to the end.
+            let s = self.0.0.lock().unwrap();
+            let ids: Vec<_> = s.tabs.iter().filter(|(_, tab)| {
+                let commands = tab.commands.lock().unwrap();
+                commands.current.as_ref().and_then(|id| commands.all.get(id))
+                    .is_some_and(|c| c.owner && c.state.lock().unwrap().done())
+            }).map(|(id, _)| id.clone()).collect();
+            return Ok(json!({"tab_ids": ids}));
         }
         if op == "shell_defaults" {
             let shell = std::env::var("SHELL")
@@ -765,6 +780,17 @@ impl Engine {
                 Ok(
                     json!({"total":total,"offset":offset,"next_offset":offset+lines.len(),"lines":lines}),
                 )
+            }
+            "reset" => {
+                let clear = match args.get("clear") {
+                    None => false,
+                    Some(Value::Bool(clear)) => *clear,
+                    _ => return Err(invalid("clear must be true or false")),
+                };
+                tab.terminal.lock().unwrap().reset(clear);
+                tab.safe_terminal.lock().unwrap().reset(clear);
+                self.0.1.window_signal.notify();
+                Ok(json!({}))
             }
             "scroll" => {
                 let delta = args
@@ -971,7 +997,7 @@ impl Engine {
                     s.next_command += 1;
                     format!("c{}", s.next_command)
                 };
-                let command = Arc::new(Command::new(id.clone(), tab_id.into(), &tab)?);
+                let command = Arc::new(Command::new(id.clone(), tab_id.into(), &tab, trusted)?);
                 let size = tab.terminal.lock().unwrap().size;
                 let process =
                     platform::spawn(&argv, cwd, size.0, size.1, command.clone(), tab.clone())

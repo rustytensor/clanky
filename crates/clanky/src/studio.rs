@@ -35,14 +35,16 @@ pub struct Studio {
     hits: Vec<Hotspot>,
     metadata: Value,
     pub(super) permissions: BTreeMap<String, bool>,
-    blocks: BTreeMap<String, Value>,
+    pub(super) blocks: BTreeMap<String, Value>,
+    /// Panes whose program has mouse reporting on, as last drawn.
+    mouse_panes: std::collections::BTreeSet<String>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
     card_clocks: BTreeMap<(String,String),Instant>,
     card_keys: Vec<(String,String)>,
     card_focus: Option<(String,String)>,
     card_action: usize,
-    snapshots: BTreeMap<String, TerminalSnapshot>,
+    pub(super) snapshots: BTreeMap<String, TerminalSnapshot>,
     shown: BTreeMap<String, (TerminalSnapshot, f32)>,
     reviews: BTreeMap<String, Review>,
     scrolls: BTreeMap<String, Scroll>,
@@ -53,7 +55,7 @@ pub struct Studio {
 impl Default for Studio {
     fn default() -> Self {
         Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), user_name:None, pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
-            blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
+            blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
             activity: Vec::new(), started: Instant::now() }
@@ -89,14 +91,28 @@ fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
     TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],
-        cursor: None, images: Vec::new(), app_cursor: false }
+        cursor: None, images: Vec::new(), app_cursor: false, ..Default::default() }
+}
+/// Draw selected cells on the theme's selection colour; the text keeps its colour.
+fn highlight(snapshot: &mut TerminalSnapshot, spans: &[clanky::mouse::Span], color: [u8; 3]) {
+    let top = clanky::mouse::top_line(snapshot);
+    for &(line, start, end) in spans {
+        let row = line - top;
+        if row < 0 || row as usize >= snapshot.rows { continue; }
+        let base = row as usize * snapshot.cols;
+        for cell in &mut snapshot.cells[base + start.min(snapshot.cols)..base + end.min(snapshot.cols)] {
+            let fg = cell.color_source.map_or(clanky_core::ColorSource::Truecolor, |s| if s.inverse { s.bg } else { s.fg });
+            cell.bg = color;
+            cell.color_source = Some(clanky_core::CellColorSource { fg, bg: clanky_core::ColorSource::Truecolor, inverse: false });
+        }
+    }
 }
 fn local_rect(pane: &PaneLayout) -> Rect { Rect { row: 0, col: 0, rows: pane.rows, cols: pane.cols } }
 fn row_text(snapshot: &TerminalSnapshot, row: usize) -> String {
     snapshot.cells.get(row * snapshot.cols..(row + 1) * snapshot.cols).unwrap_or(&[])
         .iter().map(|c| c.ch).collect::<String>().trim_end().to_owned()
 }
-fn point(pane: &PaneLayout, mouse: (f64, f64), cell: [u32;2], clamp: bool) -> Option<(usize,usize)> {
+pub(super) fn point(pane: &PaneLayout, mouse: (f64, f64), cell: [u32;2], clamp: bool) -> Option<(usize,usize)> {
     if pane.rows == 0 || pane.cols == 0 || (!clamp && !pane.grid_clip.contains(mouse.0, mouse.1)) { return None; }
     let col = ((mouse.0 - pane.grid_origin[0] as f64) / cell[0] as f64).floor().max(0.0) as usize;
     let row = ((mouse.1 - pane.grid_origin[1] as f64) / cell[1] as f64).floor().max(0.0) as usize;
@@ -201,6 +217,7 @@ impl App {
         }
         deadlines.extend(self.studio.scrolls.values().map(|scroll|scroll.start+Duration::from_secs_f32(m.scroll_ms/1000.0)));
         deadlines.extend(self.studio.panels.values().map(|start|*start+Duration::from_secs_f32(m.panel_ms/1000.0)));
+        deadlines.extend(self.context_menu.animation_deadline(true));
         deadlines.extend(self.studio.card_clocks.values().map(|start|*start+Duration::from_millis(120)));
         if let Some(end)=self.settings.as_ref().and_then(|panel|panel.animation_deadline()){deadlines.push(end);}
         if state.panes.iter().any(|pane|pane.blocks.iter().any(|block|block.running && block.first_row<pane.snapshot.rows)){
@@ -262,7 +279,7 @@ impl App {
         Ok(true)
     }
     /// Card actions from the Command card sheet: Copy, Rerun, Ask agent.
-    fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
+    pub(super) fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
         match action {
             // Copy keeps the owner palette's masked selection path.
             "copy" => { self.panels.block_action(&self.engine, tab, block, "copy")?; self.status = Some("Output copied".into()); }
@@ -432,7 +449,7 @@ impl App {
             self.url_opener.open(url).map_err(|_| "Could not open URL".to_owned())
         })? { return Ok(()); }
         // File/editor entry stays unavailable until its calm controls are rebuilt.
-        Ok(())
+        self.terminal_press(1)
     }
     pub(super) fn drag_studio(&mut self) -> Result<(), String> {
         if self.compose.active_target().is_some() {
@@ -494,7 +511,10 @@ impl App {
             let row = self.studio.reviews.get(&id).filter(|r|r.content.contains(self.mouse.0,self.mouse.1)).map(|r|r.first_row+((self.mouse.1-r.content.y as f64)/layout.cell_px[1] as f64) as usize)
                 .unwrap_or_else(||point(pane,self.mouse,layout.cell_px,true).map_or(0,|(_,row)|row+EDITOR_TITLE_ROWS));
             self.files.scroll(&id, row, lines.round() as i32, columns.round() as i32)?;
-        } else { self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?; }
+        } else {
+            if self.terminal_wheel(delta, layout.cell_px)? { return Ok(()); }
+            self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?;
+        }
         if self.config.animations {
             if let Some(old) = self.studio.snapshots.get(&id) { self.studio.scrolls.insert(id, Scroll { old: old.clone(), start: Instant::now() }); }
         }
@@ -650,6 +670,11 @@ impl App {
                 let (current, anchors) = match fetched { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
                 snapshot = current;
                 self.studio.blocks.insert(pane.id.clone(), anchors);
+                // The bar names the program that has the mouse: read it now, not at the next poll.
+                if clanky::mouse::reporting(snapshot.modes) != self.studio.mouse_panes.contains(&pane.id) {
+                    if !self.studio.mouse_panes.remove(&pane.id) { self.studio.mouse_panes.insert(pane.id.clone()); }
+                    if let Ok(info)=self.engine.exchange(3,"terminal_info",&json!({"tab_id":pane.id})){self.studio.terminal_info.insert(pane.id.clone(),info);}
+                }
             }
             if self.search.active_target() == Some(pane.id.as_str()) {
                 // The pinned search view replaces the live grid; matches use calm stone tints.
@@ -672,6 +697,10 @@ impl App {
             }
             // A pane opened for an agent tool, with access on, is named for the tool and
             // drawn as an agent pane (amber edge and chip).
+            // While the program takes the mouse, the bar says so: a plain right-click goes to it.
+            if !self.files.panes.contains_key(&pane.id) && clanky::mouse::reporting(snapshot.modes) {
+                view.driver = if view.driver.is_empty() { "has the mouse".into() } else { format!("{} · has the mouse", view.driver) };
+            }
             if !view.agent_running && view.allow_agent && !self.applied_post_ai && !self.files.panes.contains_key(&pane.id) {
                 if let Some(tool) = self.studio.terminal_info.get(&pane.id).and_then(|info| info["agent_tool"].as_str()) {
                     view.title = format!("{tool} · {}", view.title);
@@ -710,6 +739,9 @@ impl App {
                         view.blocks.clear(); view.underlines.clear(); view.cursor = None; view.snapshot.cursor = None;
                     }
                 }
+            }
+            if !self.files.panes.contains_key(&pane.id) && view.scroll_px == 0.0 && self.search.active_target() != Some(pane.id.as_str()) {
+                if let Some(spans) = self.selection_spans(&pane.id, &snapshot) { highlight(&mut view.snapshot, &spans, rgb(state.theme.selection)); }
             }
             self.studio.shown.insert(pane.id.clone(),(view.snapshot.clone(),view.scroll_px));
             view.snapshot.images.retain(|image| {
@@ -798,6 +830,7 @@ impl App {
             }
         }
         self.update_card_actions(&layout,&mut state,now);
+        if self.context_menu.open && (layout.pane(&self.context_menu.pane).is_none() || self.mouse_overlay()) { self.context_menu.close(); }
         let terminal_px=self.metrics()?.font_px;
         let palette_context=self.palette_context();
         let agent_context=self.agent_picker.open.then(||self.agent_context());
@@ -880,6 +913,7 @@ impl App {
             ime = self.palette.ime_position();
         }
         if let Some(layers) = status_layers { presentation.scene.layers.extend(layers); }
+        presentation.scene.layers.extend(self.context_menu.draw(&layout,&self.studio.calm_theme,self.config.animations,&mut |run|renderer.measure_text(run)));
         self.studio.hits = presentation.hits;
         self.studio.hits.extend(review_hits);
         if let Some(window) = &self.window {
@@ -935,7 +969,7 @@ fn modal_rect(layout: &look::Layout, lines: usize) -> PixelRect {
 }
 
 /// Only server anchors from this snapshot's generation place cards; never text matching.
-fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
+pub(super) fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
     let mut cards = Vec::new();
     if !snapshot.images.is_empty() || snapshot.cols == 0 { return cards; }
     let Some(top) = view["viewport_line"].as_u64() else { return cards; };
@@ -961,7 +995,7 @@ fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockC
 fn stitch_region(old: &TerminalSnapshot,new: &TerminalSnapshot,start: usize,end: usize,cell_h: f32) -> Option<(TerminalSnapshot,f32,f32)> {
     if old.cols!=new.cols || old.rows!=new.rows || start>=end || end>new.rows { return None; }
     if start==0 && end==new.rows { return stitch(old,new,cell_h); }
-    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new(),app_cursor:false };
+    let region=|s:&TerminalSnapshot|TerminalSnapshot { rows:end-start,cols:s.cols,cells:s.cells[start*s.cols..end*s.cols].to_vec(),cursor:None,images:Vec::new(),app_cursor:false,..Default::default() };
     let (middle,from,to)=stitch(&region(old),&region(new),cell_h)?;
     let mut result=new.clone(); result.cursor=None; result.images.clear(); result.rows+=middle.rows-(end-start);
     result.cells=new.cells[..start*new.cols].iter().chain(&middle.cells).chain(&new.cells[end*new.cols..]).cloned().collect();

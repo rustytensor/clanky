@@ -26,3 +26,21 @@ fn readiness_event_wake() {
     assert!(recent.iter().any(|event|event["kind"]=="command_run" && event["program"]=="sh"));
     assert!(recent.iter().all(|event|event["kind"]!="output_appended" && event["kind"]!="waiting_for_input"));
 }
+
+#[test]
+fn a_window_shell_that_exits_is_listed_for_closing() {
+    struct Session(Engine);
+    impl Drop for Session{fn drop(&mut self){self.0.shutdown();}}
+    let session=Session(Engine::new());let engine=&session.0;
+    let open=|| engine.request("open_tab",&json!({"rows":8,"cols":80,"allow_agent":true}),true).unwrap()["tab_id"].as_str().unwrap().to_owned();
+    let (window,agent)=(open(),open());
+    // Worked out before the run: the window's shell exits 0 and is listed; the agent's command
+    // exits 3 and is not, so the agent can still read its result.
+    let run=|tab:&str,code:&str,owner:bool| engine.request("run",&json!({"tab_id":tab,"argv":["sh","-c",format!("exit {code}")],"cwd":"/"}),owner).unwrap()["command_id"].as_str().unwrap().to_owned();
+    for (tab,command) in [(&window,run(&window,"0",true)),(&agent,run(&agent,"3",false))] {
+        assert_eq!(engine.request("wait",&json!({"tab_id":tab,"command_id":command,"timeout_ms":5000}),true).unwrap()["done"],true);
+    }
+    assert_eq!(engine.owner_request("finished_shells",&json!({})).unwrap()["tab_ids"],json!([window]));
+    // The status Marc saw after exit: the shell's folder is read from /proc after it is gone.
+    assert_eq!(engine.owner_request("terminal_info",&json!({"tab_id":window})).unwrap_err().message,"No such file or directory (os error 2)");
+}

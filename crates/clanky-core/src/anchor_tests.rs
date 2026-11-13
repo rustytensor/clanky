@@ -64,3 +64,20 @@ fn anchor_eviction_and_duplicate_end() {
     assert_eq!(terminal.blocks().0.last().unwrap().command_line, Some(10012));
 }
 
+
+#[test]
+fn block_output_starts_after_the_command_line() {
+    // What a shell's printf "...C\r\nmenu-block-ok\r\n" reaches the terminal as through the
+    // tty's onlcr ("\r\r\n"). Expected by hand: the output is the one line, with no blank
+    // line before it (the break ends the typed command's line) and none doubled.
+    let mut terminal = Terminal::new(5, 80);
+    terminal.feed("shell", b"\x1b]133;A\x07$ \x1b]133;B\x07echo menu-block-ok\x1b]133;C\x07\r\r\nmenu-block-ok\r\r\n\x1b]133;D;0\x07");
+    assert_eq!(terminal.blocks().0[0].output, "menu-block-ok");
+    // Reset and clear empties the screen; Reset keeps the text and turns mouse reporting off.
+    terminal.feed("shell", b"\x1b[?1000;1006hresetword");
+    terminal.reset(false);
+    assert_eq!(terminal.snapshot().modes & (crate::MODE_MOUSE_REPORT | crate::MODE_MOUSE_SGR), 0);
+    assert!(terminal.screen_text().iter().any(|line| line.contains("resetword")));
+    terminal.reset(true);
+    assert!(!terminal.screen_text().iter().any(|line| line.contains("resetword")));
+}
