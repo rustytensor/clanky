@@ -135,7 +135,7 @@ impl Search {
     pub fn pinned(&self, rows: usize, cols: usize, blank: Cell, matched: [u8; 3], selected: [u8; 3]) -> Option<TerminalSnapshot> {
         let view = self.view.as_ref().filter(|_| self.target.is_some())?;
         let source = &view.snapshot;
-        let mut out = TerminalSnapshot { rows, cols, cells: vec![blank; rows * cols], cursor: None, images: Vec::new() };
+        let mut out = TerminalSnapshot { rows, cols, cells: vec![blank; rows * cols], cursor: None, images: Vec::new(), app_cursor: false };
         for row in 0..rows.min(source.rows) { for col in 0..cols.min(source.cols) {
             out.cells[row * cols + col] = source.cells[row * source.cols + col].clone();
         } }
@@ -165,7 +165,7 @@ impl Search {
                 let sc = col - rect.col;
                 frame.cells[row * frame.cols + col] = if sr < source.rows && sc < source.cols {
                     source.cells[sr * source.cols + sc].clone()
-                } else { Cell { ch: ' ', fg: [229; 3], bg: [0; 3], color_source: None } };
+                } else { Cell { ch: ' ', fg: [229; 3], bg: [0; 3], color_source: None, style: 0 } };
             }
         }
         for h in &view.highlights {
@@ -189,7 +189,7 @@ impl Search {
         let mut chars = status.chars();
         for cell in &mut frame.cells[..frame.cols] {
             let ch = chars.next().unwrap_or(' ');
-            *cell = Cell { ch: if ch.is_control() { ' ' } else { ch }, fg: [235;3], bg: [35,35,40], color_source: None };
+            *cell = Cell { ch: if ch.is_control() { ' ' } else { ch }, fg: [235;3], bg: [35,35,40], color_source: None, style: 0 };
         }
     }
 }

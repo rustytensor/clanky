@@ -97,3 +97,19 @@ pub fn spawn_detached(args: &[std::ffi::OsString]) -> std::io::Result<()> {
     std::thread::spawn(move || { let _ = child.wait(); });
     Ok(())
 }
+
+/// GNOME's cursor blink setting (org.gnome.desktop.interface cursor-blink,
+/// cursor-blink-time in ms, cursor-blink-timeout in s), when gsettings can read it.
+pub fn gnome_cursor_blink() -> Option<(bool, u32, u32)> {
+    #[cfg(target_os = "linux")] {
+        let get = |key: &str| -> Option<String> {
+            let out = std::process::Command::new("gsettings").args(["get", "org.gnome.desktop.interface", key])
+                .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        };
+        let number = |text: String| text.rsplit(' ').next()?.parse::<u32>().ok();
+        let blink = match get("cursor-blink")?.as_str() { "true" => true, "false" => false, _ => return None };
+        Some((blink, get("cursor-blink-time").and_then(number)?, get("cursor-blink-timeout").and_then(number)?))
+    }
+    #[cfg(not(target_os = "linux"))] { None }
+}

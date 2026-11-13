@@ -15,9 +15,27 @@ pub struct SettingsPanel {
     pub store:Settings,pub open:bool,pub error:Option<String>,pub forced_post_ai:bool,
     section:Section,hits:Vec<Hit>,focus:Option<usize>,keyboard_focus:bool,menu:bool,slider:Option<PixelRect>,effective:Config,
     editor:Option<Editor>,scroll:f32,max_scroll:f32,active_theme:Option<Theme>,system_light:bool,
+    /// Installed monospace families for the font menu (the window fills it from its fonts), and its scroll.
+    pub mono_fonts:Vec<String>,menu_scroll:usize,
+}
+/// Font menu rows shown at once; the wheel scrolls the rest.
+const MENU_ROWS:usize=10;
+/// terminal_colors as the settings file stores it (only the colours that are set).
+fn terminal_colors_json(t:&crate::config::TerminalColors)->serde_json::Value{
+    let hex=|c:crate::themes::Color|settings_appearance::hex([c[0],c[1],c[2],255]);
+    let mut value=json!({});
+    for(key,color)in[("background",t.background),("foreground",t.foreground),("cursor",t.cursor)]{if let Some(color)=color{value[key]=json!(hex(color));}}
+    if let Some(ansi)=t.ansi{value["ansi"]=json!(ansi.iter().map(|c|hex(*c)).collect::<Vec<_>>());}
+    value
 }
 impl SettingsPanel{
-    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false}}
+    /// The bundled terminal fonts first, then installed monospace families.
+    fn fonts(&self)->Vec<String>{
+        let mut out:Vec<String>=["Geist Mono","JetBrains Mono","DejaVu Sans Mono"].map(String::from).into();
+        for name in &self.mono_fonts{if !out.iter().any(|f|f.eq_ignore_ascii_case(name)){out.push(name.clone());}}
+        out
+    }
+    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0}}
     pub fn toggle(&mut self){self.open=!self.open;self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;}
     pub fn theme_complete(&mut self){self.editor=None;self.error=None;}
     fn save(&mut self,key:&str,value:serde_json::Value)->Effect{
@@ -27,7 +45,15 @@ impl SettingsPanel{
         Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;Effect::None},
         Action::Close=>{self.open=false;self.menu=false;Effect::None},
         Action::OpenFile=>Effect::Open(self.store.path().to_owned()),
-        Action::FontMenu=>{self.menu=!self.menu;self.focus=None;Effect::None},
+        Action::FontMenu=>{self.menu=!self.menu;self.menu_scroll=self.fonts().iter().position(|f|*f==self.effective.font_family).unwrap_or(0).saturating_sub(4);self.focus=None;Effect::None},
+        Action::CellHeight(delta)=>self.save("cell_height_scale",json!((((self.effective.cell_height_scale+delta)*20.0).round()/20.0).clamp(1.0,2.0))),
+        Action::Blink(mode)=>self.save("cursor_blink",json!(mode)),
+        Action::TerminalColor(key)=>{let t=&self.effective.terminal_colors;let c=self.active_theme.as_ref().map(|t|t.colors.clone());
+            let color=match key{"background"=>t.background.or(c.as_ref().map(|c|c.background)),"foreground"=>t.foreground.or(c.as_ref().map(|c|c.foreground)),_=>t.cursor.or(t.foreground).or(c.as_ref().map(|c|c.foreground))};
+            if let Some(color)=color{self.editor=Some(Editor::new(EditKind::TerminalColor(key),vec![settings_appearance::hex([color[0],color[1],color[2],255])]));self.error=None;}Effect::None},
+        Action::ThemeTerminalColors=>{match self.store.reset("terminal_colors"){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
+        Action::ImportPalette=>{let dir=std::env::var_os("HOME").map(|home|PathBuf::from(home).join(".local/share/org.gnome.Ptyxis/palettes/")).unwrap_or_default();
+            self.editor=Some(Editor::new(EditKind::Palette,vec![dir.to_string_lossy().into_owned()]));self.error=None;Effect::None},
         Action::FontChoice(name)=>{self.menu=false;self.save("font_family",json!(name))},
         Action::FontSize(delta)=>self.save("font_size",json!((self.effective.font_size+delta).clamp(8.0,32.0))),
         Action::Toggle(key,on)=>self.save(key,json!(on)),
@@ -50,6 +76,17 @@ impl SettingsPanel{
         let Some(editor)=&self.editor else{return Effect::None;};
         match &editor.kind{
             EditKind::Color(token)=>{match self.store.set_color(token,Some(editor.values[0].trim())){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
+            EditKind::TerminalColor(key)=>{
+                let color=match crate::themes::parse_color(editor.values[0].trim()){Ok(c)=>c,Err(_)=>{self.error=Some("Enter a colour as #rrggbb.".into());return Effect::None;}};
+                let mut value=terminal_colors_json(&self.effective.terminal_colors);
+                value[*key]=json!(settings_appearance::hex([color[0],color[1],color[2],255]));
+                match self.store.set("terminal_colors",value){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+            }
+            EditKind::Palette=>{
+                let path=editor.values[0].trim();
+                let imported=std::fs::read_to_string(path).map_err(|e|format!("{path}: {e}")).and_then(|text|crate::config::import_ptyxis_palette(&text));
+                match imported.and_then(|value|self.store.set("terminal_colors",value).map(|_|())){Ok(())=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+            }
             EditKind::Save=>{let Some(mut theme)=self.active_theme.clone()else{return Effect::None;};theme.name=editor.values[0].trim().into();Effect::Theme(ThemeAction::Save{slug:editor.values[1].trim().into(),theme})},
             EditKind::Import=>Effect::Theme(ThemeAction::Import{path:editor.values[0].trim().into(),slug:editor.values[1].trim().into()}),
             EditKind::Export=>{if self.effective.colors.keys().any(|key|crate::themes::COLOR_TOKENS.contains(&key.as_str())){self.error=Some("Save as a new theme before exporting colour changes.".into());Effect::None}else{Effect::Theme(ThemeAction::Export{id:self.effective.selected_theme_id(self.system_light).into(),path:editor.values[0].trim().into()})}},
@@ -95,12 +132,15 @@ impl SettingsPanel{
     pub fn insert(&mut self,text:&str){if let Some(editor)=&mut self.editor{editor.insert(text);}}
     pub fn preedit(&mut self,_text:&str){}
     pub fn select_all(&mut self){if let Some(editor)=&mut self.editor{editor.select_all();}}
-    pub fn wheel(&mut self,lines:i32){if self.editor.is_none() && matches!(self.section,Section::Appearance|Section::Agents|Section::Keys){self.scroll=(self.scroll-lines as f32*48.0).clamp(0.0,self.max_scroll);self.focus=None;}}
+    pub fn wheel(&mut self,lines:i32){
+        if self.menu{let n=self.fonts().len();self.menu_scroll=(self.menu_scroll as i64-lines as i64).clamp(0,n.saturating_sub(MENU_ROWS) as i64) as usize;return;}
+        if self.editor.is_none() && matches!(self.section,Section::Appearance|Section::Terminal|Section::Agents|Section::Keys){self.scroll=(self.scroll-lines as f32*48.0).clamp(0.0,self.max_scroll);self.focus=None;}}
     pub fn ime_position(&self)->Option<[f32;2]>{None}
     pub fn animation_deadline(&self)->Option<std::time::Instant>{None}
     pub fn draw(&mut self,layout:&Layout,theme:&Theme,config:&Config,access:&[PaneAccess],masking_ready:bool,themes:Option<&ThemeStore>,system_light:bool,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
         if !self.open{return vec![];}if config.post_ai && self.section==Section::Agents{self.section=Section::General;self.scroll=0.0;}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
-        let s=layout.scale as f32;let mut frame=settings_frame::draw_live(layout.window_px,s,self.section,theme,config,pointer,pressed,measure);
+        let s=layout.scale as f32;let mut frame=settings_frame::draw_scrolled(layout.window_px,s,self.section,theme,config,pointer,pressed,measure,if self.section==Section::Terminal{self.scroll}else{0.0});
+        if self.section==Section::Terminal{self.max_scroll=frame.max_scroll;self.scroll=self.scroll.min(self.max_scroll);}
         if self.section==Section::Appearance{if let Some(store)=themes{match settings_appearance::page(layout.window_px,&frame.geometry,theme,config,store,system_light,self.scroll,pointer,pressed,measure){Ok((layers,hits,max))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
         if self.section==Section::Agents{let(layers,hits,max)=settings_access::agents(layout.window_px,&frame.geometry,theme,access,masking_ready,self.scroll,pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;}
         if self.section==Section::Keys{let(layers,max)=settings_access::keys(layout.window_px,&frame.geometry,theme,config.post_ai,self.scroll,measure);frame.scene.layers.extend(layers);self.max_scroll=max;}
@@ -113,8 +153,9 @@ impl SettingsPanel{
         }
         if self.menu {
             if let Some(anchor)=frame.hits.iter().find(|h|h.action==Action::FontMenu).map(|h|h.rect){
-                let menu=PixelRect{x:anchor.x,y:anchor.y+anchor.h+4.0*s,w:anchor.w,h:104.0*s};p.shape(menu,8.0*s,theme.colors.card,Some(theme.colors.input));
-                for (i,name) in ["Geist Mono","JetBrains Mono","DejaVu Sans Mono"].into_iter().enumerate(){let rect=PixelRect{x:menu.x+4.0*s,y:menu.y+4.0*s+i as f32*32.0*s,w:menu.w-8.0*s,h:32.0*s};
+                let fonts=self.fonts();let shown=fonts.len().min(MENU_ROWS);let first=self.menu_scroll.min(fonts.len().saturating_sub(shown));
+                let menu=PixelRect{x:anchor.x,y:anchor.y+anchor.h+4.0*s,w:anchor.w,h:(8.0+32.0*shown as f32)*s};p.shape(menu,8.0*s,theme.colors.card,Some(theme.colors.input));
+                for (i,name) in fonts.iter().skip(first).take(shown).enumerate(){let name=name.as_str();let rect=PixelRect{x:menu.x+4.0*s,y:menu.y+4.0*s+i as f32*32.0*s,w:menu.w-8.0*s,h:32.0*s};
                     if name==config.font_family || rect.contains(pointer.0,pointer.1){p.shape(rect,6.0*s,theme.colors.accent,None);}
                     p.text(PixelRect{x:rect.x+6.0*s,w:rect.w-12.0*s,..rect},name,13.0*s,theme.colors.foreground,400,false);
                     frame.hits.push(Hit{rect,action:Action::FontChoice(name.into())});

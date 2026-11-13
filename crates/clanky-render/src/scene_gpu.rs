@@ -93,6 +93,14 @@ fn fit_cell(rects: &[[f32; 4]], cell: [f32; 2]) -> [f32; 3] {
 fn private_use(ch: char) -> bool {
     matches!(ch, '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}')
 }
+fn family_query(name: &str) -> cosmic_text::fontdb::Family<'_> {
+    match name {
+        "monospace" => cosmic_text::fontdb::Family::Monospace,
+        "sans-serif" => cosmic_text::fontdb::Family::SansSerif,
+        "serif" => cosmic_text::fontdb::Family::Serif,
+        _ => cosmic_text::fontdb::Family::Name(name),
+    }
+}
 fn family(name: &str) -> Family<'_> {
     match name {
         "monospace" => Family::Monospace,
@@ -558,6 +566,33 @@ impl Painter {
         }
         Ok(())
     }
+    /// The terminal face's widest printable-ASCII advance, ascent and descent, as
+    /// fractions of the font size (em), from its regular face.
+    pub fn terminal_face(&mut self) -> Option<[f32; 3]> {
+        let family = self.terminal_family.clone();
+        let id = self.fonts.db().query(&cosmic_text::fontdb::Query {
+            families: &[family_query(&family)],
+            weight: cosmic_text::fontdb::Weight::NORMAL,
+            stretch: cosmic_text::fontdb::Stretch::Normal,
+            style: cosmic_text::fontdb::Style::Normal,
+        })?;
+        let font = self.fonts.get_font(id, Weight::NORMAL)?;
+        let face = font.as_swash();
+        let metrics = face.metrics(&[]);
+        let upm = f32::from(metrics.units_per_em);
+        if upm <= 0.0 { return None; }
+        let (charmap, glyphs) = (face.charmap(), face.glyph_metrics(&[]));
+        let advance = (0x21u8..0x7f).map(|b| glyphs.advance_width(charmap.map(b as char))).fold(0.0f32, f32::max);
+        (advance > 0.0).then_some([advance / upm, metrics.ascent / upm, metrics.descent.abs() / upm])
+    }
+    /// Installed and bundled monospace families, sorted, each named once.
+    pub fn monospace_families(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.fonts.db().faces().filter(|face| face.monospaced)
+            .filter_map(|face| face.families.first().map(|(name, _)| name.clone())).collect();
+        names.sort_by_key(|name| name.to_lowercase());
+        names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        names
+    }
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
         if !valid_text(text) || text.text.is_empty(){return TextMetrics::default();}
         let key=TextKey{text:text.text.clone(),px:text.px.to_bits(),height:(text.px*1.25).to_bits(),
@@ -926,7 +961,8 @@ impl Painter {
                     text: cell.ch.to_string(),
                     px,
                     color: [cell.fg[0], cell.fg[1], cell.fg[2], 255],
-                    weight: 400,
+                    // SGR 1 uses the bold face; its colour is unchanged (bold is not bright).
+                    weight: if cell.style & clanky_core::STYLE_BOLD != 0 { 700 } else { 400 },
                     mono: true,
                     letter_spacing: 0.0,
                 },

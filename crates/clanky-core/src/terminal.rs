@@ -810,6 +810,8 @@ impl Terminal {
                         fg: color_source(cell.fg), bg: color_source(cell.bg),
                         inverse: cell.flags.contains(Flags::INVERSE),
                     }),
+                    style: if cell.flags.contains(Flags::BOLD) { crate::STYLE_BOLD } else { 0 }
+                        | if cell.flags.contains(Flags::DIM) { crate::STYLE_FAINT } else { 0 },
                 });
             }
         }
@@ -831,6 +833,7 @@ impl Terminal {
             } else {
                 Vec::new()
             },
+            app_cursor: self.term.mode().contains(TermMode::APP_CURSOR),
         }
     }
 }

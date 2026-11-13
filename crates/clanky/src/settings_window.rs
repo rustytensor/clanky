@@ -63,11 +63,13 @@ impl App {
         let mut config=panel.store.config().clone();
         self.startup_flags.apply(&mut config);
         self.frame_clock.invalidate();
-        let font_changed=config.font_size_pt!=self.config.font_size_pt;
+        let font_changed=config.font_size_pt!=self.config.font_size_pt || config.font_family!=self.config.font_family
+            || config.cell_width_scale!=self.config.cell_width_scale || config.cell_height_scale!=self.config.cell_height_scale;
         let geometry_changed=config.columns!=self.config.columns || config.rows!=self.config.rows;
         if config.font_family!=self.config.font_family || config.ui_font_family!=self.config.ui_font_family {
             if let Some(renderer)=&mut self.renderer {
                 renderer.set_font_families(&config.font_family,&config.ui_font_family)?;
+                self.terminal_face=renderer.terminal_face();
             }
             self.invalidate_scene_fonts();
         }
@@ -80,9 +82,10 @@ impl App {
             self.clipboard_bridge.set_tabs(self.groups.iter().flat_map(|group|group.layout.leaves()).collect());
         }
         if config.rails!=self.config.rails {self.panels.visible=config.rails;}
-        if font_changed {self.zoom=Zoom::new(config.font_size_pt);}
+        if config.font_size_pt!=self.config.font_size_pt {self.zoom=Zoom::new(config.font_size_pt);}
         self.studio.theme=config.resolved_theme(self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));
         self.config=config;
+        self.blink=clanky::cursor_blink::Blink::from_config(&self.config,self.gnome_blink);
         if let Some(runtime)=&mut self.theme_runtime{runtime.poll(&self.config,self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));}
         if geometry_changed {
             if let Some(window)=&self.window {
