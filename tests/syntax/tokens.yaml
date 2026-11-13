@@ -1,0 +1,11 @@
+#     ██
+# YAML fixture for the Q3 syntax gate.
+#                         ██
+name: clanky
+jobs: 8
+fast: true
+ratio: 0.25
+items:
+  - "quoted"
+  - null
+# note
