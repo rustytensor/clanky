@@ -109,6 +109,11 @@ pub(super) fn row(p:&mut Paint<'_>,g:&Geometry,theme:&Theme,y:f32,width:f32,labe
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,theme.colors.border,None);}
     g.local(751.0-width,y+(height-if last{0.0}else{1.0}-32.0)/2.0,width,32.0)
 }
+/// A scale as people write it: 1×, 1.5×, 1.25× (never a raw 1.00).
+fn times(scale:f32)->String{format!("{}×",format!("{scale:.2}").trim_end_matches('0').trim_end_matches('.'))}
+#[cfg(test)]
+#[test]
+fn line_height_labels(){assert_eq!([times(1.0),times(1.5),times(1.25),times(2.0)],["1×","1.5×","1.25×","2×"]);}
 fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,hits:&mut Vec<Hit>,scroll:f32)->f32{
     // Rows keep the approved positions at scroll 0; lines, cursor and colours follow Animations.
     let g=&Geometry{panel:PixelRect{y:g0.panel.y-scroll*g0.scale,..g0.panel},..g0.clone()};
@@ -134,7 +139,7 @@ fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f
     p.shape(g.local(229.0,487.21875,522.0,1.0),0.0,c.border,None);
     let step=row(p,g,theme,528.21875,110.0,"Line height","Taller rows space the lines out, as in Ptyxis.",false);
     let scale=(config.cell_height_scale*20.0).round()/20.0;
-    stepper(p,hits,step,&format!("{scale:.2}"),Action::CellHeight(-0.05),Action::CellHeight(0.05));
+    stepper(p,hits,step,&times(scale),Action::CellHeight(-0.05),Action::CellHeight(0.05));
     // Segmented control, as Appearance's Mode.
     let modes=[("System","system"),("On","on"),("Off","off")];let widths=modes.map(|(name,_)|p.width(name,13.0*s,500)/s+24.0);let total=widths.iter().sum::<f32>()+10.0;
     let control=row(p,g,theme,597.0625,total,"Cursor blink","System follows GNOME's cursor blink setting.",false);
