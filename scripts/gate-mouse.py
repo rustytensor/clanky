@@ -277,7 +277,7 @@ def mc_story(win, p):
     win.type('clear; /usr/bin/mc -u\n')
     until(lambda: '10Quit' in win.screen(), 'M1 mc started')
     time.sleep(1.5)
-    rows = win.o.call(4, 'screen', tab_id=win.tab, history_offset=0, history_limit=0)['lines']
+    rows = win.o.call(4, 'screen', tab_id=win.tab, history_offset=0, history_limit=1)['lines']
     rows = [l if isinstance(l, str) else l.get('text', '') for l in rows]
     top = next(i for i, l in enumerate(rows) if ' Left ' in l)
     p.click(rows[top].index('Left') + 2, top + 1)
