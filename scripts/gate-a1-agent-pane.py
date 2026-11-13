@@ -85,10 +85,11 @@ class Conn:
 
 def owner(sock):
     c = Conn(sock)
+    # Authenticate first: a Post-AI server refuses every unauthenticated hello.
+    c.call(3, 'auth', token=Path(str(sock) + '.owner').read_text().strip())
     pid = c.call(3, 'hello').get('server_pid')
     if pid and pid not in SERVER_PIDS:
         SERVER_PIDS.append(pid)
-    c.call(3, 'auth', token=Path(str(sock) + '.owner').read_text().strip())
     return c
 
 
