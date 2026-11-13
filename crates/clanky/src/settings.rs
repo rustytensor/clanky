@@ -50,6 +50,18 @@ impl Settings {
     pub fn set(&mut self, key: &str, value: Value) -> Result<&Config, String> {
         self.change(|document| { document[key] = value; Ok(()) })
     }
+    /// Several keys in one atomic write: Some sets a key, None removes it (other keys keep their order).
+    pub fn set_many(&mut self, changes: &[(&str, Option<Value>)]) -> Result<&Config, String> {
+        self.change(|document| {
+            for (key, value) in changes {
+                match value {
+                    Some(value) => document[*key] = value.clone(),
+                    None => { document.as_object_mut().unwrap().shift_remove(*key); }
+                }
+            }
+            Ok(())
+        })
+    }
     pub fn reset(&mut self, key: &str) -> Result<&Config, String> {
         self.change(|document| {
             // shift_remove preserves every other key's original order.
@@ -158,7 +170,7 @@ mod tests {
         settings.set("font_size",serde_json::json!(20)).unwrap();
         let config=Config::load(Some(&path)).unwrap();
         assert_eq!(config.opacity_alpha(),204);
-        assert!(!config.rails);
+        assert!(!config.tools_panel);
         assert_eq!(config.font_size,20.0);
         fs::remove_file(path).unwrap();
     }

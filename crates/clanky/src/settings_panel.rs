@@ -294,7 +294,7 @@ fn field_label(key:&str)->&str {match key {
 }}
 fn value(c:&Config,key:&str)->Option<Value>{Some(match key{
     "opacity"=>json!(c.opacity),"font_size"=>json!(c.font_size),"font_family"=>json!(c.font_family),"ui_font_family"=>json!(c.ui_font_family),
-    "rails"=>json!(c.rails),"animations"=>json!(c.animations),"columns"=>json!(c.columns),"rows"=>json!(c.rows),
+    "rails"=>json!(c.tools_panel),"animations"=>json!(c.animations),"columns"=>json!(c.columns),"rows"=>json!(c.rows),
     "compose_dictionary"=>json!(c.compose_dictionary),"compose_dictionary_dir"=>json!(c.compose_dictionary_dir),"compose_send_enter"=>json!(c.compose_send_enter),
     "notify_after_seconds"=>json!(c.notify_after_seconds),"restore_layout"=>json!(c.restore_layout),"osc52_write"=>json!(c.osc52_write),"osc52_read"=>json!(c.osc52_read),
     _=>return None,

@@ -51,6 +51,14 @@ pub struct Studio {
     panels: BTreeMap<String, Instant>,
     activity: Vec<f32>,
     started: Instant,
+    /// The tool the tools panel shows, folders opened in its file tree, and the rows last drawn.
+    pub(super) tool: Option<clanky::config::Tool>,
+    pub(super) tree_open: std::collections::BTreeSet<String>,
+    tree: (String, Vec<look::TreeRow>),
+    /// The next whole second of a running command's "running N s" (one frame a second, no more).
+    pub(super) tick: Option<Instant>,
+    /// Running state per pane of every tab, for the title bar's dots.
+    running: BTreeMap<String, bool>,
 }
 impl Default for Studio {
     fn default() -> Self {
@@ -58,7 +66,7 @@ impl Default for Studio {
             blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
-            activity: Vec::new(), started: Instant::now() }
+            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new() }
     }
 }
 
@@ -128,7 +136,8 @@ impl App {
     pub(super) fn layout_with(&self, server: &Tree) -> Result<look::Layout, String> {
         let m = self.metrics()?;
         let size = self.window.as_ref().ok_or("window not ready")?.inner_size();
-        Ok(clanky::calm::layout([size.width, size.height], self.scale, self.panels.visible,self.applied_post_ai,
+        let prefs = clanky::calm::Prefs { tools: self.panels.visible, vertical: self.config.tab_style == clanky::config::TabStyle::Vertical, status: self.config.status_line };
+        Ok(clanky::calm::window_layout([size.width, size.height], self.scale, prefs, self.applied_post_ai,
             &expand(&self.files.layout, server), [m.cell_width, m.cell_height]))
     }
     pub(super) fn pixel_layout(&self) -> Result<look::Layout, String> {
@@ -188,11 +197,23 @@ impl App {
         self.studio.metadata = if self.engine.is_closed() { Value::Null } else {
             self.engine.exchange(3, "look_state", &json!({})).unwrap_or(Value::Null)
         };
-        let ids: Vec<_> = self.groups.get(self.active).map(|g| g.layout.leaves()).unwrap_or_default();
+        let active: Vec<_> = self.groups.get(self.active).map(|g| g.layout.leaves()).unwrap_or_default();
+        let all:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
+        let ids: Vec<_> = all.iter().filter(|id| !self.files.panes.contains_key(*id)).cloned().collect();
         self.studio.permissions.retain(|id, _| ids.contains(id));
         self.studio.blocks.retain(|id, _| ids.contains(id));
-        let all:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
         self.studio.terminal_info.retain(|id,_|all.contains(id));
+        // Panes of other tabs: their command marks, so the title bar's dots stay true.
+        for id in ids.iter().filter(|id| !active.contains(id)) {
+            if let Ok((_, anchors)) = self.engine.snapshot_with_blocks(id) { self.studio.blocks.insert(id.clone(), anchors); }
+        }
+        let old_running = std::mem::take(&mut self.studio.running);
+        for id in &ids {
+            let running = self.studio.blocks.get(id).is_some_and(|view| view["blocks"].as_array().is_some_and(|b| b.iter().any(|b| b["complete"] != true))
+                || view["sticky"].is_object() && view["sticky"]["complete"] != true);
+            self.studio.running.insert(id.clone(), running);
+        }
+        let mut changed = old_running != self.studio.running;
         for id in ids {
             if let Ok(info)=self.engine.exchange(3,"terminal_info",&json!({"tab_id":id})){self.studio.terminal_info.insert(id.clone(),info);}
             match self.engine.agent_permission(&id) {
@@ -205,9 +226,26 @@ impl App {
         self.studio.activity = self.studio.metadata["activity"].as_array()
             .map(|values| values.iter().take(30).filter_map(Value::as_u64).map(|n| n as f32).collect())
             .unwrap_or_default();
-        before!=stable(&self.studio.metadata) || old_permissions!=self.studio.permissions || old_info!=self.studio.terminal_info
+        changed |= self.refresh_tree();
+        changed || before!=stable(&self.studio.metadata) || old_permissions!=self.studio.permissions || old_info!=self.studio.terminal_info
     }
-    fn animation_deadline(&self,state:&LookState)->Option<Instant>{
+    /// The Files tool lists the focused pane's folder; it changes only when that listing does.
+    pub(super) fn refresh_tree(&mut self) -> bool {
+        let tool = self.shown_tool();
+        let cwd = (self.local_files && self.panels.visible && tool == Some(clanky::config::Tool::Files)).then(|| self.focused()
+            .and_then(|id| self.studio.terminal_info.get(id)).and_then(|info| info["cwd"].as_str()).map(str::to_owned)).flatten();
+        let next = match cwd {
+            Some(cwd) => { let rows = tree_rows(std::path::Path::new(&cwd), &self.studio.tree_open); (cwd, rows) }
+            None => (String::new(), Vec::new()),
+        };
+        if next != self.studio.tree { self.studio.tree = next; true } else { false }
+    }
+    /// The tool the panel shows: the one picked, else the first one the config lists.
+    pub(super) fn shown_tool(&self) -> Option<clanky::config::Tool> {
+        let tools: Vec<_> = self.config.tools.iter().copied().filter(|t| !(self.applied_post_ai && *t == clanky::config::Tool::Agents)).collect();
+        self.studio.tool.filter(|t| tools.contains(t)).or_else(|| tools.first().copied())
+    }
+    fn animation_deadline(&self,_state:&LookState)->Option<Instant>{
         if !self.config.animations{return None;}
         let now=Instant::now();let m=look::Metrics::DEFAULT;
         let mut deadlines=Vec::new();
@@ -220,9 +258,6 @@ impl App {
         deadlines.extend(self.context_menu.animation_deadline(true));
         deadlines.extend(self.studio.card_clocks.values().map(|start|*start+Duration::from_millis(120)));
         if let Some(end)=self.settings.as_ref().and_then(|panel|panel.animation_deadline()){deadlines.push(end);}
-        if state.panes.iter().any(|pane|pane.blocks.iter().any(|block|block.running && block.first_row<pane.snapshot.rows)){
-            deadlines.push(now+clanky::frame_clock::FRAME_INTERVAL*2);
-        }
         deadlines.into_iter().filter(|end|*end>now).max()
     }
     fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
@@ -233,7 +268,9 @@ impl App {
             let Some(data)=state.panes.iter().find(|data|data.id==pane.id) else{continue;};
             for block in &data.blocks {
                 let origin=[pane.grid_origin[0],pane.grid_origin[1]-data.scroll_px];
-                let Some(rect)=look::block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{continue;};
+                let Some(mut rect)=look::block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{continue;};
+                // Quiet blocks span the pane's width (their action bar sits 14 px from its right edge).
+                if !state.block_cards { rect.x=pane.rect.x; rect.w=pane.rect.w; }
                 let key=(data.id.clone(),block.id.clone());
                 self.studio.card_keys.push(key.clone());
                 if !modal && (rect.contains(self.mouse.0,self.mouse.1) || self.studio.card_focus.as_ref()==Some(&key)) {
@@ -268,12 +305,15 @@ impl App {
     pub fn card_key(&mut self,key:&Key)->Result<bool,String> {
         if self.panels.open || self.files.modal() || self.compose.active_target().is_some() || self.search.active_target().is_some() {return Ok(false);}
         let Some((tab,id))=self.studio.card_focus.clone() else{return Ok(false);};
-        let count=if self.applied_post_ai{2}else{3};
+        let names:&[&str]=match (self.config.block_style==clanky::config::BlockStyle::Cards,self.applied_post_ai) {
+            (true,true)=>&["copy","rerun"],(true,false)=>&["copy","rerun","send"],
+            (false,true)=>&["copy","copy_command","rerun","more"],(false,false)=>&["copy","copy_command","rerun","send","more"] };
+        let count=names.len();
         match key {
             Key::Named(NamedKey::Escape)=>{self.studio.card_focus=None;self.reset_ime();},
             Key::Named(NamedKey::ArrowLeft)=>self.studio.card_action=(self.studio.card_action+count-1)%count,
             Key::Named(NamedKey::ArrowRight)|Key::Named(NamedKey::Tab)=>self.studio.card_action=(self.studio.card_action+1)%count,
-            Key::Named(NamedKey::Enter)=>{let action=["copy","rerun","send"][self.studio.card_action%count];self.card_action(&tab,&id,action)?;},
+            Key::Named(NamedKey::Enter)=>{let action=names[self.studio.card_action%count];self.card_action(&tab,&id,action)?;},
             _=>(),
         }
         Ok(true)
@@ -283,6 +323,14 @@ impl App {
         match action {
             // Copy keeps the owner palette's masked selection path.
             "copy" => { self.panels.block_action(&self.engine, tab, block, "copy")?; self.status = Some("Output copied".into()); }
+            "copy_command" => {
+                let command = self.studio.blocks.get(tab).and_then(|view| view["blocks"].as_array())
+                    .and_then(|blocks| blocks.iter().find(|b| b["block_id"].as_str() == Some(block)))
+                    .and_then(|b| b["command"].as_str()).ok_or("This command is no longer on screen")?.trim().to_owned();
+                self.copy_text(&command)?;
+                self.status = Some("Command copied".into());
+            }
+            "more" => { self.open_menu(tab)?; }
             "rerun" => {
                 let command = self.studio.blocks.get(tab).and_then(|view| view["blocks"].as_array())
                     .and_then(|blocks| blocks.iter().find(|b| b["block_id"].as_str() == Some(block)))
@@ -371,6 +419,22 @@ impl App {
                 self.reset_ime(); self.resize_panes()?;
             }
             HitAction::File(id) => { if self.files.panes.contains_key(&id) { self.files.focus_on(id); self.reset_ime(); } }
+            HitAction::CloseTab(panes) => {
+                for id in panes {
+                    self.sync_groups()?;
+                    if self.stop || !self.groups.iter().any(|g| g.layout.contains(&id)) { continue; }
+                    self.close_terminal(Some(id))?;
+                }
+            }
+            HitAction::Tool(tool) => { self.studio.tool = Some(tool); self.refresh_tree(); }
+            HitAction::TreeToggle(path) => { if !self.studio.tree_open.remove(&path) { self.studio.tree_open.insert(path); } self.refresh_tree(); }
+            HitAction::OpenPath(path) => {
+                if !self.local_files { return Err("Files open only from a local session".into()); }
+                let pane = clanky::editor::EditorPane::open(std::path::Path::new(&path), 1, 1)?;
+                let target = self.files.focus.clone();
+                self.files.add(&target, pane, Axis::Columns, self.rect()?)?;
+                self.reset_ime(); self.resize_panes()?;
+            }
             HitAction::Agent { tab_id, .. } => {
                 if let Some(id) = tab_id {
                     let index = self.groups.iter().position(|g| g.layout.contains(&id)).ok_or("Agent terminal was closed")?;
@@ -528,20 +592,28 @@ impl App {
         let trace_layout=Instant::now();
         let mut trace_snapshot=0u64;
         if let Some(theme)=self.theme_runtime.as_ref().and_then(|runtime|runtime.active()) {self.studio.calm_theme=theme.clone();}
+        // Settings › Appearance previews the highlighted theme behind the panel, never saved.
+        let preview=self.settings.as_ref().filter(|panel|panel.open).map(|panel|(panel.preview_theme().cloned(),panel.preview_terminal().cloned()));
+        if let Some(theme)=preview.as_ref().and_then(|p|p.0.clone()) {self.studio.calm_theme=theme;}
         self.studio.theme=clanky::calm::legacy_palette(&self.studio.calm_theme);
         self.files.viewport = Some(layout.clone());
         let now = Instant::now();
         let mut state = LookState { post_ai:self.applied_post_ai, theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
             elapsed_ms: self.studio.started.elapsed().as_secs_f32()*1000.0,
-            focused: if self.settings_open() || self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
+            focused: if self.compose.active_target().is_some() || self.panels.open || self.files.modal() || self.search.active_target().is_some() { None }
                 else if self.files.focus == TERMINALS { self.focused().map(str::to_owned) } else { Some(self.files.focus.clone()) },
-            terminal: self.config.terminal_colors.clone(), cursor_visible: { self.blink_shown=self.cursor_visible(); self.blink_shown },
+            terminal: preview.as_ref().and_then(|p|p.1.clone()).unwrap_or_else(||self.config.terminal_colors.clone()), cursor_visible: { self.blink_shown=self.cursor_visible(); self.blink_shown },
             ..LookState::default() };
         state.palette_open = self.palette.open;
         state.user_name = self.studio.user_name.get_or_insert_with(|| clanky_core::platform::user_display_name().unwrap_or_default()).clone();
         state.uptime_seconds = self.studio.metadata["uptime_ms"].as_u64().unwrap_or(0)/1000;
         state.masking_ready = self.studio.metadata["masking_ready"].as_bool().unwrap_or(false);
         state.activity = self.studio.activity.clone();
+        state.block_cards = self.config.block_style == clanky::config::BlockStyle::Cards;
+        state.tools = self.config.tools.clone();
+        state.tool = self.shown_tool();
+        state.tree_title = folder_name(&self.studio.tree.0);
+        state.tree = self.studio.tree.1.clone();
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(id) = group.layout.leaves().first() {
                 state.session_counts.insert(id.clone(),group.layout.leaves().len());
@@ -551,6 +623,26 @@ impl App {
         for (index,group) in self.groups.iter().enumerate(){
             let name=state.sessions.get(index).map(|session|session.title.as_str()).unwrap_or("Session");
             for (pane,id) in group.layout.leaves().iter().enumerate(){self.studio.pane_labels.insert(id.clone(),clanky::calm::pane_label(name,pane));}
+        }
+        // Tabs: the folder of each tab's focused pane, a dot while a command runs or an agent works.
+        for (index, group) in self.groups.iter().enumerate() {
+            let leaves = group.layout.leaves();
+            let Some(first) = leaves.first().cloned() else { continue; };
+            let info = self.studio.terminal_info.get(&group.focus);
+            let cwd = info.and_then(|info| info["cwd"].as_str()).map(str::to_owned);
+            let mut title = cwd.as_deref().map(folder_name).unwrap_or_else(|| format!("Session {}", index + 1));
+            let running = leaves.iter().any(|id| self.studio.running.get(id).copied().unwrap_or(false)
+                || self.studio.blocks.get(id).is_some_and(|view| view["blocks"].as_array().is_some_and(|b| b.iter().any(|b| b["complete"] != true))));
+            let driving = |id: &String| self.studio.metadata["drivers"].as_array().is_some_and(|d| d.iter().any(|d| d["tab_id"].as_str() == Some(id.as_str()) && d["running"] == true));
+            let tool = |id: &String| self.studio.terminal_info.get(id).and_then(|info| info["agent_tool"].as_str()).filter(|_| self.studio.permissions.get(id).copied().unwrap_or(false)).map(str::to_owned);
+            let agent = !self.applied_post_ai && leaves.iter().any(|id| driving(id) || tool(id).is_some());
+            if !self.applied_post_ai { if let Some(name) = tool(&group.focus) { title = format!("{name} · {title}"); } }
+            let path = cwd.as_deref().map(|cwd| match git_branch(cwd) { Some(branch) => format!("{} · ⎇ {branch}", home_short(cwd)), None => home_short(cwd) }).unwrap_or_default();
+            let last_command = self.studio.blocks.get(&group.focus).and_then(|view| view["blocks"].as_array().and_then(|b| b.last()).or_else(|| view.get("sticky").filter(|s| s.is_object())))
+                .and_then(|b| b["command"].as_str()).map(|c| c.trim().to_owned()).unwrap_or_default();
+            let mut state_text = if running { "running".to_string() } else if agent { "agent".to_string() } else { "terminal".to_string() };
+            if leaves.len() > 1 { state_text = format!("{state_text} · {} panes", leaves.len()); }
+            state.tabs.push(look::TabItem { id: first, panes: leaves.clone(), title, active: index == self.active, running, agent, path, last_command, state: state_text });
         }
         let mut retained:Vec<_>=self.groups.iter().flat_map(|group|group.layout.leaves()).collect();
         if let Some(recent)=self.studio.metadata["recent"].as_array(){retained.extend(recent.iter().filter_map(|event|event["tab_id"].as_str().map(str::to_owned)));}
@@ -700,6 +792,10 @@ impl App {
             // While the program takes the mouse, the bar says so: a plain right-click goes to it.
             if !self.files.panes.contains_key(&pane.id) && clanky::mouse::reporting(snapshot.modes) {
                 view.driver = if view.driver.is_empty() { "has the mouse".into() } else { format!("{} · has the mouse", view.driver) };
+                if self.focused() == Some(pane.id.as_str()) || layout.panes.len() == 1 {
+                    let program = self.studio.terminal_info.get(&pane.id).and_then(|info|info["program"].as_str()).filter(|p|!p.is_empty());
+                    state.mouse_owner = Some(match program { Some(program) => format!("{program} has the mouse"), None => "The program has the mouse".into() });
+                }
             }
             if !view.agent_running && view.allow_agent && !self.applied_post_ai && !self.files.panes.contains_key(&pane.id) {
                 if let Some(tool) = self.studio.terminal_info.get(&pane.id).and_then(|info| info["agent_tool"].as_str()) {
@@ -727,7 +823,23 @@ impl App {
                 }
             }
             if editor_rows.is_none() && self.search.active_target().is_none() {
-                if let Some(blocks) = self.studio.blocks.get(&pane.id) { view.blocks = matched_blocks(&snapshot,blocks); }
+                if let Some(blocks) = self.studio.blocks.get(&pane.id) {
+                    view.blocks = matched_blocks(&snapshot,blocks);
+                    let cwd = self.studio.terminal_info.get(&pane.id).and_then(|info|info["cwd"].as_str()).map(home_short).unwrap_or_default();
+                    for block in blocks["blocks"].as_array().into_iter().flatten() {
+                        let Some(id) = block["block_id"].as_str() else { continue; };
+                        let folder = block["cwd"].as_str().map(home_short).unwrap_or_else(|| cwd.clone());
+                        let time = block["started_unix_ms"].as_i64().map(local_hhmm).unwrap_or_default();
+                        state.block_meta.insert((pane.id.clone(), id.to_owned()), (folder, time));
+                    }
+                    let sticky = &blocks["sticky"];
+                    if let Some(command) = sticky["command"].as_str().filter(|_| view.scroll_px == 0.0) {
+                        let running = sticky["complete"] != true;
+                        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+                        let running_s = running.then(|| sticky["started_unix_ms"].as_i64().map(|t| ((now_ms - t).max(0) / 1000) as u64).unwrap_or(0));
+                        view.sticky = Some(look::StickyLine { command: command.trim().to_owned(), running_s, duration_ms: sticky["duration_ms"].as_u64() });
+                    }
+                }
             }
             self.studio.snapshots.insert(pane.id.clone(),snapshot.clone());
             if let Some(scroll) = self.studio.scrolls.get(&pane.id) {
@@ -751,6 +863,18 @@ impl App {
             });
             state.panes.push(view);
         }
+        // Agent access for every terminal pane in every tab (the Agents tool).
+        if !self.applied_post_ai {
+            for group in &self.groups { for id in group.layout.leaves() {
+                let label = state.pane_labels.get(&id).cloned().unwrap_or_else(|| id.clone());
+                state.access.push(look::AccessRow { allowed: self.studio.permissions.get(&id).copied().unwrap_or(false), id, label });
+            } }
+        }
+        // One frame a second while a running command's sticky line counts its seconds.
+        self.studio.tick = state.panes.iter().filter_map(|pane| pane.sticky.as_ref().and_then(|s| s.running_s)).next().map(|_| {
+            let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            now + Duration::from_millis(1000 - now_ms % 1000 + 5)
+        });
         self.studio.scrolls.retain(|_,s| self.config.animations && s.start.elapsed().as_secs_f32()*1000.0<layout.metrics.scroll_ms);
         self.studio.snapshots.retain(|id,_| layout.pane(id).is_some() || (id=="compose" && self.compose.active_target().is_some()));
         self.studio.shown.retain(|id,_| layout.pane(id).is_some());
@@ -1020,4 +1144,59 @@ fn stitch(old: &TerminalSnapshot, new: &TerminalSnapshot, cell_h: f32) -> Option
         }
     }
     None
+}
+
+/// The Files tool's rows: folders first, then files, each sorted by name ignoring case;
+/// open folders list their own rows beneath them. Hidden names are left out; at most 400 rows.
+fn tree_rows(root: &std::path::Path, open: &std::collections::BTreeSet<String>) -> Vec<look::TreeRow> {
+    fn walk(dir: &std::path::Path, depth: usize, open: &std::collections::BTreeSet<String>, out: &mut Vec<look::TreeRow>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return; };
+        let mut items: Vec<(bool, String, std::path::PathBuf)> = entries.filter_map(Result::ok).filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') { return None; }
+            let path = entry.path();
+            Some((path.is_dir(), name, path))
+        }).take(2000).collect();
+        items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())).then_with(|| a.1.cmp(&b.1)));
+        for (is_dir, name, path) in items {
+            if out.len() >= 400 { return; }
+            let key = path.to_string_lossy().into_owned();
+            let is_open = is_dir && open.contains(&key);
+            out.push(look::TreeRow { path: key, name, dir: is_dir, depth, open: is_open });
+            if is_open && depth < 8 { walk(&path, depth + 1, open, out); }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, 0, open, &mut out);
+    out
+}
+/// The branch checked out in the repository holding `dir`, read from .git/HEAD (worktrees too).
+pub(super) fn git_branch(dir: &str) -> Option<String> {
+    let mut path = std::path::PathBuf::from(dir);
+    for _ in 0..64 {
+        let git = path.join(".git");
+        let head = if git.is_dir() { std::fs::read_to_string(git.join("HEAD")).ok() }
+            else if git.is_file() {
+                std::fs::read_to_string(&git).ok().and_then(|text| text.trim().strip_prefix("gitdir:").map(|d| d.trim().to_owned()))
+                    .and_then(|d| { let d = path.join(d); std::fs::read_to_string(d.join("HEAD")).ok() })
+            } else { None };
+        if let Some(head) = head {
+            let head = head.trim();
+            return Some(match head.strip_prefix("ref: refs/heads/") { Some(branch) => branch.to_owned(), None => head.chars().take(7).collect() });
+        }
+        if !path.pop() { break; }
+    }
+    None
+}
+/// Local wall-clock HH:MM for a Unix time in milliseconds.
+pub(super) fn local_hhmm(unix_ms: i64) -> String {
+    let secs = (unix_ms / 1000) as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: localtime_r writes only into the tm we own; a null return leaves it zeroed.
+    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() { return String::new(); }
+    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+}
+fn folder_name(cwd: &str) -> String {
+    if home_short(cwd) == "~" { return "~".into(); }
+    std::path::Path::new(cwd).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| cwd.to_owned())
 }
