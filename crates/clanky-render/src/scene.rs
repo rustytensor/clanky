@@ -87,6 +87,8 @@ pub struct TextRun {
     pub mono: bool,
     /// Additional tracking in physical pixels; zero preserves normal shaping.
     pub letter_spacing: f32,
+    /// Draw with the family's italic face (slanted from upright when it has none).
+    pub italic: bool,
 }
 
 impl Default for TextRun {
@@ -100,6 +102,7 @@ impl Default for TextRun {
             weight: 400,
             mono: false,
             letter_spacing: 0.0,
+            italic: false,
         }
     }
 }
