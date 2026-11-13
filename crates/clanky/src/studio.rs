@@ -878,7 +878,9 @@ impl App {
                 let shown = self.studio.shown_commands.get(&group.focus).filter(|(id, _)| b["block_id"].as_str() == Some(id.as_str())).map(|(_, text)| text.clone());
                 shown.or_else(|| b["command"].as_str().map(|c| c.trim().to_owned()))
             }).unwrap_or_default();
-            let mut state_text = if running { "running".to_string() } else if agent { "agent".to_string() } else { "terminal".to_string() };
+            // An agent tab reads as one (mockup: "Claude Code · agent access"), even though its program runs.
+            let agent_name = leaves.iter().find_map(|id| tool(id)).or_else(|| agent.then(|| "Agent".to_string()));
+            let mut state_text = match agent_name.filter(|_| agent) { Some(name) => format!("{name} · agent access"), None if running => "running".to_string(), None => "terminal".to_string() };
             if leaves.len() > 1 { state_text = format!("{state_text} · {} panes", leaves.len()); }
             state.tabs.push(look::TabItem { id: first, panes: leaves.clone(), title, active: index == self.active, running, agent, path, last_command, state: state_text });
         }

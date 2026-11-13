@@ -32,10 +32,14 @@ fn chevron(p:&mut Paint,x:f32,y:f32,open:bool,color:Color){
     if open{path.begin(point(0.0,2.0));path.line_to(point(3.5,5.5));path.line_to(point(7.0,2.0));}else{path.begin(point(2.0,0.0));path.line_to(point(5.5,3.5));path.line_to(point(2.0,7.0));}
     path.end(false);stroke(p,path.build(),x,y,color,1.3);
 }
-/// Text drawn word by word with a slightly wider space, so small labels keep their word breaks.
-fn spaced_width(p:&mut Paint,text:&str,px:f32,weight:u16)->f32{
-    let space=p.width(" ",px,weight)+2.0*p.scale;
+/// Text drawn word by word with a slightly wider space (`extra`), so small labels keep their word breaks.
+fn spaced_width(p:&mut Paint,text:&str,px:f32,weight:u16,extra:f32)->f32{
+    let space=p.width(" ",px,weight)+extra*p.scale;
     text.split(' ').map(|w|p.width(w,px,weight)).sum::<f32>()+space*(text.split(' ').count()-1) as f32
+}
+fn spaced_by(p:&mut Paint,x:f32,y:f32,h:f32,text:&str,px:f32,color:Color,weight:u16,extra:f32){
+    let space=p.width(" ",px,weight)+extra*p.scale;let mut x=x;
+    for word in text.split(' '){let w=p.width(word,px,weight);p.text(r(x,y,w+0.5,h),word,px,color,weight,false);x+=w+space;}
 }
 fn spaced(p:&mut Paint,x:f32,y:f32,h:f32,text:&str,px:f32,color:Color,weight:u16){
     let space=p.width(" ",px,weight)+2.0*p.scale;let mut x=x;
@@ -103,7 +107,8 @@ pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
         if x+width>limit{break;}
         let pill=r(x,pill_y,width,pill_h);let over_tab=hovered(p,pill);let show_x=tab.active||over_tab;
         if tab.active{p.shape(pill,7.0*s,c.muted,None);}else if over_tab{p.shape(pill,7.0*s,blend(c.sidebar,c.muted,0.6),None);}
-        let dot_color=if tab.running{c.ok}else if tab.agent{c.agent}else{faint};
+        // An agent's program always runs in the foreground, so agent comes before running.
+        let dot_color=if tab.agent{c.agent}else if tab.running{c.ok}else{faint};
         dot(p,pill.x+11.0*s,pill.y+(pill_h-6.0*s)/2.0,6.0*s,dot_color);
         let tx=pill.x+11.0*s+6.0*s+7.0*s;let tw=(pill.x+pill.w-11.0*s-if show_x{15.0*s}else{0.0}-tx).max(0.0);
         p.text(r(tx,pill.y,tw,pill.h),&tab.title,title_px,if tab.active{c.foreground}else{dim},if tab.active{500}else{400},false);
@@ -133,7 +138,8 @@ pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
         if tab.active{p.shape(row,7.0*s,blend(c.sidebar,c.muted,0.6),None);}else if hovered(p,row){p.shape(row,7.0*s,blend(c.sidebar,c.muted,0.35),None);}
         p.text(r(row.x+9.0*s,row.y+6.0*s,row.w-30.0*s,17.0*s),&tab.path,12.0*s,faint,400,true);
         mono_chars(p,r(row.x+9.0*s,row.y+23.0*s,row.w-18.0*s,19.0*s),if tab.last_command.is_empty(){"–"}else{&tab.last_command},13.0*s,c.foreground,400);
-        let dot_color=if tab.running{c.ok}else if tab.agent{c.agent}else{faint};
+        // An agent's program always runs in the foreground, so agent comes before running.
+        let dot_color=if tab.agent{c.agent}else if tab.running{c.ok}else{faint};
         dot(p,row.x+9.0*s,row.y+48.0*s,6.0*s,dot_color);
         p.text(r(row.x+21.0*s,row.y+42.0*s,row.w-30.0*s,17.0*s),&tab.state,12.0*s,faint,400,false);
         p.hit(row,HitAction::Session(tab.id.clone()));
@@ -171,7 +177,19 @@ pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(tool)=state.tool.filter(|t|tools.contains(t)) else{return;};
     let head=r(inner.x+8.0*s,inner.y+8.0*s,inner.w-16.0*s,24.0*s);
     let title=match tool{Tool::Files=>state.tree_title.as_str(),Tool::Recent=>"Recent",Tool::Agents=>"Agents"};
-    p.text(r(head.x+4.0*s,head.y,head.w-8.0*s,head.h),title,13.0*s,c.foreground,500,false);
+    // Files head (mockup .tools-head): the folder name, then search and + icons at the right.
+    let mut name_w=head.w-8.0*s;
+    if tool==Tool::Files{
+        let plus=r(head.x+head.w-24.0*s,head.y,24.0*s,24.0*s);let find=r(plus.x-2.0*s-24.0*s,head.y,24.0*s,24.0*s);
+        for (rect,action) in [(find,HitAction::Palette),(plus,HitAction::NewTab)]{
+            let over_icon=hovered(p,rect);if over_icon{p.shape(rect,6.0*s,if p.pressed{c.pressed}else{c.muted},None);}
+            let ink=if over_icon{c.foreground}else{c.muted_foreground};
+            if matches!(action,HitAction::Palette){p.icon("search",rect.x+4.5*s,rect.y+4.5*s,ink);}else{plus_mark(p,rect.x+7.0*s,rect.y+7.0*s,10.0,ink);}
+            p.hit(rect,action);
+        }
+        name_w=(find.x-4.0*s-head.x-4.0*s).max(0.0);
+    }
+    p.text(r(head.x+4.0*s,head.y,name_w,head.h),title,13.0*s,c.foreground,500,false);
     let body=r(inner.x+8.0*s,head.y+head.h+6.0*s,inner.w-16.0*s,(foot_y-head.y-head.h-12.0*s).max(0.0));
     match tool{
         Tool::Files=>files(p,body,state,faint),
@@ -272,11 +290,12 @@ pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,da
         let mut running_s=None;
         if let Some((cwd,time,running))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
             if !cwd.is_empty(){meta.push((cwd.clone(),faint,true));}
-            if !time.is_empty(){meta.push((time.clone(),faint,true));}
+            if !time.is_empty(){meta.push((time.clone(),faint,false));}
             running_s=*running;
         }
         if let Some(n)=running_s.filter(|_|block.running){meta.push((format!("running {n} s"),c.ok,true));}
-        if failed{meta.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,true));}
+        if failed{meta.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,false));}
+        // Durations keep fixed-width digits (mockup .meta .right, tabular-nums).
         if let Some(ms)=block.duration_ms.filter(|_|!block.running){meta.push((duration_label(ms),faint,true));}
         let right=pane.rect.x+pane.rect.w-18.0*s;let mut x=right;
         for (i,(text,color,mono)) in meta.iter().enumerate().rev(){let weight=if *color==c.err{600}else{400};let w=if *mono{p.mono_width(text,12.0*s,weight)}else{p.width(text,12.0*s,weight)};x-=w;if i>0{x-=10.0*s;}}
@@ -297,33 +316,43 @@ pub(super) fn quiet_under(q:&Quiet,snapshot:&mut clanky_core::TerminalSnapshot,l
 pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,state:&LookState){
     let s=p.scale;let c=p.theme.colors.clone();let ch=layout.cell_px[1] as f32;
     if let Some(color)=q.hairline{line(p,pane.rect.x,q.top.floor(),pane.rect.w,s,color);}
-    let mut x=q.meta_x;
-    for (i,(text,color,mono)) in q.meta.iter().enumerate(){
-        let weight=if *color==c.err{600}else{400};
-        let w=if *mono{p.mono_width(text,12.0*s,weight)}else{p.width(text,12.0*s,weight)};
-        p.text(r(x,q.top,w,ch),text,12.0*s,*color,weight,*mono);x+=w+if i+1<q.meta.len(){10.0*s}else{0.0};
+    let key=(data.id.clone(),q.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0).clamp(0.0,1.0);
+    // The hover bar sits over the meta text (mockup .hoverbar), so the meta fades out under it.
+    if opacity<1.0{
+        let mut x=q.meta_x;
+        for (i,(text,color,mono)) in q.meta.iter().enumerate(){
+            let weight=if *color==c.err{600}else{400};
+            let w=if *mono{p.mono_width(text,12.0*s,weight)}else{p.width(text,12.0*s,weight)};
+            // Sans text sits 1 px lower so its digits line up with the mono folder beside it.
+            p.text(r(x,q.top+if *mono{0.0}else{s},w+0.5,ch),text,12.0*s,alpha(*color,1.0-opacity),weight,*mono);x+=w+if i+1<q.meta.len(){10.0*s}else{0.0};
+        }
     }
     let _=q.running;
-    // One floating bar of block actions on hover (mockup .hoverbar: right 14, top 6, radius 7).
-    let key=(data.id.clone(),q.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0);
+    // One floating bar of block actions on hover (mockup .hoverbar: right 14, top 6, radius 7,
+    // a soft drop shadow, the first item filled until another is pointed at).
     if opacity<=0.0{return;}
     let mut items:Vec<(&str,&str)>=vec![("Copy output","copy"),("Copy command","copy_command"),("Run again","rerun")];
     if !state.post_ai{items.push(("Ask agent","send"));}
     items.push(("⋯","more"));
-    let px=12.0*s;let pad=7.0*s;let widths:Vec<f32>=items.iter().map(|(label,_)|spaced_width(p,label,px,400)+2.0*pad).collect();
+    let px=12.0*s;let pad=7.0*s;let widths:Vec<f32>=items.iter().map(|(label,_)|spaced_width(p,label,px,400,2.0)+2.0*pad).collect();
     let total=widths.iter().sum::<f32>()+(items.len()-1) as f32*s+6.0*s+2.0*s;
     let bar=r((pane.rect.x+pane.rect.w-14.0*s-total).round(),(q.top.floor()+6.0*s).round(),total.round(),24.0*s);
     let bar_fill=blend(c.background,c.foreground,0.04);
+    p.out.scene.layers.push(clanky_render::Layer::Shape(clanky_render::Shape{rect:bar.array(),radius:7.0*s,fill:clanky_render::Fill::Solid([0;4]),border:None,
+        shadow:Some(clanky_render::Shadow{offset:[0.0,4.0*s],blur:7.0*s,spread:0.0,color:[0,0,0,(102.0*opacity) as u8]})}));
     p.shape(bar,7.0*s,alpha(bar_fill,opacity),Some(alpha(over(c.background,c.border),opacity)));
     let focus=state.block_action_focus.as_ref().filter(|(tab,id,_)|*tab==data.id&&*id==q.id).map(|(_,_,i)|*i);
-    let mut x=bar.x+4.0*s;
-    for (i,((label,action),w)) in items.iter().zip(&widths).enumerate(){
-        let span=r(x,bar.y+3.0*s,*w,bar.h-6.0*s);
-        if hovered(p,span)||focus==Some(i){p.shape(span,5.0*s,alpha(if p.pressed&&hovered(p,span){c.pressed}else{c.muted},opacity),None);}
-        let tw=spaced_width(p,label,px,400);
-        spaced(p,span.x+(span.w-tw)/2.0,span.y,span.h,label,px,alpha(if hovered(p,span){c.foreground}else{c.muted_foreground},opacity),400);
+    // Labels keep a word gap 2 px wider than the font's: at 12 px in the dim colour a plain gap
+    // reads as one word ("Copycommand") to OCR, and the Q1 gate reads this bar.
+    let spans:Vec<PixelRect>={let mut x=bar.x+4.0*s;widths.iter().map(|w|{let span=r(x,bar.y+3.0*s,*w,bar.h-6.0*s);x+=w+s;span}).collect()};
+    let pointed=spans.iter().position(|span|hovered(p,*span));
+    let lit=pointed.or(focus).unwrap_or(0);
+    for (i,((label,action),span)) in items.iter().zip(&spans).enumerate(){
+        let span=*span;let on=i==lit;
+        if on{p.shape(span,5.0*s,alpha(if p.pressed&&pointed==Some(i){c.pressed}else{c.muted},opacity),None);}
+        let tw=spaced_width(p,label,px,400,2.0);
+        spaced_by(p,span.x+(span.w-tw)/2.0,span.y,span.h,label,px,alpha(if on{c.foreground}else{c.muted_foreground},opacity),400,2.0);
         p.hit(span,HitAction::Block{tab_id:data.id.clone(),block_id:q.id.clone(),action:(*action).into()});
-        x+=w+s;
     }
 }
 /// The sticky command line (mockup .sticky) over the top of a pane whose block started above it.

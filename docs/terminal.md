@@ -84,7 +84,7 @@ With `block_style` `quiet` (the default), commands that the shell marks with OSC
 as quiet blocks: a 1 px hairline above each command (none above the first row; red, with
 "exit N" in the error colour, when the command failed), the command row in bold, and the
 folder, start time (HH:MM) and duration right-aligned on the command row. Hovering a block
-shows one floating bar: **Copy output**, **Copy command**, **Run again**, **Ask agent** (not in
+shows one floating bar over the meta text: **Copy output**, **Copy command**, **Run again**, **Ask agent** (not in
 Post-AI mode) and **⋯** (the right-click menu). When a block's command row has scrolled off the
 top while its output still shows, a sticky line at the top of the pane names the command; while
 it runs it counts "running N s", redrawing once a second and no more. A running block whose
