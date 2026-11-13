@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.4.0
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -59,6 +59,13 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Fri Nov 13 2026 Clanky contributors <noreply@github.com> - 1.5.0-1
+- The mouse works in terminal panes as in Ptyxis: clicks, drags and the wheel reach programs that ask for them (mc, vim, htop), in X10 and SGR form; Shift overrides.
+- Select text with drag, double-click and triple-click; it goes to the primary selection. Middle click pastes it; Ctrl+Shift+C and Ctrl+Shift+V copy and paste.
+- On the alternate screen the wheel sends cursor keys; Ctrl+wheel zooms.
+- A right-click menu: copy, paste, links, command blocks, find, splits, agents, reset. Shift+right-click opens it while a program has the mouse, and the pane bar says so.
+- A pane closes when its shell exits, its tab with it, and the window after the last one.
+
 * Fri Nov 13 2026 Clanky contributors <noreply@github.com> - 1.4.0-1
 - Terminal colours are no longer washed out: they are drawn as the theme sets them, and Clanky picks an 8-bit window surface on Hyprland with RADV.
 - Keys match xterm: application cursor mode (mc arrows), F6, Shift and Ctrl with arrows, and Shift+Tab. Command-card focus moved to Ctrl+Shift+F6.
