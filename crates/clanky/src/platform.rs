@@ -20,8 +20,9 @@ pub fn open_settings_file(path: &std::path::Path) -> Result<(), String> {
 pub fn open_theme_document(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     #[cfg(target_os = "linux")] {
         use std::os::unix::fs::OpenOptionsExt;
-        // Linux O_NOFOLLOW | O_NONBLOCK, kept behind the platform boundary.
-        std::fs::OpenOptions::new().read(true).custom_flags(0x20000 | 0x800).open(path)
+        // O_NOFOLLOW | O_NONBLOCK from libc (the raw values differ on ARM64),
+        // kept behind the platform boundary.
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
     }
     #[cfg(not(target_os = "linux"))] {
         let _ = path;

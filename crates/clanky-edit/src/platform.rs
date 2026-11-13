@@ -42,10 +42,12 @@ pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
 /// Open a pinned target without following a newly substituted symlink or blocking
 /// on a substituted FIFO. The caller must still reject nonregular files.
 pub(crate) fn open_target(path: &Path) -> io::Result<File> {
-    // Linux O_NOFOLLOW and O_NONBLOCK. No platform flags escape this module.
+    // O_NOFOLLOW and O_NONBLOCK from libc: their values differ by architecture
+    // (0x20000 is O_NOFOLLOW on x86-64 but O_LARGEFILE on ARM64).
+    // No platform flags escape this module.
     OpenOptions::new()
         .read(true)
-        .custom_flags(0x20000 | 0x800)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
 }
 
