@@ -269,10 +269,13 @@ pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,da
         let failed=!block.running&&block.exit_code.is_some_and(|code|code!=0);
         let hairline=(block.first_row>0).then(||if failed{blend(term.background,c.err,0.45)}else{over(term.background,c.border)});
         let mut meta=Vec::new();
-        if let Some((cwd,time))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
+        let mut running_s=None;
+        if let Some((cwd,time,running))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
             if !cwd.is_empty(){meta.push((cwd.clone(),faint,true));}
             if !time.is_empty(){meta.push((time.clone(),faint,true));}
+            running_s=*running;
         }
+        if let Some(n)=running_s.filter(|_|block.running){meta.push((format!("running {n} s"),c.ok,true));}
         if failed{meta.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,true));}
         if let Some(ms)=block.duration_ms.filter(|_|!block.running){meta.push((duration_label(ms),faint,true));}
         let right=pane.rect.x+pane.rect.w-18.0*s;let mut x=right;

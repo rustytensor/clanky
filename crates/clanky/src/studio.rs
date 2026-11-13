@@ -823,7 +823,9 @@ impl App {
                         let Some(id) = block["block_id"].as_str() else { continue; };
                         let folder = block["cwd"].as_str().map(home_short).unwrap_or_else(|| cwd.clone());
                         let time = block["started_unix_ms"].as_i64().map(local_hhmm).unwrap_or_default();
-                        state.block_meta.insert((pane.id.clone(), id.to_owned()), (folder, time));
+                        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+                        let running = (block["complete"] != true).then(|| block["started_unix_ms"].as_i64().map(|t| ((now_ms - t).max(0) / 1000) as u64).unwrap_or(0));
+                        state.block_meta.insert((pane.id.clone(), id.to_owned()), (folder, time, running));
                     }
                     let sticky = &blocks["sticky"];
                     if let Some(command) = sticky["command"].as_str().filter(|_| view.scroll_px == 0.0) {
@@ -887,8 +889,10 @@ impl App {
                 state.access.push(look::AccessRow { allowed: self.studio.permissions.get(&id).copied().unwrap_or(false), id, label });
             } }
         }
-        // One frame a second while a running command's sticky line counts its seconds.
-        self.studio.tick = state.panes.iter().filter_map(|pane| pane.sticky.as_ref().and_then(|s| s.running_s)).next().map(|_| {
+        // One frame a second while a running command counts its seconds (its meta text or sticky line).
+        let counting = state.panes.iter().any(|pane| pane.sticky.as_ref().is_some_and(|s| s.running_s.is_some())
+            || (!state.block_cards && pane.blocks.iter().any(|b| b.running && state.block_meta.get(&(pane.id.clone(), b.id.clone())).is_some_and(|m| m.2.is_some()))));
+        self.studio.tick = counting.then_some(()).map(|_| {
             let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
             now + Duration::from_millis(1000 - now_ms % 1000 + 5)
         });
