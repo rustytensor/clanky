@@ -243,7 +243,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
     };let fallback_poll=feed_error.is_some();
     let clipboard_bridge = ClipboardBridge::new(engine.clone(), config.osc52_write, config.osc52_read);
     clipboard_bridge.set_tabs(workspace.groups.iter().flat_map(|g| g.layout.leaves()).collect());
-    let rails = config.rails;
+    let rails = config.tools_panel;
     let gnome_blink = clanky::platform::gnome_cursor_blink();
     let blink = clanky::cursor_blink::Blink::from_config(&config, gnome_blink);
     let gate_clock = clanky::robot_gate_clock::RobotGateClock::from_env()?;
@@ -1289,6 +1289,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
         }
         let now=self.clock_now();
         let mut wake=self.next_settings.min(self.next_polish);
+        if let Some(at)=self.studio.tick {
+            if Instant::now()>=at { self.studio.tick=None; self.frame_clock.invalidate(); } else { wake=wake.min(at); }
+        }
         if !self.is_suspended(){
             // A blink phase change is a frame; once blinking rests there are none.
             if self.cursor_visible() != self.blink_shown { self.frame_clock.invalidate(); }

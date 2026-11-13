@@ -740,12 +740,23 @@ impl Terminal {
         let blocks: Vec<_> = self.observer.blocks.iter().chain(self.observer.active.iter())
             .filter(|b| b.prompt_line.is_some_and(|p| p >= oldest)
                 && b.command_line.is_some_and(|c| c >= top && c < top + self.size.0 as u64))
-            .take(64).map(|b| serde_json::json!({
-                "block_id":b.block_id,"command":b.command,"prompt_line":b.prompt_line,
-                "command_line":b.command_line,"end_line":b.end_line,
-                "complete":b.complete,"exit_code":b.exit_code,"duration_ms":b.duration_ms
-            })).collect();
-        serde_json::json!({"viewport_line":top,"blocks":blocks})
+            .take(64).map(|b| Self::card_json(b)).collect();
+        // The block whose command row has scrolled above the viewport while its output still shows
+        // at the top (the window's sticky command line).
+        let sticky = self.observer.blocks.iter().chain(self.observer.active.iter()).rev()
+            .find(|b| b.prompt_line.is_some_and(|p| p >= oldest) && b.command_line.is_some_and(|c| c < top)
+                && (!b.complete || b.end_line.is_some_and(|end| end > top)))
+            .map(Self::card_json);
+        serde_json::json!({"viewport_line":top,"blocks":blocks,"sticky":sticky})
+    }
+    fn card_json(b: &Block) -> serde_json::Value {
+        let cwd = b.origin.as_ref().and_then(|(cwd, _)| cwd.clone()).or_else(|| b.reported_cwd.clone());
+        serde_json::json!({
+            "block_id":b.block_id,"command":b.command,"prompt_line":b.prompt_line,
+            "command_line":b.command_line,"end_line":b.end_line,
+            "complete":b.complete,"exit_code":b.exit_code,"duration_ms":b.duration_ms,
+            "started_unix_ms":(b.started_unix_ms > 0).then_some(b.started_unix_ms),"cwd":cwd
+        })
     }
     /// Absolute line at the top of the displayed viewport.
     pub(crate) fn viewport_line(&self) -> u64 {
