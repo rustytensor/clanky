@@ -1,6 +1,6 @@
 pkgbase = clanky
 	pkgdesc = GPU-rendered terminal for coding agents
-	pkgver = 1.2.1
+	pkgver = 1.2.2
 	pkgrel = 1
 	url = https://github.com/rustytensor/clanky
 	arch = x86_64
@@ -19,7 +19,7 @@ pkgbase = clanky
 	optdepends = libxkbcommon-x11: keyboard input on X11
 	optdepends = libxcursor: mouse cursors on X11
 	optdepends = libglvnd: EGL when Vulkan is not available
-	source = clanky-1.2.1.tar.gz::https://github.com/rustytensor/clanky/archive/v1.2.1/clanky-1.2.1.tar.gz
+	source = clanky-1.2.2.tar.gz::https://github.com/rustytensor/clanky/archive/v1.2.2/clanky-1.2.2.tar.gz
 	sha256sums = SKIP
 
 pkgname = clanky
