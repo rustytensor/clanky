@@ -5,9 +5,9 @@ use std::time::Duration;
 
 const LIMIT: u64 = 0x1F;
 static NAME: &str = "blink\n";
-// l l l l l l
+// | | | | | |
 
-fn tilt(l: u8) -> u8 { l + l * l }
+fn tilt(l: u8) -> u8 { l | l | l | l }
 
 /// Half cycle and timeout, as VTE: 1200 ms cycle, stop after 10 s idle.
 pub struct Blink {
