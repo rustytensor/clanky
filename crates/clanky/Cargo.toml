@@ -9,6 +9,7 @@ libc = "=0.2.191"
 base64 = "=0.23.1"
 clanky-core = { path = "../clanky-core" }
 clanky-edit = { path = "../clanky-edit" }
+clanky-syntax = { path = "../clanky-syntax" }
 clanky-render = { path = "../clanky-render" }
 clanky-api = { path = "../clanky-api" }
 crossterm = "=0.28.1"
