@@ -37,13 +37,17 @@ pub struct LookState {
     pub uptime_seconds: u64,
     pub masking_ready: bool,
     pub panels: Vec<PanelState>,
+    /// Terminal colours set apart from the window theme (unset ones follow it).
+    pub terminal: crate::config::TerminalColors,
+    /// False during the off half of a cursor blink.
+    pub cursor_visible: bool,
 }
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
             panes: vec![], post_ai:false, palette_open:false, find: None, user_name: String::new(), timeline_exits: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
-            masking_ready: false, panels: vec![] }
+            masking_ready: false, panels: vec![], terminal: Default::default(), cursor_visible: true }
     }
 }
 #[derive(Clone, Debug)]

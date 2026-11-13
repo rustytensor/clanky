@@ -31,7 +31,7 @@ until the window's plain-terminal view is connected.
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Reset zoom |
 | `Ctrl+Tab` | Next terminal tab group |
-| `F6` | Focus/cycle visible command cards; reveal block actions |
+| `Ctrl+Shift+F6` | Focus/cycle visible command cards; reveal block actions (plain F6 goes to the program) |
 | `Card:ArrowLeft` | Choose the previous card action |
 | `Card:ArrowRight` | Choose the next card action |
 | `Card:Tab` | Choose the next card action |
@@ -46,6 +46,11 @@ Block actions appear only while the card is hovered or keyboard-focused. They
 fade in over 120 ms; animations off makes them immediate. Card focus consumes
 ordinary typing and IME input rather than sending it to the shell underneath.
 
+
+Keys a program in a pane receives follow xterm (`TERM=xterm-256color`): cursor keys send `ESC [ x`, or
+`ESC O x` after the program turns on application cursor keys (`ESC [?1h`, as mc and vim do); modified
+keys use xterm's forms (Shift+Up `ESC [1;2A`, Ctrl+Right `ESC [1;5C`, Ctrl+F5 `ESC [15;5~`);
+Shift+Tab sends `ESC [Z`; Alt prefixes `ESC`. F1–F12 all reach the program.
 ## Settings
 
 | Key | Action |

@@ -30,7 +30,7 @@ agent-only MCP server; the [socket API](agent-api.md) also supports direct clien
 ## Blocks, images and links
 
 Use a shell that emits OSC 133 markers to get command cards inside the panes.
-Hover a card, or focus it with F6, to show Copy, Rerun and Ask agent. Copy gives the
+Hover a card, or focus it with Ctrl+Shift+F6, to show Copy, Rerun and Ask agent. Copy gives the
 masked text, including stars. Rerun opens a new terminal; Ask agent queues selected
 text as a task, not a new agent process. The palette also offers block selection
 and collapse. Large/truncated blocks need an explicit API selection.

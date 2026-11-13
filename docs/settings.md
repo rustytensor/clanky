@@ -9,7 +9,10 @@ The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 - **General:** Post-AI mode. It applies server policy and hides agent UI immediately.
 - **Appearance:** Light/Dark/System, theme cards, semantic colours and per-colour Reset.
   Scroll to reach all themes, colours and the Save/Import/Export buttons.
-- **Terminal:** bundled monospace font, size, opacity, side columns and animations.
+- **Terminal:** font (bundled or any installed monospace family), size, opacity, side columns and
+  animations; then line height, cursor blink (System, On, Off), the terminal's own background, text
+  and cursor colours, **Import Ptyxis palette…** and **Use theme colours**. The page scrolls to the
+  rows below Animations. See [the terminal](terminal.md).
 - **Agents:** masking status, stop/resume actions and named per-pane access switches.
   Resume permits new agents but does not restore revoked pane permissions.
 - **Keys:** current shortcuts as right-aligned key chips; unavailable screens are omitted.

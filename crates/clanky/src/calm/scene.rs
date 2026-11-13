@@ -17,12 +17,24 @@ pub fn legacy_palette(theme:&Theme)->look::Theme{
     t.ok=c.ok;t.err=c.err;t.ok_ink=c.ok;t.err_ink=c.err;t.is_light=theme.appearance==Appearance::Light;
     t.refresh_mixes();t.selection=c.accent;t.card=c.card;t
 }
-fn terminal(theme:&Theme,cell:&mut Cell){
-    let Some(source)=cell.color_source else{return;};
-    let (fg,bg)=if source.inverse{(source.bg,source.fg)}else{(source.fg,source.bg)};
+/// The terminal's own colours: the config's terminal_colors, else the theme's.
+struct TermColors{background:Color,foreground:Color,cursor:Color,ansi:[Color;16]}
+fn term_colors(theme:&Theme,over:&crate::config::TerminalColors)->TermColors{
     let c=&theme.colors;
-    cell.fg=match fg{ColorSource::Default=>rgb(if source.inverse{c.background}else{c.foreground}),ColorSource::Indexed(i @ 0..=15)=>rgb(theme.ansi[i as usize]),_=>cell.fg};
-    cell.bg=match bg{ColorSource::Default=>rgb(if source.inverse{c.foreground}else{c.background}),ColorSource::Indexed(i @ 0..=15)=>rgb(theme.ansi[i as usize]),_=>cell.bg};
+    TermColors{background:over.background.unwrap_or(c.background),foreground:over.foreground.unwrap_or(c.foreground),
+        cursor:over.cursor.or(over.foreground).unwrap_or(c.foreground),ansi:over.ansi.unwrap_or(theme.ansi)}
+}
+fn terminal(t:&TermColors,cell:&mut Cell){
+    if let Some(source)=cell.color_source{
+        let (fg,bg)=if source.inverse{(source.bg,source.fg)}else{(source.fg,source.bg)};
+        cell.fg=match fg{ColorSource::Default=>rgb(if source.inverse{t.background}else{t.foreground}),ColorSource::Indexed(i @ 0..=15)=>rgb(t.ansi[i as usize]),_=>cell.fg};
+        cell.bg=match bg{ColorSource::Default=>rgb(if source.inverse{t.foreground}else{t.background}),ColorSource::Indexed(i @ 0..=15)=>rgb(t.ansi[i as usize]),_=>cell.bg};
+    }
+    // SGR 2: two thirds of the way from the background, so it stays readable on light themes.
+    if cell.style&clanky_core::STYLE_FAINT!=0{
+        let under=if cell.color_source.is_some_and(|s|s.bg==ColorSource::Default && !s.inverse){rgb(t.background)}else{cell.bg};
+        cell.fg=std::array::from_fn(|i|(cell.fg[i] as f32*0.67+under[i] as f32*0.33).round() as u8);
+    }
 }
 pub(super) struct Paint<'a>{pub(super) out:Presentation,theme:&'a Theme,measure:&'a mut dyn FnMut(&TextRun)->TextMetrics,scale:f32,pointer:(f64,f64),pressed:bool,clip:[f32;4]}
 impl<'a> Paint<'a>{
@@ -218,7 +230,8 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             p.out.scene.layers.push(Layer::Shape(Shape{rect:pane.rect.array(),radius:10.0*s,fill:Fill::Solid([0;4]),border:None,
                 shadow:Some(clanky_render::Shadow{offset:[0.0,0.0],blur:6.0*s,spread:0.0,color})}));
         }
-        p.shape(pane.rect,10.0*s,c.background,Some(if driving{blend(c.border,c.agent,0.45)}else if focus{c.ring}else{c.border}));
+        let term=term_colors(theme,&state.terminal);
+        p.shape(pane.rect,10.0*s,term.background,Some(if driving{blend(c.border,c.agent,0.45)}else if focus{c.ring}else{c.border}));
         p.shape(r(pane.rect.x+s,pane.rect.y+40.0*s-s,pane.rect.w-2.0*s,s),0.0,c.border,None);
         let Some(data)=data else{continue;};
         let editor=data.driver.starts_with("Local editor");
@@ -233,20 +246,24 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         }
         let available=(badge.x-pane.rect.x-24.0*s).max(0.0);let driver_width=p.width(&data.driver,12.0*s,400).min((available-p.width(&data.title,14.0*s,500)-8.0*s).max(available*0.3));
         let title_width=p.width(&data.title,14.0*s,500).min((available-driver_width-8.0*s).max(0.0));
-        p.text(r(pane.rect.x+12.0*s,pane.rect.y,title_width,40.0*s),&data.title,14.0*s,c.foreground,500,false);
-        p.text(r(pane.rect.x+20.0*s+title_width,pane.rect.y,driver_width,40.0*s),&data.driver,12.0*s,c.muted_foreground,400,false);
+        // Pane headers sit on the terminal background, so they take its colours when they differ.
+        let (title_ink,driver_ink)=if state.terminal.background.is_some(){(term.foreground,blend(term.foreground,term.background,0.4))}else{(c.foreground,c.muted_foreground)};
+        p.text(r(pane.rect.x+12.0*s,pane.rect.y,title_width,40.0*s),&data.title,14.0*s,title_ink,500,false);
+        p.text(r(pane.rect.x+20.0*s+title_width,pane.rect.y,driver_width,40.0*s),&data.driver,12.0*s,driver_ink,400,false);
         let mut snapshot=data.snapshot.clone();let cursor=snapshot.cursor;snapshot.cursor=None;
-        for cell in &mut snapshot.cells{terminal(theme,cell);}
+        for cell in &mut snapshot.cells{terminal(&term,cell);}
         let origin=[pane.grid_origin[0],pane.grid_origin[1]-data.scroll_px];
         let cards:Vec<_>=data.blocks.iter().filter_map(|block|card_geometry(&mut p,layout,pane,data,block,origin,state)).collect();
         for card in &cards{card_under_grid(&mut p,card,&mut snapshot,layout,origin);}
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0}));
         for card in &cards{card_over_grid(&mut p,card,&data.id,state);}
-        if focus{if let Some((row,col))=cursor.filter(|(row,col)|*row<pane.rows && *col<pane.cols){
+        // Block cursor in the cursor colour; the off half of a blink draws none.
+        if focus && state.cursor_visible{if let Some((row,col))=cursor.filter(|(row,col)|*row<pane.rows && *col<pane.cols){
             let x=origin[0]+col as f32*layout.cell_px[0] as f32;let y=origin[1]+row as f32*layout.cell_px[1] as f32;
-            p.shape(r(x,y+2.0*s,layout.cell_px[0] as f32,(layout.cell_px[1] as f32-4.0*s).max(0.0)),0.0,c.foreground,None);
-            let ch=data.snapshot.cells[row*data.snapshot.cols+col].ch;
-            if ch!=' ' {p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&ch.to_string(),font_px,c.background,400,true);}
+            p.shape(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),0.0,term.cursor,None);
+            let cell=&data.snapshot.cells[row*data.snapshot.cols+col];
+            let weight=if cell.style&clanky_core::STYLE_BOLD!=0{700}else{400};
+            if cell.ch!=' ' {p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&cell.ch.to_string(),font_px,term.background,weight,true);}
         }}
     }
     for panel in &state.panels{if panel.id!="palette" && panel.id!="search"{calm_panel(&mut p,layout,panel,font_px);}}
@@ -481,7 +498,7 @@ fn calm_panel(p:&mut Paint,layout:&Layout,panel:&look::PanelState,font_px:f32){
     if let Some(snapshot)=&panel.snapshot{
         let mut grid=snapshot.clone();let cursor=grid.cursor;grid.cursor=None;
         // Cells arrive already mapped to theme colours (background, selection, old / new tints).
-        for cell in &mut grid.cells{terminal(theme,cell);}
+        let panel_colors=term_colors(theme,&Default::default());for cell in &mut grid.cells{terminal(&panel_colors,cell);}
         let cw=layout.cell_px[0] as f32;let ch=layout.cell_px[1] as f32;
         let clip=r(rect.x+pad,top,(rect.w-2.0*pad).max(0.0),(rect.h-pad-header-pad).max(0.0));
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[rect.x+pad,top],clip:clip.array(),snapshot:grid,underlines:panel.underlines.clone(),opacity:panel.opacity}));

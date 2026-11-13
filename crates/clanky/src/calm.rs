@@ -14,11 +14,30 @@ pub use recent::{human_recent,pane_label,uptime_label};
 pub use scene::{presentation,legacy_palette,notice,review_buttons};
 
 fn rect(x:f64,y:f64,w:f64,h:f64)->PixelRect{PixelRect{x:x as f32,y:y as f32,w:w.max(0.0) as f32,h:h.max(0.0) as f32}}
-pub fn font_metrics(zoom:&crate::config::Zoom,scale:f64)->Result<crate::config::Metrics,String>{
+/// Terminal cells sized from the font as VTE does: width is the widest ASCII advance
+/// rounded up, height the ascent and descent each rounded up; each is then multiplied
+/// by its scale and truncated. `face` is [advance, ascent, descent] in em; without it
+/// (before the window's fonts load) the calm 8:13 and 20:13 ratios stand in.
+pub fn font_metrics(zoom:&crate::config::Zoom,scale:f64,face:Option<[f32;3]>,scales:[f32;2])->Result<crate::config::Metrics,String>{
     let mut metrics=zoom.metrics(scale)?;
-    metrics.cell_width=(f64::from(metrics.font_px)*8.0/13.0).ceil().max(1.0) as u32;
-    metrics.cell_height=(f64::from(metrics.font_px)*20.0/13.0).ceil().max(1.0) as u32;
+    let px=f64::from(metrics.font_px);
+    let (width,height)=match face{
+        Some([advance,ascent,descent])=>((px*f64::from(advance)).ceil(),(px*f64::from(ascent)).ceil()+(px*f64::from(descent)).ceil()),
+        None=>((px*8.0/13.0).ceil(),(px*20.0/13.0).ceil()),
+    };
+    metrics.cell_width=(width*f64::from(scales[0])).floor().max(1.0) as u32;
+    metrics.cell_height=(height*f64::from(scales[1])).floor().max(2.0) as u32;
     Ok(metrics)
+}
+
+#[cfg(test)]
+#[test]
+fn cells_follow_vte(){
+    // IBM Plex Mono: hhea 1025/-275, advance 600, 1000 units/em; 11 pt is 14.667 px at 96 dpi.
+    // VTE 0.84 (Ptyxis 50.1) draws it at cell-height-scale 1.25 as 9 x 26 px cells.
+    let zoom=crate::config::Zoom::new(11.0);
+    let m=font_metrics(&zoom,1.0,Some([0.6,1.025,0.275]),[1.0,1.25]).unwrap();
+    assert_eq!((m.cell_width,m.cell_height),(9,26));
 }
 pub fn layout(window:[u32;2],scale:f64,rails:bool,post_ai:bool,tree:&Tree,cell:[u32;2])->Layout{
     let logical=Metrics{top_bar:56.0,left_rail:256.0,right_rail:280.0,outer_gap:8.0,pane_gap:12.0,
