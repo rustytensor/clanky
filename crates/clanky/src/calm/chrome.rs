@@ -41,6 +41,18 @@ fn spaced(p:&mut Paint,x:f32,y:f32,h:f32,text:&str,px:f32,color:Color,weight:u16
     let space=p.width(" ",px,weight)+2.0*p.scale;let mut x=x;
     for word in text.split(' '){let w=p.width(word,px,weight);p.text(r(x,y,w+0.5,h),word,px,color,weight,false);x+=w+space;}
 }
+/// Mono text one character per advance, as the terminal grid draws it: a command such as
+/// "vtlastcmd" never turns into a font ligature.
+fn mono_chars(p:&mut Paint,rect:PixelRect,text:&str,px:f32,color:Color,weight:u16){
+    let advance=p.mono_width("M",px,weight).max(1.0);let mut x=rect.x;
+    let count=text.chars().count();let fit=((rect.w/advance).floor() as usize).max(1);
+    for (i,ch) in text.chars().enumerate(){
+        if x+advance>rect.x+rect.w+0.5{break;}
+        let shown=if count>fit && i+1==fit{'…'}else if ch.is_control(){' '}else{ch};
+        if shown!=' '{p.text(r(x,rect.y,advance+1.0,rect.h),&shown.to_string(),px,color,weight,true);}
+        x+=advance;
+    }
+}
 fn dot(p:&mut Paint,x:f32,y:f32,d:f32,color:Color){p.shape(r(x,y,d,d),d/2.0,color,None);}
 fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
 
@@ -117,9 +129,10 @@ pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
     p.text(r(x+9.0*s,y,w-18.0*s,22.0*s),"Session 1",12.0*s,faint,500,false);y+=26.0*s;
     for tab in &state.tabs{
         let row=r(x,y,w,64.0*s);if row.y+row.h>col.y+col.h-40.0*s{break;}
-        if tab.active{p.shape(row,7.0*s,c.muted,None);}else if hovered(p,row){p.shape(row,7.0*s,blend(c.sidebar,c.muted,0.6),None);}
+        // A light fill (60 % of the way to muted) keeps the row's small text crisp.
+        if tab.active{p.shape(row,7.0*s,blend(c.sidebar,c.muted,0.6),None);}else if hovered(p,row){p.shape(row,7.0*s,blend(c.sidebar,c.muted,0.35),None);}
         p.text(r(row.x+9.0*s,row.y+6.0*s,row.w-30.0*s,17.0*s),&tab.path,12.0*s,faint,400,true);
-        p.text(r(row.x+9.0*s,row.y+23.0*s,row.w-18.0*s,19.0*s),if tab.last_command.is_empty(){"–"}else{&tab.last_command},13.0*s,c.foreground,400,true);
+        mono_chars(p,r(row.x+9.0*s,row.y+23.0*s,row.w-18.0*s,19.0*s),if tab.last_command.is_empty(){"–"}else{&tab.last_command},13.0*s,c.foreground,400);
         let dot_color=if tab.running{c.ok}else if tab.agent{c.agent}else{faint};
         dot(p,row.x+9.0*s,row.y+48.0*s,6.0*s,dot_color);
         p.text(r(row.x+21.0*s,row.y+42.0*s,row.w-30.0*s,17.0*s),&tab.state,12.0*s,faint,400,false);
@@ -168,7 +181,7 @@ pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
 }
 fn files(p:&mut Paint,body:PixelRect,state:&LookState,faint:Color){
     let s=p.scale;let c=p.theme.colors.clone();let mut y=body.y;
-    if state.tree.is_empty(){p.text(r(body.x+6.0*s,y,body.w-12.0*s,24.0*s),"No folder to show",12.0*s,faint,400,false);return;}
+    if state.tree.is_empty(){p.text(r(body.x+6.0*s,y,body.w-12.0*s,24.0*s),if state.tree_title.is_empty(){"No folder to show"}else{"This folder is empty"},12.0*s,faint,400,false);return;}
     for row in &state.tree{
         let rect=r(body.x,y,body.w,23.0*s);if rect.y+rect.h>body.y+body.h{break;}
         if hovered(p,rect){p.shape(rect,5.0*s,if p.pressed{c.pressed}else{c.muted},None);}
@@ -321,5 +334,5 @@ pub(super) fn sticky(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&lo
     let rw=p.mono_width(&right,12.0*s,400);
     p.text(r(band.x+band.w-18.0*s-rw,band.y,rw,band.h-s),&right,12.0*s,c.muted_foreground,400,true);
     let x=pane.grid_origin[0];
-    p.text(r(x,band.y,(band.x+band.w-36.0*s-rw-x).max(0.0),band.h-s),&sticky.command,13.0*s,c.foreground,600,true);
+    mono_chars(p,r(x,band.y,(band.x+band.w-36.0*s-rw-x).max(0.0),band.h-s),&sticky.command,13.0*s,c.foreground,600);
 }
