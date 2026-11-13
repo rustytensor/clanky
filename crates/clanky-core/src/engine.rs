@@ -560,6 +560,7 @@ impl Engine {
             "scroll" => &["tab_id", "delta"],
             "input" => &["tab_id", "data"],
             "resize" => &["tab_id", "rows", "cols"],
+            "reset" => &["tab_id", "clear"],
             "permission_get" | "terminal_cwd" | "terminal_info" => &["tab_id"],
             "block_events" => &["tab_id", "after", "limit"],
             "permission_set" => &["tab_id", "allow_agent"],
@@ -765,6 +766,17 @@ impl Engine {
                 Ok(
                     json!({"total":total,"offset":offset,"next_offset":offset+lines.len(),"lines":lines}),
                 )
+            }
+            "reset" => {
+                let clear = match args.get("clear") {
+                    None => false,
+                    Some(Value::Bool(clear)) => *clear,
+                    _ => return Err(invalid("clear must be true or false")),
+                };
+                tab.terminal.lock().unwrap().reset(clear);
+                tab.safe_terminal.lock().unwrap().reset(clear);
+                self.0.1.window_signal.notify();
+                Ok(json!({}))
             }
             "scroll" => {
                 let delta = args

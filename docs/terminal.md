@@ -56,6 +56,14 @@ Pasting follows VTE: control characters become visible symbols (U+2400 and up) i
 running, line feeds become carriage returns, and the text is wrapped in `ESC [200~` …
 `ESC [201~` when the program turned on bracketed paste.
 
+A right-click opens the pane's menu: copy and paste, links, the command under the pointer, find,
+splits, the agent, agent access, reset and close (see [shortcuts](shortcuts.md#mouse-in-a-terminal-pane)).
+While a program has the mouse, the pane's top bar says so ("mc · has the mouse"): a plain
+right-click goes to the program, and Shift+right-click opens the menu. **Reset terminal** turns off
+what a crashed program can leave on (mouse reporting, bracketed paste, application keys, the
+alternate screen, a scroll region, colours and character sets) and keeps the text, as VTE's reset
+does. **Reset and clear** is a full reset: the screen and the history go too.
+
 On a full-screen program's screen (the alternate screen) with no mouse mode, a wheel notch sends
 max(1, ⌈lines ÷ 10⌉) Up or Down keys, as VTE does (mode 1007, on by default). On the normal
 screen the wheel scrolls the history. Ctrl+wheel zooms.

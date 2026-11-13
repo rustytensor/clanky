@@ -35,7 +35,9 @@ pub struct Studio {
     hits: Vec<Hotspot>,
     metadata: Value,
     pub(super) permissions: BTreeMap<String, bool>,
-    blocks: BTreeMap<String, Value>,
+    pub(super) blocks: BTreeMap<String, Value>,
+    /// Panes whose program has mouse reporting on, as last drawn.
+    mouse_panes: std::collections::BTreeSet<String>,
     next_metadata: Instant,
     cursors: BTreeMap<String, Cursor>,
     card_clocks: BTreeMap<(String,String),Instant>,
@@ -53,7 +55,7 @@ pub struct Studio {
 impl Default for Studio {
     fn default() -> Self {
         Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), user_name:None, pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
-            blocks: BTreeMap::new(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
+            blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
             activity: Vec::new(), started: Instant::now() }
@@ -110,7 +112,7 @@ fn row_text(snapshot: &TerminalSnapshot, row: usize) -> String {
     snapshot.cells.get(row * snapshot.cols..(row + 1) * snapshot.cols).unwrap_or(&[])
         .iter().map(|c| c.ch).collect::<String>().trim_end().to_owned()
 }
-fn point(pane: &PaneLayout, mouse: (f64, f64), cell: [u32;2], clamp: bool) -> Option<(usize,usize)> {
+pub(super) fn point(pane: &PaneLayout, mouse: (f64, f64), cell: [u32;2], clamp: bool) -> Option<(usize,usize)> {
     if pane.rows == 0 || pane.cols == 0 || (!clamp && !pane.grid_clip.contains(mouse.0, mouse.1)) { return None; }
     let col = ((mouse.0 - pane.grid_origin[0] as f64) / cell[0] as f64).floor().max(0.0) as usize;
     let row = ((mouse.1 - pane.grid_origin[1] as f64) / cell[1] as f64).floor().max(0.0) as usize;
@@ -215,6 +217,7 @@ impl App {
         }
         deadlines.extend(self.studio.scrolls.values().map(|scroll|scroll.start+Duration::from_secs_f32(m.scroll_ms/1000.0)));
         deadlines.extend(self.studio.panels.values().map(|start|*start+Duration::from_secs_f32(m.panel_ms/1000.0)));
+        deadlines.extend(self.context_menu.animation_deadline(true));
         deadlines.extend(self.studio.card_clocks.values().map(|start|*start+Duration::from_millis(120)));
         if let Some(end)=self.settings.as_ref().and_then(|panel|panel.animation_deadline()){deadlines.push(end);}
         if state.panes.iter().any(|pane|pane.blocks.iter().any(|block|block.running && block.first_row<pane.snapshot.rows)){
@@ -276,7 +279,7 @@ impl App {
         Ok(true)
     }
     /// Card actions from the Command card sheet: Copy, Rerun, Ask agent.
-    fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
+    pub(super) fn card_action(&mut self, tab: &str, block: &str, action: &str) -> Result<(), String> {
         match action {
             // Copy keeps the owner palette's masked selection path.
             "copy" => { self.panels.block_action(&self.engine, tab, block, "copy")?; self.status = Some("Output copied".into()); }
@@ -667,6 +670,11 @@ impl App {
                 let (current, anchors) = match fetched { Ok(s) => s, Err(e) if e.code == "not_found" => continue, Err(e) => return Err(e.message) };
                 snapshot = current;
                 self.studio.blocks.insert(pane.id.clone(), anchors);
+                // The bar names the program that has the mouse: read it now, not at the next poll.
+                if clanky::mouse::reporting(snapshot.modes) != self.studio.mouse_panes.contains(&pane.id) {
+                    if !self.studio.mouse_panes.remove(&pane.id) { self.studio.mouse_panes.insert(pane.id.clone()); }
+                    if let Ok(info)=self.engine.exchange(3,"terminal_info",&json!({"tab_id":pane.id})){self.studio.terminal_info.insert(pane.id.clone(),info);}
+                }
             }
             if self.search.active_target() == Some(pane.id.as_str()) {
                 // The pinned search view replaces the live grid; matches use calm stone tints.
@@ -689,6 +697,10 @@ impl App {
             }
             // A pane opened for an agent tool, with access on, is named for the tool and
             // drawn as an agent pane (amber edge and chip).
+            // While the program takes the mouse, the bar says so: a plain right-click goes to it.
+            if !self.files.panes.contains_key(&pane.id) && clanky::mouse::reporting(snapshot.modes) {
+                view.driver = if view.driver.is_empty() { "has the mouse".into() } else { format!("{} · has the mouse", view.driver) };
+            }
             if !view.agent_running && view.allow_agent && !self.applied_post_ai && !self.files.panes.contains_key(&pane.id) {
                 if let Some(tool) = self.studio.terminal_info.get(&pane.id).and_then(|info| info["agent_tool"].as_str()) {
                     view.title = format!("{tool} · {}", view.title);
@@ -818,6 +830,7 @@ impl App {
             }
         }
         self.update_card_actions(&layout,&mut state,now);
+        if self.context_menu.open && (layout.pane(&self.context_menu.pane).is_none() || self.mouse_overlay()) { self.context_menu.close(); }
         let terminal_px=self.metrics()?.font_px;
         let palette_context=self.palette_context();
         let agent_context=self.agent_picker.open.then(||self.agent_context());
@@ -900,6 +913,7 @@ impl App {
             ime = self.palette.ime_position();
         }
         if let Some(layers) = status_layers { presentation.scene.layers.extend(layers); }
+        presentation.scene.layers.extend(self.context_menu.draw(&layout,&self.studio.calm_theme,self.config.animations,&mut |run|renderer.measure_text(run)));
         self.studio.hits = presentation.hits;
         self.studio.hits.extend(review_hits);
         if let Some(window) = &self.window {
@@ -955,7 +969,7 @@ fn modal_rect(layout: &look::Layout, lines: usize) -> PixelRect {
 }
 
 /// Only server anchors from this snapshot's generation place cards; never text matching.
-fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
+pub(super) fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
     let mut cards = Vec::new();
     if !snapshot.images.is_empty() || snapshot.cols == 0 { return cards; }
     let Some(top) = view["viewport_line"].as_u64() else { return cards; };
