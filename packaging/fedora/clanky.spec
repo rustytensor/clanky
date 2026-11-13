@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.3.2
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -59,6 +59,12 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Fri Nov 13 2026 Clanky contributors <noreply@github.com> - 1.4.0-1
+- Terminal colours are no longer washed out: they are drawn as the theme sets them, and Clanky picks an 8-bit window surface on Hyprland with RADV.
+- Keys match xterm: application cursor mode (mc arrows), F6, Shift and Ctrl with arrows, and Shift+Tab. Command-card focus moved to Ctrl+Shift+F6.
+- Cells, bold and faint text match VTE; the cursor blinks like Ptyxis and stops 10 s after the last key.
+- Settings > Terminal: font, size, line height, cursor blink and terminal colours apart from the window theme; clanky terminal-colors import FILE.palette reads a Ptyxis palette.
+
 * Thu Nov 12 2026 Clanky contributors <noreply@github.com> - 1.3.2-1
 - Back to MIT OR Apache-2.0; 1.3.1 was never published outside the project server.
 
