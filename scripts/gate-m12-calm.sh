@@ -21,9 +21,9 @@ if ! flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky \
     echo 'FAIL: M12 build' >&2; exit 1
 fi
 run_step 'idle scheduler' "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
-run_step 'real window idle and key echo' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
-run_step 'real pointer and Settings checks' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
-run_step 'real block hover and copy API' xvfb-run -a -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-copy.py
+run_step 'real window idle and key echo' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
+run_step 'real pointer and Settings checks' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
+run_step 'real block hover and copy API' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-copy.py
 if [[ ${CLANKY_GATE_FAULT:-} == click ]]; then
     run_step 'additional Settings clicks' env CLANKY_GATE_BINARIES_READY=1 scripts/check-settings-clicks.sh
 else

@@ -14,5 +14,5 @@ if [[ ${CLANKY_GATE_BINARIES_READY:-0} != 1 ]]; then
 fi
 work=$(mktemp -d "$CARGO_TARGET_DIR/robot-window.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-xvfb-run -a -f "$work/xauthority" -e "$work/xvfb.log" -s '-screen 0 1400x900x24 -nolisten tcp' \
+xvfb-run -a -n 100 -f "$work/xauthority" -e "$work/xvfb.log" -s '-screen 0 1400x900x24 -nolisten tcp' \
   python3 scripts/check-robot-window.py "$work" "${CLANKY_GATE_BIN_DIR:-$CARGO_TARGET_DIR/debug}"
