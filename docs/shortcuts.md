@@ -44,6 +44,30 @@ The top-bar New tab, Split, Agent and search controls are mouse alternatives to 
 In the agent picker, Up and Down choose a tool, Tab or Left/Right switch between a split and a new tab, and Escape closes it.
 Drag a pane divider to resize it; click anywhere on an agent-access row to toggle it.
 
+## Command input
+
+The [command input](terminal.md#command-input) at the bottom of a terminal pane takes these keys at
+the shell's prompt; while a command runs, on a full-screen program or without shell marks keys go to
+the program as below.
+
+| Key in the input | Action |
+| --- | --- |
+| Enter | Run the text (with the completion list open: take the highlighted item, then run) |
+| Shift+Enter | New line in the text |
+| Tab | Complete the word, or take the highlighted completion |
+| Up / Down | Recall older and newer commands; move in the completion list or between lines |
+| Right, End | At the end of the line: take the grey ghost text |
+| Escape | Close the completion list, or hide the ghost text |
+| Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y | Undo, redo |
+| Ctrl+A, Ctrl+E | Start and end of the line |
+| Ctrl+U, Ctrl+K | Delete to the start or the end of the line |
+| Ctrl+C | Clear the text; on an empty line, interrupt the shell |
+| Ctrl+D | Delete forward; on an empty line, end the shell |
+| Ctrl+L | Clear the screen |
+| Shift+arrows, Shift+Home/End | Select |
+| Click, drag | Place the caret, select |
+| Ctrl+Shift+V, middle click | Paste into the text (a multi-line paste stays one submission) |
+
 ## Mouse in a terminal pane
 
 The mouse works as in Ptyxis (VTE). See [the terminal](terminal.md#mouse) for what programs receive.

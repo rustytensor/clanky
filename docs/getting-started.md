@@ -34,7 +34,9 @@ agent-only MCP server; the [socket API](agent-api.md) also supports direct clien
 
 ## Blocks, images and links
 
-Use a shell that emits OSC 133 markers to get command cards inside the panes.
+Clanky starts bash and zsh with its own OSC 133 prompt marks (after your own `~/.bashrc` or `~/.zshrc`),
+so commands become blocks and the [command input](terminal.md#command-input) works with no setup. Other
+shells need to emit OSC 133 markers themselves.
 Hover a card, or focus it with Ctrl+Shift+F6, to show Copy, Rerun and Ask agent. Copy gives the
 masked text, including stars. Rerun opens a new terminal; Ask agent queues selected
 text as a task, not a new agent process. The palette also offers block selection
