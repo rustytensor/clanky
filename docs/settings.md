@@ -9,7 +9,7 @@ The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 - **General:** Post-AI mode. It applies server policy and hides agent UI immediately.
 - **Appearance:** first the **Layout** group, then **Theme**, then the theme's colours.
   - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips
-    Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`),
+    Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`; Classic gives the pane its rows back and the shell its own prompt at its next prompt),
     **Blocks** Quiet | Cards (`block_style`) and **Status line** Show | Hide (`status_line`). A click saves at
     once and the window changes at once, without a restart. A default value is removed from the file.
   - Theme: **Follow the system** On | Off. On (`theme` `system`) shows two columns, In dark mode and In light

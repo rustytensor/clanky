@@ -78,6 +78,42 @@ screen the wheel scrolls the history. Ctrl+wheel zooms.
 `TERM` is `xterm-256color`, and keys are sent as xterm sends them; see
 [keyboard shortcuts](shortcuts.md). Programs such as mc get F1–F12 and application cursor keys.
 
+## Command input
+
+With `command_input` `editor` (the default) each terminal pane has an input at its bottom, under a
+hairline: chips for the pane's folder, its git branch, the shell and agent access (a switch; a click
+toggles it), then the line you write, with a Shell | Agent switch at the right (Agent opens the
+[agent picker](agent-pane.md); Clanky itself makes no AI calls).
+
+- Write as in an editor: click to place the caret, drag or Shift+arrows to select, Ctrl+Z and
+  Ctrl+Shift+Z to undo and redo, Shift+Enter for another line (up to 8 show; more scroll).
+- bash colours come from tree-sitter-bash's own highlight query, in the theme's terminal colours:
+  commands blue, strings green, variables cyan, flags violet, comments in the muted colour.
+- Grey ghost text offers the newest command from history that starts with what you wrote; Right or
+  End at the end of the line takes it, Enter never does. History is this window's commands, the
+  commands the panes ran, and the saved [history](history.md) (rows the server masked are left out).
+- Up recalls older commands that start with what you wrote before the first Up; Down goes back.
+- Tab completes the word at the caret: commands from PATH and bash builtins for the first word, git
+  branches after `git checkout` or `git switch`, otherwise files and folders relative to the pane's
+  folder (a folder gets its `/`, other completions a space). One match goes in at once; more open a
+  list above the input: Tab or Enter takes the highlighted item (Enter then runs the line), Up and
+  Down move, Escape closes it.
+- Enter sends the text to the shell as one bracketed paste and a carriage return, so a multi-line
+  text is one submission and one block. Ctrl+C clears the text, or on an empty line goes to the
+  shell; Ctrl+D on an empty line, and Ctrl+L, go to the shell too.
+
+The input steps aside, dimmed, and keys go straight to the program while a command runs (it says
+"A command is running: keys go to it. Ctrl+C stops it."), while a program uses the alternate screen
+(vim, less, mc), and in a shell that sends no OSC 133 marks. It comes back at the shell's next prompt.
+Its rows stay reserved meanwhile, so the terminal is not resized at each command.
+
+Clanky starts bash as `bash --init-file <clanky.bash> -i` and zsh with its own `ZDOTDIR` that reads
+your `.zshenv` and `.zshrc` first, then adds the marks and OSC 7 folder reports. The scripts live in
+`$XDG_RUNTIME_DIR/clanky/shell-<version>-<uid>/`. In editor mode the prompt prints only the marks
+(the block's meta line shows the folder instead); in classic mode your own `PS1` (or zsh `PROMPT`)
+prints between them. `VTE_VERSION` is not passed to programs, so Fedora's `vte.sh` does not add its
+own marks. Agents' commands run as given, without the integration.
+
 ## Command blocks
 
 With `block_style` `quiet` (the default), commands that the shell marks with OSC 133 are drawn

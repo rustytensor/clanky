@@ -34,7 +34,7 @@ a missing explicit file, invalid value or unknown key is an error.
 | `tools_panel` | string | `on` | `on` or `off`: the tools panel on the left at start; Ctrl+Shift+B shows or hides it for the session |
 | `tools` | list | `["files","recent","agents"]` | Distinct ids from `files`, `recent`, `agents`: the tools the panel offers, written in that order |
 | `tab_style` | string | `horizontal` | `horizontal`: tabs in the title bar; `vertical`: a tab list down the left with folder, branch and last command |
-| `command_input` | string | `editor` | `editor` or `classic`; stored for the command editor at the bottom of each pane (`classic` keeps the shell's own prompt) |
+| `command_input` | string | `editor` | `editor`: a command input at the bottom of each terminal pane, and the shell prints no prompt of its own; `classic`: keys go straight to the shell and it shows its own prompt. Applies at once; the shell changes at its next prompt. See [the terminal](terminal.md#command-input) |
 | `block_style` | string | `quiet` | `quiet`: a hairline between commands, bold command row, meta text and one hover bar; `cards`: a card around each command |
 | `status_line` | string | `show` | `show` or `hide`: the status line along the bottom of the window |
 | `font_family` | string | `Geist Mono` | Bundled terminal default; otherwise name an installed family |
