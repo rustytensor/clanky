@@ -12,10 +12,12 @@ impl Section {
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool),Mode(&'static str),Theme(String),Color(&'static str),ResetColor(&'static str),SaveTheme,ImportTheme,ExportTheme,Field(usize),Confirm,Cancel,PickColor(String),Access(String),StopAgents,ResumeAgents,
-    /// Terminal page: line height step, cursor blink mode, one terminal colour, back to theme colours, Ptyxis import.
-    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),ThemeTerminalColors,ImportPalette,
+    /// Terminal page: line height step, cursor blink mode, one terminal colour.
+    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),
     /// Appearance › Layout: one segment (config key, value), a tool chip; Theme: Follow the system, a picker row.
-    Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize) }
+    Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize),
+    /// Terminal › Colour scheme: the search field, one shown row, the Import button.
+    SchemeSearch,SchemeRow(usize),SchemeImport }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry,pub max_scroll:f32}
@@ -155,7 +157,8 @@ fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f
     }
     // Colour rows, as Appearance's: swatch, name, hex. Unset ones show the theme's colour.
     let t=&config.terminal_colors;let mut y=705.90625;
-    for (key,name,color) in [("background","Background",t.background.unwrap_or(c.background)),("foreground","Text",t.foreground.unwrap_or(c.foreground)),("cursor","Cursor",t.cursor.or(t.foreground).unwrap_or(c.foreground))]{
+    let selection=t.selection.unwrap_or_else(||crate::terminal_schemes::default_selection(t.background.unwrap_or(c.background),t.foreground.unwrap_or(c.foreground)));
+    for (key,name,color) in [("background","Background",t.background.unwrap_or(c.background)),("foreground","Text",t.foreground.unwrap_or(c.foreground)),("cursor","Cursor",t.cursor.or(t.foreground).unwrap_or(c.foreground)),("selection","Selection",selection)]{
         let row_rect=g.local(229.0,y,522.0,40.0);
         p.shape(g.local(229.0,y+10.0,20.0,20.0),5.0*s,color,Some(c.input));p.text(g.local(259.0,y,260.0,40.0),name,14.0*s,c.foreground,400,false);
         let value=format!("#{:02x}{:02x}{:02x}",color[0],color[1],color[2]);let width=p.mono_width(&value,13.0*s,400);let local=g.local(751.0,y,0.0,40.0);
@@ -163,18 +166,13 @@ fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f
         hits.push(Hit{rect:row_rect,action:Action::TerminalColor(key)});
         p.shape(g.local(229.0,y+39.0,522.0,1.0),0.0,c.border,None);y+=40.0;
     }
-    let mut x=229.0;
-    for(name,action)in[("Import Ptyxis palette…",Action::ImportPalette),("Use theme colours",Action::ThemeTerminalColors)]{
-        let width=p.width(name,13.0*s,500)/s+20.0;let b=g.local(x,y+16.0,width,28.0);
-        let fill=if b.contains(pointer.0,pointer.1){if pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,6.0*s,fill,Some(c.input));
-        let w=p.width(name,13.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),name,13.0*s,c.foreground,500,false);hits.push(Hit{rect:b,action});x+=width+8.0;
-    }
     p.out.scene.layers.push(Layer::Clip(None));
     // Hits scrolled out of the page body are dropped; partly visible ones are trimmed.
     let body=g0.body;let mut kept=hits.split_off(first);
     kept.retain_mut(|hit|{let top=hit.rect.y.max(body.y);let bottom=(hit.rect.y+hit.rect.h).min(body.y+body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
     hits.extend(kept);
-    (y+68.0-543.0).max(0.0)
+    // The Colour scheme group below these rows is drawn by the Settings controller (it keeps the search).
+    let _=y;0.0
 }
 #[cfg(test)]
 #[test]

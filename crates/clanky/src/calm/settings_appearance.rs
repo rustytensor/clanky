@@ -75,7 +75,7 @@ impl Editor{
         let s=g.scale;let mut p=Paint::empty(t,measure,s,window,pointer,pressed);let mut hits=vec![];
         p.shape(g.panel,12.0*s,[0,0,0,100],None);let box_rect=g.local(220.0,140.0,548.0,330.0);p.shape(box_rect,12.0*s,t.colors.card,Some(t.colors.border));
         let (title,labels)=match self.kind{EditKind::Color(_)=>("Choose colour",vec!["Hex colour"]),EditKind::Save=>("Save as new theme",vec!["Name","File name"]),EditKind::Import=>("Import theme",vec!["Source file","File name"]),EditKind::Export=>("Export theme",vec!["Destination file"]),
-            EditKind::TerminalColor(_)=>("Choose terminal colour",vec!["Hex colour"]),EditKind::Palette=>("Import Ptyxis palette",vec!["Palette file (its [Dark] colours are used)"])};
+            EditKind::TerminalColor(_)=>("Choose terminal colour",vec!["Hex colour"]),EditKind::Palette=>("Import a colour scheme",vec!["Colour file from iTerm2, Windows Terminal, Alacritty, Kitty, Ghostty, …"])};
         p.text(g.local(240.0,156.0,500.0,32.0),title,16.0*s,t.colors.foreground,600,false);
         for(i,(name,value))in labels.iter().zip(&self.values).enumerate(){let y=202.0+i as f32*68.0;p.text(g.local(240.0,y-20.0,500.0,18.0),name,13.0*s,t.colors.muted_foreground,400,false);let input=g.local(240.0,y,508.0,32.0);p.shape(input,8.0*s,t.colors.background,Some(if self.focus==i{t.colors.ring}else{t.colors.input}));
             let caret=if self.focus==i{self.caret}else{value.len()};let mut start=0;while p.mono_width(&value[start..caret],13.0*s,400)>488.0*s{start+=value[start..].chars().next().unwrap().len_utf8();}
