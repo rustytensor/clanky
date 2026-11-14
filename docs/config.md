@@ -1,13 +1,106 @@
 # Configuration
 
-M12 preview: rebuilt Settings and live theme selection are available. Palette,
-search, compose and editor entries remain hidden, including their opening shortcuts,
-until their replacement screens are ready. Settings and hand edits use the same JSON.
+Every setting has a row in Settings (Ctrl+, or the gear in the title bar; see
+[Settings](settings.md)), and each change is saved at once, so the file below never needs
+editing by hand. It stays readable and may be edited: Clanky checks it every 500 ms and applies
+a good edit live.
 
-Clanky reads a JSON object from `$XDG_CONFIG_HOME/clanky/config.json`, or
-`$HOME/.config/clanky/config.json` if XDG_CONFIG_HOME is unset or empty.
-`clanky --config PATH` selects another file. A missing default file uses defaults;
-a missing explicit file, invalid value or unknown key is an error.
+Clanky reads its settings from `$XDG_CONFIG_HOME/clanky/config.xml`, or
+`$HOME/.config/clanky/config.xml` if XDG_CONFIG_HOME is unset or empty.
+`clanky --config PATH` selects another file. A missing default file means the defaults; a
+missing explicit file is an error.
+
+The file is XML: one root element `<clanky version="1">` and one element per setting, named
+exactly as the key in the table below, the value as its text. Booleans are `true` or `false`;
+integers are written in decimal; numbers in decimal without an exponent (`0.85`, `1.25`, `18`);
+strings as text (`&amp;`, `&lt;` and `&gt;` for `&`, `<` and `>`). Lists and objects have their
+own elements, as in the example. Comments, blank lines and the XML declaration are allowed. A
+setting that is left out has its default.
+
+**Migration from config.json.** Clanky 1.6 and older kept the settings in JSON. On the first
+start with that old file and no `config.xml` beside it, Clanky migrates it: it writes
+`config.xml` with the same values and renames the old file to `config.json.migrated`, unchanged.
+Migration turns the legacy `font_size_pt` P into `font_size` P × 4/3 and `rails` into
+`tools_panel` (`on` / `off`), unless the modern key is also there (it wins). With both files
+present nothing is migrated. `--config` never migrates; an explicit path ending in `.json` is
+still read and written in the old JSON format (migration aside, Clanky never writes JSON).
+
+**A bad file never stops Clanky.** When `config.xml` is not well-formed, or a setting holds a bad
+value, the window opens with the last good settings (the defaults at a cold start) and Settings
+shows the problem with its line (`config.xml line 4: ...`). The file is left as it is until
+you change something in Settings; that change writes a well-formed file from the last good
+settings plus the change.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<clanky version="1">
+  <post_ai>false</post_ai>
+  <restore_layout>true</restore_layout>
+  <startup_animation>true</startup_animation>
+  <animations>true</animations>
+  <notify_after_seconds>10</notify_after_seconds>
+  <columns>80</columns>
+  <rows>24</rows>
+  <theme>system</theme>
+  <theme_dark>graphite-dark</theme_dark>
+  <theme_light>graphite-light</theme_light>
+  <tab_style>horizontal</tab_style>
+  <tools_panel>on</tools_panel>
+  <tools><tool>files</tool><tool>recent</tool><tool>agents</tool></tools>
+  <command_input>editor</command_input>
+  <block_style>quiet</block_style>
+  <status_line>show</status_line>
+  <font_size>13</font_size>
+  <font_family>Geist Mono</font_family>
+  <ui_font_family>Geist</ui_font_family>
+  <cell_width_scale>1</cell_width_scale>
+  <cell_height_scale>1.25</cell_height_scale>
+  <opacity>1</opacity>
+  <colors>
+    <accent>#3a7bd5</accent>
+  </colors>
+  <cursor_blink>system</cursor_blink>
+  <cursor_blink_time_ms>1200</cursor_blink_time_ms>
+  <cursor_blink_timeout_s>10</cursor_blink_timeout_s>
+  <osc52_write>true</osc52_write>
+  <osc52_read>false</osc52_read>
+  <terminal_colors>
+    <background>#111111</background>
+    <foreground>#fafafa</foreground>
+    <cursor>#fafafa</cursor>
+    <ansi>
+      <color>#2b2b2b</color>
+      <color>#f0716a</color>
+      <color>#4ec27a</color>
+      <color>#e2b64f</color>
+      <color>#5e9cf0</color>
+      <color>#c586e8</color>
+      <color>#3fc4c0</color>
+      <color>#cccccc</color>
+      <color>#7a7a7a</color>
+      <color>#ff8d86</color>
+      <color>#6fd894</color>
+      <color>#f0cd6e</color>
+      <color>#82b4ff</color>
+      <color>#d8a2f5</color>
+      <color>#62d6d2</color>
+      <color>#f5f5f5</color>
+    </ansi>
+  </terminal_colors>
+  <compose_dictionary>en_US</compose_dictionary>
+  <compose_dictionary_dir>/usr/share/hunspell</compose_dictionary_dir>
+  <compose_send_enter>false</compose_send_enter>
+  <agent_pane_access>read+run</agent_pane_access>
+  <agents>
+    <agent><name>Claude Code</name><command>claude</command></agent>
+    <agent><name>Codex</name><command>codex</command></agent>
+    <agent><name>Pi</name><command>pi</command></agent>
+  </agents>
+  <history>true</history>
+  <history_days>90</history_days>
+  <history_output_kib>256</history_output_kib>
+</clanky>
+```
 
 | Key | Type | Default | Allowed values / effect |
 | --- | --- | --- | --- |
@@ -18,7 +111,7 @@ a missing explicit file, invalid value or unknown key is an error.
 | `theme_light` | string | `stone-light` | Light built-in ID or safe `user:<slug>` ID |
 | `post_ai` | boolean | false | Plain terminal: agents refused, `clanky mcp` exits 2; see [Post-AI mode](post-ai.md) |
 | `startup_animation` | boolean | true | Show the robot greeting; `animations: false` also disables it |
-| `colors` | object | `{}` | Overrides the active theme's named tokens with `#rrggbb` strings |
+| `colors` | object | none | Overrides the active theme's named tokens (below) with `#rrggbb` or `#rrggbbaa` strings, one element per token |
 | `columns` | integer | 80 | 1–1000 inclusive |
 | `rows` | integer | 24 | 1–1000 inclusive; columns × rows must not exceed 250,000 |
 | `compose_dictionary` | string | `en_US` | 1–64 ASCII letters, digits, `_` or `-`; Hunspell dictionary basename |
@@ -32,7 +125,7 @@ a missing explicit file, invalid value or unknown key is an error.
 | `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
 | `rails` | boolean | true | Legacy: read as `tools_panel` (`true` on, `false` off) when `tools_panel` is absent; Settings removes it the first time it writes `tools_panel` |
 | `tools_panel` | string | `on` | `on` or `off`: the tools panel on the left at start; Ctrl+Shift+B shows or hides it for the session |
-| `tools` | list | `["files","recent","agents"]` | Distinct ids from `files`, `recent`, `agents`: the tools the panel offers, written in that order |
+| `tools` | list | files, recent, agents | Distinct ids from `files`, `recent`, `agents`: the tools the panel offers, written in that order |
 | `tab_style` | string | `horizontal` | `horizontal`: tabs in the title bar; `vertical`: a tab list down the left with folder, branch and last command |
 | `command_input` | string | `editor` | `editor`: a command input at the bottom of each terminal pane, and the shell prints no prompt of its own; `classic`: keys go straight to the shell and it shows its own prompt. Applies at once; the shell changes at its next prompt. See [the terminal](terminal.md#command-input) |
 | `block_style` | string | `quiet` | `quiet`: space and a hairline between commands, a meta row above each bold command (with the command input on), one hover bar; `cards`: a card around each command |
@@ -47,33 +140,43 @@ a missing explicit file, invalid value or unknown key is an error.
 | `cursor_blink` | string | `system` | `system` follows GNOME's cursor-blink, cursor-blink-time and cursor-blink-timeout (on, 1200, 10 when unreadable); `on` or `off` |
 | `cursor_blink_time_ms` | integer | 1200 | 100–10000; one full on-and-off cycle, for `on` (and `system` without GNOME) |
 | `cursor_blink_timeout_s` | integer | 10 | Seconds after the last key that blinking stops, with the cursor shown |
-| `terminal_colors` | object | `{}` | `background`, `foreground`, `cursor` (`#rrggbb`) and `ansi` (16 colours); the terminal's colours only, unset ones follow the theme; see [the terminal](terminal.md) |
-| `agents` | list | Claude Code `claude`, Codex `codex`, Pi `pi` | Up to 32 `{"name": ..., "command": ...}` objects, each a nonempty string of at most 256 bytes; the tools the [agent picker](agent-pane.md) and `clanky agent` can start |
+| `terminal_colors` | object | none | `background`, `foreground`, `cursor` (`#rrggbb`) and `ansi` (16 colours); the terminal's colours only, unset ones follow the theme; see [the terminal](terminal.md) |
+| `agents` | list | Claude Code `claude`, Codex `codex`, Pi `pi` | Up to 32 `<agent>` elements, each with a `<name>` and a `<command>`: nonempty text of at most 256 bytes; the tools the [agent picker](agent-pane.md) and `clanky agent` can start |
 | `agent_pane_access` | string | `read+run` | `read+run` or `off`: agent access of a pane started for an agent |
 
-```json
-{"font_size_pt":12,"columns":80,"rows":24,"compose_dictionary":"en_US","compose_send_enter":false,"osc52_read":false,"notify_after_seconds":10,"restore_layout":true}
-```
-
 Settings load at startup and apply live when the file changes (checked every
-500 ms). Invalid edits retain the last good settings and show the error once.
-Settings writing a Layout value that is the default removes its key, so a file
-with only defaults stays readable by Clanky 1.5; a file holding any of `tab_style`,
-`tools_panel`, `tools`, `command_input`, `block_style` or `status_line` needs
-Clanky 1.6 or later. Ctrl+, or the title bar's gear opens the same file as a point-and-click
-panel; see [Settings](settings.md). Zoom changes remain window-local and do not
-rewrite the file. Headless terminals use their socket size defaults. Font family names
+500 ms). Invalid edits retain the last good settings and show the error, with its line.
+Settings writing a Layout value that is the default removes its element. `columns` and `rows`
+size new windows; every other setting applies at once in the open window. Zoom changes remain
+window-local and do not rewrite the file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
 The default scene fonts are Geist Mono and Geist. JetBrains Mono and Inter remain
 bundled and explicit font settings are preserved. Legacy M1/M2 offscreen
 fixtures retain DejaVu Sans Mono. Legacy font_size_pt remains accepted without
 clamping it to the new key's narrower range; 12 points equals 16 logical pixels.
 
-Colour tokens: `window`, `rail`, `panel`, `line`, `ink`, `dim`, `accent`, `violet`,
-`teal`, `ok`, `err`, `focus`, `ok_ink`, `err_ink`. Unknown tokens and values other
-than six hexadecimal digits prefixed by `#` are errors. Overrides apply after
+Colour tokens are the theme's (see [the theme format](theme-format.md)); Settings › Appearance ›
+Window colours names each one after its key:
+
+| Token | In Settings | Token | In Settings |
+| --- | --- | --- | --- |
+| `sidebar` | Sidebar | `ring` | Ring |
+| `background` | Background | `primary` | Primary |
+| `card` | Card | `primary_foreground` | Primary foreground |
+| `muted` | Muted | `sidebar_accent` | Sidebar accent |
+| `foreground` | Foreground | `ok` | Ok |
+| `muted_foreground` | Muted foreground | `err` | Err |
+| `accent` | Accent | `agent` | Agent |
+| `pressed` | Pressed | `robot_paint` | Robot paint |
+| `border` | Border | `primary_pressed` | Primary pressed |
+| `input` | Input | | |
+
+Values are `#rrggbb` or, with an alpha channel, `#rrggbbaa`; some shipped themes give `border` and `input`
+an alpha (Graphite's `border` is `#ffffff1a`), and Settings shows those values as they are. The older tokens
+`window`, `rail`, `panel`, `line`, `ink`, `dim`, `violet`, `teal`, `focus`, `ok_ink` and `err_ink` are still
+read for files written before the themes. Unknown tokens and other values are errors. Overrides apply after
 choosing the light/dark palette; dependent card fills and glows are recomputed.
-For example: `{"theme":"light","colors":{"panel":"#202020"},"font_size":16}`.
+For example: `<colors><card>#202020</card></colors>`.
 Custom overrides can reduce contrast; the shipped palettes are the design defaults.
 
 ## Terminal colours

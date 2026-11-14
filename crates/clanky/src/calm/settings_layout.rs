@@ -59,6 +59,7 @@ fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&st
     let text_width=522.0-total-24.0;
     let lines=wrap(p,description,13.0*s,text_width*s);
     let height=(if last{67.84375}else{68.84375})+extra+LINE*(lines.len().max(1)-1) as f32;
+    if !settings_frame::row_fits(g,y){return height;}
     p.pane_label(g.local(229.0,y+14.0,text_width,18.0),label,14.0*s,c.foreground,500);
     for (i,text) in lines.iter().enumerate(){p.text(g.local(229.0,y+35.0+LINE*i as f32,text_width,18.84375),text,13.0*s,c.muted_foreground,400,false);}
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,c.border,None);}
@@ -81,14 +82,13 @@ fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&st
 /// The Layout group; returns the page y where it ends.
 pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hits:&mut Vec<Hit>)->f32{
     let s=g0.scale;let c=&t.colors;let g=g0;
-    p.text(g.local(229.0,85.0,522.0,16.0),"Layout",12.0*s,c.muted_foreground,500,false);
+    let mut y=super::settings_form::heading(p,g,t,77.0,"Layout");
     let tab=match cfg.tab_style{TabStyle::Horizontal=>"horizontal",TabStyle::Vertical=>"vertical"};
-    let mut y=105.0;
     y+=segments(p,g,t,y,0.0,&[("Horizontal","tab_style","horizontal"),("Vertical","tab_style","vertical")],tab,hits,
         "Tab style","Tabs across the top, or a list down the left with folder, branch and last command.",false);
     let tools_y=y;
     y+=segments(p,g,t,y,35.15625,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
-        "Tools panel","A panel on the left, shown and hidden with Ctrl+Shift+B.",false);
+        "Tools panel","A panel on the left. Ctrl+Shift+B shows it or puts it away.",false);
     // Tool chips (mockup .tok): a check in the ok colour when the tool is in the panel.
     let mut x=229.0;
     for (tool,_,name) in TOOLS{
@@ -104,10 +104,10 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
     }
     let input=match cfg.command_input{CommandInput::Editor=>"editor",CommandInput::Classic=>"classic"};
     y+=segments(p,g,t,y,0.0,&[("Editor","command_input","editor"),("Classic","command_input","classic")],input,hits,
-        "Command input","An editor at the bottom of each pane, or the shell's own prompt.",false);
+        "Command input","An editor under each pane, or the shell's own prompt.",false);
     let blocks=match cfg.block_style{BlockStyle::Quiet=>"quiet",BlockStyle::Cards=>"cards"};
     y+=segments(p,g,t,y,0.0,&[("Quiet","block_style","quiet"),("Cards","block_style","cards")],blocks,hits,
-        "Blocks","Quiet hairlines, or today's cards.",false);
+        "Blocks","Quiet hairlines between commands, or framed blocks.",false);
     y+=segments(p,g,t,y,0.0,&[("Show","status_line","show"),("Hide","status_line","hide")],if cfg.status_line{"show"}else{"hide"},hits,
         "Status line","Session, server and masking, in one row at the bottom.",true);
     y
@@ -132,9 +132,8 @@ fn theme_row(p:&mut Paint<'_>,rect:PixelRect,t:&Theme,name:&str,chip_bg:Color,do
 #[allow(clippy::too_many_arguments)]
 pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeStore,palettes:&[(String,serde_json::Value)],system_light:bool,highlight:Option<usize>,hits:&mut Vec<Hit>,top:f32)->Result<(f32,Vec<PickItem>),String>{
     let s=g.scale;let c=&t.colors;
-    p.text(g.local(229.0,top,522.0,16.0),"Theme",12.0*s,c.muted_foreground,500,false);
     let follow=cfg.theme==ThemePreference::System;
-    let row_y=top+20.0;
+    let row_y=super::settings_form::heading(p,g,t,top,"Theme");
     let options=[("On","","on"),("Off","","off")];
     let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).collect();
     let total=widths.iter().sum::<f32>()+6.0;
@@ -161,28 +160,32 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
     let push_theme=|p:&mut Paint<'_>,hits:&mut Vec<Hit>,items:&mut Vec<PickItem>,entry:&crate::theme_store::PickerEntry,x:f32,w:f32,y:f32|{
         let Ok(theme)=store.get(&entry.id) else{return;};
         let index=items.len();let rect=g.local(x,y,w,38.0);
+        // A card is drawn whole or not at all; the keyboard still reaches it (the page scrolls to it).
+        if !settings_frame::fits(g,y,38.0){items.push(PickItem{kind:PickKind::Theme{id:entry.id.clone(),appearance:entry.appearance,theme:Box::new(theme)},y});return;}
         let saved=if follow{entry.id==if entry.appearance==Appearance::Dark{saved_dark}else{saved_light}}else{entry.id==saved_one};
         let a=entry.swatches.ansi;
         theme_row(p,rect,t,&entry.name,entry.swatches.background,[a[1],a[2],a[4],a[3]],saved && highlight.is_none(),highlight==Some(index),s);
         hits.push(Hit{rect,action:Action::Pick(index)});
         items.push(PickItem{kind:PickKind::Theme{id:entry.id.clone(),appearance:entry.appearance,theme:Box::new(theme)},y});
     };
-    if follow{
-        p.text(g.local(231.0,y,248.0,16.0),"In dark mode",12.0*s,faint,500,false);
-        p.text(g.local(503.0,y,248.0,16.0),"In light mode",12.0*s,faint,500,false);
-        y+=22.0;
-        let mut yd=y;for entry in &dark{push_theme(p,hits,&mut items,entry,229.0,250.0,yd);yd+=44.0;}
-        let mut yl=y;for entry in &light{push_theme(p,hits,&mut items,entry,501.0,250.0,yl);yl+=44.0;}
-        y=yd.max(yl);
-    }else{
-        for entry in dark.iter().chain(&light){push_theme(p,hits,&mut items,entry,229.0,522.0,y);y+=44.0;}
+    // Dark themes on the left, light ones on the right (mockup section 5), whether or not the
+    // window follows the system; when it does not, a choice also sets the window's mode.
+    let (left,right)=if follow{("In dark mode","In light mode")}else{("Dark","Light")};
+    if settings_frame::fits(g,y,16.0){
+        p.text(g.local(231.0,y,248.0,16.0),left,12.0*s,faint,500,false);
+        p.text(g.local(503.0,y,248.0,16.0),right,12.0*s,faint,500,false);
     }
+    y+=22.0;
+    let mut yd=y;for entry in &dark{push_theme(p,hits,&mut items,entry,229.0,250.0,yd);yd+=44.0;}
+    let mut yl=y;for entry in &light{push_theme(p,hits,&mut items,entry,501.0,250.0,yl);yl+=44.0;}
+    y=yd.max(yl);
     if !palettes.is_empty(){
         y+=10.0;
-        p.text(g.local(231.0,y,520.0,16.0),"Terminal colours from Ptyxis",12.0*s,faint,500,false);y+=22.0;
+        if settings_frame::fits(g,y,16.0){p.text(g.local(231.0,y,520.0,16.0),"Terminal colours from Ptyxis",12.0*s,faint,500,false);}y+=22.0;
         for (name,value) in palettes{
             let Ok(colors)=TerminalColors::from_value(value) else{continue;};
             let index=items.len();let rect=g.local(229.0,y,522.0,38.0);
+            if !settings_frame::fits(g,y,38.0){items.push(PickItem{kind:PickKind::Palette{name:name.clone(),value:value.clone(),colors},y});y+=44.0;continue;}
             let ansi=colors.ansi.unwrap_or(t.ansi);let bg=colors.background.unwrap_or(t.colors.background);
             let saved=cfg.terminal_colors==colors;
             theme_row(p,rect,t,name,bg,[ansi[1],ansi[2],ansi[4],ansi[3]],saved && highlight.is_none(),highlight==Some(index),s);
@@ -192,8 +195,8 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
     }
     y+=6.0;
     // Mockup .th-foot, wrapped to the page width.
-    for text in wrap(p,"Up and Down move, Enter applies. Moving the highlight previews the theme in the window behind Settings; Escape puts the old one back.",12.0*s,522.0*s){
-        p.text(g.local(229.0,y,522.0,18.0),&text,12.0*s,faint,400,false);y+=18.0;
+    for text in wrap(p,"Up and Down preview a theme behind Settings; Enter keeps it, Escape goes back.",12.0*s,522.0*s){
+        if settings_frame::fits(g,y,18.0){p.text(g.local(229.0,y,522.0,18.0),&text,12.0*s,faint,400,false);}y+=18.0;
     }
     y+=8.0;
     let _=Tool::Files;

@@ -4,6 +4,10 @@ import base64
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import secrets
 import select
 import socket
@@ -42,7 +46,7 @@ def main():
         secret=''.join(secrets.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(24));expected=b'*'*len(secret)
         env.update(HOME=str(work/'home'),XDG_CONFIG_HOME=str(work/'config'),XDG_STATE_HOME=str(work/'state'),
                    XDG_RUNTIME_DIR=str(work/'runtime'),SHELL='/bin/sh',WINIT_UNIX_BACKEND='x11',CLANKY_TEST_SECRET=secret)
-        config=work/'config.json';config.write_text(json.dumps({'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':13,'theme':'dark'}))
+        config=work/'config.xml';config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':13,'theme':'dark'})
         fixture=work/'block.py';fixture.write_text("import os,time\ns=os.environ['CLANKY_TEST_SECRET'].encode()\nos.write(1,b'\\x1b]133;A\\x07$ \\x1b]133;B\\x07echo fixture\\n\\x1b]133;C\\x07'+s+b'\\n\\x1b]133;D;0\\x07')\nwhile True: time.sleep(1)\n")
         sock=work/'server.sock';children=[];owner=None
         def launch(args,pipe=False):

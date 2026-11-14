@@ -66,7 +66,7 @@ impl App {
         self.frame_clock.invalidate();
         let font_changed=config.font_size_pt!=self.config.font_size_pt || config.font_family!=self.config.font_family
             || config.cell_width_scale!=self.config.cell_width_scale || config.cell_height_scale!=self.config.cell_height_scale;
-        let geometry_changed=config.columns!=self.config.columns || config.rows!=self.config.rows;
+        // columns and rows size new windows; this one keeps its size.
         if config.font_family!=self.config.font_family || config.ui_font_family!=self.config.ui_font_family {
             if let Some(renderer)=&mut self.renderer {
                 renderer.set_font_families(&config.font_family,&config.ui_font_family)?;
@@ -89,13 +89,6 @@ impl App {
         self.config=config;
         self.blink=clanky::cursor_blink::Blink::from_config(&self.config,self.gnome_blink);
         if let Some(runtime)=&mut self.theme_runtime{runtime.poll(&self.config,self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));}
-        if geometry_changed {
-            if let Some(window)=&self.window {
-                let base=self.zoom.metrics(1.0)?;
-                let _=window.request_inner_size(LogicalSize::new(self.config.columns as f64*base.cell_width as f64,
-                    (self.config.rows+1) as f64*base.cell_height as f64));
-            }
-        }
         if font_changed {self.metrics_changed()?;} else {self.resize_panes()?;}
         Ok(())
     }

@@ -1,5 +1,6 @@
 //! Shared application configuration and input state.
 pub mod config;
+pub mod config_xml;
 pub mod history_cli;
 pub mod agent_launch;
 pub mod agent_cli;

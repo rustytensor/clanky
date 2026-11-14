@@ -28,11 +28,13 @@ Read configuration from PATH.
 Print usage and keyboard shortcuts.
 .SH FILES
 .TP
-.I $XDG_CONFIG_HOME/clanky/config.json
+.I $XDG_CONFIG_HOME/clanky/config.xml
 Default configuration when XDG_CONFIG_HOME is set.
 .TP
-.I $HOME/.config/clanky/config.json
+.I $HOME/.config/clanky/config.xml
 Default configuration otherwise. A missing default file uses built-in defaults.
+An old config.json beside a missing config.xml is migrated on start and kept
+as config.json.migrated.
 .SH KEYBOARD
 Ctrl+Shift+T opens a tab; Ctrl+Shift+D and Ctrl+Shift+E split a pane.
 Ctrl+Shift+W closes a pane; Ctrl+Tab switches tabs. Ctrl+Shift+A toggles

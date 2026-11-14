@@ -1,4 +1,5 @@
-//! The settings panel edits the same validated, ordered JSON file as Config.
+//! The settings panel edits the same validated, ordered settings file as Config: config.xml, or
+//! the old JSON format for an explicit path ending in .json.
 use crate::config::Config;
 use serde_json::Value;
 use std::{fs::{self, OpenOptions}, io::{Read, Write}, path::{Path, PathBuf}, sync::atomic::{AtomicU64, Ordering}};
@@ -9,21 +10,33 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 pub struct Settings {
     path: PathBuf,
     config: Config,
+    /// The last good file's bytes and its settings document (what a change starts from while the
+    /// file on disk is broken).
     bytes: Vec<u8>,
+    document: Value,
     observed: Option<Vec<u8>>,
     last_error: Option<String>,
 }
 impl Settings {
-    /// Missing files represent defaults and are created only on the first edit.
+    /// Missing files represent defaults and are created only on the first edit. A file that does
+    /// not parse or holds a bad value opens with the defaults and its error (see `error`); it is
+    /// not rewritten until a change is made.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, String> {
         let path = path.into();
-        let observed = read_optional(&path)?;
-        let bytes = observed.clone().unwrap_or_else(|| b"{}\n".to_vec());
-        let config = validate(&path, &bytes)?;
-        Ok(Self { path, config, bytes, observed, last_error: None })
+        let (observed, read_error) = match read_optional(&path) { Ok(bytes) => (bytes, None), Err(error) => (None, Some(error)) };
+        let mut settings = Self { config: defaults(&path), bytes: empty(&path), document: Value::Object(Default::default()), observed: observed.clone(), last_error: read_error, path };
+        if let Some(bytes) = observed {
+            match validate(&settings.path, &bytes) {
+                Ok((config, document)) => { settings.config = config; settings.document = document; settings.bytes = bytes; }
+                Err(error) => settings.last_error = Some(error),
+            }
+        }
+        Ok(settings)
     }
     pub fn path(&self) -> &Path { &self.path }
     pub fn config(&self) -> &Config { &self.config }
+    /// The file's current problem (with its line), while the last good settings stay in use.
+    pub fn error(&self) -> Option<&str> { self.last_error.as_deref() }
     /// Returns true only for a new valid file. Invalid edits keep the last good
     /// config and report once per distinct content/error; no file is rewritten.
     pub fn reload(&mut self) -> Result<bool, String> {
@@ -43,7 +56,7 @@ impl Settings {
             return Err(error);
         };
         match validate(&self.path, &bytes) {
-            Ok(config) => { self.config = config; self.bytes = bytes; self.last_error = None; Ok(true) }
+            Ok((config, document)) => { self.config = config; self.document = document; self.bytes = bytes; self.last_error = None; Ok(true) }
             Err(error) => { self.last_error = Some(error.clone()); Err(error) }
         }
     }
@@ -81,18 +94,26 @@ impl Settings {
                 Some(color) => { colors.insert(token.into(), Value::String(color.into())); }
                 None => { colors.shift_remove(token); }
             }
+            if colors.is_empty() { document.as_object_mut().unwrap().shift_remove("colors"); }
             Ok(())
         })
     }
     fn change(&mut self, change: impl FnOnce(&mut Value) -> Result<(), String>) -> Result<&Config, String> {
-        // Always merge against the latest valid disk content, never a stale UI copy.
+        // Merge against the latest valid disk content, never a stale UI copy; while the file on
+        // disk is broken, against the last good settings (a change replaces the broken file).
         let expected = read_optional(&self.path)?;
-        let source = expected.as_deref().unwrap_or(&self.bytes);
-        validate(&self.path, source)?;
-        let mut document: Value = serde_json::from_slice(source).map_err(|e| format!("invalid JSON: {e}"))?;
+        let mut document = match expected.as_deref().map(|bytes| validate(&self.path, bytes)) {
+            Some(Ok((_, document))) => document,
+            _ => self.document.clone(),
+        };
+        if !document.is_object() { document = Value::Object(Default::default()); }
         change(&mut document)?;
-        let mut bytes = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
-        bytes.push(b'\n');
+        Config::window_from_json(&document.to_string())?;
+        let bytes = if crate::config::is_json_path(&self.path) {
+            let mut bytes = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
+            bytes.push(b'\n');
+            bytes
+        } else { crate::config_xml::write(&document).into_bytes() };
         self.apply(bytes, expected)
     }
     pub fn import(&mut self, source: &Path) -> Result<&Config, String> {
@@ -105,20 +126,36 @@ impl Settings {
         atomic_write(destination, &self.bytes, read_optional(destination)?.as_deref())
     }
     fn apply(&mut self, bytes: Vec<u8>, expected: Option<Vec<u8>>) -> Result<&Config, String> {
-        let config = validate(&self.path, &bytes)?;
+        let (config, document) = validate(&self.path, &bytes)?;
         atomic_write(&self.path, &bytes, expected.as_deref())?;
         self.config = config;
+        self.document = document;
         self.bytes = bytes.clone();
         self.observed = Some(bytes);
         self.last_error = None;
         Ok(&self.config)
     }
 }
-fn validate(path: &Path, bytes: &[u8]) -> Result<Config, String> {
-    let text = std::str::from_utf8(bytes).map_err(|_| "settings file must be UTF-8")?;
-    let mut config = Config::window_from_json(text)?;
+fn defaults(path: &Path) -> Config {
+    let mut config = Config::window_defaults();
     config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
-    Ok(config)
+    config
+}
+fn empty(path: &Path) -> Vec<u8> {
+    if crate::config::is_json_path(path) { b"{}\n".to_vec() } else { crate::config_xml::write(&serde_json::json!({})).into_bytes() }
+}
+/// The file's Config and settings document; errors start with the file name ("config.xml line 4: ...").
+fn validate(path: &Path, bytes: &[u8]) -> Result<(Config, Value), String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let text = std::str::from_utf8(bytes).map_err(|_| format!("{name}: the file must be UTF-8"))?;
+    let (mut config, document) = if crate::config::is_json_path(path) {
+        let document: Value = serde_json::from_str(text).map_err(|e| format!("{name}: invalid JSON: {e}"))?;
+        (Config::window_from_json(text).map_err(|e| format!("{name}: {e}"))?, document)
+    } else {
+        crate::config_xml::load(text).map_err(|e| if e.starts_with("line ") { format!("{name} {e}") } else { format!("{name}: {e}") })?
+    };
+    config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
+    Ok((config, document))
 }
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     let metadata = match fs::symlink_metadata(path) {
