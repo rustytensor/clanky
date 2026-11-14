@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.5.0
+Version:        1.6.0
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -59,6 +59,14 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Sat Nov 14 2026 Clanky contributors <noreply@github.com> - 1.6.0-1
+- A quieter window: tabs with state dots in the title bar (or vertical tabs), a tools panel with files, recent sessions and agents (Ctrl+Shift+B), and a status line.
+- Quiet command blocks with space between them, a meta line with folder, time and duration, red only on failure, hover actions and a sticky line for long commands.
+- A command input in every pane: shell colours, history suggestions, Tab completion, history recall and chips; bash and zsh work without setup. Classic mode keeps the shell's prompt.
+- Tree-sitter syntax colours in the editor for eleven languages, from the window theme, with line numbers and a current-line highlight.
+- Settings: Layout options and a theme picker with colour dots and live preview, including imported Ptyxis palettes.
+- The wheel scrolls history again; blocks keep their details after a full-screen program.
+
 * Fri Nov 13 2026 Clanky contributors <noreply@github.com> - 1.5.0-1
 - The mouse works in terminal panes as in Ptyxis: clicks, drags and the wheel reach programs that ask for them (mc, vim, htop), in X10 and SGR form; Shift overrides.
 - Select text with drag, double-click and triple-click; it goes to the primary selection. Middle click pastes it; Ctrl+Shift+C and Ctrl+Shift+V copy and paste.
