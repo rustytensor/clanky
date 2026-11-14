@@ -106,10 +106,19 @@ fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
     }
 }
 /// The editor's token colours from the window theme (never terminal_colors).
+/// `from` moved `t` of the way to `to`, per channel, rounded half up.
+fn mix(from: [u8; 3], to: [u8; 3], t: f32) -> [u8; 3] {
+    std::array::from_fn(|i| (from[i] as f32 + t * (to[i] as f32 - from[i] as f32) + 0.5).floor() as u8)
+}
 fn syntax_colors(theme: &clanky::themes::Theme) -> clanky::editor::SyntaxColors {
     let c = |color: clanky::themes::Color| [color[0], color[1], color[2]];
     clanky::editor::SyntaxColors { keyword: c(theme.ansi[5]), function: c(theme.ansi[4]), type_: c(theme.ansi[3]),
-        string: c(theme.ansi[2]), number: c(theme.ansi[1]), constant: c(theme.ansi[6]), comment: c(theme.colors.muted_foreground),
+        string: c(theme.ansi[2]),
+        // Number: 40% ansi 1 + 60% ansi 3 per channel (Graphite: #f0716a + #e2b64f -> #e89a5a, near the mockup's #e8a87c).
+        number: mix(c(theme.ansi[1]), c(theme.ansi[3]), 0.6), constant: c(theme.ansi[6]),
+        // Comment: 51% of the way from the background to the muted foreground, italic (Graphite: #111111 -> #5b5b5b,
+        // the mockup's #5c5c5c).
+        comment: mix(c(theme.colors.background), c(theme.colors.muted_foreground), 0.51),
         // Gutter numbers: 39% of the way from the background to the muted foreground (Graphite: #111111 -> #4a4a4a,
         // the mockup's gutter colour).
         gutter: std::array::from_fn(|i| {
