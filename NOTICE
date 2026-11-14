@@ -29,6 +29,13 @@ Catppuccin theme colours are from catppuccin/palette v1.8.0, commit
 MIT licence: assets/themes/upstream/LICENSE-Catppuccin.
 Source: https://github.com/catppuccin/palette
 
+Built-in terminal colour schemes (assets/terminal-schemes/schemes.json) copy
+colour values from the iTerm2-Color-Schemes collection (each scheme under the
+licence its licenses.yml gives: MIT or Apache-2.0), the Gogh collection (MIT OR
+Apache-2.0), Windows Terminal (MIT), Alacritty (Apache-2.0), WezTerm (MIT),
+dracula/iterm (MIT) and altercation/solarized (MIT). Each scheme's source file,
+commit and licence: assets/terminal-schemes/SOURCES.md.
+
 Bundled fonts (assets/fonts), compiled into the clanky binary:
 
 - Geist and Geist Mono v1.9.1 (Regular, Medium, SemiBold), Copyright 2026
