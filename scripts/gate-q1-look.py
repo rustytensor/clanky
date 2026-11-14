@@ -58,8 +58,8 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      block_style "loud", status_line 1) makes the window exit with an error within 20 s and open no window.
   P3 config {} (no Q1 key): the defaults; 124-125 columns (tools panel 236 px [M .body grid 236px]) and the status
      line shown (pixel (700,890) is the sidebar colour (8,8,8), +-3).
-  L1 {"rails": false}: tools panel off, 150-151 columns (floor(1364/9) = 151). L2 {"rails": false,
-     "tools_panel": "on"}: 124-125 columns.
+  L1 {"rails": false}: tools panel off, 151-152 columns (pane padding 14 each side, Marc's sizes of 2026-11-14:
+     floor(1372/9) = 152). L2 {"rails": false, "tools_panel": "on"}: 124-125 columns.
   G1 default window: grid origin x = 236 + 18 = 254 (+-3) [M], grid origin y in 42..70 (title bar 38 [M], no
      40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
   G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); its bottom hairline (900,37) (33,33,33);
@@ -455,7 +455,7 @@ def parse_story():
 
 def legacy_story():
     for name, cfg, want, label in (
-            ('l1', {'rails': FAULT == 'rails'}, (150, 151), 'L1 rails false hides the tools panel'),
+            ('l1', {'rails': FAULT == 'rails'}, (151, 152), 'L1 rails false hides the tools panel'),
             ('l2', {'rails': False, 'tools_panel': 'on'}, (124, 125), 'L2 tools_panel wins over rails')):
         win = Win(name, dict(BASE, theme='dark', theme_dark='graphite-dark', **cfg))
         try:
