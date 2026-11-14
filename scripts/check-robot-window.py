@@ -10,6 +10,10 @@ tools panel off that frame does not exist. After it, no frames.
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -75,10 +79,10 @@ def main(work, bins):
     env.update(HOME=str(work / 'home'), XDG_CONFIG_HOME=str(work / 'config'),
                XDG_STATE_HOME=str(work / 'state'), XDG_RUNTIME_DIR=str(work / 'runtime'),
                SHELL='/bin/sh', WINIT_UNIX_BACKEND='x11')
-    config = work / 'config.json'
-    config.write_text(json.dumps(dict(columns=124, rows=37, theme='dark', theme_dark='stone-dark',
-                                     restore_layout=False, animations=True, startup_animation=True,
-                                     osc52_write=False, osc52_read=False, cursor_blink='off')))
+    config = work / 'config.xml'
+    config_xml.write(config, dict(columns=124, rows=37, theme='dark', theme_dark='stone-dark',
+                                  restore_layout=False, animations=True, startup_animation=True,
+                                  osc52_write=False, osc52_read=False, cursor_blink='off'))
     reader = work / 'reader.py'
     reader.write_text("import os,tty\ntty.setraw(0)\nopen('reader-ready','w').close()\n"
                       "while True:\n b=os.read(0,1)\n if not b: break\n"

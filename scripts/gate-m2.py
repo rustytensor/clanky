@@ -4,6 +4,10 @@ import base64
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import signal
 import struct
 import subprocess
@@ -150,9 +154,9 @@ def gate():
         root = Path(directory)
         os.chmod(root, 0o700)
         image = root / 'image.apc'
-        config = root / 'config.json'
+        config = root / 'config.xml'
         private_write(image, image_input())
-        private_write(config, json.dumps(CONFIG).encode('utf-8'))
+        private_write(config, config_xml.dump(CONFIG).encode('utf-8'))
         compare_images(observe(renderer, '--input', image), fault)
         print('1 APC/image pixels whole and two-byte PASS', flush=True)
         compare_state(observe(state_binary, '--config', config))
