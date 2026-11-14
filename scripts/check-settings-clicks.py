@@ -2,7 +2,7 @@
 """Remaining check-8 controls through real X11 input, config files and pixels.
 All expected points/colours are fixed in docs/m12-click-checks.md before the run.
 
-Quiet layout (brief 2026-11-13-clanky-redesign, Marc's Y1 of 2026-11-14): Settings opens from the title bar's
+Quiet layout (design 2026-11-13, Marc's Y1 of 2026-11-14): Settings opens from the title bar's
 gear (1217,19) [mockup .titlebar: padding 10, .ico 26; Q1 gate T3]; its frame, nav and pages keep their places
 [Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3]: with
 Follow the system off, one list (dark themes first: Graphite, Ink, Stone, ...); a click on a row saves it. The

@@ -40,7 +40,7 @@ def pixels(actual, expected, name):
 
 def compare(data, scene_only=False, no_idle=False):
     layout = data['layout']
-    # Quiet layout (brief 2026-11-13-clanky-redesign, mockup Marc approved, Y1 of round 2), 1240 x 760, 8 x 20
+    # Quiet layout (design 2026-11-13, mockup Marc approved, Y1 of round 2), 1240 x 760, 8 x 20
     # cells. [M] mockup CSS: .win rows 38px 1fr 26px (title bar, status line), .body columns 236px 1fr (tools
     # panel), .blk padding 18px left and right, .blocks padding-top 6px, 1 px hairlines between regions; [Q1] the
     # Q1 gate: grid x = 236 + 18, columns floor((W - 236 - 36) / cell), no pane header; [N] notes clanky-ui.md 5.2

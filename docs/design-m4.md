@@ -192,7 +192,7 @@ No unsafe replay of a possibly executed run request after a broken connection.
 Up to five parallel tasks: core workspace/snapshots/history; API owner transport/client;
 platform server lifecycle/stdio; frontend reattachment; headless gate. Ownership
 boundaries are agreed before work starts; the maintainer integrates and reads every changed line.
-All builds/checks use the shared lock, at most -j8 for whole builds and own-crate -j2
+All builds/checks use the shared lock, at most -j8 for the main build and own-crate -j2
 for parallel tasks. The editor checkout is never touched. No new third-party crate
 is planned. Fork edits, if needed, require their notices and FORK.md entries.
 

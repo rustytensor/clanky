@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q1 gate: a quieter Clanky with the feel of Warp (brief 2026-11-13-clanky-redesign, milestone Q1 "quiet look";
+"""Q1 gate: a quieter Clanky with the feel of Warp (design 2026-11-13, milestone Q1 "quiet look";
 mockup Marc approved: /srv/devops/build/clanky-redesign/mockup.html, sections 1, 2, 4 and 5; his answers R1 yes,
 R2 Horizontal, R3 yes).
 

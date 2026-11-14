@@ -135,6 +135,6 @@ command output size; matching work grows with the number and length of patterns.
 Branch `m6-masking` starts at the accepted M7 lock fix. Tags are
 `v0.3.1-mask.N`; workspace versions match. Commit this design, report, then
 implement without a review pause. Parallel tasks may own the core and independent gate;
-the maintainer reads every line and integrates. No existing terminal/editor gate rerun.
+every line is read before it is merged. No existing terminal/editor gate rerun.
 Stop after the fault FAIL and clean PASS. The person's view remains untouched:
 only later agent-read integration will consume this crate's output.
