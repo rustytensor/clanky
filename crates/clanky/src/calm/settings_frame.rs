@@ -22,7 +22,9 @@ pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),Fo
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry,pub max_scroll:f32}
 #[derive(Clone,Debug)]
-pub struct Geometry {pub panel:PixelRect,pub nav:PixelRect,pub header:PixelRect,pub body:PixelRect,pub footer:PixelRect,pub scale:f32}
+pub struct Geometry {pub panel:PixelRect,pub nav:PixelRect,pub header:PixelRect,pub body:PixelRect,pub footer:PixelRect,pub scale:f32,
+    /// The panel's height in page px: 600, or less in a window too short for it (the page scrolls).
+    pub h:f32}
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w,h}}
 impl Geometry {
     /// Panel-relative rectangle snapped to whole device pixels, so 1 px dividers stay crisp
@@ -32,10 +34,20 @@ impl Geometry {
         let (x1,y1)=((self.panel.x+(x+w)*s).round(),(self.panel.y+(y+h)*s).round());
         r(x0,y0,(x1-x0).max(if w>0.0{1.0}else{0.0}),(y1-y0).max(if h>0.0{1.0}else{0.0}))}
 }
-pub fn geometry(window:[u32;2],scale:f32)->Geometry{
-    let x=(window[0] as f32-780.0*scale)/2.0;let y=(window[1] as f32-600.0*scale)/2.0;
-    let rect=|a,b,w,h|r(x+a*scale,y+b*scale,w*scale,h*scale);
-    Geometry{panel:rect(0.0,0.0,780.0,600.0),nav:rect(1.0,1.0,200.0,598.0),header:rect(201.0,1.0,578.0,56.0),body:rect(201.0,57.0,578.0,486.0),footer:rect(201.0,543.0,578.0,56.0),scale}
+pub fn geometry(window:[u32;2],scale:f32)->Geometry{fit(window,scale,0.0)}
+/// The panel inside the window below its title bar (`top` px tall), with a 12 px margin: 780 x 600
+/// centred when there is room; shorter in a short window (the page scrolls), and scaled down as a
+/// whole in a window narrower than the panel, so the header, nav, controls and footer stay in view.
+pub fn fit(window:[u32;2],scale:f32,top:f32)->Geometry{
+    let (ww,wh)=(window[0] as f32,window[1] as f32);let m=12.0*scale;
+    let s=scale*((ww-2.0*m)/(780.0*scale)).clamp(0.6,1.0);
+    let room=wh-top-2.0*m;
+    let h=(room/s).clamp(300.0,600.0).floor();
+    let x=((ww-780.0*s)/2.0).floor();
+    let centred=(wh-600.0*s)/2.0;
+    let y=if h>=600.0 && centred>=top+m{centred}else{(top+m+((room-h*s)/2.0).max(0.0)).floor()};
+    let rect=|a,b,w,h|r(x+a*s,y+b*s,w*s,h*s);
+    Geometry{panel:rect(0.0,0.0,780.0,h),nav:rect(1.0,1.0,200.0,h-2.0),header:rect(201.0,1.0,578.0,56.0),body:rect(201.0,57.0,578.0,h-114.0),footer:rect(201.0,h-57.0,578.0,56.0),scale:s,h}
 }
 pub(super) fn icon(p:&mut Paint<'_>,kind:&str,rect:PixelRect,mut color:Color,s:f32){
     let mut path=Path::builder();let mut fill=None;
@@ -69,21 +81,22 @@ fn hover(p:&mut Paint<'_>,rect:PixelRect,pointer:(f64,f64),pressed:bool,theme:&T
 /// Frame and Terminal controls. Other pages are supplied by the Settings controller;
 /// the live entry remains hidden until that controller is complete.
 pub fn draw(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
-    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&Section::ALL,0.0)
+    draw_pages(geometry(window,scale),window,section,theme,config,pointer,pressed,measure,&Section::ALL)
 }
 pub fn draw_live(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
-    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&Section::ALL,0.0)
+    draw_pages(geometry(window,scale),window,section,theme,config,pointer,pressed,measure,&Section::ALL)
 }
-/// The live panel: the Terminal page scrolls to its rows below Animations.
-pub fn draw_scrolled(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,scroll:f32)->Frame{
-    draw_pages(window,scale,section,theme,config,pointer,pressed,measure,&Section::ALL,scroll)
+/// The live panel, fitted below the window's title bar (`top` px).
+pub fn draw_fitted(window:[u32;2],scale:f32,top:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Frame{
+    draw_pages(fit(window,scale,top),window,section,theme,config,pointer,pressed,measure,&Section::ALL)
 }
-fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,ready:&[Section],scroll:f32)->Frame{
-    let g=geometry(window,scale);let s=scale;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,window,pointer,pressed);let mut hits=Vec::new();
+#[allow(clippy::too_many_arguments)]
+fn draw_pages(g:Geometry,window:[u32;2],section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,ready:&[Section])->Frame{
+    let s=g.scale;let h=g.h;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,window,pointer,pressed);let mut hits=Vec::new();
     // The deep shadow stays within 33 px of the panel, so the window behind it keeps its pixels.
     for (offset,blur,alpha) in [(16.0,32.0,89),(2.0,6.0,51)]{p.out.scene.layers.push(Layer::Shape(Shape{rect:g.panel.array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:None,shadow:Some(Shadow{offset:[0.0,offset*s],blur:blur*s,spread:0.0,color:[0,0,0,alpha]})}));}
     p.shape(g.panel,12.0*s,c.background,Some(c.border));
-    p.shape(g.nav,11.0*s,c.sidebar,None);p.shape(g.local(190.0,1.0,11.0,598.0),0.0,c.sidebar,None);p.shape(g.local(200.0,1.0,1.0,598.0),0.0,c.border,None);
+    p.shape(g.nav,11.0*s,c.sidebar,None);p.shape(g.local(190.0,1.0,11.0,h-2.0),0.0,c.sidebar,None);p.shape(g.local(200.0,1.0,1.0,h-2.0),0.0,c.border,None);
     heading(&mut p,g.local(17.0,21.0,167.0,21.0),"Settings",theme,s);
     for (i,item) in Section::ALL.into_iter().enumerate(){if !ready.contains(&item){continue;}let y=58.0+i as f32*34.0;let rect=g.local(9.0,y,183.0,32.0);let selected=item==section;let over=rect.contains(pointer.0,pointer.1);
         if selected || over{p.shape(rect,6.0*s,if over && pressed{c.pressed}else{c.sidebar_accent},None);}
@@ -94,21 +107,30 @@ fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Conf
     let title_w=p.width(section.title(),16.0*s,600)/s+1.0;heading(&mut p,g.local(490.0-title_w/2.0,1.0,title_w,56.0),section.title(),theme,s);
     p.shape(g.local(201.0,56.0,578.0,1.0),0.0,c.border,None);
     let close=g.local(735.0,13.0,32.0,32.0);hover(&mut p,close,pointer,pressed,theme,s,8.0);icon(&mut p,"close",g.local(743.0,21.0,16.0,16.0),c.foreground,s);hits.push(Hit{rect:close,action:Action::Close});
-    let _=(config,scroll);let max_scroll=0.0;
-    p.shape(g.local(201.0,543.0,578.0,1.0),0.0,c.border,None);
-    let label="Open settings file";let width=p.width(label,13.0*s,500)+20.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+557.0*s,width,28.0*s);
+    let _=config;let max_scroll=0.0;
+    p.shape(g.local(201.0,h-57.0,578.0,1.0),0.0,c.border,None);
+    let label="Open settings file";let width=p.width(label,13.0*s,500)+20.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+(h-43.0)*s,width,28.0*s);
     hover(&mut p,button,pointer,pressed,theme,s,6.0);p.text(r(button.x+10.0*s,button.y,button.w-20.0*s,button.h),label,13.0*s,c.foreground,500,false);hits.push(Hit{rect:button,action:Action::OpenFile});
     p.text(r(g.panel.x+229.0*s,g.footer.y,(button.x-g.panel.x-237.0*s).max(0.0),g.footer.h),"Changes apply and save as you go.",13.0*s,c.muted_foreground,400,false);
     Frame{scene:p.out.scene,hits,geometry:g,max_scroll}
 }
+/// A text field sits level with its row's label (its text on the label's line), 7 px above centre.
+pub(super) fn level(g:&Geometry,control:PixelRect)->PixelRect{PixelRect{y:control.y-7.0*g.scale,..control}}
 /// Whether a row starting at page y shows its control whole above the page's bottom edge. A row
 /// that does not is left out until it scrolls into view, so a label never shows without its control.
-pub(super) fn row_fits(g:&Geometry,y:f32)->bool{g.panel.y+(y+54.0)*g.scale<=g.body.y+g.body.h+0.5}
+pub(super) fn row_fits(g:&Geometry,y:f32)->bool{fits(g,y,54.0)}
+/// Whether `h` page px from page y end above the page's bottom edge (a heading, a card, a line of text).
+pub(super) fn fits(g:&Geometry,y:f32,h:f32)->bool{g.panel.y+(y+h)*g.scale<=g.body.y+g.body.h+0.5}
 pub(super) fn row(p:&mut Paint<'_>,g:&Geometry,theme:&Theme,y:f32,width:f32,label:&str,description:&str,last:bool)->PixelRect{
-    let s=g.scale;let height=if last{67.84375}else{68.84375};let text_width=522.0-width-24.0;
+    row_noted(p,g,theme,y,width,label,description,None,last)
+}
+/// As `row`; `problem`, when given, takes the description's place in the error colour.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn row_noted(p:&mut Paint<'_>,g:&Geometry,theme:&Theme,y:f32,width:f32,label:&str,description:&str,problem:Option<&str>,last:bool)->PixelRect{
+    let s=g.scale;let (description,ink)=match problem{Some(text)=>(text,theme.colors.err),None=>(description,theme.colors.muted_foreground)};let height=if last{67.84375}else{68.84375};let text_width=522.0-width-24.0;
     if !row_fits(g,y){return g.local(751.0-width,y+(height-if last{0.0}else{1.0}-32.0)/2.0,width,32.0);}
     p.pane_label(g.local(229.0,y+14.0,text_width,18.0),label,14.0*s,theme.colors.foreground,500);
-    p.text(g.local(229.0,y+35.0,text_width,18.84375),description,13.0*s,theme.colors.muted_foreground,400,false);
+    p.text(g.local(229.0,y+35.0,text_width,18.84375),description,13.0*s,ink,400,false);
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,theme.colors.border,None);}
     g.local(751.0-width,y+(height-if last{0.0}else{1.0}-32.0)/2.0,width,32.0)
 }

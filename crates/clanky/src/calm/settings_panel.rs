@@ -22,6 +22,8 @@ pub struct SettingsPanel {
     pub mono_fonts:Vec<String>,menu_scroll:usize,
     /// Theme picker: the rows last drawn, the keyboard highlight, its unsaved preview, and Ptyxis palettes.
     picks:Vec<PickItem>,highlight:Option<usize>,preview:(Option<Theme>,Option<crate::config::TerminalColors>),palettes:Option<Vec<(String,serde_json::Value)>>,
+    /// The page's visible band (top and bottom, panel px) as last drawn: below the problem banner, above the footer.
+    view:(f32,f32),
 }
 /// Layout keys and the value Clanky leaves out of the file (the default).
 const LAYOUT_DEFAULTS:[(&str,&str);5]=[("tab_style","horizontal"),("tools_panel","on"),("command_input","editor"),("block_style","quiet"),("status_line","show")];
@@ -42,7 +44,7 @@ impl SettingsPanel{
         for name in &self.mono_fonts{if !out.iter().any(|f|f.eq_ignore_ascii_case(name)){out.push(name.clone());}}
         out
     }
-    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None}}
+    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None,view:(57.0,543.0)}}
     /// Settings opens on General, at the top.
     pub fn toggle(&mut self){self.open=!self.open;if self.open{self.section=Section::General;self.scroll=0.0;}self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;}
     fn end_preview(&mut self){self.highlight=None;self.preview=(None,None);}
@@ -83,8 +85,8 @@ impl SettingsPanel{
         // Keep the highlighted row inside the page body, and show the whole list at once when it
         // fits (mockup section 5: every row and the hint under them): first the list with its
         // column heads, Ptyxis palettes and hint, else the built-in themes with their heads.
-        let y=self.picks[next].y;let (top,bottom)=(57.0+8.0,543.0-8.0);
-        let heads=if self.effective.theme==crate::config::ThemePreference::System{22.0}else{0.0};
+        let y=self.picks[next].y;let (top,bottom)=(self.view.0+8.0,self.view.1-8.0);
+        let heads=22.0;
         let first=self.picks.iter().map(|item|item.y).fold(f32::MAX,f32::min)-heads;
         let all=self.picks.iter().map(|item|item.y+38.0).fold(first,f32::max)+50.0;
         let themes=self.picks.iter().filter(|item|matches!(item.kind,PickKind::Theme{..})).map(|item|item.y+38.0).fold(first,f32::max);
@@ -154,10 +156,11 @@ impl SettingsPanel{
             }
             EditKind::Field(key)=>{
                 let key=*key;let text=editor.values[0].trim().to_owned();
-                let value=match parse_field(key,&text){Ok(value)=>value,Err(error)=>{self.error=Some(error);return Effect::None;}};
+                // A problem is shown in the row itself, in its own words, with the field marked.
+                let value=match parse_field(key,&text){Ok(value)=>value,Err(error)=>{if let Some(editor)=&mut self.editor{editor.problem=Some(error);}return Effect::None;}};
                 // A font size in pixels replaces the old point key.
                 let result=if key=="font_size"{self.store.set_many(&[("font_size",Some(value)),("font_size_pt",None)]).map(|_|())}else{self.store.set(key,value).map(|_|())};
-                match result{Ok(())=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+                match result{Ok(())=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{if let Some(editor)=&mut self.editor{editor.problem=Some(friendly(key,&error));}Effect::None}}
             }
             EditKind::NewAgent=>{
                 let (name,command)=(editor.values[0].trim().to_owned(),editor.values[1].trim().to_owned());
@@ -252,22 +255,27 @@ impl SettingsPanel{
     pub fn animation_deadline(&self)->Option<std::time::Instant>{None}
     pub fn draw(&mut self,layout:&Layout,theme:&Theme,config:&Config,access:&[PaneAccess],masking_ready:bool,themes:Option<&ThemeStore>,system_light:bool,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
         if !self.open{return vec![];}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
-        let s=layout.scale as f32;let mut frame=settings_frame::draw_scrolled(layout.window_px,s,self.section,theme,config,pointer,pressed,measure,0.0);
-        let g=frame.geometry.clone();
+        let top=layout.top_bar.y+layout.top_bar.h;
+        let mut frame=settings_frame::draw_fitted(layout.window_px,layout.scale as f32,top,self.section,theme,config,pointer,pressed,measure);
+        let g=frame.geometry.clone();let s=g.scale;let bottom=g.h-57.0;
         // A problem (the file's, with its line, or the last change's) sits above the page, which moves down for it.
         let problem=self.error.clone().or_else(||self.store.error().map(str::to_owned));
         let banner_lines=problem.as_deref().map(|text|banner_lines(text,s,measure)).unwrap_or_default();
         let banner=if banner_lines.is_empty(){0.0}else{16.0+18.0*banner_lines.len() as f32+12.0};
         let scroll=self.scroll-banner;
+        // The banner has its own band: the page is clipped below it, so nothing scrolls under it.
+        let view=PixelRect{y:g.body.y+banner*s,h:(g.body.h-banner*s).max(0.0),..g.body};
+        self.view=(57.0+banner,bottom);
+        let gv=settings_frame::Geometry{body:view,..g.clone()};
         let inline=self.editor.as_ref().filter(|e|e.inline());
         let editing=inline.and_then(|e|e.editing());
         let adding=inline.filter(|e|matches!(e.kind,EditKind::NewAgent)).map(|e|e.values.clone());
         let first=frame.hits.len();
         let mut end=0.0;
         {
-            let gs=settings_frame::Geometry{panel:PixelRect{y:g.panel.y-scroll*s,..g.panel},..g.clone()};
+            let gs=settings_frame::Geometry{panel:PixelRect{y:g.panel.y-scroll*s,..g.panel},..gv.clone()};
             let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);
-            p.out.scene.layers.push(Layer::Clip(Some(g.body.array())));
+            p.out.scene.layers.push(Layer::Clip(Some(view.array())));
             match self.section{
                 Section::General=>end=super::settings_pages::general(&mut p,&gs,theme,config,self.forced_post_ai,editing,&mut frame.hits),
                 Section::Terminal=>end=super::settings_pages::terminal(&mut p,&gs,theme,config,editing,&mut frame.hits),
@@ -278,19 +286,27 @@ impl SettingsPanel{
             }
             p.out.scene.layers.push(Layer::Clip(None));
             frame.scene.layers.extend(p.out.scene.layers);
-            super::settings_form::clip_hits(&mut frame.hits,first,g.body);
+            super::settings_form::clip_hits(&mut frame.hits,first,view);
         }
-        let mut max=(end+24.0-543.0+banner).max(0.0);
+        let mut max=(end+24.0-bottom+banner).max(0.0);
         if self.section==Section::Appearance{if let Some(store)=themes{if self.palettes.is_none(){self.palettes=Some(super::settings_layout::scan_palettes());}
             let palettes=self.palettes.clone().unwrap_or_default();
-            match settings_appearance::page(layout.window_px,&g,theme,config,store,system_light,scroll,pointer,pressed,measure,&palettes,self.highlight,editing){Ok((layers,hits,page_max,picks))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+banner;self.picks=picks;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
-        if self.section==Section::Agents && !config.post_ai{let(layers,hits,page_max)=settings_access::agents(layout.window_px,&g,theme,access,masking_ready,scroll-(end-65.0),pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+(end-65.0)+banner;}
-        if self.section==Section::Keys{let(layers,page_max)=settings_access::keys(layout.window_px,&g,theme,config.post_ai,scroll,measure);frame.scene.layers.extend(layers);max=page_max+banner;}
+            match settings_appearance::page(layout.window_px,&gv,theme,config,store,system_light,scroll,pointer,pressed,measure,&palettes,self.highlight,editing){Ok((layers,hits,page_max,picks))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+banner;self.picks=picks;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
+        if self.section==Section::Agents && !config.post_ai{let(layers,hits,page_max)=settings_access::agents(layout.window_px,&gv,theme,access,masking_ready,scroll-(end-65.0),pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+(end-65.0)+banner;}
+        if self.section==Section::Keys{let(layers,page_max)=settings_access::keys(layout.window_px,&gv,theme,config.post_ai,scroll,measure);frame.scene.layers.extend(layers);max=page_max+banner;}
         self.max_scroll=max;self.scroll=self.scroll.min(self.max_scroll);
         let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);
+        if self.max_scroll>0.0{
+            // A thin scroll thumb at the page's right edge: how long the page is, and where you are.
+            // Quiet (11% of the way to the text colour), so it never reads as a control.
+            let (top,bottom)=self.view;let track=(bottom-top-8.0).max(1.0);
+            let thumb=(track*track/(track+self.max_scroll)).max(28.0).min(track);
+            let y=top+4.0+(track-thumb)*(self.scroll/self.max_scroll).clamp(0.0,1.0);
+            let ink=super::scene::blend(theme.colors.background,theme.colors.foreground,0.11);
+            p.shape(g.local(770.0,y,6.0,thumb),3.0*s,[ink[0],ink[1],ink[2],255],None);
+        }
         if !banner_lines.is_empty(){
             let rect=g.local(229.0,65.0,522.0,banner-16.0);
-            p.shape(g.local(201.0,57.0,578.0,banner),0.0,theme.colors.background,None);
             let mut tint=theme.colors.err;tint[3]=28;p.shape(rect,8.0*s,tint,Some(super::scene::alpha(theme.colors.err,0.45)));
             for (i,line) in banner_lines.iter().enumerate(){p.text(g.local(241.0,71.0+18.0*i as f32,498.0,18.0),line,13.0*s,theme.colors.err,500,false);}
         }
@@ -331,6 +347,26 @@ fn banner_lines(text:&str,s:f32,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->
     }
     if !line.is_empty(){lines.push(line);}
     lines.truncate(3);lines
+}
+/// The label of the row that edits a field, for its messages.
+fn field_label(key:&str)->&str{
+    match key{"notify_after_seconds"=>"Notify after","columns"=>"Columns","rows"=>"Rows","cursor_blink_time_ms"=>"Blink cycle",
+        "cursor_blink_timeout_s"=>"Stop blinking after","history_days"=>"Keep for","history_output_kib"=>"Output per command",
+        "font_size"=>"Font size","cell_width_scale"=>"Cell width","cell_height_scale"=>"Line height","opacity"=>"Opacity",
+        "font_family"=>"Terminal font","ui_font_family"=>"Interface font","compose_dictionary"=>"Dictionary",
+        "compose_dictionary_dir"=>"Dictionary folder",_=>key}
+}
+/// A value check's message in the row's words: "Font size must be between 8 and 32."
+fn friendly(key:&str,error:&str)->String{
+    let Some(rest)=error.strip_prefix(key).filter(|rest|rest.starts_with(' ')) else{return error.to_owned();};
+    let rest=match rest.trim(){
+        r if r.starts_with("must be a nonempty font family")=>"must name a font family (at most 256 bytes)".to_owned(),
+        "must be absolute"=>"must be a full path, starting with /".to_owned(),
+        r if r.starts_with("must be a safe locale name")=>"must be a language code such as en_US".to_owned(),
+        r=>r.replace("finite and ","").replace("an integer between","a whole number between").replace("an integer from","a whole number from")
+            .replace("a nonnegative integer","a whole number").replace("a positive integer","a whole number above 0").replace("a number from","from"),
+    };
+    format!("{} {}.",field_label(key),rest.trim_end_matches('.'))
 }
 /// A field's text: the stored value as config.xml writes it.
 fn field_text(c:&Config,key:&str)->String{
