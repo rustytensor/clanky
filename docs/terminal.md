@@ -28,7 +28,7 @@ window theme; the title bar, tools panel and status line keep the theme. Unset e
 colours too (see [editor colours](config.md#editor-colours)).
 
 To use a Ptyxis palette, choose **Import Ptyxis palette…** in Settings > Terminal (palettes live in
-`~/.local/share/org.gnome.Ptyxis/palettes/`), or print it as JSON for the config file:
+`~/.local/share/org.gnome.Ptyxis/palettes/`), or print its colours as JSON:
 
 ```sh
 clanky terminal-colors import ~/.local/share/org.gnome.Ptyxis/palettes/riley.palette

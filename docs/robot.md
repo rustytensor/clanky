@@ -22,7 +22,7 @@ explicit replay shows a static final pose.
 
 ```sh
 clanky +hello
-clanky +hello --config /absolute/path/to/config.json
+clanky +hello --config /absolute/path/to/config.xml
 ```
 
 Replay opens its own window, without a shell or server. It leaves the final picture up;

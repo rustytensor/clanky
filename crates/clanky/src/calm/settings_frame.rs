@@ -100,8 +100,12 @@ fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Conf
     p.text(r(g.panel.x+229.0*s,g.footer.y,(button.x-g.panel.x-237.0*s).max(0.0),g.footer.h),"Changes apply and save as you go.",13.0*s,c.muted_foreground,400,false);
     Frame{scene:p.out.scene,hits,geometry:g,max_scroll}
 }
+/// Whether a row starting at page y shows its control whole above the page's bottom edge. A row
+/// that does not is left out until it scrolls into view, so a label never shows without its control.
+pub(super) fn row_fits(g:&Geometry,y:f32)->bool{g.panel.y+(y+54.0)*g.scale<=g.body.y+g.body.h+0.5}
 pub(super) fn row(p:&mut Paint<'_>,g:&Geometry,theme:&Theme,y:f32,width:f32,label:&str,description:&str,last:bool)->PixelRect{
     let s=g.scale;let height=if last{67.84375}else{68.84375};let text_width=522.0-width-24.0;
+    if !row_fits(g,y){return g.local(751.0-width,y+(height-if last{0.0}else{1.0}-32.0)/2.0,width,32.0);}
     p.pane_label(g.local(229.0,y+14.0,text_width,18.0),label,14.0*s,theme.colors.foreground,500);
     p.text(g.local(229.0,y+35.0,text_width,18.84375),description,13.0*s,theme.colors.muted_foreground,400,false);
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,theme.colors.border,None);}

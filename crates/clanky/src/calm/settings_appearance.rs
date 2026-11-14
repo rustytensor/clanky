@@ -45,6 +45,7 @@ fn text_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<s
     let mut y=form::heading(p,g,t,top,"Text");
     y=form::rows_then(p,g,t,y,&[row("Font size","Ctrl + and Ctrl − change it for one window.",Control::Field("font_size",num(cfg.font_size),80.0,true))],editing,hits,true);
     // Terminal font: a field, and a menu of the installed monospace families beside it.
+    if super::settings_frame::row_fits(g,y){
     let control=super::settings_frame::row(p,g,t,y,236.0,"Terminal font","Used in every terminal pane.",false);
     let field=r(control.x,control.y,200.0*s,control.h);
     form::field(p,field,&cfg.font_family,false,editing.filter(|e|e.key=="font_family"),t,s,"");
@@ -53,6 +54,7 @@ fn text_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<s
     let fill=if menu.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};p.shape(menu,8.0*s,fill,Some(c.input));
     let mut arrow=c.foreground;arrow[3]=153;super::settings_frame::icon(p,"chevron",r(menu.x+9.0*s,menu.y+9.0*s,14.0*s,14.0*s),arrow,s*0.875);
     hits.push(Hit{rect:menu,action:Action::FontMenu});
+    }
     y+=form::ROW;
     y=form::rows_then(p,g,t,y,&[
         row("Interface font","Used for menus, tabs and Settings.",Control::Field("ui_font_family",cfg.ui_font_family.clone(),200.0,false)),
@@ -61,6 +63,7 @@ fn text_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<s
     ],editing,hits,false);
     y=form::heading(p,g,t,y+20.0,"Window");
     // Opacity: a slider, and its value as a field.
+    if !super::settings_frame::row_fits(g,y){return y+form::ROW;}
     let control=super::settings_frame::row(p,g,t,y,240.0,"Opacity","How much of the desktop shows through.",true);
     let progress=((cfg.opacity-0.5)/0.5).clamp(0.0,1.0);let cy=control.y+16.0*s;let track=r(control.x+8.0*s,cy-2.0*s,140.0*s,4.0*s);
     p.shape(track,2.0*s,c.muted,None);p.shape(r(track.x,track.y,track.w*progress,track.h),2.0*s,c.foreground,None);
