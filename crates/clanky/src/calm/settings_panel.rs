@@ -251,7 +251,7 @@ impl SettingsPanel{
     pub fn ime_position(&self)->Option<[f32;2]>{None}
     pub fn animation_deadline(&self)->Option<std::time::Instant>{None}
     pub fn draw(&mut self,layout:&Layout,theme:&Theme,config:&Config,access:&[PaneAccess],masking_ready:bool,themes:Option<&ThemeStore>,system_light:bool,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Vec<Layer>{
-        if !self.open{return vec![];}if config.post_ai && self.section==Section::Agents{self.section=Section::General;self.scroll=0.0;}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
+        if !self.open{return vec![];}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
         let s=layout.scale as f32;let mut frame=settings_frame::draw_scrolled(layout.window_px,s,self.section,theme,config,pointer,pressed,measure,0.0);
         let g=frame.geometry.clone();
         // A problem (the file's, with its line, or the last change's) sits above the page, which moves down for it.
@@ -284,7 +284,7 @@ impl SettingsPanel{
         if self.section==Section::Appearance{if let Some(store)=themes{if self.palettes.is_none(){self.palettes=Some(super::settings_layout::scan_palettes());}
             let palettes=self.palettes.clone().unwrap_or_default();
             match settings_appearance::page(layout.window_px,&g,theme,config,store,system_light,scroll,pointer,pressed,measure,&palettes,self.highlight,editing){Ok((layers,hits,page_max,picks))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+banner;self.picks=picks;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
-        if self.section==Section::Agents{let(layers,hits,page_max)=settings_access::agents(layout.window_px,&g,theme,access,masking_ready,scroll-(end-65.0),pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+(end-65.0)+banner;}
+        if self.section==Section::Agents && !config.post_ai{let(layers,hits,page_max)=settings_access::agents(layout.window_px,&g,theme,access,masking_ready,scroll-(end-65.0),pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);max=page_max+(end-65.0)+banner;}
         if self.section==Section::Keys{let(layers,page_max)=settings_access::keys(layout.window_px,&g,theme,config.post_ai,scroll,measure);frame.scene.layers.extend(layers);max=page_max+banner;}
         self.max_scroll=max;self.scroll=self.scroll.min(self.max_scroll);
         let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);

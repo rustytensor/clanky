@@ -93,7 +93,12 @@ pub(super) fn history(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:
 /// The agent list (agent_pane_access, agents); returns where the access rows start.
 pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<Editing<'_>>,adding:Option<&[String]>,hits:&mut Vec<Hit>)->f32{
     let s=g.scale;let c=&t.colors;
-    let mut y=form::rows(p,g,t,65.0,&[row("New agent panes","What an agent started in a new pane may do.",
+    let mut y=65.0;
+    if cfg.post_ai{
+        p.text(g.local(229.0,y+8.0,522.0,18.0),"Post-AI mode is on, so no agent runs. These settings apply once it is off.",13.0*s,c.muted_foreground,400,false);
+        y+=36.0;
+    }
+    let mut y=form::rows(p,g,t,y,&[row("New agent panes","What an agent started in a new pane may do.",
         Control::Segments(vec![("Read + run","agent_pane_access","read+run"),("Off","agent_pane_access","off")],if cfg.agent_pane_access{"read+run"}else{"off"}))],None,hits);
     y=form::heading(p,g,t,y+20.0,"Agent tools");
     for (i,agent) in cfg.agents.iter().enumerate(){
@@ -124,5 +129,6 @@ pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:O
         let b=form::button(p,g,t,229.0,y+12.0,"Add agent");hits.push(Hit{rect:b,action:Action::AddAgent});
         y+=52.0;
     }
+    if cfg.post_ai{return y;}
     form::heading(p,g,t,y+16.0,"Access")
 }

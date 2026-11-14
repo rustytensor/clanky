@@ -51,7 +51,8 @@ left alone until you change something here; that change writes a well-formed fil
 - **History:** **Save history**, **Keep for** (days, 0 keeps everything) and **Output per command** (KiB).
 - **Keys:** current shortcuts as right-aligned key chips; unavailable screens are omitted.
 
-Every page scrolls with the wheel or Page Up/Down. Post-AI hides the Agents page and agent shortcuts. A window
+Every page scrolls with the wheel or Page Up/Down. In Post-AI mode the Agents page keeps the agent settings (they apply once it is off) without the access
+rows, and the agent shortcuts are hidden. A window
 started with `--post-ai` shows the mode switch without effect and explains that the server must restart to
 turn it off. The old Settings modal is never used as a fallback. Ctrl+Shift+Escape still revokes agents.
 
