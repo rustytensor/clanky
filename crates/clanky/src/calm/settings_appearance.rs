@@ -17,26 +17,32 @@ pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeS
     let rect=|x,y,w,h|g.local(x,y-scroll,w,h);
     p.out.scene.layers.push(Layer::Clip(Some(g.body.array())));
     let gs=Geometry{panel:PixelRect{y:g.panel.y-scroll*s,..g.panel},..g.clone()};
+    // Layout, then the text and window settings with the window colours, then the theme picker
+    // (the longest group, last, so every row above it stays within easy reach of the wheel).
     let layout_end=super::settings_layout::layout_group(&mut p,&gs,t,cfg,&mut hits);
-    let (end,items)=super::settings_layout::theme_group(&mut p,&gs,t,cfg,store,palettes,system_light,highlight,&mut hits,layout_end+20.0)?;
-    let end=end+6.0;
-    p.shape(rect(229.0,end-1.0,522.0,1.0),0.0,t.colors.border,None);
-    let end=text_group(&mut p,&gs,t,cfg,editing,&mut hits,end+20.0);
+    p.shape(rect(229.0,layout_end,522.0,1.0),0.0,t.colors.border,None);
+    let end=text_group(&mut p,&gs,t,cfg,editing,&mut hits,layout_end+20.0);
+    // Window colours: two columns of swatches; Reset takes a changed colour's hex place.
     p.text(rect(229.0,end+20.0,522.0,16.0),&format!("Window colours ({})",t.name),12.0*s,t.colors.muted_foreground,500,false);
     let selected_id=cfg.selected_theme_id(system_light);let base=store.get(selected_id).ok();let mut y=end+40.0;
-    let tokens=["sidebar","background","agent"].into_iter().chain(COLOR_TOKENS.iter().copied().filter(|token|!["sidebar","background","agent"].contains(token)));
-    for token in tokens{let Some(color)=t.colors.get(token)else{continue;};let row=rect(229.0,y,522.0,40.0);
-        p.shape(rect(229.0,y+10.0,20.0,20.0),5.0*s,color,Some(t.colors.input));let name=if token=="agent"{"Agent accent".into()}else{label(token)};p.text(rect(259.0,y,260.0,40.0),&name,14.0*s,t.colors.foreground,400,false);
+    let tokens:Vec<&str>=["sidebar","background","agent"].into_iter().chain(COLOR_TOKENS.iter().copied().filter(|token|!["sidebar","background","agent"].contains(token))).collect();
+    for (i,token) in tokens.iter().copied().enumerate(){let Some(color)=t.colors.get(token)else{continue;};
+        let x=if i%2==0{229.0}else{501.0};let cy=y+(i/2) as f32*36.0;let cell=rect(x,cy,250.0,36.0);
+        if !super::settings_frame::row_fits(&gs,cy-18.0){continue;}
+        p.shape(rect(x,cy+8.0,20.0,20.0),5.0*s,color,Some(t.colors.input));let name=if token=="agent"{"Agent accent".into()}else{label(token)};p.text(rect(x+30.0,cy,150.0,36.0),&name,13.0*s,t.colors.foreground,400,false);
         let changed=cfg.colors.get(token).is_some_and(|value|base.as_ref().and_then(|b|b.colors.get(token)).as_ref()!=Some(value));
-        let value=hex(color);let width=p.mono_width(&value,13.0*s,400);let right=if changed{679.0}else{751.0};p.text(r(g.panel.x+right*s-width,g.panel.y+(y-scroll)*s,width,40.0*s),&value,13.0*s,t.colors.muted_foreground,400,true);
-        hits.push(Hit{rect:row,action:Action::Color(token)});
-        if changed{let b=rect(689.0,y+6.0,62.0,28.0);button(&mut p,b,"Reset",t,s,pointer,pressed,false);hits.push(Hit{rect:b,action:Action::ResetColor(token)});}
-        p.shape(rect(229.0,y+39.0,522.0,1.0),0.0,t.colors.border,None);y+=40.0;
+        if changed{let b=rect(x+250.0-62.0,cy+4.0,62.0,28.0);button(&mut p,b,"Reset",t,s,pointer,pressed,true);hits.push(Hit{rect:r(cell.x,cell.y,b.x-cell.x-4.0*s,cell.h),action:Action::Color(token)});hits.push(Hit{rect:b,action:Action::ResetColor(token)});}
+        else{let value=hex(color);let width=p.mono_width(&value,12.0*s,400);let right=g.panel.x+(x+250.0)*s;p.text(r(right-width,cell.y,width,36.0*s),&value,12.0*s,t.colors.muted_foreground,400,true);hits.push(Hit{rect:cell,action:Action::Color(token)});}
     }
+    y+=tokens.len().div_ceil(2) as f32*36.0;
     let mut x=229.0;
-    for(name,action)in[("Save as new theme",Action::SaveTheme),("Import",Action::ImportTheme),("Export",Action::ExportTheme)]{let width=p.width(name,13.0*s,500)/s+20.0;let b=rect(x,y+16.0,width,28.0);button(&mut p,b,name,t,s,pointer,pressed,true);hits.push(Hit{rect:b,action});x+=width+8.0;}
+    for(name,action)in[("Save as new theme",Action::SaveTheme),("Import",Action::ImportTheme),("Export",Action::ExportTheme)]{let width=p.width(name,13.0*s,500)/s+20.0;let b=rect(x,y+12.0,width,28.0);button(&mut p,b,name,t,s,pointer,pressed,true);hits.push(Hit{rect:b,action});x+=width+8.0;}
+    y+=60.0;
+    p.shape(rect(229.0,y-1.0,522.0,1.0),0.0,t.colors.border,None);
+    let (end,items)=super::settings_layout::theme_group(&mut p,&gs,t,cfg,store,palettes,system_light,highlight,&mut hits,y+20.0)?;
+    let y=end;
     hits.retain_mut(|hit|{let top=hit.rect.y.max(g.body.y);let bottom=(hit.rect.y+hit.rect.h).min(g.body.y+g.body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
-    p.out.scene.layers.push(Layer::Clip(None));Ok((p.out.scene.layers,hits,(y+68.0-543.0).max(0.0),items))
+    p.out.scene.layers.push(Layer::Clip(None));Ok((p.out.scene.layers,hits,(y+24.0-543.0).max(0.0),items))
 }
 /// Text and window rows: font size, terminal and interface fonts, cell width, line height, opacity.
 fn text_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<super::settings_form::Editing<'_>>,hits:&mut Vec<Hit>,top:f32)->f32{
