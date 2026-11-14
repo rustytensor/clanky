@@ -16,3 +16,5 @@ ratatui = { version = "=0.29.0", default-features = false, features = ["crosster
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 spellbook = { version = "=0.4.2", default-features = false }
 winit = "=0.30.13"
+tree-sitter = "=0.27.2"
+tree-sitter-bash = "=0.25.1"

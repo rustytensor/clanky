@@ -13,6 +13,7 @@ pub mod settings_panel;
 mod settings_appearance;
 pub mod settings_layout;
 mod settings_access;
+pub mod command_bar;
 pub use recent::{human_recent,pane_label,uptime_label};
 pub use scene::{presentation,legacy_palette,notice,review_buttons};
 

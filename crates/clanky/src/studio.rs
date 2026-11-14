@@ -148,6 +148,19 @@ impl App {
     }
     pub(super) fn pixel_layout_for(&self, tree: &Tree) -> Result<look::Layout,String> {
         let mut layout = self.layout_with(tree)?;
+        // The command input takes whole terminal rows at the bottom of each terminal pane, for
+        // one line of text; more lines draw over the rows above. The rows stay while a command runs.
+        if self.input_on() {
+            let input_h = clanky::calm::command_bar::height(layout.cell_px[1] as f32, layout.scale as f32, 1);
+            for pane in layout.panes.iter_mut().filter(|p| !self.files.panes.contains_key(&p.id)) {
+                let top = pane.rect.y + pane.rect.h - input_h;
+                let rows = ((top - pane.grid_origin[1]) / layout.cell_px[1] as f32).floor().max(1.0) as usize;
+                if rows < pane.rows {
+                    pane.rows = rows;
+                    pane.grid_clip.h = pane.rows as f32 * layout.cell_px[1] as f32;
+                }
+            }
+        }
         // Reserve integral terminal rows for the dock, never resize PTYs to a guessed cell rectangle.
         if let Some(target) = self.compose.active_target() {
             if let Some(pane) = layout.panes.iter_mut().find(|p| p.id == target) {
@@ -488,6 +501,7 @@ impl App {
             self.studio.drag = Some(Capture { layout, index, revision: self.revision, local: self.files.layout.clone() });
             return Ok(());
         }
+        if self.command_click(&layout)? { return Ok(()); }
         let Some(pane) = layout.pane_at(self.mouse.0, self.mouse.1) else { return Ok(()); };
         let id = pane.id.clone();
         if self.files.panes.contains_key(&id) {
@@ -546,6 +560,7 @@ impl App {
             return self.resize_panes();
         }
         if self.files.modal() || self.panels.open || self.search.active_target().is_some() { return Ok(()); }
+        if self.bars.dragging.is_some() { let layout = self.pixel_layout()?; self.command_drag(&layout); return Ok(()); }
         if let Some(id) = self.files.dragging.clone() {
             let layout = self.pixel_layout()?;
             if let Some(pane) = layout.pane(&id) {
@@ -757,6 +772,8 @@ impl App {
                 if let Some(pinned)=self.search.pinned(pane.rows,pane.cols,blank,mix(0.16),mix(0.34)) { snapshot = pinned; }
                 state.find = Some((pane.id.clone(),self.search.query().to_owned(),self.search.total()));
             }
+            // The command input has the caret while it takes keys; the shell's empty prompt shows none.
+            if self.has_input(&pane.id) && self.input_aside(&pane.id).is_none() { snapshot.cursor = None; }
             let mut view = PaneState::new(pane.id.clone(),snapshot.clone());
             view.title = title;
             view.allow_agent = self.studio.permissions.get(&pane.id).copied().unwrap_or(false);
@@ -979,6 +996,7 @@ impl App {
         self.update_card_actions(&layout,&mut state,now);
         if self.context_menu.open && (layout.pane(&self.context_menu.pane).is_none() || self.mouse_overlay()) { self.context_menu.close(); }
         let terminal_px=self.metrics()?.font_px;
+        let bars=self.command_bars(&layout);
         let palette_context=self.palette_context();
         let agent_context=self.agent_picker.open.then(||self.agent_context());
         let renderer=self.renderer.as_mut().ok_or("renderer not ready")?;
@@ -1045,6 +1063,14 @@ impl App {
             presentation.scene.layers.extend(layers);
             review_hits.extend(hits.into_iter().map(|(rect,action)|Hotspot{rect,action:HitAction::Review{pane:pane.clone(),action:action.into()}}));
         }
+        let mut bar_hits=Vec::new();
+        for bar in &bars {
+            let (layers,hits)=clanky::calm::command_bar::draw(&layout,&self.studio.calm_theme,&state.terminal,terminal_px,bar,self.mouse,self.pointer_pressed,&mut |run|renderer.measure_text(run));
+            presentation.scene.layers.extend(layers); bar_hits.extend(hits);
+            if let (Some((line,col)),Some(g))=(bar.caret,bar.geometry) {
+                ime=Some([g.text_x+col.saturating_sub(bar.left_col) as f32*g.cell[0],g.line_y+line.saturating_sub(bar.top_line) as f32*g.cell[1]]);
+            }
+        }
         let status_layers = self.status.as_deref().map(|status| clanky::calm::notice(&layout,&self.studio.calm_theme,status,&mut |run|renderer.measure_text(run)));
         if let Some(panel)=&mut self.settings {
             panel.forced_post_ai=self.startup_flags.post_ai;
@@ -1063,6 +1089,7 @@ impl App {
         presentation.scene.layers.extend(self.context_menu.draw(&layout,&self.studio.calm_theme,self.config.animations,&mut |run|renderer.measure_text(run)));
         self.studio.hits = presentation.hits;
         self.studio.hits.extend(review_hits);
+        self.studio.hits.extend(bar_hits);
         if let Some(window) = &self.window {
             let title=format!("Clanky — {} — {:.0} pt",if self.files.focus == TERMINALS { self.focused().unwrap_or("no terminal") } else { &self.files.focus },self.zoom.points());
             if self.studio.title.as_ref()!=Some(&title){window.set_title(&title);self.studio.title=Some(title);}

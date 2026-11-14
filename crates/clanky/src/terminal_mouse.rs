@@ -208,6 +208,7 @@ impl App {
         let bytes = platform::selection_read(primary).map_err(|_| "Nothing to paste".to_owned())?;
         let text = String::from_utf8_lossy(&bytes);
         if text.is_empty() { return Ok(()); }
+        if self.focused() == Some(id) && self.command_text(&text) { return Ok(()); }
         let bracketed = self.pane_snapshot(id).is_some_and(|s| s.modes & clanky_core::MODE_BRACKETED_PASTE != 0);
         let bytes = mouse::pastify(&text, bracketed);
         clanky::compose::send_chunked(&bytes, clanky::compose::INPUT_CHUNK, |piece| self.engine.input(id, piece).map_err(|e| e.message))?;
