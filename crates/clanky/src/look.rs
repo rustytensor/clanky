@@ -246,9 +246,10 @@ pub(crate) fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bo
             let rows = stable_floor(
                 (area.h as f64 - (2.0 * metrics.pane_padding_y + metrics.pane_header)).max(0.0) / out.cell_px[1] as f64,
             ) as usize;
+            // Whole pixels: a grid at a fractional position would blur every glyph's edges.
             let origin = [
-                area.x as f64 + metrics.pane_padding,
-                area.y as f64 + metrics.pane_padding_y + metrics.pane_header,
+                (area.x as f64 + metrics.pane_padding).round(),
+                (area.y as f64 + metrics.pane_padding_y + metrics.pane_header).round(),
             ];
             out.panes.push(PaneLayout {
                 id: id.clone(),
@@ -278,7 +279,8 @@ pub(crate) fn collect(tree: &WorkspaceLayout, area: PixelRect, path: &mut Vec<bo
             } else {
                 area.h
             } as f64;
-            let gap = metrics.pane_gap.min(extent);
+            // A whole-pixel gap keeps both panes' edges crisp at fractional scales.
+            let gap = metrics.pane_gap.round().min(extent);
             let available = (extent - gap).max(0.0);
             let first_extent = allocation(available, *ratio, a_min[dimension], b_min[dimension]);
             let second_extent = available - first_extent;
