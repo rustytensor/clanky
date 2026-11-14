@@ -132,9 +132,9 @@ files at once:
 | function | ANSI 4 |
 | type | ANSI 3 |
 | string | ANSI 2 |
-| number | ANSI 1 |
+| number | 40% ANSI 1 + 60% ANSI 3 |
 | constant, macro, attribute | ANSI 6 |
-| comment | `muted_foreground`, italic |
+| comment | 51% of the way from `background` to `muted_foreground`, italic |
 | everything else | `foreground` |
 
 In Markdown a heading's text is keyword, inline and fenced code are string, and prose is plain.
