@@ -44,21 +44,22 @@ fn dots(c:&TerminalColors,t:&Theme)->(Color,[Color;4]){
 pub(super) fn group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,picker:&mut Picker,hits:&mut Vec<Hit>)->f32{
     let s=g.scale;let c=&t.colors;let faint=crate::calm::scene_faint(c);
     p.text(g.local(229.0,TOP,522.0,16.0),"Colour scheme",12.0*s,c.muted_foreground,500,false);
-    // Search field (as the sheets' inputs: 32 tall, radius 8, ring while focused).
+    // Search field: 32 tall, radius 8, filled with the muted colour (as Appearance's segmented
+    // controls), a ring while focused.
     let field=g.local(229.0,TOP+20.0,LIST_W,32.0);
-    p.shape(field,8.0*s,c.background,Some(if picker.focused{c.ring}else{c.input}));
+    p.shape(field,8.0*s,c.muted,picker.focused.then_some(c.ring));
     let inner=r(field.x+10.0*s,field.y,field.w-20.0*s,field.h);
-    if picker.query.is_empty(){p.text(inner,"Search",13.0*s,c.muted_foreground,400,false);}
-    else{p.text(inner,&picker.query,13.0*s,c.foreground,400,false);}
+    // The sheets' input text: 14 px.
+    if picker.query.is_empty(){p.text(inner,"Search",14.0*s,c.muted_foreground,400,false);}
+    else{p.text(inner,&picker.query,14.0*s,c.foreground,400,false);}
     if picker.focused{
-        let x=if picker.query.is_empty(){inner.x}else{inner.x+p.width(&picker.query,13.0*s,400).min(inner.w)+s};
+        let x=if picker.query.is_empty(){inner.x}else{inner.x+p.width(&picker.query,14.0*s,400).min(inner.w)+s};
         p.shape(r(x.round(),field.y+8.0*s,s,16.0*s),0.0,c.foreground,None);
     }
     hits.push(Hit{rect:field,action:Action::SchemeSearch});
-    // Import, at the right of the search field.
+    // Import, at the right of the search field: a quiet button that fills on hover.
     let label="Import…";let width=p.width(label,13.0*s,500)/s+20.0;let b=g.local(751.0-width,TOP+22.0,width,28.0);
-    let over=b.contains(p.pointer.0,p.pointer.1);
-    p.shape(b,6.0*s,if over{if p.pressed{c.pressed}else{c.accent}}else{c.background},Some(c.input));
+    if b.contains(p.pointer.0,p.pointer.1){p.shape(b,6.0*s,if p.pressed{c.pressed}else{c.accent},None);}
     let w=p.width(label,13.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),label,13.0*s,c.foreground,500,false);
     hits.push(Hit{rect:b,action:Action::SchemeImport});
     // The rows.
