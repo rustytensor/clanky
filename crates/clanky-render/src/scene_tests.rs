@@ -89,6 +89,7 @@ fn fixture() -> Scene {
                 weight: 600,
                 mono: false,
                 letter_spacing: 0.0,
+                italic: false,
             }),
         ],
     };
@@ -146,6 +147,7 @@ fn text_metrics() {
         px: 20.0,
         mono: true,
         letter_spacing: 1.5,
+        italic: false,
         ..TextRun::default()
     };
     let mut reference = Buffer::new(&mut fonts, Metrics::new(20.0, 25.0));
@@ -225,6 +227,7 @@ fn scene_opacity() {
             weight: 400,
             mono: true,
             letter_spacing: 0.0,
+            italic: false,
         }));
         // The following shape must not inherit the preceding layer's fade.
         scene
