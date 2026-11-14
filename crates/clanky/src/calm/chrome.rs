@@ -59,12 +59,15 @@ fn mono_chars(p:&mut Paint,rect:PixelRect,text:&str,px:f32,color:Color,weight:u1
 }
 fn dot(p:&mut Paint,x:f32,y:f32,d:f32,color:Color){p.shape(r(x,y,d,d),d/2.0,color,None);}
 fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
+/// A sidebar-coloured surface (title bar, tab column, tools panel, status line). The window
+/// backdrop is already the sidebar colour, or the theme's window gradient, which must show here.
+fn side(p:&mut Paint,rect:PixelRect){if p.theme.window_gradient.is_none(){let c=p.theme.colors.sidebar;p.shape(rect,0.0,c,None);}}
 
 /// Title bar (mockup .titlebar): 38 px on the sidebar colour with a 1 px bottom hairline.
 pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
     let s=p.scale;let c=p.theme.colors.clone();let bar=layout.top_bar;if bar.h<=0.0{return;}
     let side_line=over(c.sidebar,c.border);let dim=c.muted_foreground;let faint=faint(p);
-    p.shape(bar,0.0,c.sidebar,None);
+    side(p,bar);
     line(p,bar.x,bar.y+bar.h-s,bar.w,s,side_line);
     let cy=bar.y+(bar.h-s)/2.0;
     // Tools toggle (.ico, 26 x 24, radius 6): filled while the tools panel shows.
@@ -129,7 +132,7 @@ pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
 /// The vertical tab list (mockup picture 2, .vtabs): folder and branch, last command, state.
 pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(col)=layout.tabs_column else{return;};let s=p.scale;let c=p.theme.colors.clone();let faint=faint(p);
-    p.shape(col,0.0,c.sidebar,None);line(p,col.x+col.w-s,col.y,s,col.h,over(c.sidebar,c.border));
+    side(p,col);line(p,col.x+col.w-s,col.y,s,col.h,over(c.sidebar,c.border));
     let x=col.x+8.0*s;let w=col.w-16.0*s-s;let mut y=col.y+8.0*s;
     p.text(r(x+9.0*s,y,w-18.0*s,22.0*s),"Session 1",12.0*s,faint,500,false);y+=26.0*s;
     for tab in &state.tabs{
@@ -158,7 +161,7 @@ pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
 pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(panel)=layout.left_rail else{return;};let s=p.scale;let c=p.theme.colors.clone();let faint=faint(p);
     let side_line=over(c.sidebar,c.border);
-    p.shape(panel,0.0,c.sidebar,None);line(p,panel.x+panel.w-s,panel.y,s,panel.h,side_line);
+    side(p,panel);line(p,panel.x+panel.w-s,panel.y,s,panel.h,side_line);
     let inner=r(panel.x,panel.y,panel.w-s,panel.h);
     let tools:Vec<Tool>=state.tools.iter().copied().filter(|t|!(state.post_ai && *t==Tool::Agents)).collect();
     let foot_h=if tools.is_empty(){0.0}else{42.0*s};
@@ -256,7 +259,7 @@ fn agents(p:&mut Paint,body:PixelRect,state:&LookState,faint:Color){
 /// The status line (mockup .status): session, tabs and server on the left; masking and agents on the right.
 pub(super) fn status_line(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(bar)=layout.status_line else{return;};let s=p.scale;let c=p.theme.colors.clone();
-    p.shape(bar,0.0,c.sidebar,None);line(p,bar.x,bar.y,bar.w,s,over(c.sidebar,c.border));
+    side(p,bar);line(p,bar.x,bar.y,bar.w,s,over(c.sidebar,c.border));
     let y=bar.y+s;let h=bar.h-s;let gap=16.0*s;let px=12.0*s;let faint=c.muted_foreground;
     let tabs=state.tabs.len().max(1);
     let left=["Session 1".to_string(),format!("{tabs} {}",if tabs==1{"tab"}else{"tabs"}),super::uptime_label(state.uptime_seconds)];
