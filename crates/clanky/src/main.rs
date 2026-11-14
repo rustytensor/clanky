@@ -1302,6 +1302,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
         if let Some(at)=self.studio.tick {
             if Instant::now()>=at { self.studio.tick=None; self.frame_clock.invalidate(); } else { wake=wake.min(at); }
         }
+        if let Some(at)=self.studio.scrollbar_wake {
+            if Instant::now()>=at { self.studio.scrollbar_wake=None; self.frame_clock.invalidate(); } else { wake=wake.min(at); }
+        }
         if !self.is_suspended(){
             // A blink phase change is a frame; once blinking rests there are none.
             if self.cursor_visible() != self.blink_shown { self.frame_clock.invalidate(); }

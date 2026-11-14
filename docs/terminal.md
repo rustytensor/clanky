@@ -9,8 +9,32 @@ monospace family; Settings > Terminal lists them. Cells are sized from the font 
 the width is the widest ASCII character's advance rounded up, the height the font's ascent and
 descent each rounded up, and each is then multiplied by `cell_width_scale` / `cell_height_scale`
 (1.0–2.0, Settings' **Line height**) and truncated. IBM Plex Mono 11 pt with a line height of
-1.25 gives 9 × 26 px cells, as in Ptyxis. Bold text (SGR 1) uses the font's bold face in the same
+1.25 gives 9 × 26 px cells, as in Ptyxis. The default is Geist Mono 11 pt (14.67 px) with a line
+height of 1.25: 9 × 25 px cells. Bold text (SGR 1) uses the font's bold face in the same
 colour; faint text (SGR 2) is drawn two thirds of the way from the background to its colour.
+
+On a scaled display (HiDPI, including fractional scales such as 1.25) the cell is worked out at
+scale 1 and multiplied by the scale, rounded to whole pixels, so a pane shows the same columns
+and rows at every scale; the glyphs themselves are drawn at the full physical size, never
+enlarged from a smaller bitmap.
+
+## Window sizes
+
+The window follows Ptyxis's look at these sizes (logical pixels, each multiplied by the display
+scale): a 46 px title bar with no line under it; tabs 34 px tall with corners of 9 px, 6 px apart,
+the active one filled with the text colour at 8 % and a hovered one at 5 %, with an 8 px close
+mark on the active or hovered tab; header buttons 34 × 34 px with a radius of 8 and a fill on
+hover; a 34 px search field; chips, the Shell | Agent switch and the tools panel's Files, Recent
+and Agents 32 px tall; menu rows 32 px apart; labels 14 px. Each pane has 14 px of padding on
+every side, and panes stand 8 px apart, with the window's colour between them and between the
+tools panel and the panes.
+
+## Scrollbar
+
+Turning the wheel over a pane with scrollback shows an overlay scrollbar at its right edge, 8 px
+wide and 7 px from the edge with round ends, in the text colour at 15 % over the background. It
+stays for a second after the last turn of the wheel and then fades out (or goes at once with
+`animations` off). Nothing is redrawn while it stays or once it has gone.
 
 ## Cursor
 
