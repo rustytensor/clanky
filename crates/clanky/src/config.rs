@@ -67,6 +67,8 @@ pub struct TerminalColors {
     pub background: Option<crate::themes::Color>,
     pub foreground: Option<crate::themes::Color>,
     pub cursor: Option<crate::themes::Color>,
+    /// The background of selected cells.
+    pub selection: Option<crate::themes::Color>,
     pub ansi: Option<[crate::themes::Color; 16]>,
 }
 
@@ -101,6 +103,7 @@ impl TerminalColors {
                 "background" => out.background = Some(color(key, value)?),
                 "foreground" => out.foreground = Some(color(key, value)?),
                 "cursor" => out.cursor = Some(color(key, value)?),
+                "selection" => out.selection = Some(color(key, value)?),
                 "ansi" => {
                     let list = value.as_array().filter(|l| l.len() == 16).ok_or("terminal_colors.ansi must list 16 colours")?;
                     let mut ansi = [[0; 4]; 16];
