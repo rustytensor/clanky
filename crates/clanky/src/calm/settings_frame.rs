@@ -90,7 +90,8 @@ fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Conf
         let color=if selected || over{c.foreground}else{c.muted_foreground};icon(&mut p,item.title(),g.local(17.0,y+8.0,16.0,16.0),color,s);
         p.text(g.local(41.0,y,143.0,32.0),item.title(),14.0*s,color,if selected{500}else{400},false);hits.push(Hit{rect,action:Action::Section(item)});
     }
-    heading(&mut p,g.local(229.0,1.0,490.0,56.0),section.title(),theme,s);
+    // The page title is centred in the header, as a GNOME header bar's.
+    let title_w=p.width(section.title(),16.0*s,600)/s+1.0;heading(&mut p,g.local(490.0-title_w/2.0,1.0,title_w,56.0),section.title(),theme,s);
     p.shape(g.local(201.0,56.0,578.0,1.0),0.0,c.border,None);
     let close=g.local(735.0,13.0,32.0,32.0);hover(&mut p,close,pointer,pressed,theme,s,8.0);icon(&mut p,"close",g.local(743.0,21.0,16.0,16.0),c.foreground,s);hits.push(Hit{rect:close,action:Action::Close});
     let _=(config,scroll);let max_scroll=0.0;
