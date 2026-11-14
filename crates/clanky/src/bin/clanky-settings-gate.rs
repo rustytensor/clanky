@@ -32,7 +32,13 @@ fn run()->Result<(),String>{
             row_labels.sort_by(f32::total_cmp);
             row_gaps.extend(row_labels.windows(2).map(|pair|pair[1]-pair[0]));
             let frame=settings_frame::draw_live([1240,760],1.0,section,&theme,&config,(-1.0,-1.0),false,&mut clanky_render::measure_text);
-            for hit in frame.hits {if matches!(hit.action,Action::Toggle(..)) {row_heights.push(hit.rect.h);}}
+            // Whole-row targets (522 px wide): the switches, and the Terminal page's Tools panel row,
+            // whose switch now writes tools_panel through Action::Choice (it was the rails Toggle).
+            // Appearance › Layout's own On | Off segments are not rows and are left out.
+            for hit in frame.hits {
+                let row=matches!(hit.action,Action::Toggle(..)) || (matches!(hit.action,Action::Choice("tools_panel",_)) && (hit.rect.w-522.0).abs()<1.0);
+                if row {row_heights.push(hit.rect.h);}
+            }
             if index==0 {
                 let radius=layers.iter().find_map(|layer|match layer{Layer::Shape(shape) if shape.rect==geometry.panel.array() && shape.border.is_some()=>Some(shape.radius),_=>None}).ok_or("missing panel shape")?;
                 radii.push(radius);
