@@ -239,6 +239,9 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
     // Prevent child processes from inheriting linux-specific startup notification env.
     builder.env_remove("XDG_ACTIVATION_TOKEN");
     builder.env_remove("DESKTOP_STARTUP_ID");
+    // VTE's own prompt script (Fedora's /etc/profile.d/vte.sh) runs only under VTE; a Clanky
+    // started from Ptyxis must not pass it on, or its OSC 133 marks double Clanky's.
+    builder.env_remove("VTE_VERSION");
 
     let working_directory = config
         .working_directory

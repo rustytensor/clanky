@@ -114,6 +114,12 @@ struct Observer {
     /// ends that line is not output.
     after_command: bool,
     prompt_waiting: bool,
+    /// An A or B mark came since the last C: a C now starts a new block. bash prints PS0 (and
+    /// so C) once per command of a multi-line submission; only the first starts a block.
+    prompted: bool,
+    /// B marks seen since this program started (the window's command input counts prompts).
+    prompt_seq: u64,
+    integrated: bool,
     marker: Option<u8>,
     prompt_start: Option<u64>,
     command_start: Option<(u64, usize)>,
@@ -217,8 +223,13 @@ impl vte::Perform for Observer {
             Some(b"C") => Some(b'C'),
             Some(b"D") if self.active.is_some() => Some(b'D'), _ => None,
         };
+        if params.get(1).copied() == Some(b"C".as_slice()) && self.active.is_some() && !self.prompted {
+            self.marker = None;
+            return;
+        }
         match params.get(1).copied() {
             Some(b"C") => {
+                self.prompted = false;
                 self.prompt_waiting = false;
                 self.seal(None, false);
                 while self.blocks.len() >= 1024 {
@@ -254,7 +265,12 @@ impl vte::Perform for Observer {
                     .and_then(|s| s.parse().ok());
                 self.seal(code, true);
             }
-            Some(b"A" | b"B") => {
+            Some(mark @ (b"A" | b"B")) => {
+                self.prompted = true;
+                if mark == b"B" {
+                    self.prompt_seq += 1;
+                    self.integrated = true;
+                }
                 self.prompt_waiting = true;
                 self.seal(None, false);
             }
@@ -347,6 +363,7 @@ impl Terminal {
                 // Do not complete a previous process's partial escape sequence.
                 self.observer.command_start = None;
                 self.observer.prompt_start = None;
+                self.observer.integrated = false;
                 self.processor = ansi::Processor::new();
                 self.parser = vte::Parser::new();
                 state.queue.clear();
@@ -747,7 +764,10 @@ impl Terminal {
             .find(|b| b.prompt_line.is_some_and(|p| p >= oldest) && b.command_line.is_some_and(|c| c < top)
                 && (!b.complete || b.end_line.is_some_and(|end| end > top)))
             .map(Self::card_json);
-        serde_json::json!({"viewport_line":top,"blocks":blocks,"sticky":sticky})
+        // The shell's prompt as the marks tell it: the window's command input takes keys only at a prompt.
+        let prompt = serde_json::json!({"integrated":self.observer.integrated,"seq":self.observer.prompt_seq,
+            "at_prompt":self.observer.prompt_waiting && self.observer.integrated});
+        serde_json::json!({"viewport_line":top,"blocks":blocks,"sticky":sticky,"prompt":prompt})
     }
     fn card_json(b: &Block) -> serde_json::Value {
         let cwd = b.origin.as_ref().and_then(|(cwd, _)| cwd.clone()).or_else(|| b.reported_cwd.clone());
