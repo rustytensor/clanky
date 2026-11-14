@@ -270,7 +270,7 @@ impl SettingsPanel {
     }
 }
 fn label(out:&mut Drawing<'_>,r:[f32;4],text:&str,px:f32,color:[u8;4]){
-    let mut run=TextRun{origin:[r[0],r[1]],text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(4096).collect(),px,color,weight:400,mono:false,opacity:1.0,letter_spacing:0.0};
+    let mut run=TextRun{origin:[r[0],r[1]],text:text.chars().map(|c|if c.is_control(){' '}else{c}).take(4096).collect(),px,color,weight:400,mono:false,opacity:1.0,letter_spacing:0.0,italic:false};
     if (out.measure)(&run).width>r[2] {
         let chars:Vec<char>=run.text.chars().collect();let tail=run.text.ends_with('▏');
         let (mut low,mut high)=(0,chars.len());
@@ -294,7 +294,7 @@ fn field_label(key:&str)->&str {match key {
 }}
 fn value(c:&Config,key:&str)->Option<Value>{Some(match key{
     "opacity"=>json!(c.opacity),"font_size"=>json!(c.font_size),"font_family"=>json!(c.font_family),"ui_font_family"=>json!(c.ui_font_family),
-    "rails"=>json!(c.rails),"animations"=>json!(c.animations),"columns"=>json!(c.columns),"rows"=>json!(c.rows),
+    "rails"=>json!(c.tools_panel),"animations"=>json!(c.animations),"columns"=>json!(c.columns),"rows"=>json!(c.rows),
     "compose_dictionary"=>json!(c.compose_dictionary),"compose_dictionary_dir"=>json!(c.compose_dictionary_dir),"compose_send_enter"=>json!(c.compose_send_enter),
     "notify_after_seconds"=>json!(c.notify_after_seconds),"restore_layout"=>json!(c.restore_layout),"osc52_write"=>json!(c.osc52_write),"osc52_read"=>json!(c.osc52_read),
     _=>return None,

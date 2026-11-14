@@ -1,57 +1,28 @@
 //! Appearance contents and sheet-style edit popovers; storage stays in ThemeStore.
 use super::{scene::Paint,settings_frame::{Action,Geometry,Hit}};
-use crate::{config::{Config,ThemePreference},look::PixelRect,theme_store::ThemeStore,themes::{Theme,Color,COLOR_TOKENS}};
-use clanky_render::{Fill,Shape,Layer,TextRun,TextMetrics};
+use crate::{config::Config,look::PixelRect,theme_store::ThemeStore,themes::{Theme,Color,COLOR_TOKENS}};
+use clanky_render::{Layer,TextRun,TextMetrics};
 use winit::keyboard::{Key,NamedKey};
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w,h}}
 pub(super) fn hex(c:Color)->String{if c[3]==255{format!("#{:02x}{:02x}{:02x}",c[0],c[1],c[2])}else{format!("#{:02x}{:02x}{:02x}{:02x}",c[0],c[1],c[2],c[3])}}
-fn card_label(name:&str)->(&str,Option<&'static str>){
-    match name.strip_prefix("Catppuccin "){
-        Some(flavour @ ("Frappé"|"Macchiato"|"Mocha"|"Latte"))=>(flavour,Some("Catppuccin")),
-        _=>(name,None),
-    }
-}
 fn label(token:&str)->String{let text=token.replace('_'," ");let mut chars=text.chars();chars.next().map(|c|c.to_uppercase().collect::<String>()+chars.as_str()).unwrap_or_default()}
 fn button(p:&mut Paint<'_>,rect:PixelRect,text:&str,t:&Theme,s:f32,pointer:(f64,f64),pressed:bool,outline:bool){
     let fill=if rect.contains(pointer.0,pointer.1){if pressed{t.colors.pressed}else{t.colors.accent}}else{t.colors.background};
     if outline || rect.contains(pointer.0,pointer.1){p.shape(rect,6.0*s,fill,outline.then_some(t.colors.input));}
     let w=p.width(text,13.0*s,500);p.text(r(rect.x+(rect.w-w)/2.0,rect.y,w,rect.h),text,13.0*s,t.colors.foreground,500,false);
 }
-pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeStore,system_light:bool,scroll:f32,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics)->Result<(Vec<Layer>,Vec<Hit>,f32),String>{
+#[allow(clippy::too_many_arguments,clippy::type_complexity)]
+pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeStore,system_light:bool,scroll:f32,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,palettes:&[(String,serde_json::Value)],highlight:Option<usize>)->Result<(Vec<Layer>,Vec<Hit>,f32,Vec<super::settings_layout::PickItem>),String>{
     let s=g.scale;let mut p=Paint::empty(t,measure,s,window,pointer,pressed);let mut hits=vec![];
     let rect=|x,y,w,h|g.local(x,y-scroll,w,h);
     p.out.scene.layers.push(Layer::Clip(Some(g.body.array())));
-    let modes=[("Light","light"),("Dark","dark"),("System","system")];let widths=modes.map(|(name,_)|p.width(name,13.0*s,500)/s+24.0);let total=widths.iter().sum::<f32>()+10.0;
-    p.text(rect(229.0,79.0,522.0-total-24.0,18.0),"Mode",14.0*s,t.colors.foreground,500,false);
-    p.text(rect(229.0,100.0,522.0-total-24.0,18.84375),"Follow the system, or pick one.",13.0*s,t.colors.muted_foreground,400,false);
-    let mut x=751.0-total;p.shape(rect(x,82.921875,total,32.0),8.0*s,t.colors.muted,None);x+=3.0;
-    let selected=match cfg.theme{ThemePreference::Light=>"light",ThemePreference::Dark=>"dark",ThemePreference::System=>"system"};
-    for ((name,value),w) in modes.into_iter().zip(widths){let b=rect(x,85.921875,w,26.0);if selected==value{p.shape(b,6.0*s,t.colors.background,None);}else if b.contains(pointer.0,pointer.1){p.shape(b,6.0*s,t.colors.accent,None);}
-        let width=p.width(name,13.0*s,500);p.text(r(b.x+(b.w-width)/2.0,b.y,width,b.h),name,13.0*s,if selected==value{t.colors.foreground}else{t.colors.muted_foreground},500,false);hits.push(Hit{rect:b,action:Action::Mode(value)});x+=w+2.0;
-    }
-    p.shape(rect(229.0,132.84375,522.0,1.0),0.0,t.colors.border,None);
-    let appearance=t.appearance;let entries=store.picker(Some(appearance))?;let selected_id=cfg.selected_theme_id(system_light);
-    p.text(rect(229.0,153.84375,522.0,16.0),if appearance==crate::themes::Appearance::Dark{"Dark theme"}else{"Light theme"},12.0*s,t.colors.muted_foreground,500,false);
-    let mut rows=Vec::new();let mut next_y=185.84375;
-    for row in entries.chunks(4){let height=if row.iter().any(|entry|card_label(&entry.name).1.is_some()){106.0}else{88.0};rows.push((next_y,height));next_y+=height+12.0;}
-    for(i,entry)in entries.iter().enumerate(){let x=229.0+(i%4) as f32*133.5;let(y,height)=rows[i/4];let pv=rect(x,y,121.5,64.0);
-        let theme=store.get(&entry.id).ok();let bg=entry.swatches.background;let side=theme.as_ref().map(|theme|theme.colors.sidebar).unwrap_or(bg);
-        p.shape(pv,8.0*s,bg,Some(t.colors.border));
-        let fill=entry.window_gradient.as_ref().map(|stops|Fill::VerticalStops(stops.clone())).unwrap_or(Fill::Solid(side));
-        for(area,radius)in[(rect(x+1.0,y+1.0,22.0,62.0),7.0*s),(rect(x+8.0,y+1.0,15.0,62.0),0.0)]{p.out.scene.layers.push(Layer::Shape(Shape{rect:area.array(),radius,fill:fill.clone(),border:None,shadow:None}));}
-        let mut secondary=entry.swatches.foreground;secondary[3]=115;
-        for(n,(width,color))in[(57.05,entry.swatches.foreground),(40.75,secondary),(24.45,entry.swatches.agent)].into_iter().enumerate(){p.shape(rect(x+31.0,y+9.0+n as f32*10.0,width,5.0),3.0*s,color,None);}
-        let on=entry.id==selected_id;if on{p.out.scene.layers.push(Layer::Shape(Shape{rect:rect(x-4.0,y-4.0,129.5,72.0).array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:Some((2.0*s,t.colors.ring)),shadow:None}));}
-        let(name,family)=card_label(&entry.name);
-        p.text(rect(x,y+71.0,if on{101.5}else{121.5},17.0),name,13.0*s,t.colors.foreground,500,false);
-        if let Some(family)=family{p.text(rect(x,y+90.0,121.5,16.0),family,12.0*s,t.colors.muted_foreground,400,false);}
-        if on{let name_width=(p.width(name,13.0*s,500)/s).min(101.5);super::settings_frame::icon(&mut p,"check",rect(x+name_width+6.0,y+72.5,14.0,14.0),t.colors.foreground,s*0.875);}
-        hits.push(Hit{rect:rect(x,y,121.5,height),action:Action::Theme(entry.id.clone())});
-    }
-    let end=next_y+5.0;
+    let gs=Geometry{panel:PixelRect{y:g.panel.y-scroll*s,..g.panel},..g.clone()};
+    let layout_end=super::settings_layout::layout_group(&mut p,&gs,t,cfg,&mut hits);
+    let (end,items)=super::settings_layout::theme_group(&mut p,&gs,t,cfg,store,palettes,system_light,highlight,&mut hits,layout_end+20.0)?;
+    let end=end+6.0;
     p.shape(rect(229.0,end-1.0,522.0,1.0),0.0,t.colors.border,None);
     p.text(rect(229.0,end+20.0,522.0,16.0),&format!("Colours in {}",t.name),12.0*s,t.colors.muted_foreground,500,false);
-    let base=store.get(selected_id).ok();let mut y=end+40.0;
+    let selected_id=cfg.selected_theme_id(system_light);let base=store.get(selected_id).ok();let mut y=end+40.0;
     let tokens=["sidebar","background","agent"].into_iter().chain(COLOR_TOKENS.iter().copied().filter(|token|!["sidebar","background","agent"].contains(token)));
     for token in tokens{let Some(color)=t.colors.get(token)else{continue;};let row=rect(229.0,y,522.0,40.0);
         p.shape(rect(229.0,y+10.0,20.0,20.0),5.0*s,color,Some(t.colors.input));let name=if token=="agent"{"Agent accent".into()}else{label(token)};p.text(rect(259.0,y,260.0,40.0),&name,14.0*s,t.colors.foreground,400,false);
@@ -64,26 +35,21 @@ pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeS
     let mut x=229.0;
     for(name,action)in[("Save as new theme",Action::SaveTheme),("Import",Action::ImportTheme),("Export",Action::ExportTheme)]{let width=p.width(name,13.0*s,500)/s+20.0;let b=rect(x,y+16.0,width,28.0);button(&mut p,b,name,t,s,pointer,pressed,true);hits.push(Hit{rect:b,action});x+=width+8.0;}
     hits.retain_mut(|hit|{let top=hit.rect.y.max(g.body.y);let bottom=(hit.rect.y+hit.rect.h).min(g.body.y+g.body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
-    p.out.scene.layers.push(Layer::Clip(None));Ok((p.out.scene.layers,hits,(y+68.0-543.0).max(0.0)))
+    p.out.scene.layers.push(Layer::Clip(None));Ok((p.out.scene.layers,hits,(y+68.0-543.0).max(0.0),items))
 }
 #[cfg(test)]
 #[test]
 fn theme_card_names_fit(){
-    // Literal display names from the approved label correction. Selected cards
-    // leave 101.5 px after reserving the 14 px check and 6 px gap.
-    let expected=["Stone","Stone","Paper","Paper","Graphite","Graphite","Ink","Latte","Frappé","Macchiato","Mocha","AI Bedazzled","Unicorn Tears","Unicorn Vomit"];
-    for (entry,expected) in crate::themes::BUILTINS.iter().zip(expected){
-        let theme=entry.load().unwrap();let(title,family)=card_label(&theme.name);assert_eq!(title,expected);
-        assert_eq!(family,entry.id.starts_with("catppuccin-").then_some("Catppuccin"));
-        assert!(clanky_render::measure_text(&TextRun{text:title.into(),px:13.0,weight:500,..Default::default()}).width<=101.5,"selected title does not fit: {title}");
+    // Picker rows in a 250 px column leave 250 - 12 - 68 - 20 = 150 px for the name.
+    for entry in crate::themes::BUILTINS.iter(){
+        let theme=entry.load().unwrap();
+        assert!(clanky_render::measure_text(&TextRun{text:theme.name.clone(),px:13.0,weight:400,..Default::default()}).width<=150.0,"name does not fit: {}",theme.name);
     }
     let store=ThemeStore::open(std::path::PathBuf::from("/srv/devops/build").join(format!("clanky-label-fixture-{}",std::process::id()))).unwrap();
     let theme=crate::themes::builtin("stone-dark").unwrap();let cfg=Config::window_defaults();let g=super::settings_frame::geometry([1240,760],1.0);
-    let(layers,_,_)=page([1240,760],&g,&theme,&cfg,&store,false,0.0,(-1.0,-1.0),false,&mut clanky_render::measure_text).unwrap();
-    let family:Vec<_>=layers.iter().filter_map(|layer|if let Layer::Text(text)=layer{(text.text=="Catppuccin").then_some(text)}else{None}).collect();
-    assert_eq!(family.len(),3);
-    assert!(family.iter().all(|text|text.px==12.0 && text.color==theme.colors.muted_foreground));
-    for title in ["Frappé","Macchiato","Mocha"]{assert!(layers.iter().any(|layer|matches!(layer,Layer::Text(text) if text.text==title)));}
+    let(layers,_,_,_)=page([1240,760],&g,&theme,&cfg,&store,false,0.0,(-1.0,-1.0),false,&mut clanky_render::measure_text,&[],None).unwrap();
+    // The picker (mockup section 5) names Catppuccin flavours in full: "Catppuccin Mocha".
+    for title in ["Catppuccin Frappé","Catppuccin Macchiato","Catppuccin Mocha","Catppuccin Latte"]{assert!(layers.iter().any(|layer|matches!(layer,Layer::Text(text) if text.text==title)),"{title}");}
 }
 
 #[derive(Clone)]

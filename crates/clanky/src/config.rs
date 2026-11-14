@@ -26,7 +26,18 @@ pub struct Config {
     pub opacity: f32,
     pub animations: bool,
     pub startup_animation: bool,
-    pub rails: bool,
+    /// The tools panel on the left at start (`tools_panel`; the old `rails` key still reads into it).
+    pub tools_panel: bool,
+    /// Tabs across the title bar, or a list down the left.
+    pub tab_style: TabStyle,
+    /// The tools the panel offers, in Clanky's order.
+    pub tools: Vec<Tool>,
+    /// An editor at the bottom of each pane, or the shell's own prompt.
+    pub command_input: CommandInput,
+    /// Quiet hairlines between commands, or the older cards.
+    pub block_style: BlockStyle,
+    /// The status line at the bottom of the window.
+    pub status_line: bool,
     pub font_family: String,
     pub ui_font_family: String,
     /// Saved command history (the server's SQLite file).
@@ -62,6 +73,20 @@ pub struct TerminalColors {
 /// Cursor blinking: follow GNOME's setting, or always on or off.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorBlink { #[default] System, On, Off }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TabStyle { #[default] Horizontal, Vertical }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommandInput { #[default] Editor, Classic }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BlockStyle { #[default] Quiet, Cards }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tool { Files, Recent, Agents }
+/// Every tool with its config id and label, in the order Clanky shows and writes them.
+pub const TOOLS: [(Tool, &str, &str); 3] = [(Tool::Files, "files", "Files"), (Tool::Recent, "recent", "Recent"), (Tool::Agents, "agents", "Agents")];
+impl Tool {
+    pub fn id(self) -> &'static str { TOOLS.iter().find(|t| t.0 == self).map(|t| t.1).unwrap_or("files") }
+    pub fn label(self) -> &'static str { TOOLS.iter().find(|t| t.0 == self).map(|t| t.2).unwrap_or("Files") }
+}
 
 impl TerminalColors {
     pub fn from_value(value: &serde_json::Value) -> Result<Self, String> {
@@ -152,7 +177,12 @@ impl Default for Config {
             opacity: 0.94,
             animations: true,
             startup_animation: true,
-            rails: true,
+            tools_panel: true,
+            tab_style: TabStyle::Horizontal,
+            tools: TOOLS.iter().map(|t| t.0).collect(),
+            command_input: CommandInput::Editor,
+            block_style: BlockStyle::Quiet,
+            status_line: true,
             font_family: "JetBrains Mono".into(),
             ui_font_family: "Inter".into(),
             history: true,
@@ -287,6 +317,7 @@ impl Config {
             serde_json::from_str(json).map_err(|error| format!("invalid JSON: {error}"))?;
         let object = value.as_object().ok_or("config must be a JSON object")?;
         let mut config = Self::default();
+        let mut legacy_rails = None;
         for (key, value) in object {
             match key.as_str() {
                 "theme" => {
@@ -390,7 +421,53 @@ impl Config {
                 }
                 "animations" | "rails" => {
                     let enabled = value.as_bool().ok_or_else(|| format!("{key} must be a boolean"))?;
-                    if key == "animations" { config.animations = enabled; } else { config.rails = enabled; }
+                    if key == "animations" { config.animations = enabled; } else { legacy_rails = Some(enabled); }
+                }
+                "tab_style" => {
+                    config.tab_style = match value.as_str() {
+                        Some("horizontal") => TabStyle::Horizontal,
+                        Some("vertical") => TabStyle::Vertical,
+                        _ => return Err("tab_style must be \"horizontal\" or \"vertical\"".into()),
+                    };
+                }
+                "tools_panel" => {
+                    config.tools_panel = match value.as_str() {
+                        Some("on") => true,
+                        Some("off") => false,
+                        _ => return Err("tools_panel must be \"on\" or \"off\"".into()),
+                    };
+                }
+                "tools" => {
+                    let list = value.as_array().ok_or("tools must be a list of \"files\", \"recent\" and \"agents\"")?;
+                    let mut chosen = Vec::new();
+                    for item in list {
+                        let tool = item.as_str().and_then(|id| TOOLS.iter().find(|t| t.1 == id)).map(|t| t.0)
+                            .ok_or("tools may hold only \"files\", \"recent\" and \"agents\"")?;
+                        if chosen.contains(&tool) { return Err("tools must not name a tool twice".into()); }
+                        chosen.push(tool);
+                    }
+                    config.tools = TOOLS.iter().map(|t| t.0).filter(|t| chosen.contains(t)).collect();
+                }
+                "command_input" => {
+                    config.command_input = match value.as_str() {
+                        Some("editor") => CommandInput::Editor,
+                        Some("classic") => CommandInput::Classic,
+                        _ => return Err("command_input must be \"editor\" or \"classic\"".into()),
+                    };
+                }
+                "block_style" => {
+                    config.block_style = match value.as_str() {
+                        Some("quiet") => BlockStyle::Quiet,
+                        Some("cards") => BlockStyle::Cards,
+                        _ => return Err("block_style must be \"quiet\" or \"cards\"".into()),
+                    };
+                }
+                "status_line" => {
+                    config.status_line = match value.as_str() {
+                        Some("show") => true,
+                        Some("hide") => false,
+                        _ => return Err("status_line must be \"show\" or \"hide\"".into()),
+                    };
                 }
                 "font_family" | "ui_font_family" => {
                     let family = value.as_str().ok_or_else(|| format!("{key} must be a string"))?;
@@ -455,6 +532,8 @@ impl Config {
                 _ => return Err(format!("unknown config field: {key}")),
             }
         }
+        // The old rails key reads into tools_panel; tools_panel wins when both are present.
+        if !object.contains_key("tools_panel") { if let Some(rails) = legacy_rails { config.tools_panel = rails; } }
         // The new logical-pixel key wins independent of JSON key order.
         if object.contains_key("font_size") { config.font_size_pt = config.font_size * 0.75; }
         else { config.font_size = config.font_size_pt * 4.0 / 3.0; }

@@ -13,7 +13,9 @@ impl Section {
 #[derive(Clone,Debug,PartialEq)]
 pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool),Mode(&'static str),Theme(String),Color(&'static str),ResetColor(&'static str),SaveTheme,ImportTheme,ExportTheme,Field(usize),Confirm,Cancel,PickColor(String),Access(String),StopAgents,ResumeAgents,
     /// Terminal page: line height step, cursor blink mode, one terminal colour, back to theme colours, Ptyxis import.
-    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),ThemeTerminalColors,ImportPalette }
+    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),ThemeTerminalColors,ImportPalette,
+    /// Appearance › Layout: one segment (config key, value), a tool chip; Theme: Follow the system, a picker row.
+    Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize) }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry,pub max_scroll:f32}
@@ -74,7 +76,8 @@ pub fn draw_scrolled(window:[u32;2],scale:f32,section:Section,theme:&Theme,confi
 }
 fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,ready:&[Section],scroll:f32)->Frame{
     let g=geometry(window,scale);let s=scale;let c=&theme.colors;let mut p=Paint::empty(theme,measure,s,window,pointer,pressed);let mut hits=Vec::new();
-    for (offset,blur,alpha) in [(16.0,48.0,89),(2.0,6.0,51)]{p.out.scene.layers.push(Layer::Shape(Shape{rect:g.panel.array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:None,shadow:Some(Shadow{offset:[0.0,offset*s],blur:blur*s,spread:0.0,color:[0,0,0,alpha]})}));}
+    // The deep shadow stays within 33 px of the panel, so the window behind it keeps its pixels.
+    for (offset,blur,alpha) in [(16.0,32.0,89),(2.0,6.0,51)]{p.out.scene.layers.push(Layer::Shape(Shape{rect:g.panel.array(),radius:12.0*s,fill:Fill::Solid([0;4]),border:None,shadow:Some(Shadow{offset:[0.0,offset*s],blur:blur*s,spread:0.0,color:[0,0,0,alpha]})}));}
     p.shape(g.panel,12.0*s,c.background,Some(c.border));
     p.shape(g.nav,11.0*s,c.sidebar,None);p.shape(g.local(190.0,1.0,11.0,598.0),0.0,c.sidebar,None);p.shape(g.local(200.0,1.0,1.0,598.0),0.0,c.border,None);
     heading(&mut p,g.local(17.0,21.0,167.0,21.0),"Settings",theme,s);
@@ -133,8 +136,10 @@ fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f
     let slider=row(p,g,theme,282.6875,220.0,"Opacity","How much of the desktop shows through.",false);let y=slider.y+16.0*s;let progress=((config.opacity-0.5)/0.5).clamp(0.0,1.0);let track=r(slider.x,y-2.0*s,168.0*s,4.0*s);
     p.shape(track,2.0*s,c.muted,None);p.shape(r(track.x,track.y,track.w*progress,track.h),2.0*s,c.foreground,None);p.shape(r(track.x+track.w*progress-8.0*s,y-8.0*s,16.0*s,16.0*s),8.0*s,c.background,Some(c.input));
     let label=format!("{:.0}%",config.opacity*100.0);let width=p.mono_width(&label,13.0*s,400).min(40.0*s);p.text(r(slider.x+220.0*s-width,slider.y,width,slider.h),&label,13.0*s,c.muted_foreground,400,true);hits.push(Hit{rect:r(track.x-8.0*s,slider.y,track.w+16.0*s,slider.h),action:Action::Opacity});
-    for (y,label,description,key,on,last) in [(351.53125,"Side columns","The sidebar and the agent column beside the panes.","rails",config.rails,false),(420.375,"Animations","Includes the robot at start-up.","animations",config.animations,true)]{
-        let control=row(p,g,theme,y,32.0,label,description,last);let switch=r(control.x,control.y+7.0*s,32.0*s,18.0*s);p.shape(switch,9.0*s,if on{c.primary}else{c.input},None);p.shape(r(switch.x+if on{16.0*s}else{2.0*s},switch.y+2.0*s,14.0*s,14.0*s),7.0*s,if on{c.primary_foreground}else{c.background},None);hits.push(Hit{rect:g.local(229.0,y,522.0,if last{67.84375}else{68.84375}),action:Action::Toggle(key,!on)});
+    for (y,label,description,key,on,last) in [(351.53125,"Tools panel","Files, recent events and agents on the left.","tools_panel",config.tools_panel,false),(420.375,"Animations","Includes the robot at start-up.","animations",config.animations,true)]{
+        let control=row(p,g,theme,y,32.0,label,description,last);let switch=r(control.x,control.y+7.0*s,32.0*s,18.0*s);p.shape(switch,9.0*s,if on{c.primary}else{c.input},None);p.shape(r(switch.x+if on{16.0*s}else{2.0*s},switch.y+2.0*s,14.0*s,14.0*s),7.0*s,if on{c.primary_foreground}else{c.background},None);
+        let action=if key=="tools_panel"{Action::Choice("tools_panel",if on{"off"}else{"on"})}else{Action::Toggle(key,!on)};
+        hits.push(Hit{rect:g.local(229.0,y,522.0,if last{67.84375}else{68.84375}),action});
     }
     p.shape(g.local(229.0,487.21875,522.0,1.0),0.0,c.border,None);
     let step=row(p,g,theme,528.21875,110.0,"Line height","Taller rows space the lines out, as in Ptyxis.",false);

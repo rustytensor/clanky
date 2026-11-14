@@ -148,6 +148,8 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
     }
     let engine = Shutdown(Engine::new());
     engine.0.configure_post_ai(config.post_ai, flags.post_ai);
+    let editor = |config: &crate::config::Config| config.command_input == crate::config::CommandInput::Editor;
+    clanky_core::shell::set_editor(settings.as_ref().map_or_else(|| editor(&config), |s| editor(s.config())));
     let history_settings = settings.as_ref().map_or_else(|| config.history_settings(), |s| s.config().history_settings());
     let notices = engine.0.clone();
     engine.0.set_history(clanky_core::history::History::start(platform::history_path(), history_settings,
@@ -161,6 +163,7 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
                 match settings.reload() {
                     Ok(true) => {
                         monitor_engine.set_post_ai(settings.config().post_ai);
+                        clanky_core::shell::set_editor(editor(settings.config()));
                         if let Some(history) = monitor_engine.history() { history.configure(settings.config().history_settings()); }
                     }
                     Err(error) => eprintln!("clanky: {error}"),

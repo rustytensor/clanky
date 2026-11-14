@@ -14,6 +14,7 @@ impl App {
         let result=(|| -> Result<(),String> { match effect {
             Effect::None=>Ok(()),
             Effect::Changed=>self.apply_settings(),
+            Effect::Preview=>{self.frame_clock.invalidate();Ok(())},
             Effect::Theme(action)=>self.theme_action(action),
             Effect::StopAgents=>{self.call("v4.revoke_all",json!({}))?;for allowed in self.studio.permissions.values_mut(){*allowed=false;}self.status=Some("Agent access revoked; pending waits cancelled".into());Ok(())},
             Effect::ResumeAgents=>{self.call("v4.resume_agents",json!({}))?;self.status=Some("New agents allowed; grant pane permissions separately".into());Ok(())},
@@ -81,7 +82,8 @@ impl App {
             self.clipboard_bridge=ClipboardBridge::new(self.engine.clone(),config.osc52_write,config.osc52_read);
             self.clipboard_bridge.set_tabs(self.groups.iter().flat_map(|group|group.layout.leaves()).collect());
         }
-        if config.rails!=self.config.rails {self.panels.visible=config.rails;}
+        if config.tools_panel!=self.config.tools_panel {self.panels.visible=config.tools_panel;self.studio.drag=None;}
+        if config.tab_style!=self.config.tab_style || config.status_line!=self.config.status_line {self.studio.drag=None;}
         if config.font_size_pt!=self.config.font_size_pt {self.zoom=Zoom::new(config.font_size_pt);}
         self.studio.theme=config.resolved_theme(self.window.as_ref().is_some_and(|window|clanky::platform::system_light(window)));
         self.config=config;

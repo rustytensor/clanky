@@ -1,0 +1,10 @@
+#     ██
+# TOML fixture for the Q3 syntax gate.
+#                         ██
+[package]
+name = "clanky"
+version = "1.5.0"
+jobs = 8
+fast = true
+ratio = 0.25
+# trailing note

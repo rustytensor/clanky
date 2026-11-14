@@ -1,0 +1,9 @@
+# Clanky's shell integration for zsh, step 1 of 2: zsh reads this as $ZDOTDIR/.zshenv.
+# Read the user's own .zshenv with their ZDOTDIR, then keep ours so zsh reads our .zshrc next.
+if [[ -n ${CLANKY_USER_ZDOTDIR-} ]]; then ZDOTDIR=$CLANKY_USER_ZDOTDIR; else unset ZDOTDIR; fi
+unset CLANKY_USER_ZDOTDIR
+[[ -r ${ZDOTDIR:-$HOME}/.zshenv ]] && source "${ZDOTDIR:-$HOME}/.zshenv"
+if [[ -o interactive && -n ${CLANKY_SHELL_DIR-} ]]; then
+    typeset -g __clanky_user_zdotdir=${ZDOTDIR-}
+    ZDOTDIR=$CLANKY_SHELL_DIR/zsh
+fi

@@ -7,10 +7,15 @@ See [shortcuts](shortcuts.md) and [configuration](config.md).
 
 ## The calm window
 
-Sessions and files are in the left sidebar. Click New tab or Split in the top bar;
-drag the gap between panes to resize them. The right column shows agent activity and access.
-Click an access row, not just its switch, to toggle permission. Ctrl+Shift+B hides both side areas.
-Open [Settings](settings.md) from the sidebar or with Ctrl+,.
+Tabs sit in the title bar, each named for its folder, with a green dot while a command runs
+and an amber one on an agent's tab (the agent's tab stays amber while its program runs); **+** opens a tab and the mark beside the active tab
+closes it. The search field opens the command palette, and the gear opens [Settings](settings.md)
+(or Ctrl+,). The tools panel on the left lists the focused pane's folder (Files), recent events
+(Recent) and agent activity with each pane's agent access (Agents); above the Files list, the
+search icon opens the command palette and **+** opens a tab; Ctrl+Shift+B or the title
+bar's left button hides it. Drag the hairline between panes to resize them. The status line at
+the bottom names the session, the tabs, the server and masking. Settings › Appearance › Layout
+moves tabs down the left, hides the status line or brings back the older command cards.
 
 [Clanky the robot](robot.md) greets you once for 7 seconds, then for 1.2 seconds on later windows.
 Any key or click skips it and still acts normally. [Themes](themes.md) describe the built-in
@@ -29,7 +34,9 @@ agent-only MCP server; the [socket API](agent-api.md) also supports direct clien
 
 ## Blocks, images and links
 
-Use a shell that emits OSC 133 markers to get command cards inside the panes.
+Clanky starts bash and zsh with its own OSC 133 prompt marks (after your own `~/.bashrc` or `~/.zshrc`),
+so commands become blocks and the [command input](terminal.md#command-input) works with no setup. Other
+shells need to emit OSC 133 markers themselves.
 Hover a card, or focus it with Ctrl+Shift+F6, to show Copy, Rerun and Ask agent. Copy gives the
 masked text, including stars. Rerun opens a new terminal; Ask agent queues selected
 text as a task, not a new agent process. The palette also offers block selection

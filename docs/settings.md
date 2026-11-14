@@ -1,15 +1,28 @@
 # Settings
 
-Open Settings from the sidebar or **Ctrl+,**. Escape closes it; inside a colour or
+Open Settings from the gear at the right of the title bar or **Ctrl+,**. Escape closes it; inside a colour or
 theme dialog, Escape cancels that edit first. Changes apply and save as you go.
 The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 
 ## Live pages
 
 - **General:** Post-AI mode. It applies server policy and hides agent UI immediately.
-- **Appearance:** Light/Dark/System, theme cards, semantic colours and per-colour Reset.
-  Scroll to reach all themes, colours and the Save/Import/Export buttons.
-- **Terminal:** font (bundled or any installed monospace family), size, opacity, side columns and
+- **Appearance:** first the **Layout** group, then **Theme**, then the theme's colours.
+  - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips
+    Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`; Classic gives the pane its rows back and the shell its own prompt at its next prompt),
+    **Blocks** Quiet | Cards (`block_style`) and **Status line** Show | Hide (`status_line`). A click saves at
+    once and the window changes at once, without a restart. A default value is removed from the file.
+  - Theme: **Follow the system** On | Off. On (`theme` `system`) shows two columns, In dark mode and In light
+    mode, each choosing its own slot (`theme_dark`, `theme_light`). Off shows one list; choosing a theme sets
+    `theme` to its appearance and its slot. Each row shows the theme's name and four dots of its ANSI red,
+    green, blue and yellow (colours 1, 2, 4, 3) on a chip of its background. Palettes imported into
+    `~/.local/share/org.gnome.Ptyxis/palettes` follow; choosing one sets `terminal_colors` from its [Dark]
+    section and leaves the window theme alone.
+  - Keys on this page: **Down** and **Up** move a highlight through the rows (the first press starts from the
+    saved theme) and preview it in the window behind Settings without saving; **Enter** saves the highlighted
+    row; **Escape** puts the saved theme back (a second Escape closes Settings). A click on a row saves it.
+  Scroll to reach every theme, the colours and the Save/Import/Export buttons.
+- **Terminal:** font (bundled or any installed monospace family), size, opacity, the tools panel and
   animations; then line height, cursor blink (System, On, Off), the terminal's own background, text
   and cursor colours, **Import Ptyxis palette…** and **Use theme colours**. The page scrolls to the
   rows below Animations. See [the terminal](terminal.md).
@@ -25,6 +38,8 @@ The old Settings modal is never used as a fallback. Ctrl+Shift+Escape still revo
 
 Click a swatch/colour row to choose an ANSI swatch or enter a hex colour. Reset
 appears only for a changed value. Invalid values keep the previous file/display.
+The theme's ANSI 1–6, background and muted text colours also colour code in editor panes
+(see [editor colours](config.md#editor-colours)); the Terminal page's colours do not.
 
 **Save as new theme** asks for a display name and a safe file-name stem. It copies
 the edited theme through `ThemeStore`, selects that copy and clears the baked-in
