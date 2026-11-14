@@ -26,6 +26,7 @@ pub(super) fn general(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,forced_p
 
 fn color_row(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,name:&str,color:Color,action:Action,hits:&mut Vec<Hit>){
     let s=g.scale;let c=&t.colors;
+    if !super::settings_frame::fits(g,y,40.0){return;}
     form::swatch(p,g.local(229.0,y+10.0,20.0,20.0),color,t,s);p.text(g.local(259.0,y,260.0,40.0),name,14.0*s,c.foreground,400,false);
     let value=format!("#{:02x}{:02x}{:02x}",color[0],color[1],color[2]);let width=p.mono_width(&value,13.0*s,400);let local=g.local(751.0,y,0.0,40.0);
     p.text(r(local.x-width,local.y,width,40.0*s),&value,13.0*s,c.muted_foreground,400,true);
@@ -36,7 +37,7 @@ fn color_row(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,name:&str,color:Color,a
 pub(super) fn terminal(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<Editing<'_>>,hits:&mut Vec<Hit>)->f32{
     let s=g.scale;let c=&t.colors;
     let blink=match cfg.cursor_blink{CursorBlink::System=>"system",CursorBlink::On=>"on",CursorBlink::Off=>"off"};
-    let mut y=form::heading(p,g,t,85.0,"Cursor");
+    let mut y=form::heading(p,g,t,77.0,"Cursor");
     y=form::rows(p,g,t,y,&[
         row("Cursor blink","System follows the GNOME setting.",Control::Segments(vec![("System","cursor_blink","system"),("On","cursor_blink","on"),("Off","cursor_blink","off")],blink)),
         row("Blink cycle","One full blink, shown and hidden, in milliseconds.",Control::Field("cursor_blink_time_ms",cfg.cursor_blink_time_ms.to_string(),80.0,true)),
@@ -55,6 +56,7 @@ pub(super) fn terminal(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing
     let ansi=tc.ansi.unwrap_or(t.ansi);
     for (row_index,name) in ["Normal","Bright"].into_iter().enumerate(){
         let top=y+12.0;
+        if !super::settings_frame::fits(g,top,30.0){y+=42.0;continue;}
         p.text(g.local(229.0,top,90.0,30.0),name,14.0*s,c.foreground,400,false);
         for i in 0..8{
             let index=row_index*8+i;let rect=g.local(331.0+i as f32*52.5,top,30.0,30.0);
@@ -64,17 +66,18 @@ pub(super) fn terminal(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing
         }
         y+=42.0;
     }
-    p.text(g.local(229.0,y+6.0,522.0,18.0),"Normal and bright are ANSI colours 0 to 7 and 8 to 15. Click one to change it.",12.0*s,crate::calm::scene_faint(c),400,false);
+    if super::settings_frame::fits(g,y+6.0,18.0){p.text(g.local(229.0,y+6.0,522.0,18.0),"Normal and bright are ANSI colours 0 to 7 and 8 to 15. Click one to change it.",12.0*s,crate::calm::scene_faint(c),400,false);}
     y+=30.0;
     let mut x=229.0;
     for(name,action)in[("Import Ptyxis palette…",Action::ImportPalette),("Use theme colours",Action::ThemeTerminalColors)]{
+        if !super::settings_frame::fits(g,y+8.0,28.0){break;}
         let b=form::button(p,g,t,x,y+8.0,name);hits.push(Hit{rect:b,action});x+=b.w/s+8.0;
     }
     y+48.0
 }
 
 pub(super) fn editor(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<Editing<'_>>,hits:&mut Vec<Hit>)->f32{
-    let y=form::heading(p,g,t,85.0,"Compose");
+    let y=form::heading(p,g,t,77.0,"Compose");
     form::rows(p,g,t,y,&[
         row("Dictionary","The spelling language of the compose editor.",Control::Field("compose_dictionary",cfg.compose_dictionary.clone(),120.0,true)),
         row("Dictionary folder","Where the spelling dictionaries are.",Control::Field("compose_dictionary_dir",cfg.compose_dictionary_dir.to_string_lossy().into_owned(),240.0,true)),
@@ -93,7 +96,7 @@ pub(super) fn history(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:
 /// The agent list (agent_pane_access, agents); returns where the access rows start.
 pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<Editing<'_>>,adding:Option<&[String]>,hits:&mut Vec<Hit>)->f32{
     let s=g.scale;let c=&t.colors;
-    let mut y=65.0;
+    let mut y=form::heading(p,g,t,77.0,"New panes");
     if cfg.post_ai{
         p.text(g.local(229.0,y+8.0,522.0,18.0),"Post-AI mode is on, so no agent runs. These settings apply once it is off.",13.0*s,c.muted_foreground,400,false);
         y+=36.0;
@@ -126,7 +129,7 @@ pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:O
         p.text(g.local(229.0,y+70.0,522.0,18.0),"Tab moves to the command. Enter adds the agent; Escape cancels.",12.0*s,faint,400,false);
         y+=100.0;
     }else if cfg.agents.len()<32{
-        let b=form::button(p,g,t,229.0,y+12.0,"Add agent");hits.push(Hit{rect:b,action:Action::AddAgent});
+        if super::settings_frame::fits(g,y+12.0,28.0){let b=form::button(p,g,t,229.0,y+12.0,"Add agent");hits.push(Hit{rect:b,action:Action::AddAgent});}
         y+=52.0;
     }
     if cfg.post_ai{return y;}

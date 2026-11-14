@@ -111,7 +111,7 @@ settings plus the change.
 | `theme_light` | string | `stone-light` | Light built-in ID or safe `user:<slug>` ID |
 | `post_ai` | boolean | false | Plain terminal: agents refused, `clanky mcp` exits 2; see [Post-AI mode](post-ai.md) |
 | `startup_animation` | boolean | true | Show the robot greeting; `animations: false` also disables it |
-| `colors` | object | none | Overrides the active theme's named tokens with `#rrggbb` strings, one element per token |
+| `colors` | object | none | Overrides the active theme's named tokens (below) with `#rrggbb` or `#rrggbbaa` strings, one element per token |
 | `columns` | integer | 80 | 1–1000 inclusive |
 | `rows` | integer | 24 | 1–1000 inclusive; columns × rows must not exceed 250,000 |
 | `compose_dictionary` | string | `en_US` | 1–64 ASCII letters, digits, `_` or `-`; Hunspell dictionary basename |
@@ -155,11 +155,28 @@ bundled and explicit font settings are preserved. Legacy M1/M2 offscreen
 fixtures retain DejaVu Sans Mono. Legacy font_size_pt remains accepted without
 clamping it to the new key's narrower range; 12 points equals 16 logical pixels.
 
-Colour tokens: `window`, `rail`, `panel`, `line`, `ink`, `dim`, `accent`, `violet`,
-`teal`, `ok`, `err`, `focus`, `ok_ink`, `err_ink`. Unknown tokens and values other
-than six hexadecimal digits prefixed by `#` are errors. Overrides apply after
+Colour tokens are the theme's (see [the theme format](theme-format.md)); Settings › Appearance ›
+Window colours names each one after its key:
+
+| Token | In Settings | Token | In Settings |
+| --- | --- | --- | --- |
+| `sidebar` | Sidebar | `ring` | Ring |
+| `background` | Background | `primary` | Primary |
+| `card` | Card | `primary_foreground` | Primary foreground |
+| `muted` | Muted | `sidebar_accent` | Sidebar accent |
+| `foreground` | Foreground | `ok` | Ok |
+| `muted_foreground` | Muted foreground | `err` | Err |
+| `accent` | Accent | `agent` | Agent |
+| `pressed` | Pressed | `robot_paint` | Robot paint |
+| `border` | Border | `primary_pressed` | Primary pressed |
+| `input` | Input | | |
+
+Values are `#rrggbb` or, with an alpha channel, `#rrggbbaa`; some shipped themes give `border` and `input`
+an alpha (Graphite's `border` is `#ffffff1a`), and Settings shows those values as they are. The older tokens
+`window`, `rail`, `panel`, `line`, `ink`, `dim`, `violet`, `teal`, `focus`, `ok_ink` and `err_ink` are still
+read for files written before the themes. Unknown tokens and other values are errors. Overrides apply after
 choosing the light/dark palette; dependent card fills and glows are recomputed.
-For example: `<colors><panel>#202020</panel></colors>`.
+For example: `<colors><card>#202020</card></colors>`.
 Custom overrides can reduce contrast; the shipped palettes are the design defaults.
 
 ## Terminal colours

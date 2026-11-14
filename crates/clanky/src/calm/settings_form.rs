@@ -8,7 +8,9 @@ pub(super) const ROW:f32=68.84375;
 
 /// The field being edited in place: its key, text, caret (a byte offset) and whether all of it is selected.
 #[derive(Clone,Copy)]
-pub(super) struct Editing<'a>{pub key:&'a str,pub index:usize,pub text:&'a str,pub caret:usize,pub all:bool}
+pub(super) struct Editing<'a>{pub key:&'a str,pub index:usize,pub text:&'a str,pub caret:usize,pub all:bool,
+    /// Why the typed value was not saved, in the row's own words (shown in the row, the field marked).
+    pub problem:Option<&'a str>}
 
 pub(super) enum Control{
     /// A boolean: the whole row flips it.
@@ -21,16 +23,28 @@ pub(super) enum Control{
 pub(super) struct Row{pub label:String,pub description:String,pub control:Control}
 pub(super) fn row(label:&str,description:&str,control:Control)->Row{Row{label:label.into(),description:description.into(),control}}
 
-/// A group heading (12 px, muted) at page y; returns the y where its rows start.
+/// A group heading at page y (mockup .set h4: 15 px semibold) with a hairline under it; returns
+/// the y where its rows start.
 pub(super) fn heading(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,label:&str)->f32{
-    p.text(g.local(229.0,y,522.0,16.0),label,12.0*g.scale,t.colors.muted_foreground,500,false);y+20.0
+    heading_noted(p,g,t,y,label,"")
+}
+/// As `heading`, with a muted note at the right end of its line.
+pub(super) fn heading_noted(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,label:&str,note:&str)->f32{
+    let s=g.scale;let c=&t.colors;
+    if !settings_frame::fits(g,y,28.0){return y+28.0;}
+    let w=p.width(label,15.0*s,600)/s+2.0;
+    p.text(g.local(229.0,y,w,20.0),label,15.0*s,c.foreground,600,false);
+    if !note.is_empty(){let nw=(p.width(note,13.0*s,400)/s+1.0).min(522.0-w-16.0);p.text(g.local(751.0-nw,y,nw,20.0),note,13.0*s,c.muted_foreground,400,false);}
+    p.shape(g.local(229.0,y+27.0,522.0,1.0),0.0,c.border,None);
+    y+28.0
 }
 
 /// A 32 x 18 switch at the control rect's left, centred in it.
 pub(super) fn switch(p:&mut Paint<'_>,control:PixelRect,on:bool,t:&Theme,s:f32){
     let c=&t.colors;let sw=r(control.x,control.y+7.0*s,32.0*s,18.0*s);
-    p.shape(sw,9.0*s,if on{c.primary}else{c.input},None);
-    p.shape(r(sw.x+if on{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if on{c.primary_foreground}else{c.background},None);
+    // Off as the mockup's chip switch: a muted track with a visible edge and a dim knob.
+    if on{p.shape(sw,9.0*s,c.primary,None);}else{p.shape(sw,9.0*s,c.muted,Some(c.ring));}
+    p.shape(r(sw.x+if on{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if on{c.primary_foreground}else{c.muted_foreground},None);
 }
 
 /// Segments in a pill (as Appearance › Layout); each one a hit with its (key, value).
@@ -56,9 +70,10 @@ pub(super) fn segments_width(p:&mut Paint<'_>,options:&[(&'static str,&'static s
 #[allow(clippy::too_many_arguments)]
 pub(super) fn field(p:&mut Paint<'_>,rect:PixelRect,value:&str,mono:bool,editing:Option<Editing<'_>>,t:&Theme,s:f32,placeholder:&str){
     let c=&t.colors;
-    let focused=editing.is_some();
-    p.shape(rect,8.0*s,c.background,Some(if focused{c.ring}else{c.input}));
-    if focused{p.shape(r(rect.x-s,rect.y-s,rect.w+2.0*s,rect.h+2.0*s),9.0*s,[0;4],Some(c.ring));}
+    let focused=editing.is_some();let ring=if editing.is_some_and(|e|e.problem.is_some()){c.err}else{c.ring};
+    // A filled field, as a GNOME entry: a soft fill, an edge only while it has the focus.
+    if focused{p.shape(rect,8.0*s,c.background,Some(ring));}else{p.shape(rect,8.0*s,c.muted,None);}
+    if focused{p.shape(r(rect.x-s,rect.y-s,rect.w+2.0*s,rect.h+2.0*s),9.0*s,[0;4],Some(ring));}
     let inner=r(rect.x+10.0*s,rect.y,rect.w-20.0*s,rect.h);
     let measure=|p:&mut Paint<'_>,text:&str|if mono{p.mono_width(text,13.0*s,400)}else{p.width(text,13.0*s,400)};
     match editing{
@@ -90,11 +105,13 @@ pub(super) fn rows_then(p:&mut Paint<'_>,g:&Geometry,t:&Theme,mut y:f32,rows:&[R
         let last=i+1==rows.len() && !more;
         if !settings_frame::row_fits(g,y){y+=ROW;continue;}
         let width=match &item.control{Control::Switch(..)=>32.0,Control::Segments(options,_)=>segments_width(p,options,s),Control::Field(_,_,w,_)=>*w};
-        let control=settings_frame::row(p,g,t,y,width,&item.label,&item.description,last);
+        let problem=match &item.control{Control::Field(key,..)=>editing.filter(|e|e.key==*key).and_then(|e|e.problem),_=>None};
+        let control=settings_frame::row_noted(p,g,t,y,width,&item.label,&item.description,problem,last);
         match &item.control{
             Control::Switch(key,on)=>{switch(p,control,*on,t,s);hits.push(Hit{rect:g.local(229.0,y,522.0,if last{ROW-1.0}else{ROW}),action:Action::Toggle(key,!on)});}
             Control::Segments(options,selected)=>segments(p,control,options,selected,t,s,hits),
             Control::Field(key,value,_,mono)=>{
+                let control=settings_frame::level(g,control);
                 let edit=editing.filter(|e|e.key==*key);
                 field(p,control,value,*mono,edit,t,s,"");
                 hits.push(Hit{rect:control,action:Action::Edit(key)});

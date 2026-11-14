@@ -7,26 +7,32 @@ never needs editing by hand. Rows say so when a change applies later ("Applies t
 
 Controls: a **switch** flips a boolean (a click anywhere on its row works too); **segments** pick one
 of a few words; a **field** shows the value as the file writes it: click it, type (Ctrl+A selects all),
-Enter saves, Escape cancels, and a click elsewhere keeps what was typed. A value out of range is refused
-with the reason shown above the page, and the file is not changed.
+Enter saves, Escape cancels, and a click elsewhere keeps what was typed. A value out of range is refused:
+the field is marked, the row says why in its own words ("Font size must be between 8 and 32."), and the
+file is not changed.
 
 When `config.xml` is malformed or holds a bad value, the window still opens with the last good settings
-and Settings shows the problem with its line above every page (`config.xml line 4: ...`). The file is
-left alone until you change something here; that change writes a well-formed file.
+and Settings shows the problem with its line in a banner above every page (`config.xml line 4: ...`); the
+page scrolls below the banner. The file is left alone until you change something here; that change writes a
+well-formed file.
+
+Settings fits the window: 780 by 600 when there is room, shorter in a short window (the page scrolls), and
+scaled down as a whole in a window narrower than that, so its header, groups, controls and footer stay in
+view below the title bar. A thin thumb at the right of a long page shows how far down you are.
 
 ## Pages
 
 - **General:** Post-AI mode (`post_ai`; it applies server policy and hides agent UI immediately),
   Restore layout, Robot greeting (`startup_animation`), Animations, Notify after (seconds), and the
   Columns and Rows of a new window.
-- **Appearance:** first the **Layout** group, then **Text**, **Window** with the window colours, and last
-  **Theme** (the longest group).
+- **Appearance:** the groups **Layout**, **Theme**, **Text**, **Window** and last **Window colours** (the
+  longest group).
   - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips
     Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`; Classic gives the pane its rows back and the shell its own prompt at its next prompt),
     **Blocks** Quiet | Cards (`block_style`) and **Status line** Show | Hide (`status_line`). A click saves at
     once and the window changes at once, without a restart. A default value is removed from the file.
   - Theme: **Follow the system** On | Off. On (`theme` `system`) shows two columns, In dark mode and In light
-    mode, each choosing its own slot (`theme_dark`, `theme_light`). Off shows one list; choosing a theme sets
+    mode, each choosing its own slot (`theme_dark`, `theme_light`). Off shows the same two columns, Dark and Light; choosing a theme sets
     `theme` to its appearance and its slot. Each row shows the theme's name and four dots of its ANSI red,
     green, blue and yellow (colours 1, 2, 4, 3) on a chip of its background. Palettes imported into
     `~/.local/share/org.gnome.Ptyxis/palettes` follow; choosing one sets `terminal_colors` from its [Dark]
@@ -36,9 +42,11 @@ left alone until you change something here; that change writes a well-formed fil
     row; **Escape** puts the saved theme back (a second Escape closes Settings). A click on a row saves it.
   - Text: **Font size** (`font_size`, pixels), **Terminal font** (type a family, or pick one of the
     installed monospace families from the menu beside it), **Interface font**, **Cell width** and
-    **Line height** (1 to 2). Window: **Opacity** (a slider and its value, 0.5 to 1).
-  - Window colours: one swatch per colour token of the theme, in two columns (`colors`); **Reset** takes the
-    place of a changed colour's value. Save as new theme, Import and Export follow.
+    **Line height** (1 to 2). Window: **Opacity** (its value, 0.5 to 1, and a slider across the page under it).
+  - Window colours (under Opacity): one swatch per colour token of the theme in use, in two columns
+    (`colors`), accents and signals first, then surfaces, text and lines; each named
+    after its key (`muted_foreground` is "Muted foreground") with its value; a changed colour keeps its value
+    and adds **Reset**. Save as new theme, Import and Export follow.
 - **Terminal:** **Cursor blink** System | On | Off, **Blink cycle** (ms), **Stop blinking after** (s),
   **Clipboard writes** and **Clipboard reads** (OSC 52), then the terminal's own colours
   (`terminal_colors`): background, foreground, cursor and the 16 ANSI colours (normal 0–7, bright 8–15),
@@ -58,8 +66,11 @@ turn it off. The old Settings modal is never used as a fallback. Ctrl+Shift+Esca
 
 ## Colours and themes
 
-Click a swatch/colour row to choose an ANSI swatch or enter a hex colour. Reset
-appears only for a changed value. Invalid values keep the previous file/display.
+Click a swatch to open its colour picker. Its title names the colour (`Red · ANSI 1`, `Card`), the hex
+field has the focus, and the current and new colours show side by side as you type. Below are colours to
+start from: shades and hues of this colour, and the theme's own terminal colours (for terminal colours) or
+window colours (for window colours). Enter or Apply saves; Escape or Cancel leaves it. Reset appears only for
+a changed value. Invalid values keep the previous file/display.
 The theme's ANSI 1–6, background and muted text colours also colour code in editor panes
 (see [editor colours](config.md#editor-colours)); the Terminal page's colours do not.
 
