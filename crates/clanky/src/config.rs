@@ -224,7 +224,7 @@ impl StartupOverrides {
 fn calm_window_defaults(){
     let mut config=Config::window_from_json("{}").unwrap();
     if std::env::var_os("CLANKY_WINDOW_FONT_FAULT").is_some(){config.font_size=12.0;}
-    assert_eq!((config.font_size,config.font_size_pt,config.opacity),(13.0,9.75,1.0));
+    assert_eq!((config.font_size,config.font_size_pt,config.opacity,config.cell_height_scale),(11.0*4.0/3.0,11.0,1.0,1.25));
     assert_eq!((config.font_family.as_str(),config.ui_font_family.as_str()),("Geist Mono","Geist"));
     let old=Config::window_from_json(r#"{"font_size_pt":12,"font_family":"JetBrains Mono","ui_font_family":"Inter","opacity":0.94}"#).unwrap();
     assert_eq!((old.font_size,old.font_size_pt,old.opacity),(16.0,12.0,0.94));
@@ -276,13 +276,14 @@ impl Config {
 
     /// Live-window defaults. Legacy fixture constructors keep their original metrics.
     pub fn window_defaults() -> Self {
-        Self { font_size:13.0, font_size_pt:9.75, font_family:"Geist Mono".into(),ui_font_family:"Geist".into(),opacity:1.0,..Self::default() }
+        // Terminal text 11 pt (14.67 px) with lines 1.25 times the font's natural height, as Ptyxis draws it.
+        Self { font_size:11.0*4.0/3.0, font_size_pt:11.0, cell_height_scale:1.25, font_family:"Geist Mono".into(),ui_font_family:"Geist".into(),opacity:1.0,..Self::default() }
     }
     pub fn window_from_json(json:&str)->Result<Self,String>{
         let mut value:serde_json::Value=serde_json::from_str(json).map_err(|error|format!("invalid JSON: {error}"))?;
         let object=value.as_object_mut().ok_or("config must be a JSON object")?;
-        if !object.contains_key("font_size") && !object.contains_key("font_size_pt"){object.insert("font_size".into(),serde_json::json!(13));}
-        for (key,value) in [("font_family",serde_json::json!("Geist Mono")),("ui_font_family",serde_json::json!("Geist")),("opacity",serde_json::json!(1.0))]{
+        if !object.contains_key("font_size") && !object.contains_key("font_size_pt"){object.insert("font_size_pt".into(),serde_json::json!(11));}
+        for (key,value) in [("font_family",serde_json::json!("Geist Mono")),("ui_font_family",serde_json::json!("Geist")),("opacity",serde_json::json!(1.0)),("cell_height_scale",serde_json::json!(1.25))]{
             object.entry(key.to_owned()).or_insert(value);
         }
         Self::from_json(&value.to_string())
