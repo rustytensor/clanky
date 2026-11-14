@@ -295,6 +295,7 @@ dependencies = [
  "crossterm",
  "libc",
  "ratatui",
+ "roxmltree",
  "serde_json",
  "spellbook",
  "tree-sitter",
