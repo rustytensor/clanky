@@ -497,7 +497,11 @@ def find_row(win, field, want, avoid):
             continue
         line = {v[0] for v in ws if abs(centre(v)[1] - centre(w)[1]) <= 8}
         if all(any(t in v for v in line) for t in want) and not any(a in v for v in line for a in avoid):
-            name = max((v for v in ws if abs(centre(v)[1] - centre(w)[1]) <= 8 and v[3] < 1200), key=lambda v: v[3])
+            # The dots start right of the name's last word. OCR also reads the dot chip as a word, so the rightmost
+            # word on the line may be the chip itself: take the rightmost word that is part of the name (as the Q1
+            # gate passes the matched name word to dots_ok).
+            name = max((v for v in ws if abs(centre(v)[1] - centre(w)[1]) <= 8 and any(t in v[0] for t in want)),
+                       key=lambda v: v[3])
             return im, w, name
     return im, None, None
 
@@ -653,7 +657,9 @@ def imports_story(win, box):
     require(parse_ptyxis(work / 'lagoon.palette')['ansi'] == [rgb(c) for c in LAGOON], 'setup: the Ptyxis file reads [Dark]')
     prev = parse_iterm(button)['background']
     for label, path, want in files:
-        require(not near(want['background'], prev, 6), f'setup M2: {label} background differs from the one before')
+        # A stale screen still shows the previous background exactly; the screen check allows +-2 per channel, so
+        # a background more than 4 away from the previous one cannot pass on a stale screen.
+        require(not near(want['background'], prev, 4), f'setup M2: {label} background differs from the one before')
         prev = want['background']
     for label, path, want in files:
         others = {k: v for k, v in win.saved().items() if k != 'terminal_colors'}
