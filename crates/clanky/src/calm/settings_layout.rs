@@ -115,7 +115,7 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
 
 /// One picker row (mockup .th): name, and a chip of the theme's background with four dots
 /// in its ansi 1, 2, 4, 3 (red, green, blue, yellow).
-fn theme_row(p:&mut Paint<'_>,rect:PixelRect,t:&Theme,name:&str,chip_bg:Color,dots:[Color;4],saved:bool,lit:bool,s:f32){
+pub(super) fn theme_row(p:&mut Paint<'_>,rect:PixelRect,t:&Theme,name:&str,chip_bg:Color,dots:[Color;4],saved:bool,lit:bool,s:f32){
     let c=&t.colors;
     p.shape(rect,8.0*s,c.card,Some(c.border));
     if saved||lit{p.shape(rect,8.0*s,[0;4],Some(c.ring));p.shape(r(rect.x+s,rect.y+s,rect.w-2.0*s,rect.h-2.0*s),7.0*s,[0;4],Some(c.ring));}
