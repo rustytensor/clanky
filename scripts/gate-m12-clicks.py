@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
-"""First M12 click check: private real window, actual pointer, server workspace."""
+"""First M12 click check: private real window, actual pointer, server workspace.
+
+Quiet layout (brief 2026-11-13-clanky-redesign, Marc's Y1 of 2026-11-14). Window 1240 x 760, scale 1. Where
+a control's place depends on text width it is found on screen, as the Q1 gate does; everything else is fixed
+from the mockup CSS [M] and the Q1 gate [Q1]:
+  title bar 38 px [M .win]; tools toggle at x 10..36 [M .titlebar padding 10, .ico 26]; the first tab's pill
+    starts at x 48 [M .tabs margin-left 8 after the toggle and a 4 px gap], its state dot at x 59..65
+    [M .tab padding 11, .dot 6]; the "+" is the last mark right of the tabs [M .plus, Q1 T1]; the search box
+    is x 940..1200 [M .search 260, gap 4, .ico 26, padding 10]; the settings gear x 1204..1230 [M, Q1 T3].
+  New tab = a click on "+"; a session = a click on its tab; Split = a click on the search box, then
+    "Split right" and Enter [Q1 T3] (the mockup's title bar has no Split button).
+  Agent access: the tools panel footer's "Agents" segment, then the pane's "off" row [Q1 T4] (R3: today's
+    right column moved into the tools panel).
+  Settings: the gear opens it; its 780 x 600 frame and nav are unchanged [Q1] (Appearance (270,188), Terminal
+    (270,222), close (980,109), the Terminal page's font + (965,288) and Animations row (600,534)).
+    Appearance starts with the Layout group [Q1 E1]: its "Vertical" segment writes tab_style "vertical",
+    "Horizontal" writes it back (in place of the old Light mode segment, which the redesign removed).
+"""
 import json
 import os
 from pathlib import Path
@@ -22,6 +39,41 @@ def until(fn, label, seconds=10):
         if value:return value
         time.sleep(.05)
     raise RuntimeError(label)
+
+
+def ocr_words(im, box, tmp, scale=3, psm=11):
+    """Words in box as (text, x0, y0, x1, y1) in window pixels, lowercased (the Q1 gate's reader)."""
+    from PIL import Image, ImageOps
+    crop=im.crop(box).convert('L')
+    if sum(crop.getdata())/max(1,crop.width*crop.height)<128:crop=ImageOps.invert(crop)
+    crop=crop.resize((crop.width*scale,crop.height*scale),Image.LANCZOS);path=Path(tmp)/'ocr.png';crop.save(path)
+    out=subprocess.run(['tesseract',str(path),'-','--psm',str(psm),'tsv'],capture_output=True,text=True,timeout=60).stdout
+    words=[]
+    for line in out.splitlines()[1:]:
+        f=line.split('\t')
+        if len(f)==12 and f[11].strip():
+            x,y,w,h=(int(v) for v in f[6:10])
+            words.append((f[11].strip().lower(),box[0]+x/scale,box[1]+y/scale,box[0]+(x+w)/scale,box[1]+(y+h)/scale))
+    return words
+
+
+def word(words,text,pick=min):
+    hits=[w for w in words if w[0]==text]
+    return pick(hits,key=lambda w:w[1]) if hits else None
+
+
+def centre(w):return (int((w[1]+w[3])/2),int((w[2]+w[4])/2))
+
+
+def marks(im,x0,x1,y0=6,y1=32):
+    """Horizontal clusters (xa, xb) of title-bar columns with a pixel more than 40 from the bar colour."""
+    px=im.load();bg=px[600,3]
+    cols=[x for x in range(x0,x1) if any(max(abs(a-b) for a,b in zip(px[x,y],bg))>40 for y in range(y0,y1))]
+    out=[]
+    for x in cols:
+        if out and x-out[-1][1]<=3:out[-1][1]=x
+        else:out.append([x,x])
+    return [tuple(c) for c in out]
 
 
 def stop(p):
@@ -66,21 +118,31 @@ def main():
             def click(x,y):
                 xdo('mousemove','--window',wid,x,y);xdo('click',1)
             def saved():return json.loads(config.read_text())
+            def shot():
+                xdo('mousemove','--window',wid,600,400);time.sleep(.4)
+                g=dict(line.split('=',1) for line in xdo('getwindowgeometry','--shell',wid).splitlines() if '=' in line)
+                x,y=int(g['X']),int(g['Y'])
+                return ImageGrab.grab(bbox=(x,y,x+1240,y+760),xdisplay=env['DISPLAY']).convert('RGB')
+            def plus():
+                found=marks(shot(),40,936)
+                require(found,'title bar marks right of the toggle');return found[-1]
             before=call('workspace_get',{},3);require(len(before['groups'])==1,'initial session count')
-            # The access row begins after the activity card and 1–4 recent rows.
-            # Click the label side, never the switch at the far right.
+            # Agent access lives in the tools panel's Agents view: footer segment, then the pane's "off" row.
             time.sleep(1.2)
-            recent=call('look_state',{},3).get('recent',[])
-            kinds={'command_run','command_finished','agent_connected','pane_closed'}
-            count=min(4,sum(item.get('kind') in kinds for item in recent))
-            row_y=76+176+48+36*max(count,1)+12+40+9
             require(call('permission_get',{'tab_id':tab},3)['allow_agent'] is False,'initial access off')
-            click(990,row_y)
-            until(lambda:call('permission_get',{'tab_id':tab},3)['allow_agent'] is True,'access row label toggles permission')
-            print('PASS: access row label toggles owner permission off → on')
-            # Real top-bar New tab button at 1240x760; pointer is sent through winit.
+            agents=word(ocr_words(shot(),(0,680,236,734),tmp),'agents')
+            require(agents,'tools panel footer reads "Agents"')
+            click(*centre(agents))
+            words=ocr_words(shot(),(0,40,236,680),tmp)
+            off=min((w for w in words if w[0]=='off'),key=lambda w:w[2],default=None)
+            require(off and any('access' in w[0] for w in words),'Agents view shows access and an "off" row')
+            click(*centre(off))
+            until(lambda:call('permission_get',{'tab_id':tab},3)['allow_agent'] is True,'access row toggles permission')
+            print('PASS: tools panel access row toggles owner permission off → on')
+            # The title bar's "+" adds a tab; the pointer is sent through winit.
+            add=plus()
             if os.environ.get('CLANKY_GATE_FAULT')!='click':
-                xdo('mousemove','--window',wid,1180,36);xdo('click',1)
+                click((add[0]+add[1])//2,19)
             try:after=until(lambda:(w if len((w:=call('workspace_get',{},3))['groups'])==2 else None),'new tab session count',3)
             except RuntimeError:
                 after=call('workspace_get',{},3)
@@ -90,34 +152,41 @@ def main():
             def pane_count(tree):
                 if 'Leaf' in tree:return 1
                 split=tree['Split'];return pane_count(split['first'])+pane_count(split['second'])
-            click(40,120)
+            click(62,19)  # the first tab's state dot
             until(lambda:workspace()['active']==0,'first session selected')
             for expected in (2,3):
-                click(1080,36)
+                click(1070,19);time.sleep(.4)  # the search box opens the palette
+                xdo('type','--window',wid,'--delay','20','Split right');xdo('key','--window',wid,'Return')
                 until(lambda:pane_count(workspace()['groups'][0]['layout'])==expected,
                       f'split creates {expected} panes')
                 time.sleep(.2)
-            click(40,154)
+            add=plus();second=[m for m in marks(shot(),40,add[0]-3)][-1]
+            click((second[0]+second[1])//2,19)  # the last mark before "+": the second tab's title
             until(lambda:workspace()['active']==1,'second session selected')
-            print('PASS: real Split clicks: 1 → 2 → 3 panes; sidebar selected second session')
-            # Settings opens from the sidebar. Navigation and controls are the
-            # fixed 780×600 CSS geometry centred in the 1240×760 fixture.
-            click(40,680);time.sleep(.2)
-            click(270,188);time.sleep(.2)  # Appearance
-            click(820,179)  # Light segment
-            until(lambda:saved().get('theme')=='light','Settings light segment')
+            print('PASS: real Split clicks: 1 → 2 → 3 panes; the title bar selected the second session')
+            # Settings opens from the gear. Navigation and controls are the fixed 780×600 CSS geometry
+            # centred in the 1240×760 fixture; the Layout segments are found by their words.
+            click(1217,19);time.sleep(.4)
+            click(270,188);time.sleep(.4)  # Appearance
+            words=ocr_words(shot(),(459,130,985,630),tmp)
+            vertical,horizontal=word(words,'vertical',max),word(words,'horizontal',max)
+            require(vertical and horizontal,f'Appearance shows the Layout segments ({[w[0] for w in words][:30]})')
+            click(*centre(vertical))
+            until(lambda:saved().get('tab_style')=='vertical','Settings Vertical segment')
+            click(*centre(horizontal))
+            until(lambda:saved().get('tab_style','horizontal')=='horizontal','Settings Horizontal segment')
             click(270,222);time.sleep(.2)  # Terminal
             click(965,288)  # Font size +, 13 → 14
             until(lambda:saved().get('font_size')==14,'Settings font stepper')
             click(600,534)  # Whole Animations row, false → true
             until(lambda:saved().get('animations') is True,'Settings animations row')
             click(980,109);time.sleep(.2)  # close button
-            old=len(workspace()['groups']);click(1180,36)
+            old=len(workspace()['groups']);add=plus();click((add[0]+add[1])//2,19)
             until(lambda:len(workspace()['groups'])==old+1,'close button returns pointer to window')
-            click(40,680);time.sleep(.2);xdo('key','--window',wid,'Escape');time.sleep(.2)
-            old=len(workspace()['groups']);click(1180,36)
+            click(1217,19);time.sleep(.6);xdo('key','--window',wid,'Escape');time.sleep(.4)
+            old=len(workspace()['groups']);add=plus();click((add[0]+add[1])//2,19)
             until(lambda:len(workspace()['groups'])==old+1,'Escape returns pointer to window')
-            print('PASS: Settings section, light segment, font 13→14, animations off→on, close and Escape')
+            print('PASS: Settings section, Layout segments, font 13→14, animations off→on, close and Escape')
             # A forced Post-AI switch is rendered disabled. Confirm the panel
             # really opened, then verify clicking its row does not write config.
             stop(window)
@@ -126,7 +195,7 @@ def main():
             geometry=dict(line.split('=',1) for line in xdo('getwindowgeometry','--shell',wid).splitlines() if '=' in line)
             left,top=int(geometry['X']),int(geometry['Y'])
             def capture():return ImageGrab.grab(bbox=(left+230,top+80,left+1010,top+680),xdisplay=env['DISPLAY']).convert('RGB')
-            plain=capture();click(40,680);time.sleep(.4);panel=capture()
+            plain=capture();click(1217,19);time.sleep(.4);panel=capture()
             changed=sum(1 for pixel in ImageChops.difference(plain,panel).getdata() if pixel!=(0,0,0))
             require(changed>5000,f'Settings open changed pixels: expected >5000, observed {changed}')
             prior=config.read_bytes();click(600,200);time.sleep(.5)
