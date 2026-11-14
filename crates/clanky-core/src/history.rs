@@ -413,6 +413,23 @@ fn checkpoint(connection: &Connection) -> rusqlite::Result<()> {
     connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
 }
 
+/// The newest `limit` distinct commands a person ran (actor "you"), oldest first, read without
+/// writing (the window's command input suggests and recalls them). A missing file reads as empty.
+pub fn recent_commands(path: &Path, limit: usize) -> Result<Vec<String>, String> {
+    if !path.exists() { return Ok(Vec::new()); }
+    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    connection.busy_timeout(Duration::from_secs(2)).map_err(|e| e.to_string())?;
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0)).map_err(|e| e.to_string())?;
+    if version == 0 { return Ok(Vec::new()); }
+    let mut statement = connection.prepare("SELECT command, max(started_at) m FROM commands WHERE command IS NOT NULL
+        AND actor = 'you' GROUP BY command ORDER BY m DESC LIMIT ?1").map_err(|e| e.to_string())?;
+    let rows = statement.query_map([limit.min(i64::MAX as usize) as i64], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    out.reverse();
+    Ok(out)
+}
+
 /// Direct file access for `clanky history`; no server needed.
 pub struct Store {
     connection: Option<Connection>,

@@ -18,7 +18,7 @@ not the design example's #ffefe1. `robot_paint` is required: Stone dark #6b5236 
 ANSI colours are a warm palette
 chosen for readable terminal text; they are not fixed by the mockup.
 
-Marc approved the Stone light contrast correction (Y1, 2026-11-04, relayed by the lead):
+Marc approved the Stone light contrast correction (Y1, 2026-11-04):
 `muted_foreground` #6b6259, `ok` #456e4d, `err` #a14938, `agent` #8c5925.
 Matching Stone ANSI entries use the corrected colours too; other themes are unchanged.
 The earlier gate found 15 failing pairs, minimum 3.8150:1 at muted_foreground/pressed.

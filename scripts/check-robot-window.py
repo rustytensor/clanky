@@ -3,6 +3,9 @@
 Expected before running: antenna RGB 220,164,104 (tolerance 3); base/torso
 mid-turn pixels differ from their fixed before/after samples; no frames beyond
 7000/1200 ms; key x at logical 300 ms reaches the PTY and skips before one frame.
+The reader writes the key to 'received' in the pane's folder, which the tools panel's Files tool lists: within the
+next 1 s poll it shows the new file and draws exactly one more frame (Q1 gate F1), still at logical 300 ms. With the
+tools panel off that frame does not exist. After it, no frames.
 """
 import json
 import os
@@ -215,6 +218,11 @@ def main(work, bins):
         until(lambda: len(key.frames()) > before, 'skip clear frame')
         require(key.frames()[before][1] == 300, 'skip clears in next frame at 300 ms')
         require(not any(r[0] == 'robot_sample' and r[2] > skipped[2] for r in rows(key.trace)), 'no overlay after key')
+        cleared = len(key.frames())
+        time.sleep(1.5)  # the clock stays at 300 ms; the Files tool's 1 s poll finds 'received'
+        files = key.frames()[cleared:]
+        require(len(files) == 1 and files[0][1] == 300,
+                f'key: exactly one Files tree frame for the new file at 300 ms: observed {[r[1] for r in files]}')
         key.zero_after(300)
         report['key_at_ms'] = 300
         report['key_bytes'] = 'x'

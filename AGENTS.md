@@ -30,7 +30,7 @@ Global rules checked: v30 2026-11-12
 - Never weaken an expected value to make a test pass.
 - M12 review builds must never expose an old-style M11 screen. Hide its mouse entries and keyboard routes
   until its replacement is ready. Settings must match `/srv/devops/build/clanky/mockups/settings.html`
-  exactly (Marc's approval via the lead, 2026-11-04); do not restyle the legacy modal.
+  exactly (Marc's approval, 2026-11-04); do not restyle the legacy modal.
 
 ## Steered and unsteered work
 

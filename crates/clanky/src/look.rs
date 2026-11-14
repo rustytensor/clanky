@@ -79,6 +79,10 @@ pub struct Layout {
     pub top_bar: PixelRect,
     pub left_rail: Option<PixelRect>,
     pub right_rail: Option<PixelRect>,
+    /// The vertical tab list (leftmost column) when tabs are drawn down the left.
+    pub tabs_column: Option<PixelRect>,
+    /// The status line along the bottom, when shown.
+    pub status_line: Option<PixelRect>,
     pub content: PixelRect,
     pub panes: Vec<PaneLayout>,
     pub dividers: Vec<Divider>,
@@ -211,6 +215,8 @@ pub fn layout_with_metrics(
         top_bar: rect(0.0, 0.0, w, top),
         left_rail: rails_shown.then(|| rect(0.0, top, left, h - top)),
         right_rail: rails_shown.then(|| rect(w - right, top, right, h - top)),
+        tabs_column: None,
+        status_line: None,
         content,
         panes: Vec::new(),
         dividers: Vec::new(),

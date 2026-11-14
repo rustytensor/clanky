@@ -29,7 +29,7 @@ arguments omitted. Agent-facing transport error messages are sanitized too.
 The person's block views, selection/copy, task payloads, screen/history and
 scrollback search keep the strict masking policy. Search matches masked text,
 never raw cells. The authenticated owner's live display is different (approved
-by the lead): unconfirmed prefixes are shown as typed. Complete built-in headers
+by the maintainer): unconfirmed prefixes are shown as typed. Complete built-in headers
 start masking immediately, even below the agent recognizer's minimum body length;
 complete known literals stay masked. This display-only exception never reaches
 agent screen reads, output, event replay, copy, or search. OSC 52 writes and replies mask decoded text before
@@ -105,8 +105,9 @@ Masking has the coverage limits described above.
 
 Blocks also carry nullable absolute-line anchors: `prompt_line` (A, or B without A),
 `command_line` (C), and `end_line` (D). Lines count from the oldest retained row plus
-the grid's monotonic eviction count. Evicted anchors become null. Resize, reset,
-alternate-screen changes and non-preserving region scrolling invalidate old anchors;
+the grid's monotonic eviction count. Evicted anchors become null. Resize keeps anchors
+on their logical lines; a full-screen program on the alternate screen leaves the normal
+screen's anchors as they were. Reset and non-preserving region scrolling invalidate old anchors;
 new A/B markers establish new ones. Terminals without OSC 133 have no cards.
 Owner v3 changed `snapshot` replies include `block_anchors: {viewport_line, blocks}`:
 up to 64 visible-command-row block summaries, without output, captured atomically

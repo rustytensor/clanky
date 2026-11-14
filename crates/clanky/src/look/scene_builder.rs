@@ -41,13 +41,45 @@ pub struct LookState {
     pub terminal: crate::config::TerminalColors,
     /// False during the off half of a cursor blink.
     pub cursor_visible: bool,
+    /// The quiet window (mockup 2026-11-13): tabs, tools panel, status line.
+    pub tabs: Vec<TabItem>,
+    pub tools: Vec<crate::config::Tool>,
+    pub tool: Option<crate::config::Tool>,
+    /// Files tool: the folder shown and its rows.
+    pub tree_title: String,
+    pub tree: Vec<TreeRow>,
+    /// "program has the mouse" for the focused pane, shown in the title bar.
+    pub mouse_owner: Option<String>,
+    /// Agent access, one row per terminal pane in every tab.
+    pub access: Vec<AccessRow>,
+    /// Older command cards instead of quiet blocks.
+    pub block_cards: bool,
+    /// Per (pane, block): the folder, the start time (HH:MM) and, while it runs, its seconds so far.
+    pub block_meta: std::collections::BTreeMap<(String,String),(String,String,Option<u64>)>,
 }
+#[derive(Clone, Debug, PartialEq)]
+pub struct TabItem {
+    /// The first pane id (activates the tab) and every pane id (closes it).
+    pub id: String, pub panes: Vec<String>, pub title: String, pub active: bool,
+    pub running: bool, pub agent: bool,
+    /// Vertical tabs: "~/path · ⎇ branch" and the last command.
+    pub path: String, pub last_command: String, pub state: String,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct TreeRow { pub path: String, pub name: String, pub dir: bool, pub depth: usize, pub open: bool }
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccessRow { pub id: String, pub label: String, pub allowed: bool }
+/// A long or running command whose command row has scrolled off the top.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StickyLine { pub command: String, pub running_s: Option<u64>, pub duration_ms: Option<u64> }
 impl Default for LookState {
     fn default() -> Self {
         Self { theme: Theme::dark(), opacity: 0.94, animations: true, elapsed_ms: 0.0, focused: None,
             panes: vec![], post_ai:false, palette_open:false, find: None, user_name: String::new(), timeline_exits: vec![], pane_labels: Default::default(), sessions: vec![], session_counts: Default::default(), timeline_times: vec![], agents: vec![], agent_labels: Default::default(), block_actions: Default::default(), block_action_focus: None, files: vec![],
             timeline: vec![], activity: vec![], uptime_seconds: 0,
-            masking_ready: false, panels: vec![], terminal: Default::default(), cursor_visible: true }
+            masking_ready: false, panels: vec![], terminal: Default::default(), cursor_visible: true,
+            tabs: vec![], tools: vec![], tool: None, tree_title: String::new(), tree: vec![], mouse_owner: None,
+            access: vec![], block_cards: false, block_meta: Default::default() }
     }
 }
 #[derive(Clone, Debug)]
@@ -62,12 +94,15 @@ pub struct PaneState {
     pub blocks: Vec<BlockCard>,
     pub cursor: Option<CursorMotion>,
     pub scroll_px: f32,
+    pub sticky: Option<StickyLine>,
+    /// Space between quiet blocks (Q4): the pixel top of every row, or None for the plain grid.
+    pub breath: Option<crate::calm::breath::Breath>,
 }
 impl PaneState {
     pub fn new(id: impl Into<String>, snapshot: TerminalSnapshot) -> Self {
         Self { id: id.into(), title: String::new(), driver: String::new(),
             allow_agent: false, agent_running: false, snapshot, underlines: vec![],
-            blocks: vec![], cursor: None, scroll_px: 0.0 }
+            blocks: vec![], cursor: None, scroll_px: 0.0, sticky: None, breath: None }
     }
 }
 #[derive(Clone, Debug)]
@@ -103,6 +138,8 @@ pub struct PanelLine { pub text: String, pub selected: bool, pub action: Option<
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HitAction {
     Palette, Settings, ToggleRails, NewTab, Split, Session(String), File(String),
+    /// Title bar: close every pane of a tab. Tools panel: pick a tool, open or close a folder, open a file.
+    CloseTab(Vec<String>), Tool(crate::config::Tool), TreeToggle(String), OpenPath(String),
     /// The Agent button: open the agent picker.
     StartAgent,
     Agent { connection_id: u64, tab_id: Option<String> }, Access(String),

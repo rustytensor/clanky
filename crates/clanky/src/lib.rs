@@ -26,6 +26,7 @@ pub mod mouse;
 pub mod compose;
 pub mod editor;
 pub mod input;
+pub mod command_input;
 pub mod mcp;
 pub mod layout_store;
 pub mod notifications;

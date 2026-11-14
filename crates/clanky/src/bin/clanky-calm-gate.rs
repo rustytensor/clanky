@@ -81,18 +81,19 @@ fn render(layout: &clanky::look::Layout, state: &LookState, name: &str, output: 
     let theme = themes::builtin(name)?;
     let mut presentation = calm::presentation(layout,state,&theme,13.0,(-1.0,-1.0),false,&mut clanky_render::measure_text);
     if fault {
-        let inset = calm::inset(layout).array();
-        let shape = presentation.scene.layers.iter_mut().find_map(|layer| match layer {
-            Layer::Shape(shape) if shape.rect == inset => Some(shape), _ => None,
-        }).ok_or("missing inset shape for planted fault")?;
-        shape.radius = 0.0;
+        // Planted fault: drop the title bar's 1 px bottom hairline (mockup .titlebar border-bottom).
+        let bar = layout.top_bar;
+        let hairline = [bar.x, bar.y + bar.h - 1.0, bar.w, 1.0];
+        let before = presentation.scene.layers.len();
+        presentation.scene.layers.retain(|layer| !matches!(layer, Layer::Shape(shape) if shape.rect == hairline));
+        if presentation.scene.layers.len() == before { return Err("missing title bar hairline for planted fault".into()); }
     }
     let sizes = presentation.scene.layers.iter().filter_map(|layer| match layer {
         Layer::Text(run) => Some(run.px), _ => None,
     }).collect();
     let rgba = offscreen_scene(&presentation.scene,1240,760)?;
     fs::write(output.join(format!("{name}.rgba")),&rgba).map_err(|e| e.to_string())?;
-    let coords = [(128,700),(257,9),(264,16),(600,63),(939,250),(939,600),(930,390),(968,200),(128,20),(128,740)];
+    let coords = [(128,700),(600,4),(600,37),(235,200),(600,200),(600,385),(1100,200),(600,734),(600,750),(128,20),(128,740)];
     let mut result = serde_json::Map::new();
     for (x,y) in coords { result.insert(format!("{x},{y}"),json!(sample(&rgba,x,y))); }
     Ok((Value::Object(result),sizes))

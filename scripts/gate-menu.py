@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Menu gate: the right-click menu in a terminal pane, as in the mockup Marc approved on 2026-11-13
-(https://claude.ai/artifact/UX4KFXHzCtpfC7ow8EyAme; R1 yes: keep Clanky's rows; R2 yes: "has the mouse" chip).
+(R1 yes: keep Clanky's rows; R2 yes: "has the mouse" chip).
 
 Usage: gate-menu.py [--fault copy|shift|link|reset|postai]
 A fault changes the run's input on purpose; the gate must then FAIL.

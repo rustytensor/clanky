@@ -8,7 +8,7 @@ gradients, no glows. Approved mockups:
 - the component sheets (/srv/devops/build/clanky/mockups/sheets.html), which are the specification for every
   control, in every state.
 
-Where this document and the sheets disagree, the sheets win; tell the lead.
+Where this document and the sheets disagree, the sheets win; say so.
 
 ## What changes for the person
 

@@ -89,5 +89,5 @@ rather than guess if unavailable. Existing v1-v4 operations and reply fields sta
 Live block cards need honest viewport mapping: use existing owner block text only
 where its visible rows can be matched without inventing coordinates; fullscreen
 rewrites or ambiguous mappings must not paint cards over unrelated text. Report
-missing stable block-position metadata to the lead; do not add another VT parser
+missing stable block-position metadata as an issue; do not add another VT parser
 or change the fixed gate's explicit BlockCard row fixture.

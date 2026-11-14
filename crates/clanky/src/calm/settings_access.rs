@@ -31,7 +31,7 @@ pub(super) fn keys(window:[u32;2],g:&Geometry,t:&Theme,post_ai:bool,scroll:f32,m
         ("Split rows","Put a new pane below the current one.",&["Ctrl","Shift","E"],false),
         ("Close pane","Close the current pane.",&["Ctrl","Shift","W"],false),
         ("Next session","Switch to the next session.",&["Ctrl","Tab"],false),
-        ("Side columns","Show or hide the side columns.",&["Ctrl","Shift","B"],false),
+        ("Tools panel","Show or hide the tools panel.",&["Ctrl","Shift","B"],false),
         ("Larger text","Increase text size for this window.",&["Ctrl","+"],false),
         ("Smaller text","Decrease text size for this window.",&["Ctrl","−"],false),
         ("Reset zoom","Return to the saved text size.",&["Ctrl","0"],false),

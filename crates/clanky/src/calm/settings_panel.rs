@@ -7,17 +7,24 @@ use winit::keyboard::{Key,NamedKey};
 use super::settings_appearance::{self,Editor,EditKind};
 use crate::theme_store::ThemeStore;
 use super::settings_access;
+use super::settings_layout::{PickItem,PickKind};
 pub use super::settings_access::PaneAccess;
 use std::path::PathBuf;
 pub enum ThemeAction{Save{slug:String,theme:Theme},Import{path:PathBuf,slug:String},Export{id:String,path:PathBuf}}
-pub enum Effect{None,Changed,Open(PathBuf),Access(String),StopAgents,ResumeAgents,Theme(ThemeAction)}
+pub enum Effect{None,Changed,Open(PathBuf),Access(String),StopAgents,ResumeAgents,Theme(ThemeAction),
+    /// The highlighted theme changed: redraw with its preview (nothing is saved).
+    Preview}
 pub struct SettingsPanel {
     pub store:Settings,pub open:bool,pub error:Option<String>,pub forced_post_ai:bool,
     section:Section,hits:Vec<Hit>,focus:Option<usize>,keyboard_focus:bool,menu:bool,slider:Option<PixelRect>,effective:Config,
     editor:Option<Editor>,scroll:f32,max_scroll:f32,active_theme:Option<Theme>,system_light:bool,
     /// Installed monospace families for the font menu (the window fills it from its fonts), and its scroll.
     pub mono_fonts:Vec<String>,menu_scroll:usize,
+    /// Theme picker: the rows last drawn, the keyboard highlight, its unsaved preview, and Ptyxis palettes.
+    picks:Vec<PickItem>,highlight:Option<usize>,preview:(Option<Theme>,Option<crate::config::TerminalColors>),palettes:Option<Vec<(String,serde_json::Value)>>,
 }
+/// Layout keys and the value Clanky leaves out of the file (the default).
+const LAYOUT_DEFAULTS:[(&str,&str);5]=[("tab_style","horizontal"),("tools_panel","on"),("command_input","editor"),("block_style","quiet"),("status_line","show")];
 /// Font menu rows shown at once; the wheel scrolls the rest.
 const MENU_ROWS:usize=10;
 /// terminal_colors as the settings file stores it (only the colours that are set).
@@ -35,14 +42,71 @@ impl SettingsPanel{
         for name in &self.mono_fonts{if !out.iter().any(|f|f.eq_ignore_ascii_case(name)){out.push(name.clone());}}
         out
     }
-    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0}}
-    pub fn toggle(&mut self){self.open=!self.open;self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;}
+    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None}}
+    pub fn toggle(&mut self){self.open=!self.open;self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;}
+    fn end_preview(&mut self){self.highlight=None;self.preview=(None,None);}
+    /// The theme or terminal colours shown behind Settings while a picker row is highlighted.
+    pub fn preview_theme(&self)->Option<&Theme>{self.preview.0.as_ref()}
+    pub fn preview_terminal(&self)->Option<&crate::config::TerminalColors>{self.preview.1.as_ref()}
+    /// A Layout choice: a default value is left out of the file; tools_panel also drops the old rails key.
+    fn save_layout(&mut self,key:&str,value:serde_json::Value)->Effect{
+        let default=match key{"tools"=>json!(crate::config::TOOLS.iter().map(|t|t.1).collect::<Vec<_>>()),_=>LAYOUT_DEFAULTS.iter().find(|d|d.0==key).map(|d|json!(d.1)).unwrap_or(serde_json::Value::Null)};
+        let mut changes=vec![(key,(value!=default).then_some(value))];
+        if key=="tools_panel"{changes.push(("rails",None));}
+        match self.store.set_many(&changes){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+    }
+    /// Save a picker row: a theme goes in its own appearance's slot (and sets the mode when not
+    /// following the system); a Ptyxis palette becomes the terminal colours.
+    fn pick(&mut self,index:usize)->Effect{
+        self.end_preview();
+        let Some(item)=self.picks.get(index).cloned() else{return Effect::None;};
+        let result=match item.kind{
+            PickKind::Theme{id,appearance,..}=>{
+                let slot=if appearance==crate::themes::Appearance::Light{"theme_light"}else{"theme_dark"};
+                if self.effective.theme==crate::config::ThemePreference::System{self.store.set(slot,json!(id)).map(|_|())}
+                else{self.store.set_many(&[("theme",Some(json!(if appearance==crate::themes::Appearance::Light{"light"}else{"dark"}))),(slot,Some(json!(id)))]).map(|_|())}
+            }
+            PickKind::Palette{value,..}=>self.store.set("terminal_colors",value).map(|_|()),
+        };
+        match result{Ok(())=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+    }
+    /// Move the picker highlight one row (the first move starts from the saved theme) and preview it.
+    fn step(&mut self,down:bool)->Effect{
+        if self.picks.is_empty(){return Effect::None;}
+        let saved=self.effective.selected_theme_id(self.system_light).to_owned();
+        let start=self.highlight.or_else(||self.picks.iter().position(|item|matches!(&item.kind,PickKind::Theme{id,..} if *id==saved)));
+        let last=self.picks.len()-1;
+        let next=match (start,down){(Some(i),true)=>(i+1).min(last),(Some(i),false)=>i.saturating_sub(1),(None,true)=>0,(None,false)=>last};
+        self.highlight=Some(next);
+        self.preview=match &self.picks[next].kind{PickKind::Theme{theme,..}=>(Some((**theme).clone()),None),PickKind::Palette{colors,..}=>(None,Some(colors.clone()))};
+        // Keep the highlighted row inside the page body, and show the whole list at once when it
+        // fits (mockup section 5: every row and the hint under them): first the list with its
+        // column heads, Ptyxis palettes and hint, else the built-in themes with their heads.
+        let y=self.picks[next].y;let (top,bottom)=(57.0+8.0,543.0-8.0);
+        let heads=if self.effective.theme==crate::config::ThemePreference::System{22.0}else{0.0};
+        let first=self.picks.iter().map(|item|item.y).fold(f32::MAX,f32::min)-heads;
+        let all=self.picks.iter().map(|item|item.y+38.0).fold(first,f32::max)+50.0;
+        let themes=self.picks.iter().filter(|item|matches!(item.kind,PickKind::Theme{..})).map(|item|item.y+38.0).fold(first,f32::max);
+        let span=[(first,all),(first,themes),(y,y+38.0)].into_iter().find(|(a,b)|b-a<=bottom-top).unwrap_or((y,y+38.0));
+        if span.0-self.scroll<top{self.scroll=span.0-top;}else if span.1-self.scroll>bottom{self.scroll=span.1-bottom;}
+        self.scroll=self.scroll.max(0.0).min(self.max_scroll.max(y+38.0-bottom));
+        Effect::Preview
+    }
     pub fn theme_complete(&mut self){self.editor=None;self.error=None;}
     fn save(&mut self,key:&str,value:serde_json::Value)->Effect{
         match self.store.set(key,value){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
     }
     fn activate(&mut self,action:Action,x:f64)->Effect{match action{
-        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;Effect::None},
+        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;self.end_preview();self.palettes=None;Effect::None},
+        Action::Choice(key,value)=>self.save_layout(key,json!(value)),
+        Action::ToolChip(tool)=>{
+            let mut tools=self.effective.tools.clone();
+            if let Some(i)=tools.iter().position(|t|*t==tool){tools.remove(i);}else{tools.push(tool);}
+            let list:Vec<_>=crate::config::TOOLS.iter().filter(|t|tools.contains(&t.0)).map(|t|t.1).collect();
+            self.save_layout("tools",json!(list))
+        },
+        Action::Follow(on)=>{self.end_preview();self.save("theme",json!(if on{"system"}else if self.system_light{"light"}else{"dark"}))},
+        Action::Pick(index)=>self.pick(index),
         Action::Close=>{self.open=false;self.menu=false;Effect::None},
         Action::OpenFile=>Effect::Open(self.store.path().to_owned()),
         Action::FontMenu=>{self.menu=!self.menu;self.menu_scroll=self.fonts().iter().position(|f|*f==self.effective.font_family).unwrap_or(0).saturating_sub(4);self.focus=None;Effect::None},
@@ -119,7 +183,9 @@ impl SettingsPanel{
         match key{
             Key::Named(NamedKey::PageDown)=>{self.wheel(-6);Effect::None},
             Key::Named(NamedKey::PageUp)=>{self.wheel(6);Effect::None},
-            Key::Named(NamedKey::Escape)=>{if self.menu{self.menu=false;}else{self.open=false;}Effect::None},
+            Key::Named(NamedKey::Escape)=>{if self.menu{self.menu=false;Effect::None}else if self.highlight.is_some(){self.end_preview();Effect::Preview}else{self.open=false;Effect::None}},
+            Key::Named(NamedKey::ArrowDown)|Key::Named(NamedKey::ArrowUp) if self.section==Section::Appearance && !self.menu=>self.step(*key==Key::Named(NamedKey::ArrowDown)),
+            Key::Named(NamedKey::Enter) if self.highlight.is_some()=>{let index=self.highlight.unwrap_or(0);self.pick(index)},
             Key::Named(NamedKey::Tab)=>{if !self.hits.is_empty(){self.focus=Some(self.focus.map_or(0,|i|(i+1)%self.hits.len()));}Effect::None},
             Key::Named(NamedKey::Enter)|Key::Named(NamedKey::Space)=>{if let Some(hit)=self.focus.and_then(|i|self.hits.get(i)).cloned(){self.activate(hit.action,hit.rect.x as f64+hit.rect.w as f64/2.0)}else{Effect::None}},
             Key::Named(NamedKey::ArrowLeft)|Key::Named(NamedKey::ArrowRight)=>{
@@ -141,7 +207,9 @@ impl SettingsPanel{
         if !self.open{return vec![];}if config.post_ai && self.section==Section::Agents{self.section=Section::General;self.scroll=0.0;}self.effective=config.clone();self.active_theme=Some(theme.clone());self.system_light=system_light;
         let s=layout.scale as f32;let mut frame=settings_frame::draw_scrolled(layout.window_px,s,self.section,theme,config,pointer,pressed,measure,if self.section==Section::Terminal{self.scroll}else{0.0});
         if self.section==Section::Terminal{self.max_scroll=frame.max_scroll;self.scroll=self.scroll.min(self.max_scroll);}
-        if self.section==Section::Appearance{if let Some(store)=themes{match settings_appearance::page(layout.window_px,&frame.geometry,theme,config,store,system_light,self.scroll,pointer,pressed,measure){Ok((layers,hits,max))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
+        if self.section==Section::Appearance{if let Some(store)=themes{if self.palettes.is_none(){self.palettes=Some(super::settings_layout::scan_palettes());}
+            let palettes=self.palettes.clone().unwrap_or_default();
+            match settings_appearance::page(layout.window_px,&frame.geometry,theme,config,store,system_light,self.scroll,pointer,pressed,measure,&palettes,self.highlight){Ok((layers,hits,max,picks))=>{frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;self.scroll=self.scroll.min(max);self.picks=picks;},Err(error)=>self.error=Some(error)}}else{self.error=Some("Theme storage is unavailable.".into());}}
         if self.section==Section::Agents{let(layers,hits,max)=settings_access::agents(layout.window_px,&frame.geometry,theme,access,masking_ready,self.scroll,pointer,pressed,measure);frame.scene.layers.extend(layers);frame.hits.extend(hits);self.max_scroll=max;}
         if self.section==Section::Keys{let(layers,max)=settings_access::keys(layout.window_px,&frame.geometry,theme,config.post_ai,self.scroll,measure);frame.scene.layers.extend(layers);self.max_scroll=max;}
         let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);

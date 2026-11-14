@@ -131,6 +131,7 @@ struct TextKey {
     cell_width: Option<u32>,
     weight: u16,
     mono: bool,
+    italic: bool,
 }
 struct Image {
     source: Weak<Vec<u8>>,
@@ -301,6 +302,22 @@ fn shape_buffer(
     mono: bool,
     cell_width: Option<f32>,
 ) -> Buffer {
+    shape_styled(fonts, text, px, height, weight, name, letter_spacing, mono, cell_width, false)
+}
+#[allow(clippy::too_many_arguments)]
+fn shape_styled(
+    fonts: &mut FontSystem,
+    text: &str,
+    px: f32,
+    height: f32,
+    weight: u16,
+    name: &str,
+    letter_spacing: f32,
+    mono: bool,
+    cell_width: Option<f32>,
+    italic: bool,
+) -> Buffer {
+    let style = if italic { cosmic_text::Style::Italic } else { cosmic_text::Style::Normal };
     // A named family uses generic fallback ordering, which can choose unrelated
     // private-use glyphs. Monospace asks cosmic-text to rank installed mono faces
     // by actual codepoint coverage, retaining the selected face when it covers.
@@ -315,7 +332,7 @@ fn shape_buffer(
     // needs pitch normalization; the final ink fit handles raster overhangs.
     let fallback_width = cell_width.filter(|_| {
         let primary = fonts.db().query(&cosmic_text::fontdb::Query {
-            families: &[selected_family], weight: Weight(weight), ..Default::default()
+            families: &[selected_family], weight: Weight(weight), style, ..Default::default()
         });
         primary.and_then(|id| fonts.get_font_supported_codepoints_in_word(id, Weight(weight), text))
             != Some(text.chars().count())
@@ -324,7 +341,7 @@ fn shape_buffer(
     buffer.set_monospace_width(fallback_width);
     buffer.set_size(None, None);
     buffer.set_wrap(Wrap::None);
-    let mut attrs = Attrs::new().family(selected_family).weight(Weight(weight));
+    let mut attrs = Attrs::new().family(selected_family).weight(Weight(weight)).style(style);
     if letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(letter_spacing / px);
     }
@@ -596,7 +613,7 @@ impl Painter {
     pub fn measure_text(&mut self, text: &TextRun) -> TextMetrics {
         if !valid_text(text) || text.text.is_empty(){return TextMetrics::default();}
         let key=TextKey{text:text.text.clone(),px:text.px.to_bits(),height:(text.px*1.25).to_bits(),
-            letter_spacing:text.letter_spacing.to_bits(),cell_width:None,weight:text.weight,mono:text.mono};
+            letter_spacing:text.letter_spacing.to_bits(),cell_width:None,weight:text.weight,mono:text.mono,italic:text.italic};
         if let Some(metrics)=self.measured.get(&key){return *metrics;}
         let name = if text.mono {
             &self.terminal_family
@@ -678,6 +695,7 @@ impl Painter {
         mono: bool,
         letter_spacing: f32,
         cell_width: Option<f32>,
+        italic: bool,
     ) -> Vec<Placed> {
         let key = TextKey {
             text: text.into(),
@@ -687,6 +705,7 @@ impl Painter {
             cell_width: cell_width.map(f32::to_bits),
             weight,
             mono,
+            italic,
         };
         if let Some(placed) = self.shaped.get(&key) {
             return placed.clone();
@@ -696,7 +715,7 @@ impl Painter {
         } else {
             &self.ui_family
         };
-        let buffer = shape_buffer(
+        let buffer = shape_styled(
             &mut self.fonts,
             text,
             px,
@@ -706,6 +725,7 @@ impl Painter {
             letter_spacing,
             mono,
             cell_width,
+            italic,
         );
         let mut placed = Vec::new();
         for run in buffer.layout_runs() {
@@ -748,6 +768,7 @@ impl Painter {
             text.mono,
             text.letter_spacing,
             cell_width,
+            text.italic,
         );
         // Keep wide shaped characters wide, but private-use prompt icons occupy
         // one terminal cell even if a fallback face advertises a wider advance.
@@ -779,11 +800,14 @@ impl Painter {
                 b.rect[2] as f32,b.rect[3] as f32];
             glyphs.push((rect,b));
         }
-        let fit = cell.map_or([1.,0.,0.], |cell| {
+        // A slanted glyph leans out of its cell by design: keep its size and let it
+        // overhang the neighbouring cells by up to a third of the line height.
+        let lean = if text.italic { height / 3. } else { 0. };
+        let fit = cell.filter(|_| !text.italic).map_or([1.,0.,0.], |cell| {
             fit_cell(&glyphs.iter().map(|(rect,_)| *rect).collect::<Vec<_>>(),cell)
         });
         let clip = if let Some(cell) = cell {
-            let Some(clip) = intersection(clip,[text.origin[0],text.origin[1],cell[0],cell[1]]) else {return Ok(());};
+            let Some(clip) = intersection(clip,[text.origin[0]-lean,text.origin[1],cell[0]+2.*lean,cell[1]]) else {return Ok(());};
             clip
         } else { clip };
         for (rect,b) in glyphs {
@@ -965,6 +989,7 @@ impl Painter {
                     weight: if cell.style & clanky_core::STYLE_BOLD != 0 { 700 } else { 400 },
                     mono: true,
                     letter_spacing: 0.0,
+                    italic: cell.style & clanky_core::STYLE_ITALIC != 0,
                 },
                 clip,
                 ch,

@@ -598,6 +598,7 @@ pub(crate) fn spawn(
     cwd: &Path,
     rows: usize,
     cols: usize,
+    extra_env: &[(String, String)],
     command: Arc<super::super::Command>,
     tab: Arc<super::super::Tab>,
 ) -> io::Result<Process> {
@@ -609,7 +610,7 @@ pub(crate) fn spawn(
             ("TERM".into(), "xterm-256color".into()),
             ("COLORTERM".into(), "truecolor".into()),
         ]
-        .into(),
+        .into_iter().chain(extra_env.iter().cloned()).collect(),
         ..Default::default()
     };
     // Reserve registry space before creating any child. Never discard roots:

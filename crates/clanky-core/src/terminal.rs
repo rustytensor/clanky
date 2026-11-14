@@ -114,6 +114,12 @@ struct Observer {
     /// ends that line is not output.
     after_command: bool,
     prompt_waiting: bool,
+    /// An A or B mark came since the last C: a C now starts a new block. bash prints PS0 (and
+    /// so C) once per command of a multi-line submission; only the first starts a block.
+    prompted: bool,
+    /// B marks seen since this program started (the window's command input counts prompts).
+    prompt_seq: u64,
+    integrated: bool,
     marker: Option<u8>,
     prompt_start: Option<u64>,
     command_start: Option<(u64, usize)>,
@@ -217,8 +223,13 @@ impl vte::Perform for Observer {
             Some(b"C") => Some(b'C'),
             Some(b"D") if self.active.is_some() => Some(b'D'), _ => None,
         };
+        if params.get(1).copied() == Some(b"C".as_slice()) && self.active.is_some() && !self.prompted {
+            self.marker = None;
+            return;
+        }
         match params.get(1).copied() {
             Some(b"C") => {
+                self.prompted = false;
                 self.prompt_waiting = false;
                 self.seal(None, false);
                 while self.blocks.len() >= 1024 {
@@ -254,7 +265,12 @@ impl vte::Perform for Observer {
                     .and_then(|s| s.parse().ok());
                 self.seal(code, true);
             }
-            Some(b"A" | b"B") => {
+            Some(mark @ (b"A" | b"B")) => {
+                self.prompted = true;
+                if mark == b"B" {
+                    self.prompt_seq += 1;
+                    self.integrated = true;
+                }
                 self.prompt_waiting = true;
                 self.seal(None, false);
             }
@@ -347,6 +363,7 @@ impl Terminal {
                 // Do not complete a previous process's partial escape sequence.
                 self.observer.command_start = None;
                 self.observer.prompt_start = None;
+                self.observer.integrated = false;
                 self.processor = ansi::Processor::new();
                 self.parser = vte::Parser::new();
                 state.queue.clear();
@@ -361,8 +378,10 @@ impl Terminal {
             let revision = self.term.grid().anchor_revision();
             let alternate = self.term.mode().contains(TermMode::ALT_SCREEN);
             self.processor.advance(&mut self.term, byte);
-            if revision != self.term.grid().anchor_revision()
-                || alternate != self.term.mode().contains(TermMode::ALT_SCREEN) {
+            // A switch to or from the alternate screen leaves the normal screen's lines where they
+            // were (the two grids are kept apart), so its anchors stay; only a change inside one grid
+            // (a clear, a non-preserving scroll) moves lines under them.
+            if alternate == self.term.mode().contains(TermMode::ALT_SCREEN) && revision != self.term.grid().anchor_revision() {
                 self.invalidate_anchors();
             }
             let point = self.term.grid().cursor.point;
@@ -737,15 +756,32 @@ impl Terminal {
     pub(crate) fn card_metadata(&self) -> serde_json::Value {
         let top = self.viewport_line();
         let oldest = self.term.grid().evicted_lines();
+        // Anchors are lines of the normal screen: the alternate screen shows none of them.
+        let normal = !self.term.mode().contains(TermMode::ALT_SCREEN);
         let blocks: Vec<_> = self.observer.blocks.iter().chain(self.observer.active.iter())
+            .filter(|_| normal)
             .filter(|b| b.prompt_line.is_some_and(|p| p >= oldest)
                 && b.command_line.is_some_and(|c| c >= top && c < top + self.size.0 as u64))
-            .take(64).map(|b| serde_json::json!({
-                "block_id":b.block_id,"command":b.command,"prompt_line":b.prompt_line,
-                "command_line":b.command_line,"end_line":b.end_line,
-                "complete":b.complete,"exit_code":b.exit_code,"duration_ms":b.duration_ms
-            })).collect();
-        serde_json::json!({"viewport_line":top,"blocks":blocks})
+            .take(64).map(|b| Self::card_json(b)).collect();
+        // The block whose command row has scrolled above the viewport while its output still shows
+        // at the top (the window's sticky command line).
+        let sticky = self.observer.blocks.iter().chain(self.observer.active.iter()).rev().filter(|_| normal)
+            .find(|b| b.prompt_line.is_some_and(|p| p >= oldest) && b.command_line.is_some_and(|c| c < top)
+                && (!b.complete || b.end_line.is_some_and(|end| end > top)))
+            .map(Self::card_json);
+        // The shell's prompt as the marks tell it: the window's command input takes keys only at a prompt.
+        let prompt = serde_json::json!({"integrated":self.observer.integrated,"seq":self.observer.prompt_seq,
+            "at_prompt":self.observer.prompt_waiting && self.observer.integrated});
+        serde_json::json!({"viewport_line":top,"blocks":blocks,"sticky":sticky,"prompt":prompt})
+    }
+    fn card_json(b: &Block) -> serde_json::Value {
+        let cwd = b.origin.as_ref().and_then(|(cwd, _)| cwd.clone()).or_else(|| b.reported_cwd.clone());
+        serde_json::json!({
+            "block_id":b.block_id,"command":b.command,"prompt_line":b.prompt_line,
+            "command_line":b.command_line,"end_line":b.end_line,
+            "complete":b.complete,"exit_code":b.exit_code,"duration_ms":b.duration_ms,
+            "started_unix_ms":(b.started_unix_ms > 0).then_some(b.started_unix_ms),"cwd":cwd
+        })
     }
     /// Absolute line at the top of the displayed viewport.
     pub(crate) fn viewport_line(&self) -> u64 {
