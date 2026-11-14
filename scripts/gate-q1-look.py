@@ -561,7 +561,7 @@ def blocks_story(win, p):
     band = (int(x0 + 20 * cw), int(row_top(p, 3)) + 2, W, int(row_top(p, 4)) - 1)
     text = ocr_text(im, band, 4, 7).replace(' ', '')
     require('exit3' in text, f'B3 the failed block reads "exit 3" (read {text!r})')
-    stamps = {time.strftime('%H:%M', time.gmtime(start + d)) for d in (0, 5)}
+    stamps = {time.strftime('%H:%M', time.gmtime(start + d)) for d in (0, 5, 10, 15, 20)}
 
     def meta_ok(meta):
         dur = [float(v) for v in re.findall(r'(\d+\.\d) ?s\b', meta)]
