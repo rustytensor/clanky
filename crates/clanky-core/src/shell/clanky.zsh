@@ -1,7 +1,8 @@
 # Clanky's prompt marks for zsh: OSC 133 A, B around the prompt, C before a command runs,
 # D;status after it, and OSC 7 folder reports. In editor mode the prompt is the marks only.
 if [[ -z ${__clanky_loaded-} ]]; then
-typeset -g __clanky_loaded=1 __clanky_ps1= __clanky_user_ps1= __clanky_user_rps1=
+typeset -g __clanky_loaded=1 __clanky_ps1= __clanky_user_ps1= __clanky_user_rps1= __clanky_user_sp=0
+[[ -o prompt_sp ]] && __clanky_user_sp=1
 __clanky_osc7() {
     emulate -L zsh
     setopt extendedglob
@@ -21,9 +22,12 @@ __clanky_prompt() {
     if [[ -e $CLANKY_SHELL_DIR/mode-$CLANKY_TAB ]]; then
         __clanky_ps1=$'%{\e]133;A\a\e]133;B\a%}'
         RPS1=
+        # zsh prints PROMPT_SP's mark before precmd, so before D: it would end every block's output.
+        unsetopt prompt_sp
     else
         __clanky_ps1=$'%{\e]133;A\a%}'"$__clanky_user_ps1"$'%{\e]133;B\a%}'
         RPS1=$__clanky_user_rps1
+        (( __clanky_user_sp )) && setopt prompt_sp
     fi
     PS1=$__clanky_ps1
     (( ${precmd_functions[(I)__clanky_precmd]} == 1 )) || precmd_functions=(__clanky_precmd ${precmd_functions:#__clanky_precmd})
