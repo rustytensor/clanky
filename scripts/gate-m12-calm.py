@@ -77,7 +77,7 @@ def compare(data, scene_only=False, no_idle=False):
             exact(drag['restored_' + key]['rect'], rect, f'restored pane {key}')
     # Post-AI only took away the right column, which the redesign removed for everyone (Marc's R3).
     pane = data['post_ai']['a']
-    exact(pane['rect'], [236, 38, 1004, 347], 'Post-AI pane')
+    exact(pane['rect'], [244, 46, 996, 340], 'Post-AI pane')  # pane A above [R1]
     exact(pane['cols'], 121, 'Post-AI columns')
     coords = ['128,700', '600,4', '600,37', '235,200', '600,200', '600,385', '1100,200', '600,734', '600,750']
     # tools panel, title bar, its bottom hairline, the tools panel's right hairline, pane A, the split hairline,
