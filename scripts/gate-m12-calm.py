@@ -45,17 +45,20 @@ def compare(data, scene_only=False, no_idle=False):
     # panel), .blk padding 18px left and right, .blocks padding-top 6px, 1 px hairlines between regions; [Q1] the
     # Q1 gate: grid x = 236 + 18, columns floor((W - 236 - 36) / cell), no pane header; [N] notes clanky-ui.md 5.2
     # (worked out from the mockup before Q1): panes padded 6 px top and bottom, split by a 1 px hairline.
-    # Content 1240 - 236 = 1004 wide, 760 - 38 - 26 = 696 tall; split: 696 - 1 = 695 = 347 + 348.
-    # Columns floor((1004 - 36) / 8) = 121; rows floor((347 - 12) / 20) = floor((348 - 12) / 20) = 16.
-    exact(layout['inset'], [236, 38, 1004, 696], 'inset')
-    for key, rect, origin in [('a', [236, 38, 1004, 347], [254, 44]),
-                              ('b', [236, 386, 1004, 348], [254, 392])]:
+    # [R1] Marc's R1 of 2026-11-14 replaces the mockup's sizes: title bar 46, 8 px between the tools panel and the
+    # panes and between two panes, 14 px of padding on every side of a pane (the status line stays 26 [M]).
+    # Content x = 236 + 8 = 244, 1240 - 244 = 996 wide, 760 - 46 - 26 = 688 tall; split: 688 - 8 = 680 = 340 + 340,
+    # pane B from 46 + 340 + 8 = 394. Grid origin = rect + 14. Columns floor((996 - 28) / 8) = 121;
+    # rows floor((340 - 28) / 20) = 15.
+    exact(layout['inset'], [244, 46, 996, 688], 'inset')
+    for key, rect, origin in [('a', [244, 46, 996, 340], [258, 60]),
+                              ('b', [244, 394, 996, 340], [258, 408])]:
         pane = layout[key]
         exact(pane['rect'], rect, f'pane {key}')
         exact(pane['origin'], origin, f'grid {key} origin')
-        exact([pane['cols'], pane['rows']], [121, 16], f'grid {key} size')
+        exact([pane['cols'], pane['rows']], [121, 15], f'grid {key} size')
         if not scene_only:
-            exact(layout['pty_' + key], [16, 121], f'PTY {key} size')
+            exact(layout['pty_' + key], [15, 121], f'PTY {key} size')
     # Tools panel hidden: the content is the full width; floor((1240 - 36) / 8) = 150 columns [Q1 L1].
     hidden = data['hidden']
     exact(hidden['inset'], [0, 38, 1240, 696], 'hidden inset')
