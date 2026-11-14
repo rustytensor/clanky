@@ -40,37 +40,55 @@ def pixels(actual, expected, name):
 
 def compare(data, scene_only=False, no_idle=False):
     layout = data['layout']
-    exact(layout['inset'], [256, 8, 976, 744], 'inset')
-    for key, rect, origin in [('a', [268, 76, 672, 326], [280, 126]),
-                              ('b', [268, 414, 672, 326], [280, 464])]:
+    # Quiet layout (brief 2026-11-13-clanky-redesign, mockup Marc approved, Y1 of round 2), 1240 x 760, 8 x 20
+    # cells. [M] mockup CSS: .win rows 38px 1fr 26px (title bar, status line), .body columns 236px 1fr (tools
+    # panel), .blk padding 18px left and right, .blocks padding-top 6px, 1 px hairlines between regions; [Q1] the
+    # Q1 gate: grid x = 236 + 18, columns floor((W - 236 - 36) / cell), no pane header; [N] notes clanky-ui.md 5.2
+    # (worked out from the mockup before Q1): panes padded 6 px top and bottom, split by a 1 px hairline.
+    # Content 1240 - 236 = 1004 wide, 760 - 38 - 26 = 696 tall; split: 696 - 1 = 695 = 347 + 348.
+    # Columns floor((1004 - 36) / 8) = 121; rows floor((347 - 12) / 20) = floor((348 - 12) / 20) = 16.
+    exact(layout['inset'], [236, 38, 1004, 696], 'inset')
+    for key, rect, origin in [('a', [236, 38, 1004, 347], [254, 44]),
+                              ('b', [236, 386, 1004, 348], [254, 392])]:
         pane = layout[key]
         exact(pane['rect'], rect, f'pane {key}')
         exact(pane['origin'], origin, f'grid {key} origin')
-        exact([pane['cols'], pane['rows']], [81, 13], f'grid {key} size')
+        exact([pane['cols'], pane['rows']], [121, 16], f'grid {key} size')
         if not scene_only:
-            exact(layout['pty_' + key], [13, 81], f'PTY {key} size')
+            exact(layout['pty_' + key], [16, 121], f'PTY {key} size')
+    # Tools panel hidden: the content is the full width; floor((1240 - 36) / 8) = 150 columns [Q1 L1].
     hidden = data['hidden']
-    exact(hidden['inset'], [8, 8, 1224, 744], 'hidden inset')
-    exact(hidden['a']['rect'], [20, 76, 1200, 326], 'hidden pane')
-    exact([hidden['a']['cols'], hidden['a']['rows']], [147, 13], 'hidden grid size')
+    exact(hidden['inset'], [0, 38, 1240, 696], 'hidden inset')
+    exact(hidden['a']['rect'], [0, 38, 1240, 347], 'hidden pane')
+    exact([hidden['a']['cols'], hidden['a']['rows']], [150, 16], 'hidden grid size')
+    # Divider dragged to y 300: the 1 px gap centred on the pointer, as the M12 design centred its 12 px gap;
+    # pane A 300 - 0.5 - 38 = 261.5 -> 261 (the first pane takes the floor, as in the even split), B the rest
+    # 695 - 261 = 434 from y 300. Rows floor((261 - 12) / 20) = 12 and floor((434 - 12) / 20) = 21.
     drag = data['drag']
-    for key, rect, rows in [('a', [268, 76, 672, 218], 7),
-                            ('b', [268, 306, 672, 434], 18)]:
+    for key, rect, rows in [('a', [236, 38, 1004, 261], 12),
+                            ('b', [236, 300, 1004, 434], 21)]:
         exact(drag[key]['rect'], rect, f'drag pane {key}')
         exact(drag[key]['rows'], rows, f'drag rows {key}')
         if not scene_only:
             exact(drag['restored_' + key]['rect'], rect, f'restored pane {key}')
+    # Post-AI only took away the right column, which the redesign removed for everyone (Marc's R3).
     pane = data['post_ai']['a']
-    exact(pane['rect'], [268, 76, 952, 326], 'Post-AI pane')
-    exact(pane['cols'], 116, 'Post-AI columns')
-    coords = ['128,700', '257,9', '264,16', '600,63', '939,250', '939,600', '930,390', '968,200']
-    # Darker Stone, approved 2026-11-12; border = #fff0e1 at 20/255 over #141210.
-    dark = [[15,13,11,255], [15,13,11,255], [20,18,16,255], [38,35,32,255],
-            [38,35,32,255], [138,129,120,255], [20,18,16,255], [25,23,20,255]]
-    light = [[243,240,235,255], [243,240,235,255], [251,250,248,255], [231,225,217,255],
-             [231,225,217,255], [163,154,143,255], [251,250,248,255], [255,255,255,255]]
+    exact(pane['rect'], [236, 38, 1004, 347], 'Post-AI pane')
+    exact(pane['cols'], 121, 'Post-AI columns')
+    coords = ['128,700', '600,4', '600,37', '235,200', '600,200', '600,385', '1100,200', '600,734', '600,750']
+    # tools panel, title bar, its bottom hairline, the tools panel's right hairline, pane A, the split hairline,
+    # where the right column was (now pane), the status line's top hairline, the status line [M].
+    # Stone dark [T]: sidebar #0f0d0b, background #141210, border #fff0e1 at 20/255:
+    # over the sidebar (34,31,28), over the background (38,35,32).
+    side, bg, side_line, bg_line = [15,13,11,255], [20,18,16,255], [34,31,28,255], [38,35,32,255]
+    dark = [side, side, side_line, side_line, bg, bg_line, bg, side_line, side]
+    # Stone light [T]: sidebar #f3f0eb, background #fbfaf8, border #e7e1d9 (opaque).
+    side, bg, line = [243,240,235,255], [251,250,248,255], [231,225,217,255]
+    light = [side, side, line, line, bg, line, bg, line, side]
     pixels(data['pixels']['dark'], dict(zip(coords, dark)), 'Stone dark')
     pixels(data['pixels']['light'], dict(zip(coords, light)), 'Stone light')
+    # The window gradient shows behind the title bar (y 20) and the status line (y 740), as it showed behind the
+    # old sidebar.
     pixels(data['pixels']['bedazzled'], {'128,20':[75,30,149,255], '128,740':[31,57,138,255]}, 'AI Bedazzled')  # stops #4c1d95 -> #1e3a8a at t=0.023 / 0.977
     sizes = data['ui_text_px']
     if not isinstance(sizes, list) or not sizes or not all(type(x) in (int, float) and math.isfinite(x) and x >= 12 for x in sizes):
