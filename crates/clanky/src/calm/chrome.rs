@@ -289,7 +289,9 @@ pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,da
         let mut meta=Vec::new();
         let mut running_s=None;
         if let Some((cwd,time,running))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
-            if !cwd.is_empty(){meta.push((cwd.clone(),faint,true));}
+            // The folder stands in for the shell's prompt (the command input hides PS1): it takes the
+            // chips' dim colour, so it reads as the input's folder chip does; time and duration stay faint.
+            if !cwd.is_empty(){meta.push((cwd.clone(),c.muted_foreground,true));}
             if !time.is_empty(){meta.push((time.clone(),faint,false));}
             running_s=*running;
         }
