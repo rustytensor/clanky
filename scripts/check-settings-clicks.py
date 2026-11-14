@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Remaining check-8 controls through real X11 input, config files and pixels.
 All expected points/colours are fixed in docs/m12-click-checks.md before the run.
+
+Quiet layout (brief 2026-11-13-clanky-redesign, Marc's Y1 of 2026-11-14): Settings opens from the title bar's
+gear (1217,19) [mockup .titlebar: padding 10, .ico 26; Q1 gate T3]; its frame, nav and pages keep their places
+[Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3]: with
+Follow the system off, one list (dark themes first: Graphite, Ink, Stone, ...); a click on a row saves it. The
+Stone row is found by its word (scrolling the page when needed), as the Q1 gate does; "Follow the system" On
+writes theme "system", Off writes "dark" or "light" (the system's mode). The Terminal page's Side columns row is
+now the Tools panel row at the same place: it writes tools_panel "off"/"on" and no "rails" [Q1]. The sidebar
+toggle is the title bar's tools toggle (23,19) [mockup .ico at x 10..36; Q1 T3].
 """
 import json
 import os
@@ -29,6 +38,31 @@ def until(fn, label, seconds=10):
             return result
         time.sleep(.01)
     raise Failure(label)
+
+
+def ocr_words(im, box, tmp, scale=3, psm=11):
+    """Words in box as (text, x0, y0, x1, y1) in window pixels, lowercased (the Q1 gate's reader)."""
+    from PIL import Image, ImageOps
+    crop = im.crop(box).convert('L')
+    if sum(crop.getdata()) / max(1, crop.width * crop.height) < 128:
+        crop = ImageOps.invert(crop)
+    crop = crop.resize((crop.width * scale, crop.height * scale), Image.LANCZOS)
+    path = Path(tmp) / 'ocr.png'
+    crop.save(path)
+    out = subprocess.run(['tesseract', str(path), '-', '--psm', str(psm), 'tsv'], capture_output=True, text=True,
+                         timeout=60).stdout
+    words = []
+    for line in out.splitlines()[1:]:
+        f = line.split('\t')
+        if len(f) == 12 and f[11].strip():
+            x, y, w, h = (int(v) for v in f[6:10])
+            words.append((f[11].strip().lower(), box[0] + x / scale, box[1] + y / scale,
+                          box[0] + (x + w) / scale, box[1] + (y + h) / scale))
+    return words
+
+
+def centre(w):
+    return int((w[1] + w[3]) / 2), int((w[2] + w[4]) / 2)
 
 
 def stop(process):
@@ -168,22 +202,48 @@ def main(work, bins):
             return image
 
         # Opening/closing is setup: clanky-pkg owns those acceptance checks.
-        click(80, 680)
+        click(1217, 19)  # the title bar's settings gear
         section(1)
         pixel(capture('before-theme'), (997, 600), (1, 2, 3), 'synthetic initial background')
-        if fault != 'click':
-            click(520, 300)  # First card is Stone, as in the approved sheet.
-        image = capture('stone-card')
-        pixel(image, (997, 600), (20, 18, 16), 'theme card applies Stone pixel')
-        setting('theme_dark', 'stone-dark')
-        results.append('theme card pixel')
+        body = (459, 130, 985, 630)  # Settings body text, the Q1 gate's OCR box moved to the 1240 x 760 frame
 
-        click(943, 179)
+        def find(label, test, notches=30):
+            for _ in range(notches):
+                words = ocr_words(capture(label), body, work)
+                hit = test(words)
+                if hit:
+                    return hit, words
+                xdo('mousemove', '--window', wid, 640, 380)
+                xdo('click', '5')
+                settle()
+            raise Failure(f'"{label}" found on the Appearance page')
+
+        stone, _ = find('stone-row', lambda words: min((w for w in words if w[0] == 'stone' and w[2] < 600),
+                                                     key=lambda w: w[2], default=None))
+        if fault != 'click':
+            click(*centre(stone))  # the first Stone row: Stone dark, as the picker lists dark themes first
+        image = capture('stone-row')
+        pixel(image, (997, 600), (20, 18, 16), 'theme row applies Stone pixel')
+        setting('theme_dark', 'stone-dark')
+        results.append('theme row pixel')
+
+        def follow_segment(name):
+            def test(words):
+                follow = min((w for w in words if w[0] == 'follow'), key=lambda w: w[2], default=None)
+                if not follow:
+                    return None
+                return max((w for w in words if w[0] == name and abs(w[2] - follow[2]) < 30), key=lambda w: w[1],
+                           default=None)
+            return find('follow-' + name, test)[0]
+
+        click(*centre(follow_segment('on')))
         setting('theme', 'system')
-        click(880, 179)
-        setting('theme', 'dark')
-        pixel(capture('dark-mode'), (997, 600), (20, 18, 16), 'Dark segment background')
-        results.append('System and Dark segments')
+        click(*centre(follow_segment('off')))
+        mode = until(lambda: saved().get('theme') if saved().get('theme') in ('dark', 'light') else None,
+                     'saved theme dark or light')
+        pixel(capture('follow-off'), (997, 600), (20, 18, 16) if mode == 'dark' else (251, 250, 248),
+              'Follow the system Off background')
+        results.append('Follow the system On and Off')
 
         section(0)
         click(500, 175)
@@ -199,12 +259,14 @@ def main(work, bins):
         setting('font_size', 13)
         results.append('stepper minus 14 to 13')
         click(500, 450)
-        setting('rails', False)
-        pixel(capture('columns-off'), (128, 700), (20, 18, 16), 'Side columns label hides columns')
+        setting('tools_panel', 'off')
+        require('rails' not in saved(), 'Tools panel row removes rails')
+        pixel(capture('columns-off'), (128, 700), (20, 18, 16), 'Tools panel label hides the panel')
         click(500, 450)
-        setting('rails', True)
-        pixel(capture('columns-on'), (128, 700), (15, 13, 11), 'Side columns label restores columns')
-        results.append('Side columns row label')
+        # "on" is the default, which Settings may write by removing the key [Q1].
+        until(lambda: saved().get('tools_panel', 'on') == 'on' and 'rails' not in saved(), 'saved tools_panel on')
+        pixel(capture('columns-on'), (128, 700), (15, 13, 11), 'Tools panel label restores the panel')
+        results.append('Tools panel row label')
 
         image = section(3)
         pixel(image, (980, 250), (49, 45, 41), 'Agents page stop button border')
@@ -212,17 +274,17 @@ def main(work, bins):
         pixel(image, (975, 172), (31, 28, 25), 'Keys page shortcut chip')
         xdo('key', '--window', wid, 'Escape')
         settle()
-        click(288, 36)
-        pixel(capture('sidebar-hidden'), (128, 700), (20, 18, 16), 'sidebar toggle hides columns')
-        click(40, 36)
-        pixel(capture('sidebar-shown'), (128, 700), (15, 13, 11), 'sidebar toggle shows columns')
-        results.append('sidebar toggle')
+        click(23, 19)
+        pixel(capture('sidebar-hidden'), (128, 700), (20, 18, 16), 'tools toggle hides the panel')
+        click(23, 19)
+        pixel(capture('sidebar-shown'), (128, 700), (15, 13, 11), 'tools toggle shows the panel')
+        results.append('tools toggle')
 
         stop(app)
         for entry in call('list_tabs')['tabs']:
             call('close_tab', dict(tab_id=entry['tab_id']))
         (pictures / 'result.json').write_text(json.dumps(dict(passed=results), indent=2) + '\n')
-        print('PASS: remaining real-window Settings clicks (sections, modes, theme pixel, minus, row labels, sidebar)')
+        print('PASS: remaining real-window Settings clicks (sections, Follow the system, theme row pixel, minus, row labels, tools toggle)')
     finally:
         for process in reversed(children):
             stop(process)
