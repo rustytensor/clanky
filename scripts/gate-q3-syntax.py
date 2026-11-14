@@ -2,7 +2,7 @@
 """Q3 gate: tree-sitter syntax colours in editor panes (brief 2026-11-13-clanky-redesign, milestone Q3; approved
 mockup, section 3 "Editor panes").
 
-Usage: gate-q3-syntax.py [--fault table|theme|edit|italic|idle|language]
+Usage: gate-q3-syntax.py [--fault table|theme|edit|italic|idle|language|oldmap]
 A fault changes the run's input on purpose; the gate must then FAIL.
 
 Runs in real Clanky windows on private Xvfb displays (:100 and up, the T2 harness's Window and free_display), at
@@ -17,8 +17,22 @@ Interface fixed by this gate:
   Language by file extension: .rs Rust, .py Python, .ts TypeScript, .tsx TSX, .js JavaScript, .go Go, .c C,
   .sh bash, .json JSON, .toml TOML, .yaml YAML, .md Markdown. Any other extension (.txt) stays plain.
   Token colours, from the brief (theme JSON read straight from assets/themes/, not through Clanky's loader):
-    keyword k = ansi[5]   function f = ansi[4]   type t = ansi[3]   string s = ansi[2]   number n = ansi[1]
-    constant / macro c = ansi[6]   comment m = colors.muted_foreground, italic   plain p = colors.foreground
+    keyword k = ansi[5]   function f = ansi[4]   type t = ansi[3]   string s = ansi[2]
+    constant / macro c = ansi[6]   plain p = colors.foreground
+    comment m = bg + 0.51 (colors.muted_foreground - bg) per channel, bg = colors.background, italic
+    number n = 0.4 ansi[1] + 0.6 ansi[3] per channel
+    (each channel rounded half up). comment and number are Marc's R2 "Mockup look" (2026-11-14, brief section
+    "Round 2", Q5); they replace comment = muted_foreground and number = ansi[1]. The mockup's own editor colours
+    (mockup.html:129, Graphite) are .cm #5c5c5c and .nu #e8a87c; the formulas give these values, worked out by hand
+    from the theme JSON before any build ran:
+      theme           background  muted_foreground  -> comment   ansi[1]   ansi[3]   -> number
+      stone-dark      #141210     #a0978d           -> #5b5650   #e2735f   #dcae5e   -> #de965e
+      stone-light     #fbfaf8     #6b6259           -> #b2aca7   #a34737   #805e25   -> #8e552c
+      graphite-dark   #111111     #a3a3a3           -> #5b5b5b   #f0716a   #e2b64f   -> #e89a5a
+      graphite-light  #ffffff     #525252           -> #a7a7a7   #a34737   #805e25   -> #8e552c
+    (graphite-dark: 17 + .51 (163 - 17) = 91.46 -> #5b, the mockup's #5c to within 1; .4 (240,113,106) +
+    .6 (226,182,79) = (231.6, 154.4, 89.8) -> #e89a5a, the brief's own figure.) An implementation that rounds
+    differently is off by at most 1 per channel, far inside the judging residual of 3.
   Markdown (the brief names the language only; the lead's Q3 plan, notes/clanky-editor.md section 5.5): a heading's
   text is keyword, inline code and fenced code are string, prose is plain.
 
@@ -40,15 +54,21 @@ Judging a token: every pixel of its cells that differs from the pane background 
 fitted to each candidate colour C as bg + a (C - bg), a clamped to 0..1 (glyph edges in Clanky's renderer are exactly
 that blend: on 1.5.0 plain text fits with residual <= 1.1 at the 99th percentile). The token's colour is the
 candidate with the smallest residual (weighted by how far each pixel is from bg); it must be the expected class with
-a weighted residual <= 3. A token with fewer than 3 such pixels is not judged; at least 90% of a file's tokens must
+a weighted residual <= 3. A comment is dimmer than the old comment colour and lies on the same line from bg (and,
+within 2.3-3.4 per channel at full ink, on the line from bg to plain), so a colour fit alone cannot tell a
+full-strength comment from muted or plain ink drawn faint. Each comment line must therefore also reach the comment
+colour: over the line's comment tokens, the largest 99th percentile of a token's pixel a is >= 0.75 (the glyph cores
+of a comment line are drawn at full ink: on 50af538 the "//" of cursor_blink.rs line 2 reaches 0.86 of the old
+comment colour it is drawn in; comment ink drawn at 51% of a colour reaches at most 0.51 of it). Judged per line, not
+per token, because a lone slanted "|" (line 8) may have no pixel fully covered. A token with fewer than 3 such pixels is not judged; at least 90% of a file's tokens must
 be judged. A token with no ink at all reads "not drawn" (for example cut off at the pane edge).
 
 Expected results, fixed before the work:
   C1 stone-dark window with terminal_colors set to Marc's Ptyxis "riley" palette: every judged token of all 12
-     fixtures has its class colour from stone-dark.json (#c98ba6 k, #7ea3c4 f, #dcae5e t, #7fb685 s, #e2735f n,
-     #6fb5a8 c, #a0978d m, #ebe6df p).
+     fixtures has its class colour from stone-dark.json (#c98ba6 k, #7ea3c4 f, #dcae5e t, #7fb685 s, #de965e n,
+     #6fb5a8 c, #5b5650 m, #ebe6df p).
   C2 stone-light window: cursor_blink.rs and tokens.py match stone-light.json (#805c53 k, #526b7d f, #805e25 t,
-     #426b4b s, #a34737 n, #416e63 c, #6b6259 m, #2a2622 p).
+     #426b4b s, #8e552c n, #416e63 c, #b2aca7 m, #2a2622 p).
   C3 italic comments: in cursor_blink.rs, the six lone `|` glyphs of the comment on line 8 lean right relative to
      the three lone plain `|` operators on line 10: (top-half ink centroid x - bottom-half ink centroid x) is larger
      for the comment by at least half of what a 9.4 degree slant gives over the distance between the two half
@@ -85,6 +105,9 @@ Planted faults (each changes only the gate's input; a correct build must FAIL):
   italic    C3's "comment" sample is the plain `l`s of line 10 themselves
   idle      one extra key (Right) at 2.5 s inside I1's quiet window
   language  tokens.py is opened under the name tokens.py.txt but still judged as Python
+  oldmap    C1 expects the old comment colour, muted_foreground itself (the map before R2); a build with the new
+            map draws comments at 51% of it, so the first comment line fails the ink check (on a build with the old
+            map it fails at the first number instead)
 """
 import importlib.util, json, math, os, shutil, subprocess, sys, time
 from pathlib import Path
@@ -107,13 +130,23 @@ SLANT_DEG = 9.4
 PERF_COMMIT = 'a818fac'
 
 
-def theme_colours(name):
-    """Class colours straight from the theme JSON (the brief's map)."""
+def theme_colours(name, old=False):
+    """Class colours straight from the theme JSON (the brief's map, comment and number as of Marc's R2 2026-11-14).
+    old=True gives the map before R2: comment = muted_foreground, number = ansi[1]."""
     d = json.loads((REPO / 'assets/themes' / f'{name}.json').read_text())
     rgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
-    a = d['ansi']
-    return {'k': rgb(a[5]), 'f': rgb(a[4]), 't': rgb(a[3]), 's': rgb(a[2]), 'n': rgb(a[1]), 'c': rgb(a[6]),
-            'm': rgb(d['colors']['muted_foreground']), 'p': rgb(d['colors']['foreground'])}
+    mix = lambda x, y, t: tuple(math.floor(u + t * (v - u) + .5) for u, v in zip(x, y))
+    a, c = d['ansi'], d['colors']
+    pal = {'k': rgb(a[5]), 'f': rgb(a[4]), 't': rgb(a[3]), 's': rgb(a[2]), 'n': mix(rgb(a[1]), rgb(a[3]), .6),
+           'c': rgb(a[6]), 'm': mix(rgb(c['background']), rgb(c['muted_foreground']), .51), 'p': rgb(c['foreground'])}
+    if old:
+        pal['m'], pal['n'] = rgb(c['muted_foreground']), rgb(a[1])
+    return pal
+
+
+# The values worked out by hand in the docstring; the gate stops if the formulas above ever disagree with them.
+HAND = {'stone-dark': ('#5b5650', '#de965e'), 'stone-light': ('#b2aca7', '#8e552c'),
+        'graphite-dark': ('#5b5b5b', '#e89a5a'), 'graphite-light': ('#a7a7a7', '#8e552c')}
 
 
 NAMES = {'k': 'keyword', 'f': 'function', 't': 'type', 's': 'string', 'n': 'number', 'c': 'constant/macro',
@@ -406,8 +439,10 @@ def background(im, geo, nlines):
     return vals[counts.argmax()]
 
 
-def judge(im, geo, bg, line, col0, width, palette):
-    """(class, residual, n) of the ink in the cells, or (None, None, n) when there is too little ink."""
+def judge(im, geo, bg, line, col0, width, palette, depth_of=None):
+    """(class, residual, n) of the ink in the cells, or (None, None, n) when there is too little ink. With depth_of
+    (a colour) it returns (class, residual, n, ink, fit): the 99th percentile of the pixels' a and the weighted
+    residual when the ink is fitted to that colour."""
     x0, y0, cw, ch = geo
     xa, xb = int(round(x0 + col0 * cw)), int(round(x0 + (col0 + width) * cw))
     ya, yb = int(round(y0 + (line - 1) * ch)), int(round(y0 + line * ch))
@@ -416,7 +451,7 @@ def judge(im, geo, bg, line, col0, width, palette):
     dist = np.abs(px - bgf).max(axis=1)
     px, w = px[dist >= 12], dist[dist >= 12]
     if len(px) < 3:
-        return None, None, len(px)
+        return (None, None, len(px)) + ((None, None) if depth_of is not None else ())
     best = None
     for cls, c in palette.items():
         d = np.array(c, float) - bgf
@@ -425,6 +460,11 @@ def judge(im, geo, bg, line, col0, width, palette):
         score = float((res * w).sum() / w.sum())
         if best is None or score < best[1]:
             best = (cls, score)
+    if depth_of is not None:
+        d = np.array(depth_of, float) - bgf
+        a = np.clip(((px - bgf) @ d) / (d @ d), 0, 1)
+        res = np.abs(px - (bgf + a[:, None] * d)).max(axis=1)
+        return best[0], best[1], len(px), float(np.percentile(a, 99)), float((res * w).sum() / w.sum())
     return best[0], best[1], len(px)
 
 
@@ -435,15 +475,27 @@ def hexc(c):
 def check_tokens(im, geo, file_label, text_lines, table, palette, theme):
     bg = background(im, geo, len(text_lines))
     toks = tokens(text_lines, table)
-    judged = 0
+    old = theme_colours(theme, old=True)
+    judged, comment_ink = 0, {}
     for ln, col0, width, text, cls in toks:
-        got, score, n = judge(im, geo, bg, ln, col0, width, palette)
+        got, score, n, ink, _ = judge(im, geo, bg, ln, col0, width, palette, depth_of=palette[cls])
         if got is None:
             require(n > 0 or cls == 'p', f'{file_label}:{ln}:{col0 + 1} "{text}" not drawn (expected {NAMES[cls]})')
             continue
         judged += 1
+        # Diagnosis only, never decides: how well the ink fits the colour the class had before R2.
+        why = ''
+        if cls in 'mn' and old[cls] != palette[cls]:
+            _, _, _, oink, ofit = judge(im, geo, bg, ln, col0, width, palette, depth_of=old[cls])
+            why = f'; the old {NAMES[cls]} colour {hexc(old[cls])} fits with residual {ofit:.1f}, ink {oink:.2f}'
         require(got == cls and score <= 3, f'{file_label}:{ln}:{col0 + 1} "{text}" expected {NAMES[cls]} '
-                f'{hexc(palette[cls])} ({theme}), drawn as {NAMES[got]} {hexc(palette[got])} (residual {score:.1f})')
+                f'{hexc(palette[cls])} ({theme}), drawn as {NAMES[got]} {hexc(palette[got])} (residual {score:.1f}, '
+                f'ink {ink:.2f} of expected){why}')
+        if cls == 'm' and ink > comment_ink.get(ln, (-1,))[0]:
+            comment_ink[ln] = (ink, why)
+    for ln, (ink, why) in comment_ink.items():
+        require(ink >= .75, f'{file_label}:{ln} comment line expected in {hexc(palette["m"])} ({theme}) at full ink, '
+                f'drawn fainter: its ink reaches {ink:.2f} of it (want >= 0.75){why}')
     require(judged >= .9 * len(toks), f'{file_label}: {judged} of {len(toks)} tokens had enough ink to judge')
     return judged
 
@@ -651,7 +703,13 @@ def main():
         require(shutil.which(tool), f'tool {tool} installed')
     shutil.rmtree(ROOT, ignore_errors=True)
     ROOT.mkdir(parents=True, mode=0o700)
+    for name, (m, n) in HAND.items():
+        pal = theme_colours(name)
+        require((hexc(pal['m']), hexc(pal['n'])) == (m, n), f'gate table: {name} comment/number from the formulas '
+                f'{hexc(pal["m"])} {hexc(pal["n"])} equal the hand-worked {m} {n}')
     dark = theme_colours('stone-light' if FAULT == 'theme' else 'stone-dark')
+    if FAULT == 'oldmap':
+        dark['m'] = theme_colours('stone-dark', old=True)['m']
     light = theme_colours('stone-light')
     order = ['cursor_blink.rs', 'tokens.py', 'tokens.ts', 'view.tsx', 'tokens.js', 'tokens.go', 'tokens.c',
              'tokens.sh', 'tokens.json', 'tokens.toml', 'tokens.yaml', 'notes.md']
@@ -659,7 +717,7 @@ def main():
         order = ['tokens.py']
     win = window('dark', theme='dark', theme_dark='stone-dark', terminal_colors=RILEY)
     try:
-        if FAULT in (None, 'table', 'theme', 'italic', 'language'):
+        if FAULT in (None, 'table', 'theme', 'italic', 'language', 'oldmap'):
             fixture_story(win, dark, 'stone-dark', order)
         if FAULT in (None, 'edit', 'idle'):
             edit_story(win, dark)
