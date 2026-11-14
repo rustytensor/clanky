@@ -23,9 +23,11 @@ The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
     row; **Escape** puts the saved theme back (a second Escape closes Settings). A click on a row saves it.
   Scroll to reach every theme, the colours and the Save/Import/Export buttons.
 - **Terminal:** font (bundled or any installed monospace family), size, opacity, the tools panel and
-  animations; then line height, cursor blink (System, On, Off), the terminal's own background, text
-  and cursor colours, **Import Ptyxis palette…** and **Use theme colours**. The page scrolls to the
-  rows below Animations. See [the terminal](terminal.md).
+  animations; then line height, cursor blink (System, On, Off), the terminal's own background, text,
+  cursor and selection colours, and the **Colour scheme** group: a search field, **Import…**,
+  **Follow the window theme** and 40 built-in schemes (Down and Up preview one in the terminal, Enter
+  or a click keeps it, Escape puts the saved colours back). The page scrolls to the rows below
+  Animations. See [colour schemes](terminal.md#colour-schemes).
 - **Agents:** masking status, stop/resume actions and named per-pane access switches.
   Resume permits new agents but does not restore revoked pane permissions.
 - **Keys:** current shortcuts as right-aligned key chips; unavailable screens are omitted.

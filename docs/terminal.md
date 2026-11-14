@@ -22,19 +22,46 @@ Nothing is redrawn once it stops, or with `cursor_blink` `off`.
 
 ## Colours
 
-`terminal_colors` sets the terminal's background, text, cursor and 16 ANSI colours apart from the
-window theme; the title bar, tools panel and status line keep the theme. Unset entries follow the theme, and
-**Use theme colours** in Settings removes them all. Code in editor panes keeps the window theme's
-colours too (see [editor colours](config.md#editor-colours)).
+`terminal_colors` sets the terminal's background, text, cursor, selection and 16 ANSI colours apart
+from the window theme; the title bar, tools panel and status line keep the theme. Unset entries follow
+the theme. Code in editor panes keeps the window theme's colours too (see
+[editor colours](config.md#editor-colours)).
 
-To use a Ptyxis palette, choose **Import Ptyxis palette…** in Settings > Terminal (palettes live in
-`~/.local/share/org.gnome.Ptyxis/palettes/`), or print it as JSON for the config file:
+### Colour schemes
+
+Settings > Terminal > **Colour scheme** lists **Follow the window theme** (the default: no
+`terminal_colors`) and 40 built-in schemes: the default colours of xterm, GNOME Terminal (and
+Ptyxis), Konsole, Windows Terminal (Campbell), macOS Terminal, iTerm2, Alacritty, Kitty, WezTerm and
+Ghostty, then Ayu Mirage, Catppuccin Latte and Mocha, Dracula, Everforest Dark and Light, GitHub Dark
+and Light, Gruvbox Dark and Light, Kanagawa and Kanagawa Dragon, Material, Monokai, Night Owl, Nord,
+Oceanic Next, One Dark and One Light, Rosé Pine, Moon and Dawn, Solarized Dark and Light, Tokyo Night,
+Storm, Moon and Day, Tomorrow Night and Zenburned. Each row shows the name and four dots of the
+scheme's ANSI red, green, blue and yellow (1, 2, 4, 3) on a chip of its background, as the theme
+picker does. Typing in the search field keeps the rows whose name holds the text. **Down** and **Up**
+move a highlight and show it in the terminal behind Settings without saving; **Enter** or a click keeps
+it, writing all 20 of its colours to `terminal_colors`; **Escape** puts the saved colours back. Where
+each scheme's colours come from, with its licence, is in
+[assets/terminal-schemes/SOURCES.md](../assets/terminal-schemes/SOURCES.md).
+
+### Importing another terminal's colours
+
+**Import…** in the same group asks for a file; from a shell:
 
 ```sh
-clanky terminal-colors import ~/.local/share/org.gnome.Ptyxis/palettes/riley.palette
+clanky import-colors ~/Downloads/Nord.itermcolors
+clanky import-colors --config ~/.config/clanky/config.json kitty-theme.conf
 ```
 
-Both use the palette's `[Dark]` section: Background, Foreground, Cursor and Color0–Color15.
+It reads iTerm2 `.itermcolors`, Windows Terminal JSON schemes (a `settings.json` gives its first
+scheme), Alacritty TOML and YAML, Kitty `.conf`, Ghostty theme files, WezTerm TOML, Konsole
+`.colorscheme`, Xresources and Ptyxis `.palette` files (their `[Dark]` section), telling them apart by
+content and extension, and saves the colours in `terminal_colors`; a running window shows them within
+a second. A file without a cursor colour draws the cursor in its foreground; one without a selection
+colour (Konsole, Xresources, Ptyxis) gets the colour a quarter of the way from its background to its
+foreground. A file that is not a colour scheme is refused (exit 1) and the config file is left alone.
+
+`clanky terminal-colors import FILE.palette` still prints a Ptyxis palette's `[Dark]` section as
+`terminal_colors` JSON.
 
 ## Mouse
 
