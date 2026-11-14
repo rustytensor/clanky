@@ -158,18 +158,18 @@ clamping it to the new key's narrower range; 12 points equals 16 logical pixels.
 Colour tokens are the theme's (see [the theme format](theme-format.md)); Settings › Appearance ›
 Window colours names each one after its key:
 
-| Token | In Settings | Token | In Settings |
+| In Settings | Token | In Settings | Token |
 | --- | --- | --- | --- |
-| `sidebar` | Sidebar | `ring` | Ring |
-| `background` | Background | `primary` | Primary |
-| `card` | Card | `primary_foreground` | Primary foreground |
-| `muted` | Muted | `sidebar_accent` | Sidebar accent |
-| `foreground` | Foreground | `ok` | Ok |
-| `muted_foreground` | Muted foreground | `err` | Err |
-| `accent` | Accent | `agent` | Agent |
-| `pressed` | Pressed | `robot_paint` | Robot paint |
-| `border` | Border | `primary_pressed` | Primary pressed |
-| `input` | Input | | |
+| Sidebar | `sidebar` | Ring | `ring` |
+| Background | `background` | Primary | `primary` |
+| Card | `card` | Primary foreground | `primary_foreground` |
+| Muted | `muted` | Sidebar accent | `sidebar_accent` |
+| Foreground | `foreground` | Ok | `ok` |
+| Muted foreground | `muted_foreground` | Err | `err` |
+| Accent | `accent` | Agent | `agent` |
+| Pressed | `pressed` | Robot paint | `robot_paint` |
+| Border | `border` | Primary pressed | `primary_pressed` |
+| Input | `input` | |  |
 
 Values are `#rrggbb` or, with an alpha channel, `#rrggbbaa`; some shipped themes give `border` and `input`
 an alpha (Graphite's `border` is `#ffffff1a`), and Settings shows those values as they are. The older tokens
