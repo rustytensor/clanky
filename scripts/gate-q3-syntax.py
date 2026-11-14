@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q3 gate: tree-sitter syntax colours in editor panes (brief 2026-11-13-clanky-redesign, milestone Q3; approved
+"""Q3 gate: tree-sitter syntax colours in editor panes (design 2026-11-13, milestone Q3; approved
 mockup, section 3 "Editor panes").
 
 Usage: gate-q3-syntax.py [--fault table|theme|edit|italic|idle|language|oldmap]
@@ -16,12 +16,12 @@ Interface fixed by this gate:
   terminal"; the T2 gate, "the rest of the window keeps the theme").
   Language by file extension: .rs Rust, .py Python, .ts TypeScript, .tsx TSX, .js JavaScript, .go Go, .c C,
   .sh bash, .json JSON, .toml TOML, .yaml YAML, .md Markdown. Any other extension (.txt) stays plain.
-  Token colours, from the brief (theme JSON read straight from assets/themes/, not through Clanky's loader):
+  Token colours, from the design (theme JSON read straight from assets/themes/, not through Clanky's loader):
     keyword k = ansi[5]   function f = ansi[4]   type t = ansi[3]   string s = ansi[2]
     constant / macro c = ansi[6]   plain p = colors.foreground
     comment m = bg + 0.51 (colors.muted_foreground - bg) per channel, bg = colors.background, italic
     number n = 0.4 ansi[1] + 0.6 ansi[3] per channel
-    (each channel rounded half up). comment and number are Marc's R2 "Mockup look" (2026-11-14, brief section
+    (each channel rounded half up). comment and number are Marc's R2 "Mockup look" (2026-11-14, design section
     "Round 2", Q5); they replace comment = muted_foreground and number = ansi[1]. The mockup's own editor colours
     (mockup.html:129, Graphite) are .cm #5c5c5c and .nu #e8a87c; the formulas give these values, worked out by hand
     from the theme JSON before any build ran:
@@ -31,9 +31,9 @@ Interface fixed by this gate:
       graphite-dark   #111111     #a3a3a3           -> #5b5b5b   #f0716a   #e2b64f   -> #e89a5a
       graphite-light  #ffffff     #525252           -> #a7a7a7   #a34737   #805e25   -> #8e552c
     (graphite-dark: 17 + .51 (163 - 17) = 91.46 -> #5b, the mockup's #5c to within 1; .4 (240,113,106) +
-    .6 (226,182,79) = (231.6, 154.4, 89.8) -> #e89a5a, the brief's own figure.) An implementation that rounds
+    .6 (226,182,79) = (231.6, 154.4, 89.8) -> #e89a5a, the design's own figure.) An implementation that rounds
     differently is off by at most 1 per channel, far inside the judging residual of 3.
-  Markdown (the brief names the language only; the lead's Q3 plan, notes/clanky-editor.md section 5.5): a heading's
+  Markdown (the design names the language only; the Q3 design notes): a heading's
   text is keyword, inline code and fenced code are string, prose is plain.
 
 Fixtures (tests/syntax/, written for this gate, one per language). Each starts with two marker lines holding
@@ -44,9 +44,9 @@ screenshot (colour-blind: any uniform rectangle) and gets the pane's cell size a
   wins over upstream queries: `self` and `true` are keyword, `#[test]` and `assert!` are macro colour as whole spans,
   integers are number, and calls inside assert!( ) are function.
   Every other expected class (EXPECT below) is what the token is in tree-sitter's own parse of the fixture (the
-  grammar crates the lead chose, parsed 2026-11-13: function_declaration name, call function, type_identifier,
-  primitive_type, string, number literal, comment, keyword token). The brief's map then gives the colour. Where the
-  grammars' upstream highlight queries disagree among themselves or with the brief (JSON/TOML/YAML keys, JSX tags,
+  grammar crates in Cargo.lock, parsed 2026-11-13: function_declaration name, call function, type_identifier,
+  primitive_type, string, number literal, comment, keyword token). The design's map then gives the colour. Where the
+  grammars' upstream highlight queries disagree among themselves or with the design (JSON/TOML/YAML keys, JSX tags,
   bash words and expansions, Python `and`/`is not`, C #define bodies, a TSX component name, markdown link and fence
   markers) the token is "?" and not judged.
 
@@ -89,11 +89,11 @@ Expected results, fixed before the work:
      e. Ctrl+S: the file on disk equals the fixture with exactly those edits (computed here in Python).
      f. with the caret parked at line 1 column 1, the colour of every judged cell equals that of a brand-new
         editor pane opened on the saved file (a fresh full parse is the reference for the incremental one).
-  I1 0 frames (CLANKY_FRAME_TRACE "phases" lines) from 1 s to 4 s after the last key of step d (the brief's
+  I1 0 frames (CLANKY_FRAME_TRACE "phases" lines) from 1 s to 4 s after the last key of step d (the design's
      "0 idle frames"; cursor blink off).
   P1 keystroke cost: 40 keys typed at 150 ms intervals at the end of line 40 of a 72 KB Rust file (studio.rs as of
      commit a818fac) and of the same bytes saved as .txt: the median of the frame trace's key-to-present latency is
-     at most 5 ms higher for .rs (under a third of a 60 Hz frame; the lead's plan measured 0.43 ms re-parse plus
+     at most 5 ms higher for .rs (under a third of a 60 Hz frame; the design notes measured 0.43 ms re-parse plus
      0.42 ms viewport query in a release build). The median, not the 95th percentile: on 1.5.0 with software Vulkan
      both files are plain and their 95th percentiles still differed by 15 ms (68 vs 83 ms), while medians are ~50 ms
      with 1-2 ms spread.
@@ -131,7 +131,7 @@ PERF_COMMIT = 'a818fac'
 
 
 def theme_colours(name, old=False):
-    """Class colours straight from the theme JSON (the brief's map, comment and number as of Marc's R2 2026-11-14).
+    """Class colours straight from the theme JSON (the design's map, comment and number as of Marc's R2 2026-11-14).
     old=True gives the map before R2: comment = muted_foreground, number = ansi[1]."""
     d = json.loads((REPO / 'assets/themes' / f'{name}.json').read_text())
     rgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))

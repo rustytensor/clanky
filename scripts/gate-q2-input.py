@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q2 gate: the command input (brief 2026-11-13-clanky-redesign, milestone Q2 "command input"; mockup Marc approved:
+"""Q2 gate: the command input (design 2026-11-13, milestone Q2 "command input"; mockup Marc approved:
 /srv/devops/build/clanky-redesign/mockup.html, sections 1 and 2, CSS .input .chips .chip .line .ghost .t-* .mode
 .pop; his answer R1 yes: the command input is on by default).
 
@@ -23,14 +23,14 @@ Clanky starts bash and zsh with its own OSC 133 integration (the user's rc file 
 
 Sources: [M] the approved mockup's CSS (explicit px and colours), [T] assets/themes/graphite-dark.json, [P] the T2
 gate's Ptyxis/VTE cell measurement, [B] bash 5.3 / readline / GNU coreutils / git behaviour, [S] tree-sitter-bash
-0.25.1's own parse with its upstream highlights query (tree-sitter-highlight 0.27.2, the lead's reference tool
+0.25.1's own parse with its upstream highlights query (tree-sitter-highlight 0.27.2, a reference run
 /srv/devops/build/clanky-redesign/ts-ref, run 2026-11-13 on the line below; output in TS_CAPS), [X] xterm ctlseqs.
 Graphite [T]: background #111111 (17,17,17), border #ffffff1a over it (41,41,41), foreground #fafafa,
 muted_foreground #a3a3a3, ansi[2] #4ec27a, ansi[4] #5e9cf0, ansi[5] #c586e8, ansi[6] #3fc4c0.
 
 Expected results, fixed before the work:
   A1 editor mode (default config): after the first prompt no screen row holds "USERPS1" (the shell's own PS1 is not
-     shown; brief). Still none after `cd ~/alpha`, `echo $RCMARK`, `ll2`.
+     shown; design). Still none after `cd ~/alpha`, `echo $RCMARK`, `ll2`.
   A2 the input sits at the bottom of the pane [M .input]: a hairline (41,41,41) +-6 across >= 90 % of x 300..1300 at
      a y in 796..816 (status line top hairline 874 [Q1 G2] minus the input's height 1 + 8 + 21 + 7 + line + 10 with a
      line of 16 [M .caret] to 26 px [P] = 63..73, +-3).
@@ -112,7 +112,7 @@ Expected results, fixed before the work:
   M2 Settings > Appearance > Classic in the editor window: config.json command_input "classic" within 3 s, the pane
      gains 2..4 rows within 3 s (same window process), and after "echo backclassic" Enter the last screen row with
      text reads "USERPS1>" within 5 s.
-  I1 0 frames from 1 s to 3.5 s after the last key (the brief's 0-idle-frames rule): at the empty prompt, with ghost
+  I1 0 frames from 1 s to 3.5 s after the last key (the 0-idle-frames rule): at the empty prompt, with ghost
      text shown, and with the completion list open.
   Z1 zsh: /usr/bin/zsh must exist (it is not installed on this machine on 2026-11-13: notes finding 4). With
      SHELL=zsh and ~/.zshrc setting PROMPT='ZUSERPS1> ' and exporting ZRCMARK=sourced-zrc: no "ZUSERPS1" on screen,

@@ -11,7 +11,7 @@ This script uses opening/closing as setup, without repeating those acceptance ch
 
 ## Expectations fixed before the run
 
-Quiet layout (2026-11-14, Marc's Y1 of the redesign brief): Settings opens from the title bar's gear (1217,19);
+Quiet layout (2026-11-14, Marc's Y1 of the redesign): Settings opens from the title bar's gear (1217,19);
 its frame, nav and pages keep their places. The theme cards and mode segments were replaced by the theme picker
 and "Follow the system"; the Side columns row is the Tools panel row; the sidebar toggle is the title bar's tools
 toggle. Places come from the approved quiet mockup's CSS and the Q1 gate; words are found on screen as the Q1

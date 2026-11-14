@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q4 gate: breathing blocks (brief 2026-11-13-clanky-redesign, "Round 2", milestone Q4; mockup Marc approved:
+"""Q4 gate: breathing blocks (design 2026-11-14, milestone Q4; mockup Marc approved:
 /srv/devops/build/clanky-redesign/mockup.html section 1, CSS .blocks .blk .blk.fail .meta .cmd .sticky at lines 71-86,
 markup at lines 215-232 and 311).
 
@@ -29,7 +29,7 @@ and the owner API's rows do not change.
 Sources: [M] the mockup CSS: .blk padding 9px 18px 11px, border-top 1px, .blk:first-child border-top 0,
 .blk.fail border-top-color rgba(236,138,124,.45), .meta margin-bottom 2px, .meta .right margin-left auto (duration
 and exit on the right, exit before the duration: markup line 231), folder (.cwd) then HH:MM on the left;
-.sticky top 0, padding 4px, command bold, "running N s" right. [B] the brief, Round 2: 9 px above the meta row, 11 px
+.sticky top 0, padding 4px, command bold, "running N s" right. [B] the design, round 2: 9 px above the meta row, 11 px
 below the last output row, the hairline in that gap and none above the first block, the meta row its own row above
 the bold command, 12 px meta text (the window's text floor wins over the mockup's 10.5 px), no gaps on the
 alternate screen, in classic command_input or without OSC 133 ("the plain grid exactly as today"), the mouse maps

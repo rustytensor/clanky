@@ -192,7 +192,7 @@ No unsafe replay of a possibly executed run request after a broken connection.
 Up to five workers: core workspace/snapshots/history; API owner transport/client;
 platform server lifecycle/stdio; frontend reattachment; headless gate. Ownership
 boundaries are agreed before launch; lead integrates and reads every changed line.
-All builds/checks use the shared lock, at most -j8 for the lead and own-crate -j2
+All builds/checks use the shared lock, at most -j8 for the main build and own-crate -j2
 for workers. The editor team's checkout is never touched. No new third-party crate
 is planned. Fork edits, if needed, require their notices and FORK.md entries.
 

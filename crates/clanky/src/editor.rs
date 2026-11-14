@@ -12,7 +12,7 @@ const SELECTED: [u8; 3] = [40, 70, 120];
 const OLD: [u8; 3] = [80, 24, 24];
 const NEW: [u8; 3] = [24, 80, 40];
 
-/// Editor token colours from the window theme (the brief's map): keyword ansi 5,
+/// Editor token colours from the window theme (the design's map): keyword ansi 5,
 /// function ansi 4, type ansi 3, string ansi 2, number 40% ansi 1 + 60% ansi 3,
 /// constant/macro ansi 6, comment 51% of the way from the background to the muted
 /// foreground, in italic. Plain text keeps the ink.

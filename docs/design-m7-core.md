@@ -117,7 +117,7 @@ changes completed before save/accept and atomic replacement, not that race.
 ## Delivery
 
 Design is committed first, then implementation proceeds without a review pause.
-Bounded workers may implement disk storage and the gate; the lead owns public
+Bounded workers may implement disk storage and the gate; the maintainer owns public
 API, buffer/review logic, integration and reading all changes. No dependency adds.
 Each cargo invocation uses the shared lock; build at most eight jobs. Only this
 milestone gate runs: existing terminal crates are not changed or retested.

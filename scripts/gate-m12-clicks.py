@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """First M12 click check: private real window, actual pointer, server workspace.
 
-Quiet layout (brief 2026-11-13-clanky-redesign, Marc's Y1 of 2026-11-14). Window 1240 x 760, scale 1. Where
+Quiet layout (design 2026-11-13, Marc's Y1 of 2026-11-14). Window 1240 x 760, scale 1. Where
 a control's place depends on text width it is found on screen, as the Q1 gate does; everything else is fixed
 from the mockup CSS [M] and the Q1 gate [Q1]:
   title bar 38 px [M .win]; tools toggle at x 10..36 [M .titlebar padding 10, .ico 26]; the first tab's pill

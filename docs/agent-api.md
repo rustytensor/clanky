@@ -29,7 +29,7 @@ arguments omitted. Agent-facing transport error messages are sanitized too.
 The person's block views, selection/copy, task payloads, screen/history and
 scrollback search keep the strict masking policy. Search matches masked text,
 never raw cells. The authenticated owner's live display is different (approved
-by the lead): unconfirmed prefixes are shown as typed. Complete built-in headers
+by the maintainer): unconfirmed prefixes are shown as typed. Complete built-in headers
 start masking immediately, even below the agent recognizer's minimum body length;
 complete known literals stay masked. This display-only exception never reaches
 agent screen reads, output, event replay, copy, or search. OSC 52 writes and replies mask decoded text before
