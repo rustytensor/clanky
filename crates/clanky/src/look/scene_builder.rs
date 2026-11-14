@@ -95,12 +95,14 @@ pub struct PaneState {
     pub cursor: Option<CursorMotion>,
     pub scroll_px: f32,
     pub sticky: Option<StickyLine>,
+    /// Space between quiet blocks (Q4): the pixel top of every row, or None for the plain grid.
+    pub breath: Option<crate::calm::breath::Breath>,
 }
 impl PaneState {
     pub fn new(id: impl Into<String>, snapshot: TerminalSnapshot) -> Self {
         Self { id: id.into(), title: String::new(), driver: String::new(),
             allow_agent: false, agent_running: false, snapshot, underlines: vec![],
-            blocks: vec![], cursor: None, scroll_px: 0.0, sticky: None }
+            blocks: vec![], cursor: None, scroll_px: 0.0, sticky: None, breath: None }
     }
 }
 #[derive(Clone, Debug)]

@@ -61,6 +61,10 @@ pub struct Studio {
     running: BTreeMap<String, bool>,
     /// Per pane: the newest block id and its command as the screen shows it.
     shown_commands: BTreeMap<String, (String, String)>,
+    /// Per pane: the rows as last drawn with space between quiet blocks (Q4); the mouse maps through them.
+    pub(super) breaths: BTreeMap<String, clanky::calm::breath::Breath>,
+    /// Per pane: px the wheel took back from the lift that keeps the newest row in view.
+    pub(super) lift: BTreeMap<String, f32>,
 }
 impl Default for Studio {
     fn default() -> Self {
@@ -68,7 +72,7 @@ impl Default for Studio {
             blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
-            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new() }
+            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new(), breaths: BTreeMap::new(), lift: BTreeMap::new() }
     }
 }
 
@@ -304,6 +308,17 @@ impl App {
                 let Some(mut rect)=look::block_card_rect(layout,pane,block,data.snapshot.rows,origin) else{continue;};
                 // Quiet blocks span the pane's width (their action bar sits 14 px from its right edge).
                 if !state.block_cards { rect.x=pane.rect.x; rect.w=pane.rect.w; }
+                // With space between blocks, a block is its meta row, command and output, and the space under it.
+                if let Some(breath)=&data.breath {
+                    let s=layout.scale as f32;let ch=layout.cell_px[1] as f32;let last=block.last_row.min(data.snapshot.rows.saturating_sub(1));
+                    // A block starts at the hairline above it (the first block at the top of its 9 px), where
+                    // the block above ends, so a pointer in the space between two blocks belongs to one of them.
+                    let below=if block.first_row==0{0.0}else{clanky::calm::breath::BELOW*s};
+                    let top=(origin[1]+breath.tops[block.first_row]-clanky::calm::breath::gap_above(block.first_row==0,s)+below).max(pane.grid_clip.y);
+                    let bottom=(origin[1]+breath.tops[last]+ch+clanky::calm::breath::BELOW*s).min(pane.grid_clip.y+pane.grid_clip.h);
+                    if bottom<=top { continue; }
+                    rect.y=top;rect.h=bottom-top;
+                }
                 let key=(data.id.clone(),block.id.clone());
                 self.studio.card_keys.push(key.clone());
                 if !modal && (rect.contains(self.mouse.0,self.mouse.1) || self.studio.card_focus.as_ref()==Some(&key)) {
@@ -538,8 +553,8 @@ impl App {
         self.files.focus_on(TERMINALS.into());
         if let Some(group) = self.groups.get_mut(self.active) { group.focus = id.clone(); }
         self.save_workspace()?; self.reset_ime();
-        let Some((x,y)) = point(pane, self.mouse, layout.cell_px, false) else { return Ok(()); };
-        let (snapshot,y) = if let Some((snapshot,scroll))=self.studio.shown.get(&id) {
+        let Some((x,y)) = self.pane_point(pane, layout.cell_px, false) else { return Ok(()); };
+        let (snapshot,y) = if let Some((snapshot,scroll))=self.studio.shown.get(&id).filter(|_|!self.studio.breaths.contains_key(&id)) {
             (snapshot.clone(),((self.mouse.1-pane.grid_origin[1] as f64+*scroll as f64)/layout.cell_px[1] as f64).floor().max(0.0) as usize)
         } else { (self.engine.snapshot(&id).map_err(|e|e.message)?,y) };
         let hit = window_tools::url_at(&snapshot, y, x);
@@ -612,12 +627,45 @@ impl App {
             self.files.scroll(&id, row, lines.round() as i32, columns.round() as i32)?;
         } else {
             if self.terminal_wheel(delta, layout.cell_px)? { return Ok(()); }
+            if self.breath_wheel(&id, lines.round(), layout.cell_px[1] as f32) { return Ok(()); }
             self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?;
+            // The view moved: the next frame reads a new snapshot, not the cached one.
+            self.terminal_dirty = true;
+            self.frame_clock.invalidate();
         }
         if self.config.animations {
             if let Some(old) = self.studio.snapshots.get(&id) { self.studio.scrolls.insert(id, Scroll { old: old.clone(), start: Instant::now() }); }
         }
         Ok(())
+    }
+
+    /// The grid cell under the pointer in a pane, through the space between quiet blocks.
+    pub(super) fn pane_point(&self, pane: &PaneLayout, cell: [u32;2], clamp: bool) -> Option<(usize,usize)> {
+        let (col, row) = point(pane, self.mouse, cell, clamp)?;
+        let Some(breath) = self.studio.breaths.get(&pane.id) else { return Some((col, row)); };
+        Some((col, breath.row_at((self.mouse.1 - pane.grid_origin[1] as f64) as f32, cell[1] as f32).min(pane.rows - 1)))
+    }
+    /// Input to a pane's shell brings its view back to the newest rows, as VTE does
+    /// (scroll-on-keystroke): out of the scrollback and out of any wheel lift.
+    pub(super) fn follow_input(&mut self, id: &str) {
+        self.studio.lift.remove(id);
+        let back = self.studio.snapshots.get(id).map_or(0, |s| s.display_offset);
+        if back > 0 && self.engine.scroll(id, -(back.min(i32::MAX as usize) as i32)).is_ok() {
+            self.terminal_dirty = true;
+            self.frame_clock.invalidate();
+        }
+    }
+    /// The wheel over rows lifted to keep the newest one in view: at the top of the scrollback,
+    /// up takes the lift back to show the rows above; down gives it back before the view scrolls.
+    fn breath_wheel(&mut self, id: &str, lines: f32, ch: f32) -> bool {
+        let Some(shift) = self.studio.breaths.get(id).map(|b| b.shift) else { return false; };
+        let at_top = self.studio.snapshots.get(id).is_some_and(|s| s.display_offset >= s.history);
+        let lift = self.studio.lift.get(id).copied().unwrap_or(0.0);
+        let next = if lines < 0.0 && at_top && lift < shift { (lift - lines * ch).min(shift) }
+            else if lines > 0.0 && lift > 0.0 { (lift - lines * ch).max(0.0) } else { return false; };
+        self.studio.lift.insert(id.to_owned(), next);
+        self.frame_clock.invalidate();
+        true
     }
 
     pub(super) fn draw_studio(&mut self) -> Result<(), String> {
@@ -836,7 +884,7 @@ impl App {
                 } else { self.studio.cursors.remove(&pane.id); }
             } else { self.studio.cursors.remove(&pane.id); }
             if !self.panels.open && !self.files.modal() && self.compose.active_target().is_none() && self.search.active_target().is_none() {
-                if let Some((col,row)) = point(pane,self.mouse,layout.cell_px,false) {
+                if let Some((col,row)) = self.pane_point(pane,layout.cell_px,false) {
                     if let Some(hit) = window_tools::url_at(&snapshot,row,col) { view.underlines.push(Underline { row:hit.row,start_col:hit.start_col,end_col:hit.end_col.min(pane.cols),color:rgb(state.theme.link) }); }
                 }
             }
@@ -871,6 +919,33 @@ impl App {
                         view.sticky = Some(look::StickyLine { command: command.trim().to_owned(), running_s, duration_ms: sticky["duration_ms"].as_u64() });
                     }
                 }
+            }
+            // Space between quiet blocks (Q4): the command input on, quiet blocks, the normal screen.
+            if self.has_input(&pane.id) && !state.block_cards {
+                let lift = self.studio.lift.get(&pane.id).copied().unwrap_or(0.0);
+                view.breath = clanky::calm::breath::breathe(&view.blocks, &snapshot, layout.cell_px[1] as f32, layout.scale as f32, pane.grid_clip.h, lift);
+            }
+            match &view.breath {
+                Some(breath) => {
+                    let ch = layout.cell_px[1] as f32;
+                    if let Some(lift) = self.studio.lift.get_mut(&pane.id) { *lift = lift.min(breath.shift); }
+                    // A block whose command row the lift moved out of view keeps its command in the sticky line.
+                    if view.sticky.is_none() {
+                        if let Some(card) = view.blocks.iter().find(|c| breath.tops[c.first_row] < 0.0 && breath.tops[c.last_row.min(snapshot.rows - 1)] + ch > ch) {
+                            let running_s = state.block_meta.get(&(pane.id.clone(), card.id.clone())).and_then(|m| m.2).filter(|_| card.running);
+                            view.sticky = Some(look::StickyLine { command: card.command.trim().to_owned(), running_s, duration_ms: card.duration_ms });
+                        }
+                    }
+                    if state.focused.as_deref() == Some(pane.id.as_str()) {
+                        if let Some((row,col)) = snapshot.cursor.filter(|(r,c)| *r<pane.rows && *c<pane.cols) {
+                            ime = Some([pane.grid_origin[0]+col as f32*layout.cell_px[0] as f32, pane.grid_origin[1]+breath.tops[row]]);
+                        }
+                    }
+                    self.studio.breaths.insert(pane.id.clone(), breath.clone());
+                    // Rows with space between them jump on the wheel: a stitched scroll has no blocks to space.
+                    self.studio.scrolls.remove(&pane.id);
+                }
+                None => { self.studio.breaths.remove(&pane.id); self.studio.lift.remove(&pane.id); }
             }
             self.studio.snapshots.insert(pane.id.clone(),snapshot.clone());
             if let Some(scroll) = self.studio.scrolls.get(&pane.id) {
@@ -937,6 +1012,8 @@ impl App {
         self.studio.scrolls.retain(|_,s| self.config.animations && s.start.elapsed().as_secs_f32()*1000.0<layout.metrics.scroll_ms);
         self.studio.snapshots.retain(|id,_| layout.pane(id).is_some() || (id=="compose" && self.compose.active_target().is_some()));
         self.studio.shown.retain(|id,_| layout.pane(id).is_some());
+        self.studio.breaths.retain(|id,_| layout.pane(id).is_some());
+        self.studio.lift.retain(|id,_| layout.pane(id).is_some());
         self.studio.cursors.retain(|id,_| layout.pane(id).is_some() || (id == "compose" && self.compose.active_target().is_some()));
         if let Some(card) = self.panels.card(modal_rect(&layout,24),&layout.metrics) { state.panels.push(card); }
         if let Some(card) = self.files.prompt_card(modal_rect(&layout,3),&layout.metrics) { state.panels.push(card); }

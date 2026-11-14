@@ -276,34 +276,77 @@ pub(super) fn status_line(p:&mut Paint,layout:&Layout,state:&LookState){
 }
 
 /// Quiet blocks under the grid: bold the command row and keep the meta text clear of cells.
-pub(super) struct Quiet{id:String,top:f32,hairline:Option<Color>,first_row:usize,meta:Vec<(String,Color,bool)>,meta_x:f32,running:bool}
+/// With `breath` (Q4) the meta text has its own row above the command, in the space between
+/// blocks; without it (classic input) the meta text sits at the right end of the command row.
+pub(super) struct Quiet{id:String,top:f32,hairline:Option<(f32,Color)>,first_row:usize,meta:Vec<(String,Color,bool,f32)>,meta_x:f32,meta_y:f32,meta_h:f32,bar_y:f32,breath:bool,spread:f32,running:bool}
 pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,state:&LookState,term:&TermColors,origin:[f32;2])->Vec<Quiet>{
     let s=p.scale;let c=p.theme.colors.clone();let ch=layout.cell_px[1] as f32;let faint=faint(p);
     let mut out=Vec::new();
     let clip_top=pane.grid_clip.y;let clip_bottom=pane.grid_clip.y+pane.grid_clip.h;
+    let breath=data.breath.as_ref();
     for block in &data.blocks{
         if block.first_row>=data.snapshot.rows{continue;}
-        let top=origin[1]+block.first_row as f32*ch;if top<clip_top-0.5||top>=clip_bottom{continue;}
+        let top=origin[1]+breath.map_or(block.first_row as f32*ch,|b|b.tops[block.first_row]);
+        if breath.is_some(){
+            let last=block.last_row.min(data.snapshot.rows-1);
+            let bottom=origin[1]+breath.map_or(0.0,|b|b.tops[last])+ch;
+            if top>=clip_bottom||bottom<=clip_top{continue;}
+        }else if top<clip_top-0.5||top>=clip_bottom{continue;}
         let failed=!block.running&&block.exit_code.is_some_and(|code|code!=0);
-        let hairline=(block.first_row>0).then(||if failed{blend(term.background,c.err,0.45)}else{over(term.background,c.border)});
-        let mut meta=Vec::new();
+        let color=if failed{blend(term.background,c.err,0.45)}else{over(term.background,c.border)};
+        let hairline=match breath{
+            Some(b)=>b.hairline(block.first_row,ch,s).map(|y|(origin[1]+y,color)).filter(|(y,_)|*y>=clip_top&&*y<clip_bottom),
+            None=>(block.first_row>0).then(||(top.floor(),color)),
+        };
+        let mut left=Vec::new();let mut right=Vec::new();
         let mut running_s=None;
         if let Some((cwd,time,running))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
-            // The folder stands in for the shell's prompt (the command input hides PS1): it takes the
-            // chips' dim colour, so it reads as the input's folder chip does; time and duration stay faint.
-            if !cwd.is_empty(){meta.push((cwd.clone(),c.muted_foreground,true));}
-            if !time.is_empty(){meta.push((time.clone(),faint,false));}
+            // The folder stands in for the shell's prompt (the command input hides PS1). In its own meta
+            // row it is faint like the rest of the row (mockup .meta); next to the command row it keeps
+            // the chips' dim colour.
+            if !cwd.is_empty(){left.push((cwd.clone(),if breath.is_some(){faint}else{c.muted_foreground},true));}
+            if !time.is_empty(){left.push((time.clone(),faint,false));}
             running_s=*running;
         }
-        if let Some(n)=running_s.filter(|_|block.running){meta.push((format!("running {n} s"),c.ok,true));}
-        if failed{meta.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,false));}
-        // Durations keep fixed-width digits (mockup .meta .right, tabular-nums).
-        if let Some(ms)=block.duration_ms.filter(|_|!block.running){meta.push((duration_label(ms),faint,true));}
-        let right=pane.rect.x+pane.rect.w-18.0*s;let mut x=right;
-        for (i,(text,color,mono)) in meta.iter().enumerate().rev(){let weight=if *color==c.err{600}else{400};let w=if *mono{p.mono_width(text,12.0*s,weight)}else{p.width(text,12.0*s,weight)};x-=w;if i>0{x-=10.0*s;}}
-        out.push(Quiet{id:block.id.clone(),top,hairline,first_row:block.first_row,meta,meta_x:x,running:block.running});
+        if let Some(n)=running_s.filter(|_|block.running){right.push((format!("running {n} s"),c.ok,true));}
+        if failed{right.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,false));}
+        // Durations keep fixed-width digits (mockup .meta .right, tabular-nums), faint like the whole meta row.
+        if let Some(ms)=block.duration_ms.filter(|_|!block.running){right.push((duration_label(ms),faint,true));}
+        // In the meta row words keep a gap 2 px wider than the font's, so "2.3 s" never reads as one word.
+        let spread=if breath.is_some(){META_SPREAD}else{0.0};
+        let width=|p:&mut Paint,text:&str,color:Color,mono:bool|meta_width(p,text,12.0*s,if color==c.err{600}else{400},mono,spread);
+        let edge=pane.rect.x+pane.rect.w-18.0*s;
+        let mut meta=Vec::new();
+        let (meta_y,meta_h,bar_y);
+        if let Some(b)=breath{
+            // Mockup .meta: folder then HH:MM from the grid's first column; exit, then duration, at the right edge.
+            meta_y=origin[1]+b.meta_top(block.first_row,s);meta_h=super::breath::META_H*s;bar_y=meta_y+s;
+            let mut x=origin[0];
+            // Whole pixels: small faint text keeps the same glyph shapes wherever its width puts it.
+            for (text,color,mono) in left{let w=width(p,&text,color,mono);meta.push((text,color,mono,x.round()));x+=w+10.0*s;}
+            let mut x=edge;let mut placed=Vec::new();
+            for (text,color,mono) in right.into_iter().rev(){let w=width(p,&text,color,mono);x-=w;placed.push((text,color,mono,x.round()));x-=10.0*s;}
+            meta.extend(placed.into_iter().rev());
+            // Meta text above the pane's top (rows lifted out of view) is not drawn over the title bar.
+            if meta_y<pane.rect.y{meta.clear();}
+        }else{
+            meta_y=top;meta_h=ch;bar_y=top.floor()+6.0*s;
+            let all:Vec<_>=left.into_iter().chain(right).collect();
+            let mut x=edge;let mut placed=Vec::new();
+            for (i,(text,color,mono)) in all.into_iter().enumerate().rev(){let w=width(p,&text,color,mono);x-=w;placed.push((text,color,mono,x));let _=i;x-=10.0*s;}
+            meta.extend(placed.into_iter().rev());
+        }
+        let meta_x=meta.first().map_or(edge,|m|m.3);
+        out.push(Quiet{id:block.id.clone(),top,hairline,first_row:block.first_row,meta,meta_x,meta_y,meta_h,bar_y,breath:breath.is_some(),spread,running:block.running});
     }
     out
+}
+const META_SPREAD:f32=2.0;
+fn meta_width(p:&mut Paint,text:&str,px:f32,weight:u16,mono:bool,spread:f32)->f32{
+    let w=|p:&mut Paint,t:&str|if mono{p.mono_width(t,px,weight)}else{p.width(t,px,weight)};
+    if spread==0.0{return w(p,text);}
+    let space=w(p," ")+spread*p.scale;
+    text.split(' ').map(|word|w(p,word)).sum::<f32>()+space*(text.split(' ').count()-1) as f32
 }
 pub(super) fn quiet_under(q:&Quiet,snapshot:&mut clanky_core::TerminalSnapshot,layout:&Layout,origin:[f32;2]){
     let cw=layout.cell_px[0] as f32;
@@ -311,34 +354,43 @@ pub(super) fn quiet_under(q:&Quiet,snapshot:&mut clanky_core::TerminalSnapshot,l
         for col in 0..snapshot.cols{
             let cell=&mut snapshot.cells[q.first_row*snapshot.cols+col];
             cell.style|=clanky_core::STYLE_BOLD;
-            if !q.meta.is_empty() && origin[0]+(col+1) as f32*cw>q.meta_x-8.0{cell.ch=' ';}
+            if !q.breath && !q.meta.is_empty() && origin[0]+(col+1) as f32*cw>q.meta_x-8.0{cell.ch=' ';}
         }
     }
 }
 pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,state:&LookState){
-    let s=p.scale;let c=p.theme.colors.clone();let ch=layout.cell_px[1] as f32;
-    if let Some(color)=q.hairline{line(p,pane.rect.x,q.top.floor(),pane.rect.w,s,color);}
+    let s=p.scale;let c=p.theme.colors.clone();let _=layout;
+    if let Some((y,color))=q.hairline{line(p,pane.rect.x,y.floor(),pane.rect.w,s,color);}
     let key=(data.id.clone(),q.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0).clamp(0.0,1.0);
-    // The hover bar sits over the meta text (mockup .hoverbar), so the meta fades out under it.
-    if opacity<1.0{
-        let mut x=q.meta_x;
-        for (i,(text,color,mono)) in q.meta.iter().enumerate(){
-            let weight=if *color==c.err{600}else{400};
-            let w=if *mono{p.mono_width(text,12.0*s,weight)}else{p.width(text,12.0*s,weight)};
-            // Sans text sits 1 px lower so its digits line up with the mono folder beside it.
-            p.text(r(x,q.top+if *mono{0.0}else{s},w+0.5,ch),text,12.0*s,alpha(*color,1.0-opacity),weight,*mono);x+=w+if i+1<q.meta.len(){10.0*s}else{0.0};
-        }
-    }
-    let _=q.running;
-    // One floating bar of block actions on hover (mockup .hoverbar: right 14, top 6, radius 7,
-    // a soft drop shadow, the first item filled until another is pointed at).
-    if opacity<=0.0{return;}
     let mut items:Vec<(&str,&str)>=vec![("Copy output","copy"),("Copy command","copy_command"),("Run again","rerun")];
     if !state.post_ai{items.push(("Ask agent","send"));}
     items.push(("⋯","more"));
     let px=12.0*s;let pad=7.0*s;let widths:Vec<f32>=items.iter().map(|(label,_)|spaced_width(p,label,px,400,2.0)+2.0*pad).collect();
     let total=widths.iter().sum::<f32>()+(items.len()-1) as f32*s+6.0*s+2.0*s;
-    let bar=r((pane.rect.x+pane.rect.w-14.0*s-total).round(),(q.top.floor()+6.0*s).round(),total.round(),24.0*s);
+    let bar=r((pane.rect.x+pane.rect.w-14.0*s-total).round(),q.bar_y.round(),total.round(),24.0*s);
+    // The hover bar is an overlay at the top right (mockup .hoverbar): only the meta words under it
+    // fade out; the folder and the time on the left stay.
+    {
+        for (text,color,mono,x) in &q.meta{
+            let weight=if *color==c.err{600}else{400};
+            let covered=*x+meta_width(p,text,12.0*s,weight,*mono,q.spread)>bar.x-4.0*s;
+            let opacity=if covered{opacity}else{0.0};
+            if opacity>=1.0{continue;}
+            // Sans text sits 1 px lower so its digits line up with the mono folder beside it.
+            let y=q.meta_y+if *mono{0.0}else{s};
+            if q.spread==0.0{
+                let w=meta_width(p,text,12.0*s,weight,*mono,0.0);
+                p.text(r(*x,y,w+0.5,q.meta_h),text,12.0*s,alpha(*color,1.0-opacity),weight,*mono);
+            }else{
+                let space=meta_width(p," ",12.0*s,weight,*mono,0.0)+q.spread*s;let mut x=*x;
+                for word in text.split(' '){let w=meta_width(p,word,12.0*s,weight,*mono,0.0);p.text(r(x.round(),y,w+0.5,q.meta_h),word,12.0*s,alpha(*color,1.0-opacity),weight,*mono);x+=w+space;}
+            }
+        }
+    }
+    let _=(q.running,q.top);
+    // One floating bar of block actions on hover (mockup .hoverbar: right 14, top 6, radius 7,
+    // a soft drop shadow, the first item filled until another is pointed at).
+    if opacity<=0.0{return;}
     let bar_fill=blend(c.background,c.foreground,0.04);
     p.out.scene.layers.push(clanky_render::Layer::Shape(clanky_render::Shape{rect:bar.array(),radius:7.0*s,fill:clanky_render::Fill::Solid([0;4]),border:None,
         shadow:Some(clanky_render::Shadow{offset:[0.0,4.0*s],blur:7.0*s,spread:0.0,color:[0,0,0,(102.0*opacity) as u8]})}));

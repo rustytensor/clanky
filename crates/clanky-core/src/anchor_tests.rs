@@ -81,3 +81,14 @@ fn block_output_starts_after_the_command_line() {
     terminal.reset(true);
     assert!(!terminal.screen_text().iter().any(|line| line.contains("resetword")));
 }
+
+#[test]
+fn anchors_survive_the_alternate_screen() {
+    // A block on lines 0-1, then a full-screen program (ESC[?1049h ... ESC[?1049l) that writes over its
+    // own screen: the normal screen comes back unchanged, so the block keeps lines 0, 0 and 1.
+    let mut terminal = Terminal::new(3, 80);
+    terminal.feed("shell", b"\x1b]133;A\x07\x1b]133;B\x07echo ok\x1b]133;C\x07\r\nok\x1b]133;D;0\x07\r\n");
+    terminal.feed("shell", b"\x1b[?1049h\x1b[2J\x1b[Hfull\r\nscreen\r\n\r\n\r\n\x1b[?1049l");
+    let b = &terminal.blocks().0[0];
+    assert_eq!((b.prompt_line, b.command_line, b.end_line), (Some(0), Some(0), Some(1)));
+}
