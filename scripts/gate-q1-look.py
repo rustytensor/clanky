@@ -561,11 +561,17 @@ def blocks_story(win, p):
     band = (int(x0 + 20 * cw), int(row_top(p, 3)) + 2, W, int(row_top(p, 4)) - 1)
     text = ocr_text(im, band, 4, 7).replace(' ', '')
     require('exit3' in text, f'B3 the failed block reads "exit 3" (read {text!r})')
-    meta = ocr_text(im, (int(x0 + 20 * cw), int(row_top(p, 4)) + 2, W, int(row_top(p, 6)) - 1), 4, 11)
     stamps = {time.strftime('%H:%M', time.gmtime(start + d)) for d in (0, 5)}
-    dur = [float(v) for v in re.findall(r'(\d+\.\d) ?s\b', meta)]
-    require('alpha' in meta and any(s in meta for s in stamps) and any(2.0 <= v <= 3.5 for v in dur),
-            f'B4 meta text reads alpha, {"/".join(sorted(stamps))} and 2.0-3.5 s (read {meta!r})')
+
+    def meta_ok(meta):
+        dur = [float(v) for v in re.findall(r'(\d+\.\d) ?s\b', meta)]
+        return 'alpha' in meta and any(s in meta for s in stamps) and any(2.0 <= v <= 3.5 for v in dur)
+    # Faint 10-12 px meta text: tesseract misreads a glyph at one scale and not at another, so the line passes
+    # when any of four readings has every part. The expected parts do not change.
+    box = (int(x0 + 20 * cw), int(row_top(p, 4)) + 2, W, int(row_top(p, 6)) - 1)
+    reads = [ocr_text(im, box, sc, psm) for sc, psm in ((4, 11), (4, 6), (6, 6), (3, 11))]
+    require(any(meta_ok(m) for m in reads),
+            f'B4 meta text reads alpha, {"/".join(sorted(stamps))} and 2.0-3.5 s (read {reads!r})')
     print('ok: I1 B1-B4 quiet blocks')
     hover_story(win, p, red[0] if red else int(row_top(p, 3)), grey[0])
 
@@ -989,7 +995,8 @@ def theme_story():
         done, problems, heads = set(), {}, set()
         for _ in range(30):
             im = win.shot('picker')
-            words = ocr_words(im, (539, 200, 1065, 700), 3, 11)
+            # psm 11 skips a row framed by the chosen-row ring; psm 6 reads it. Use the words of both.
+            words = ocr_words(im, (539, 200, 1065, 700), 3, 11) + ocr_words(im, (539, 200, 1065, 700), 3, 6)
             text = ' '.join(w[0] for w in words)
             heads |= {h for h in ('dark mode', 'light mode') if h in text}
             for w in words:
