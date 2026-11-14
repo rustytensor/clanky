@@ -301,17 +301,17 @@ pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,da
         let mut left=Vec::new();let mut right=Vec::new();
         let mut running_s=None;
         if let Some((cwd,time,running))=state.block_meta.get(&(data.id.clone(),block.id.clone())){
-            // The folder stands in for the shell's prompt (the command input hides PS1): it takes the
-            // chips' dim colour, so it reads as the input's folder chip does; time and duration stay faint.
-            if !cwd.is_empty(){left.push((cwd.clone(),c.muted_foreground,true));}
+            // The folder stands in for the shell's prompt (the command input hides PS1). In its own meta
+            // row it is faint like the rest of the row (mockup .meta); next to the command row it keeps
+            // the chips' dim colour.
+            if !cwd.is_empty(){left.push((cwd.clone(),if breath.is_some(){faint}else{c.muted_foreground},true));}
             if !time.is_empty(){left.push((time.clone(),faint,false));}
             running_s=*running;
         }
         if let Some(n)=running_s.filter(|_|block.running){right.push((format!("running {n} s"),c.ok,true));}
         if failed{right.push((format!("exit {}",block.exit_code.unwrap_or(1)),c.err,false));}
-        // Durations keep fixed-width digits (mockup .meta .right, tabular-nums). In their own meta row
-        // they take the folder's dim colour: a lone faint "s" at 12 px reads as "5s" or "ss".
-        if let Some(ms)=block.duration_ms.filter(|_|!block.running){right.push((duration_label(ms),if breath.is_some(){c.muted_foreground}else{faint},true));}
+        // Durations keep fixed-width digits (mockup .meta .right, tabular-nums), faint like the whole meta row.
+        if let Some(ms)=block.duration_ms.filter(|_|!block.running){right.push((duration_label(ms),faint,true));}
         // In the meta row words keep a gap 2 px wider than the font's, so "2.3 s" never reads as one word.
         let spread=if breath.is_some(){META_SPREAD}else{0.0};
         let width=|p:&mut Paint,text:&str,color:Color,mono:bool|meta_width(p,text,12.0*s,if color==c.err{600}else{400},mono,spread);
@@ -362,10 +362,20 @@ pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLa
     let s=p.scale;let c=p.theme.colors.clone();let _=layout;
     if let Some((y,color))=q.hairline{line(p,pane.rect.x,y.floor(),pane.rect.w,s,color);}
     let key=(data.id.clone(),q.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0).clamp(0.0,1.0);
-    // The hover bar sits over the meta text (mockup .hoverbar), so the meta fades out under it.
-    if opacity<1.0{
+    let mut items:Vec<(&str,&str)>=vec![("Copy output","copy"),("Copy command","copy_command"),("Run again","rerun")];
+    if !state.post_ai{items.push(("Ask agent","send"));}
+    items.push(("⋯","more"));
+    let px=12.0*s;let pad=7.0*s;let widths:Vec<f32>=items.iter().map(|(label,_)|spaced_width(p,label,px,400,2.0)+2.0*pad).collect();
+    let total=widths.iter().sum::<f32>()+(items.len()-1) as f32*s+6.0*s+2.0*s;
+    let bar=r((pane.rect.x+pane.rect.w-14.0*s-total).round(),q.bar_y.round(),total.round(),24.0*s);
+    // The hover bar is an overlay at the top right (mockup .hoverbar): only the meta words under it
+    // fade out; the folder and the time on the left stay.
+    {
         for (text,color,mono,x) in &q.meta{
             let weight=if *color==c.err{600}else{400};
+            let covered=*x+meta_width(p,text,12.0*s,weight,*mono,q.spread)>bar.x-4.0*s;
+            let opacity=if covered{opacity}else{0.0};
+            if opacity>=1.0{continue;}
             // Sans text sits 1 px lower so its digits line up with the mono folder beside it.
             let y=q.meta_y+if *mono{0.0}else{s};
             if q.spread==0.0{
@@ -381,12 +391,6 @@ pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLa
     // One floating bar of block actions on hover (mockup .hoverbar: right 14, top 6, radius 7,
     // a soft drop shadow, the first item filled until another is pointed at).
     if opacity<=0.0{return;}
-    let mut items:Vec<(&str,&str)>=vec![("Copy output","copy"),("Copy command","copy_command"),("Run again","rerun")];
-    if !state.post_ai{items.push(("Ask agent","send"));}
-    items.push(("⋯","more"));
-    let px=12.0*s;let pad=7.0*s;let widths:Vec<f32>=items.iter().map(|(label,_)|spaced_width(p,label,px,400,2.0)+2.0*pad).collect();
-    let total=widths.iter().sum::<f32>()+(items.len()-1) as f32*s+6.0*s+2.0*s;
-    let bar=r((pane.rect.x+pane.rect.w-14.0*s-total).round(),q.bar_y.round(),total.round(),24.0*s);
     let bar_fill=blend(c.background,c.foreground,0.04);
     p.out.scene.layers.push(clanky_render::Layer::Shape(clanky_render::Shape{rect:bar.array(),radius:7.0*s,fill:clanky_render::Fill::Solid([0;4]),border:None,
         shadow:Some(clanky_render::Shadow{offset:[0.0,4.0*s],blur:7.0*s,spread:0.0,color:[0,0,0,(102.0*opacity) as u8]})}));
