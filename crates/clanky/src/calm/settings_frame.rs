@@ -12,12 +12,14 @@ impl Section {
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool),Mode(&'static str),Theme(String),Color(&'static str),ResetColor(&'static str),SaveTheme,ImportTheme,ExportTheme,Field(usize),Confirm,Cancel,PickColor(String),Access(String),StopAgents,ResumeAgents,
-    /// Terminal page: line height step, cursor blink mode, one terminal colour, back to theme colours, Ptyxis import.
-    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),ThemeTerminalColors,ImportPalette,
+    /// Terminal page: line height step, cursor blink mode, one terminal colour.
+    CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),
     /// Appearance › Layout: one segment (config key, value), a tool chip; Theme: Follow the system, a picker row.
     Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize),
     /// A text field edited in place (its config key); an ANSI colour swatch; the agent list.
-    Edit(&'static str),AnsiColor(usize),AddAgent,RemoveAgent(usize) }
+    Edit(&'static str),AnsiColor(usize),AddAgent,RemoveAgent(usize),
+    /// Terminal › Colour scheme: the search field, one shown row, the Import button.
+    SchemeSearch,SchemeRow(usize),SchemeImport }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry,pub max_scroll:f32}

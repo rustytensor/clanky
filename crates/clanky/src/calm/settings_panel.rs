@@ -7,6 +7,7 @@ use winit::keyboard::{Key,NamedKey};
 use super::settings_appearance::{self,Editor,EditKind};
 use crate::theme_store::ThemeStore;
 use super::settings_access;
+use super::settings_schemes::{self,Picker,Row};
 use super::settings_layout::{PickItem,PickKind};
 pub use super::settings_access::PaneAccess;
 use std::path::PathBuf;
@@ -24,19 +25,13 @@ pub struct SettingsPanel {
     picks:Vec<PickItem>,highlight:Option<usize>,preview:(Option<Theme>,Option<crate::config::TerminalColors>),palettes:Option<Vec<(String,serde_json::Value)>>,
     /// The page's visible band (top and bottom, panel px) as last drawn: below the problem banner, above the footer.
     view:(f32,f32),
+    /// Terminal › Colour scheme: its search text, focus, highlight and the rows last drawn.
+    schemes:Picker,
 }
 /// Layout keys and the value Clanky leaves out of the file (the default).
 const LAYOUT_DEFAULTS:[(&str,&str);5]=[("tab_style","horizontal"),("tools_panel","on"),("command_input","editor"),("block_style","quiet"),("status_line","show")];
 /// Font menu rows shown at once; the wheel scrolls the rest.
 const MENU_ROWS:usize=10;
-/// terminal_colors as the settings file stores it (only the colours that are set).
-fn terminal_colors_json(t:&crate::config::TerminalColors)->serde_json::Value{
-    let hex=|c:crate::themes::Color|settings_appearance::hex([c[0],c[1],c[2],255]);
-    let mut value=json!({});
-    for(key,color)in[("background",t.background),("foreground",t.foreground),("cursor",t.cursor)]{if let Some(color)=color{value[key]=json!(hex(color));}}
-    if let Some(ansi)=t.ansi{value["ansi"]=json!(ansi.iter().map(|c|hex(*c)).collect::<Vec<_>>());}
-    value
-}
 impl SettingsPanel{
     /// The bundled terminal fonts first, then installed monospace families.
     fn fonts(&self)->Vec<String>{
@@ -44,10 +39,10 @@ impl SettingsPanel{
         for name in &self.mono_fonts{if !out.iter().any(|f|f.eq_ignore_ascii_case(name)){out.push(name.clone());}}
         out
     }
-    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None,view:(57.0,543.0)}}
+    pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None,view:(57.0,543.0),schemes:Picker::default()}}
     /// Settings opens on General, at the top.
-    pub fn toggle(&mut self){self.open=!self.open;if self.open{self.section=Section::General;self.scroll=0.0;}self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;}
-    fn end_preview(&mut self){self.highlight=None;self.preview=(None,None);}
+    pub fn toggle(&mut self){self.open=!self.open;if self.open{self.section=Section::General;self.scroll=0.0;}self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;self.schemes=Picker::default();}
+    fn end_preview(&mut self){self.highlight=None;self.schemes.highlight=None;self.preview=(None,None);}
     /// The theme or terminal colours shown behind Settings while a picker row is highlighted.
     pub fn preview_theme(&self)->Option<&Theme>{self.preview.0.as_ref()}
     pub fn preview_terminal(&self)->Option<&crate::config::TerminalColors>{self.preview.1.as_ref()}
@@ -95,12 +90,38 @@ impl SettingsPanel{
         self.scroll=self.scroll.max(0.0).min(self.max_scroll.max(y+38.0-bottom));
         Effect::Preview
     }
+    /// Keep a Colour scheme row: Follow removes terminal_colors, a scheme writes all 20 of its colours.
+    fn keep_scheme(&mut self,index:usize)->Effect{
+        self.end_preview();
+        let Some((row,_))=self.schemes.rows.get(index).copied() else{return Effect::None;};
+        let result=match row{Row::Follow=>self.store.reset("terminal_colors").map(|_|()),
+            _=>{let colors=self.schemes.colors(row);self.store.set("terminal_colors",crate::terminal_schemes::to_value(&colors)).map(|_|())}};
+        self.schemes.added=None;
+        match result{Ok(())=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+    }
+    /// Move the Colour scheme highlight one row (the first move starts from the saved row) and preview it.
+    fn step_scheme(&mut self,down:bool)->Effect{
+        if self.schemes.rows.is_empty(){return Effect::None;}
+        let last=self.schemes.rows.len()-1;
+        let start=self.schemes.highlight.or_else(||self.schemes.saved(&self.effective));
+        let next=match (start,down){(Some(i),true)=>(i+1).min(last),(Some(i),false)=>i.saturating_sub(1),(None,true)=>0,(None,false)=>last};
+        self.schemes.highlight=Some(next);
+        let (row,y)=self.schemes.rows[next];
+        self.preview=(None,Some(self.schemes.colors(row)));
+        // Keep the highlighted row inside the page body.
+        let (top,bottom)=(self.view.0+8.0,self.view.1-8.0);
+        if y-self.scroll<top{self.scroll=y-top;}else if y+38.0-self.scroll>bottom{self.scroll=y+38.0-bottom;}
+        self.scroll=self.scroll.clamp(0.0,self.max_scroll.max(0.0));
+        Effect::Preview
+    }
+    /// A change of the search text: the highlight and its preview end.
+    fn search_changed(&mut self)->Effect{self.end_preview();Effect::Preview}
     pub fn theme_complete(&mut self){self.editor=None;self.error=None;}
     fn save(&mut self,key:&str,value:serde_json::Value)->Effect{
         match self.store.set(key,value){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
     }
     fn activate(&mut self,action:Action,x:f64)->Effect{match action{
-        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;self.end_preview();self.palettes=None;Effect::None},
+        Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;self.end_preview();self.palettes=None;self.schemes=Picker::default();Effect::Preview},
         Action::Choice(key,value)=>self.save_layout(key,json!(value)),
         Action::ToolChip(tool)=>{
             let mut tools=self.effective.tools.clone();
@@ -116,11 +137,14 @@ impl SettingsPanel{
         Action::CellHeight(delta)=>self.save("cell_height_scale",json!((((self.effective.cell_height_scale+delta)*20.0).round()/20.0).clamp(1.0,2.0))),
         Action::Blink(mode)=>self.save("cursor_blink",json!(mode)),
         Action::TerminalColor(key)=>{let t=&self.effective.terminal_colors;let c=self.active_theme.as_ref().map(|t|t.colors.clone());
-            let color=match key{"background"=>t.background.or(c.as_ref().map(|c|c.background)),"foreground"=>t.foreground.or(c.as_ref().map(|c|c.foreground)),_=>t.cursor.or(t.foreground).or(c.as_ref().map(|c|c.foreground))};
+            let color=match key{"background"=>t.background.or(c.as_ref().map(|c|c.background)),"foreground"=>t.foreground.or(c.as_ref().map(|c|c.foreground)),
+                "selection"=>t.selection.or_else(||Some(crate::terminal_schemes::default_selection(t.background.or(c.as_ref().map(|c|c.background))?,t.foreground.or(c.as_ref().map(|c|c.foreground))?))),
+                _=>t.cursor.or(t.foreground).or(c.as_ref().map(|c|c.foreground))};
             if let Some(color)=color{self.editor=Some(Editor::new(EditKind::TerminalColor(key),vec![settings_appearance::hex([color[0],color[1],color[2],255])]));self.error=None;}Effect::None},
-        Action::ThemeTerminalColors=>{match self.store.reset("terminal_colors"){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
-        Action::ImportPalette=>{let dir=std::env::var_os("HOME").map(|home|PathBuf::from(home).join(".local/share/org.gnome.Ptyxis/palettes/")).unwrap_or_default();
-            self.editor=Some(Editor::new(EditKind::Palette,vec![dir.to_string_lossy().into_owned()]));self.error=None;Effect::None},
+        Action::SchemeSearch=>{self.schemes.focused=true;Effect::Preview},
+        Action::SchemeRow(index)=>self.keep_scheme(index),
+        Action::SchemeImport=>{let dir=std::env::var_os("HOME").map(|home|format!("{}/",PathBuf::from(home).display())).unwrap_or_default();
+            self.editor=Some(Editor::new(EditKind::Palette,vec![dir]).caret_at_end());self.error=None;Effect::None},
         Action::FontChoice(name)=>{self.menu=false;self.save("font_family",json!(name))},
         Action::FontSize(delta)=>self.save("font_size",json!((self.effective.font_size+delta).clamp(8.0,32.0))),
         Action::Toggle(key,on)=>self.save(key,json!(on)),
@@ -150,7 +174,7 @@ impl SettingsPanel{
             EditKind::Color(token)=>{match self.store.set_color(token,Some(editor.values[0].trim())){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}},
             EditKind::TerminalColor(key)=>{
                 let color=match crate::themes::parse_color(editor.values[0].trim()){Ok(c)=>c,Err(_)=>{self.error=Some("Enter a colour as #rrggbb.".into());return Effect::None;}};
-                let mut value=terminal_colors_json(&self.effective.terminal_colors);
+                let mut value=crate::terminal_schemes::to_value(&self.effective.terminal_colors);
                 value[*key]=json!(settings_appearance::hex([color[0],color[1],color[2],255]));
                 match self.store.set("terminal_colors",value){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
             }
@@ -171,15 +195,25 @@ impl SettingsPanel{
             EditKind::Ansi(index)=>{
                 let index=*index;
                 let color=match crate::themes::parse_color(editor.values[0].trim()){Ok(c)=>c,Err(_)=>{self.error=Some("Enter a colour as #rrggbb.".into());return Effect::None;}};
-                let mut value=terminal_colors_json(&self.effective.terminal_colors);
+                let mut value=crate::terminal_schemes::to_value(&self.effective.terminal_colors);
                 if value.get("ansi").is_none(){let ansi=self.active_theme.as_ref().map(|t|t.ansi).unwrap_or([[0,0,0,255];16]);value["ansi"]=json!(ansi.iter().map(|c|settings_appearance::hex([c[0],c[1],c[2],255])).collect::<Vec<_>>());}
                 value["ansi"][index]=json!(settings_appearance::hex([color[0],color[1],color[2],255]));
                 match self.store.set("terminal_colors",value){Ok(_)=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
             }
             EditKind::Palette=>{
                 let path=editor.values[0].trim();
-                let imported=std::fs::read_to_string(path).map_err(|e|format!("{path}: {e}")).and_then(|text|crate::config::import_ptyxis_palette(&text));
-                match imported.and_then(|value|self.store.set("terminal_colors",value).map(|_|())){Ok(())=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+                let path=match path.strip_prefix("~/"){Some(rest)=>std::env::var_os("HOME").map(|home|PathBuf::from(home).join(rest)).unwrap_or_else(||PathBuf::from(path)),None=>PathBuf::from(path)};
+                let imported=crate::terminal_schemes::import_file(&path);
+                match imported.and_then(|value|self.store.set("terminal_colors",value.clone()).map(|_|value)){
+                    Ok(value)=>{
+                        // Kept next to the config file, so the list gets its own row (named after the file) and
+                        // it can be picked again later. The search is cleared so that row shows.
+                        let added=crate::terminal_schemes::keep_imported(self.store.path(),&path,&value);
+                        self.schemes.rescan();self.schemes.query.clear();self.schemes.highlight=None;
+                        self.editor=None;
+                        match added{Ok(name)=>{self.schemes.added=Some(name);self.error=None;},Err(error)=>{self.schemes.added=None;self.error=Some(format!("The colours are in use, but the list could not keep them: {error}"));}}
+                        Effect::Changed},
+                    Err(error)=>{self.error=Some(error);Effect::None}}
             }
             EditKind::Save=>{let Some(mut theme)=self.active_theme.clone()else{return Effect::None;};theme.name=editor.values[0].trim().into();Effect::Theme(ThemeAction::Save{slug:editor.values[1].trim().into(),theme})},
             EditKind::Import=>Effect::Theme(ThemeAction::Import{path:editor.values[0].trim().into(),slug:editor.values[1].trim().into()}),
@@ -187,7 +221,7 @@ impl SettingsPanel{
         }
     }
     pub fn click(&mut self,x:f64,y:f64)->Effect{
-        self.keyboard_focus=false;
+        self.keyboard_focus=false;self.schemes.focused=false;
         let hit=self.hits.iter().rposition(|h|h.rect.contains(x,y));
         // A click outside the field being edited keeps what was typed (as a press of Enter would).
         if self.editor.as_ref().is_some_and(|e|e.inline()){
@@ -230,10 +264,25 @@ impl SettingsPanel{
             editor.key(key,_text);return Effect::None;
         }
         self.keyboard_focus=true;
+        if self.section==Section::Terminal && !self.menu{
+            match key{
+                Key::Named(NamedKey::ArrowDown)|Key::Named(NamedKey::ArrowUp)=>return self.step_scheme(*key==Key::Named(NamedKey::ArrowDown)),
+                Key::Named(NamedKey::Enter) if self.schemes.highlight.is_some()=>{let index=self.schemes.highlight.unwrap_or(0);return self.keep_scheme(index);},
+                Key::Named(NamedKey::Backspace) if self.schemes.focused=>{if self.schemes.query.pop().is_some(){return self.search_changed();}return Effect::None;},
+                Key::Named(NamedKey::Delete)|Key::Named(NamedKey::Home)|Key::Named(NamedKey::End)|Key::Named(NamedKey::ArrowLeft)|Key::Named(NamedKey::ArrowRight) if self.schemes.focused=>return Effect::None,
+                Key::Named(NamedKey::Space)|Key::Character(_) if self.schemes.focused=>{
+                    let typed=_text.map(str::to_owned).unwrap_or_else(||if let Key::Character(ch)=key{ch.to_string()}else{" ".into()});
+                    let typed:String=typed.chars().filter(|c|!c.is_control()).collect();
+                    if typed.is_empty()||self.schemes.query.chars().count()>=60{return Effect::None;}
+                    self.schemes.query.push_str(&typed);return self.search_changed();
+                },
+                _=>{}
+            }
+        }
         match key{
             Key::Named(NamedKey::PageDown)=>{self.wheel(-6);Effect::None},
             Key::Named(NamedKey::PageUp)=>{self.wheel(6);Effect::None},
-            Key::Named(NamedKey::Escape)=>{if self.menu{self.menu=false;Effect::None}else if self.highlight.is_some(){self.end_preview();Effect::Preview}else{self.open=false;Effect::None}},
+            Key::Named(NamedKey::Escape)=>{if self.menu{self.menu=false;Effect::None}else if self.highlight.is_some()||self.schemes.highlight.is_some(){self.end_preview();Effect::Preview}else{self.open=false;Effect::None}},
             Key::Named(NamedKey::ArrowDown)|Key::Named(NamedKey::ArrowUp) if self.section==Section::Appearance && !self.menu=>self.step(*key==Key::Named(NamedKey::ArrowDown)),
             Key::Named(NamedKey::Enter) if self.highlight.is_some()=>{let index=self.highlight.unwrap_or(0);self.pick(index)},
             Key::Named(NamedKey::Tab)=>{if !self.hits.is_empty(){self.focus=Some(self.focus.map_or(0,|i|(i+1)%self.hits.len()));}Effect::None},
@@ -245,7 +294,10 @@ impl SettingsPanel{
         }
     }
     // These pages contain no text-entry controls. IME/paste cannot reach a shell.
-    pub fn insert(&mut self,text:&str){if let Some(editor)=&mut self.editor{editor.insert(text);}}
+    pub fn insert(&mut self,text:&str){
+        if let Some(editor)=&mut self.editor{editor.insert(text);}
+        else if self.section==Section::Terminal && self.schemes.focused{let text:String=text.chars().filter(|c|!c.is_control()).take(60).collect();self.schemes.query.push_str(&text);self.end_preview();}
+    }
     pub fn preedit(&mut self,_text:&str){}
     pub fn select_all(&mut self){if let Some(editor)=&mut self.editor{editor.select_all();}}
     pub fn wheel(&mut self,lines:i32){
@@ -278,7 +330,12 @@ impl SettingsPanel{
             p.out.scene.layers.push(Layer::Clip(Some(view.array())));
             match self.section{
                 Section::General=>end=super::settings_pages::general(&mut p,&gs,theme,config,self.forced_post_ai,editing,&mut frame.hits),
-                Section::Terminal=>end=super::settings_pages::terminal(&mut p,&gs,theme,config,editing,&mut frame.hits),
+                Section::Terminal=>{
+                    let rows=super::settings_pages::terminal(&mut p,&gs,theme,config,editing,&mut frame.hits);
+                    // The Colour scheme group follows the colour rows; this controller keeps its search.
+                    self.schemes.config=Some(self.store.path().to_path_buf());
+                    end=settings_schemes::group(&mut p,&gs,theme,config,&mut self.schemes,rows+4.0,&mut frame.hits);
+                }
                 Section::Editor=>end=super::settings_pages::editor(&mut p,&gs,theme,config,editing,&mut frame.hits),
                 Section::History=>end=super::settings_pages::history(&mut p,&gs,theme,config,editing,&mut frame.hits),
                 Section::Agents=>end=super::settings_pages::agents(&mut p,&gs,theme,config,editing,adding.as_deref(),&mut frame.hits),
@@ -323,7 +380,9 @@ impl SettingsPanel{
                 }
             }
         }
-        if self.keyboard_focus{if let Some(hit)=self.focus.and_then(|i|frame.hits.get(i)){
+        // The Colour scheme search field and rows draw their own focus (one ring on the field while it
+        // takes the keys, a filled row while Up/Down preview it), so they never look selected twice.
+        if self.keyboard_focus{if let Some(hit)=self.focus.and_then(|i|frame.hits.get(i)).filter(|h|!matches!(h.action,Action::SchemeSearch|Action::SchemeRow(_))){
             let mut rect=hit.rect;
             if matches!(hit.action,Action::Toggle(..)|Action::Access(_)) && rect.h>=60.0*s{
                 rect=PixelRect{x:rect.x+rect.w-32.0*s,y:rect.y+(rect.h-s-18.0*s)/2.0,w:32.0*s,h:18.0*s};

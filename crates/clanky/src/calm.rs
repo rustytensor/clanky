@@ -12,6 +12,7 @@ pub mod settings_frame;
 pub mod settings_panel;
 mod settings_appearance;
 pub mod settings_layout;
+pub mod settings_schemes;
 mod settings_access;
 mod settings_form;
 mod settings_pages;
