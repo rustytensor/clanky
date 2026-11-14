@@ -85,7 +85,7 @@ fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Conf
     p.shape(g.panel,12.0*s,c.background,Some(c.border));
     p.shape(g.nav,11.0*s,c.sidebar,None);p.shape(g.local(190.0,1.0,11.0,598.0),0.0,c.sidebar,None);p.shape(g.local(200.0,1.0,1.0,598.0),0.0,c.border,None);
     heading(&mut p,g.local(17.0,21.0,167.0,21.0),"Settings",theme,s);
-    for (i,item) in Section::ALL.into_iter().enumerate(){if !ready.contains(&item) || (config.post_ai && item==Section::Agents){continue;}let y=58.0+i as f32*34.0;let rect=g.local(9.0,y,183.0,32.0);let selected=item==section;let over=rect.contains(pointer.0,pointer.1);
+    for (i,item) in Section::ALL.into_iter().enumerate(){if !ready.contains(&item){continue;}let y=58.0+i as f32*34.0;let rect=g.local(9.0,y,183.0,32.0);let selected=item==section;let over=rect.contains(pointer.0,pointer.1);
         if selected || over{p.shape(rect,6.0*s,if over && pressed{c.pressed}else{c.sidebar_accent},None);}
         let color=if selected || over{c.foreground}else{c.muted_foreground};icon(&mut p,item.title(),g.local(17.0,y+8.0,16.0,16.0),color,s);
         p.text(g.local(41.0,y,143.0,32.0),item.title(),14.0*s,color,if selected{500}else{400},false);hits.push(Hit{rect,action:Action::Section(item)});
