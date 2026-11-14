@@ -1,5 +1,5 @@
 //! Window-local files. Only the terminal-workspace leaf contains server panes.
-use clanky::editor::{DrawInfo, EditorPane, resolve_location};
+use clanky::editor::{DrawInfo, EditorPane, SyntaxColors, resolve_location};
 use clanky_core::{TerminalSnapshot, layout::{Axis, Layout, Rect}};
 use serde_json::json;
 use std::{collections::BTreeMap, path::{Path, PathBuf}};
@@ -24,10 +24,12 @@ pub struct EditorWorkspace {
     prompt: Option<Prompt>,
     preedit: String,
     next: u64,
+    /// Token colours from the window theme; None draws editor text plain.
+    pub colors: Option<SyntaxColors>,
 }
 impl Default for EditorWorkspace {
     fn default() -> Self {
-        Self { layout: Layout::leaf(TERMINALS), panes: BTreeMap::new(), focus: TERMINALS.into(), dragging: None, views: BTreeMap::new(), viewport: None, prompt: None, preedit: String::new(), next: 0 }
+        Self { layout: Layout::leaf(TERMINALS), panes: BTreeMap::new(), focus: TERMINALS.into(), dragging: None, views: BTreeMap::new(), viewport: None, prompt: None, preedit: String::new(), next: 0, colors: None }
     }
 }
 impl EditorWorkspace {
@@ -46,7 +48,7 @@ impl EditorWorkspace {
     }
     pub fn draw_pane(&mut self, id: &str, frame: &mut TerminalSnapshot, rect: Rect) -> Option<usize> {
         let pane = self.panes.get_mut(id)?;
-        let info = pane.draw(frame, &rect, self.focus == id && self.prompt.is_none());
+        let info = pane.draw_with(frame, &rect, self.focus == id && self.prompt.is_none(), self.colors.as_ref());
         let text_rows = info.text_rows;
         self.views.insert(id.into(), (rect, info));
         Some(text_rows)

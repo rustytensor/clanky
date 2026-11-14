@@ -24,7 +24,8 @@ Nothing is redrawn once it stops, or with `cursor_blink` `off`.
 
 `terminal_colors` sets the terminal's background, text, cursor and 16 ANSI colours apart from the
 window theme; the title bar, tools panel and status line keep the theme. Unset entries follow the theme, and
-**Use theme colours** in Settings removes them all.
+**Use theme colours** in Settings removes them all. Code in editor panes keeps the window theme's
+colours too (see [editor colours](config.md#editor-colours)).
 
 To use a Ptyxis palette, choose **Import Ptyxis palette…** in Settings > Terminal (palettes live in
 `~/.local/share/org.gnome.Ptyxis/palettes/`), or print it as JSON for the config file:

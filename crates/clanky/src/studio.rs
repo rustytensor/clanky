@@ -97,7 +97,25 @@ fn rgb(color: look::Color) -> [u8;3] { [color[0],color[1],color[2]] }
 /// Rows the editor core reserves for its own title; the window does not show them.
 const EDITOR_TITLE_ROWS: usize = 1;
 fn widget(snapshot: &mut TerminalSnapshot, theme: &look::Theme) {
-    for cell in &mut snapshot.cells { cell.fg = theme.ui_color(cell.fg,false); cell.bg = theme.ui_color(cell.bg,true); cell.color_source = None; }
+    for cell in &mut snapshot.cells {
+        // Syntax colours are already the window theme's own colours: keep them as drawn.
+        let syntax = cell.color_source == Some(clanky::editor::SYNTAX_SOURCE);
+        if !syntax { cell.fg = theme.ui_color(cell.fg,false); }
+        cell.bg = theme.ui_color(cell.bg,true);
+        if !syntax { cell.color_source = None; }
+    }
+}
+/// The editor's token colours from the window theme (never terminal_colors).
+fn syntax_colors(theme: &clanky::themes::Theme) -> clanky::editor::SyntaxColors {
+    let c = |color: clanky::themes::Color| [color[0], color[1], color[2]];
+    clanky::editor::SyntaxColors { keyword: c(theme.ansi[5]), function: c(theme.ansi[4]), type_: c(theme.ansi[3]),
+        string: c(theme.ansi[2]), number: c(theme.ansi[1]), constant: c(theme.ansi[6]), comment: c(theme.colors.muted_foreground),
+        // Gutter numbers: 39% of the way from the background to the muted foreground (Graphite: #111111 -> #4a4a4a,
+        // the mockup's gutter colour).
+        gutter: std::array::from_fn(|i| {
+            let (bg, muted) = (theme.colors.background[i] as f32, theme.colors.muted_foreground[i] as f32);
+            (bg + 0.39 * (muted - bg)).round() as u8
+        }) }
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
     TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],
@@ -613,6 +631,7 @@ impl App {
         let preview=self.settings.as_ref().filter(|panel|panel.open).map(|panel|(panel.preview_theme().cloned(),panel.preview_terminal().cloned()));
         if let Some(theme)=preview.as_ref().and_then(|p|p.0.clone()) {self.studio.calm_theme=theme;}
         self.studio.theme=clanky::calm::legacy_palette(&self.studio.calm_theme);
+        self.files.colors=Some(syntax_colors(&self.studio.calm_theme));
         self.files.viewport = Some(layout.clone());
         let now = Instant::now();
         let mut state = LookState { post_ai:self.applied_post_ai, theme: self.studio.theme.clone(), opacity: self.config.opacity, animations: self.config.animations,
@@ -1055,7 +1074,7 @@ impl App {
             let card=if card_id.as_deref()==Some("compose-hint"){state.panels.iter().find(|p|p.id=="compose")}else{card};let rise=card.map_or(rise,|p|p.rise_px);let opacity=card.map_or(opacity,|p|p.opacity);
             let px=if hint || card_id.as_ref().is_some_and(|id|id.starts_with("review-")) { layout.metrics.small_font_px as f32 } else { layout.metrics.ui_font_px as f32 };
             let color=if hint{self.studio.calm_theme.colors.muted_foreground}else{state.theme.ink};
-            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.5}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0 })); }
+            if !text.is_empty() { presentation.scene.layers.push(Layer::Text(TextRun { origin:[rect.x,rect.y+rise+if hint{(rect.h-px*1.3)/2.0}else{0.0}],text:truncate(&text,rect.w/(if hint{px*0.5}else{px})),px,color,weight:400,mono:false,opacity,letter_spacing:0.0,italic:false })); }
         }
         for (rect,pane,card) in &review_controls {
             let rise=state.panels.iter().find(|p|p.id==*card).map_or(0.0,|p|p.rise_px);

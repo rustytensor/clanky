@@ -136,7 +136,11 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             p.shape(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),0.0,term.cursor,None);
             let cell=&data.snapshot.cells[row*data.snapshot.cols+col];
             let weight=if cell.style&clanky_core::STYLE_BOLD!=0{700}else{400};
-            if cell.ch!=' ' {p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&cell.ch.to_string(),font_px,term.background,weight,true);}
+            if cell.ch!=' ' {
+                p.text(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),&cell.ch.to_string(),font_px,term.background,weight,true);
+                // An italic comment glyph stays italic under the cursor.
+                if cell.style&clanky_core::STYLE_ITALIC!=0{if let Some(Layer::Text(run))=p.out.scene.layers.last_mut(){run.italic=true;}}
+            }
         }}
         if !state.block_cards{super::chrome::sticky(&mut p,layout,pane,data,&term);}
     }

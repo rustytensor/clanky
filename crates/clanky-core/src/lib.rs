@@ -31,7 +31,7 @@ pub struct Cell {
     /// Optional presentation provenance; legacy readers continue using fg/bg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_source: Option<CellColorSource>,
-    /// SGR attributes the renderer draws: STYLE_BOLD, STYLE_FAINT.
+    /// Attributes the renderer draws: STYLE_BOLD, STYLE_FAINT, STYLE_ITALIC.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub style: u8,
 }
@@ -39,6 +39,8 @@ pub struct Cell {
 pub const STYLE_BOLD: u8 = 1;
 /// SGR 2: drawn with reduced contrast against the background.
 pub const STYLE_FAINT: u8 = 2;
+/// Drawn with the italic face (editor comments; the terminal does not set it).
+pub const STYLE_ITALIC: u8 = 4;
 fn is_zero(value: &u8) -> bool { *value == 0 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TerminalSnapshot {

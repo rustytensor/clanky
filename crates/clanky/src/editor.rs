@@ -1,6 +1,7 @@
 //! Window-local editor controller, shared by interactive and offscreen clients.
 use clanky_core::{layout::Rect, Cell, TerminalSnapshot};
 use clanky_edit::{Document, HunkState, Location, Selection};
+use clanky_syntax::{Language, Syntax, Token};
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::{Path, PathBuf}};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
@@ -10,6 +11,40 @@ const NORMAL: [u8; 3] = [24, 24, 28];
 const SELECTED: [u8; 3] = [40, 70, 120];
 const OLD: [u8; 3] = [80, 24, 24];
 const NEW: [u8; 3] = [24, 80, 40];
+
+/// Editor token colours from the window theme (the brief's map): keyword ansi 5,
+/// function ansi 4, type ansi 3, string ansi 2, number ansi 1, constant/macro ansi 6,
+/// comment the muted foreground in italic. Plain text keeps the ink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyntaxColors {
+    pub keyword: [u8; 3],
+    pub function: [u8; 3],
+    pub type_: [u8; 3],
+    pub string: [u8; 3],
+    pub number: [u8; 3],
+    pub constant: [u8; 3],
+    pub comment: [u8; 3],
+    /// Line numbers in the gutter: dim, well behind the code.
+    pub gutter: [u8; 3],
+}
+impl SyntaxColors {
+    fn of(&self, token: Token) -> Option<[u8; 3]> {
+        Some(match token {
+            Token::Keyword => self.keyword, Token::Function => self.function, Token::Type => self.type_,
+            Token::String => self.string, Token::Number => self.number, Token::Constant => self.constant,
+            Token::Comment => self.comment, Token::Plain => return None,
+        })
+    }
+}
+/// Cells drawn in a token colour carry this source, so the window keeps their fg as drawn.
+pub const SYNTAX_SOURCE: clanky_core::CellColorSource = clanky_core::CellColorSource {
+    fg: clanky_core::ColorSource::Truecolor, bg: clanky_core::ColorSource::Truecolor, inverse: false };
+
+/// Spans for one viewport, kept until the text or the viewport changes.
+struct SpanCache {
+    key: (u64, usize, usize),
+    spans: Vec<clanky_syntax::Span>,
+}
 
 #[derive(Default, Debug)]
 pub struct DrawInfo {
@@ -77,6 +112,10 @@ pub struct EditorPane {
     error: Option<String>,
     was_focused: bool,
     dragging: bool,
+    syntax: Option<Syntax>,
+    spans: Option<SpanCache>,
+    /// Columns of the line-number gutter as last drawn (0 when drawn without one).
+    gutter: usize,
 }
 
 fn line_starts(text: &str) -> Vec<usize> {
@@ -117,10 +156,15 @@ impl EditorPane {
         let lines = line_starts(document.text());
         let newline = document.text().find('\n').map_or("\n", |i| if i > 0 && document.text().as_bytes()[i - 1] == b'\r' { "\r\n" } else { "\n" });
         let saved = document.text().to_owned();
+        // Compose drafts are prose and have no path: they stay plain.
+        let syntax = (path != Path::new("[compose]")).then(|| Language::detect(&path, document.text())).flatten()
+            .map(|lang| Syntax::open(lang, document.text()));
+        let mut document = document;
+        document.take_edits();
         Self { document, path, saved, dirty: false, lines,
             top, left: 0, page: 16, columns: 80, newline, review: 0, review_top: 0,
             previews: HashMap::new(), find: None, query: String::new(), error: None,
-            was_focused: false, dragging: false }
+            was_focused: false, dragging: false, syntax, spans: None, gutter: 0 }
     }
     pub fn from_click(snapshot: &TerminalSnapshot, row: usize, col: usize, cwd: Option<&Path>) -> Result<Self> {
         let location = location_at(snapshot, row, col).ok_or("no source location")?;
@@ -136,6 +180,8 @@ impl EditorPane {
     pub fn find_active(&self) -> bool { self.find.is_some() }
 
     fn changed(&mut self) {
+        let edits = self.document.take_edits();
+        if let Some(syntax) = &mut self.syntax { syntax.edit(&edits, self.document.text()); }
         self.lines = line_starts(self.text());
         self.dirty = self.text() != self.saved;
         self.reveal();
@@ -403,7 +449,7 @@ impl EditorPane {
         let line = self.top.saturating_add(row - rect.row - 1).min(self.lines.len() - 1);
         let start = self.lines[line];
         let end = line_end(self.text(), &self.lines, line);
-        let target = self.left.saturating_add(col - rect.col);
+        let target = self.left.saturating_add((col - rect.col).saturating_sub(self.gutter));
         let mut visual = 0usize;
         for (i, ch) in self.text()[start..end].char_indices() {
             let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
@@ -471,24 +517,54 @@ impl EditorPane {
     }
 
     pub fn draw(&mut self, frame: &mut TerminalSnapshot, rect: &Rect, focused: bool) -> DrawInfo {
+        self.draw_with(frame, rect, focused, None)
+    }
+    /// The tree-sitter language colouring this pane, if any.
+    pub fn language(&self) -> Option<Language> { self.syntax.as_ref().filter(|s| s.coloured()).map(Syntax::language) }
+
+    /// The token spans of the visible lines, from the cache when nothing changed.
+    fn visible_spans(&mut self, text_rows: usize) -> Vec<clanky_syntax::Span> {
+        let Some(syntax) = &mut self.syntax else { return Vec::new(); };
+        let first = self.top.min(self.lines.len().saturating_sub(1));
+        let last = self.top.saturating_add(text_rows).min(self.lines.len()).max(first + 1) - 1;
+        let start = self.lines.get(first).copied().unwrap_or(0);
+        let end = line_end(self.document.text(), &self.lines, last);
+        let key = (syntax.revision(), start, end);
+        if let Some(cache) = self.spans.as_ref().filter(|c| c.key == key) { return cache.spans.clone(); }
+        let spans = syntax.spans(self.document.text(), start..end);
+        self.spans = Some(SpanCache { key, spans: spans.clone() });
+        spans
+    }
+
+    pub fn draw_with(&mut self, frame: &mut TerminalSnapshot, rect: &Rect, focused: bool, colors: Option<&SyntaxColors>) -> DrawInfo {
         if focused && !self.was_focused {
             if let Err(error) = self.refresh() { self.error = Some(error); }
         }
         self.was_focused = focused;
         let (text_rows, review_rows) = self.geometry(rect);
+        // Panes drawn with window colours get a line-number gutter: one blank column, the numbers right-aligned in
+        // as many digits as the last line needs (at least 2), then a 2-column gap before the code. Narrow panes keep
+        // every column for code.
+        let digits = self.lines.len().to_string().len().max(2);
+        self.gutter = if colors.is_some() && rect.cols >= digits + 3 + 20 { digits + 3 } else { 0 };
+        let full = rect;
+        let text = Rect { col: rect.col.saturating_add(self.gutter), cols: rect.cols - self.gutter, ..*rect };
+        let rect = &text;
         self.page = text_rows.max(1);
         self.columns = rect.cols.max(1);
         let mut info = DrawInfo { text_rows, ..DrawInfo::default() };
-        for row in rect.row..rect.row.saturating_add(rect.rows).min(frame.rows) {
-            for col in rect.col..rect.col.saturating_add(rect.cols).min(frame.cols) {
+        for row in full.row..full.row.saturating_add(full.rows).min(frame.rows) {
+            for col in full.col..full.col.saturating_add(full.cols).min(frame.cols) {
                 put(frame, row, col, ' ', NORMAL);
             }
         }
         let title = format!("{}{}  column scroll {}", self.path.display(), if self.dirty { " *" } else { "" }, self.left);
-        paint(frame, rect, rect.row, &title, NORMAL);
+        paint(frame, full, full.row, &title, NORMAL);
         let selection = self.selection();
         let low = selection.anchor.min(selection.cursor);
         let high = selection.anchor.max(selection.cursor);
+        let spans = if colors.is_some() { self.visible_spans(text_rows) } else { Vec::new() };
+        let mut next_span = 0usize;
         for visible in 0..text_rows {
             let index = self.top.saturating_add(visible);
             let Some(&start) = self.lines.get(index) else { break; };
@@ -496,14 +572,31 @@ impl EditorPane {
             let row = rect.row.saturating_add(1 + visible);
             if row >= frame.rows { break; }
             info.source_lines += 1;
+            if let Some(colors) = colors.filter(|_| self.gutter > 0) {
+                let number = (index + 1).to_string();
+                let first = full.col + self.gutter - 2 - number.len();
+                for (i, ch) in number.chars().enumerate() {
+                    put(frame, row, first + i, ch, NORMAL);
+                    if let Some(cell) = frame.cells.get_mut(row * frame.cols + first + i).filter(|_| first + i < frame.cols) {
+                        cell.fg = colors.gutter;
+                        cell.color_source = Some(SYNTAX_SOURCE);
+                    }
+                }
+            }
             let mut visual = 0usize;
             for (offset, ch) in self.text()[start..end].char_indices() {
                 let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
-                let bg = if start + offset >= low && start + offset < high { SELECTED } else { NORMAL };
+                let byte = start + offset;
+                let bg = if byte >= low && byte < high { SELECTED } else { NORMAL };
+                while spans.get(next_span).is_some_and(|(r, _)| r.end <= byte) { next_span += 1; }
+                let token = spans.get(next_span).filter(|(r, _)| r.start <= byte).map(|(_, t)| *t);
+                let ink = colors.zip(token).and_then(|(c, t)| c.of(t).map(|fg| (fg, t)));
                 for step in 0..width {
                     let column = visual.saturating_add(step);
                     if column >= self.left && column - self.left < rect.cols {
-                        put(frame, row, rect.col.saturating_add(column - self.left), if ch == '\t' { ' ' } else { ch }, bg);
+                        let col = rect.col.saturating_add(column - self.left);
+                        put(frame, row, col, if ch == '\t' { ' ' } else { ch }, bg);
+                        if let Some((fg, token)) = ink { tint(frame, row, col, fg, token); }
                     }
                 }
                 visual = visual.saturating_add(width);
@@ -518,6 +611,8 @@ impl EditorPane {
                 }
             }
         }
+        // Review and status rows span the whole pane, gutter included.
+        let rect = full;
         if review_rows > 0 {
             let row = rect.row.saturating_add(1 + text_rows);
             if let Some(hunk) = self.document.hunks().get(self.review) {
@@ -616,6 +711,13 @@ fn put(frame: &mut TerminalSnapshot, row: usize, col: usize, ch: char, bg: [u8; 
     if let Some(index) = row.checked_mul(frame.cols).and_then(|i| i.checked_add(col)) {
         if let Some(cell) = frame.cells.get_mut(index) { *cell = Cell { ch, fg: [220, 220, 225], bg, color_source: None, style: 0 }; }
     }
+}
+/// Give one source cell its token colour; comments are italic (block and box glyphs stay upright).
+fn tint(frame: &mut TerminalSnapshot, row: usize, col: usize, fg: [u8; 3], token: Token) {
+    let Some(cell) = row.checked_mul(frame.cols).and_then(|i| i.checked_add(col)).and_then(|i| frame.cells.get_mut(i)) else { return; };
+    cell.fg = fg;
+    cell.color_source = Some(SYNTAX_SOURCE);
+    if token == Token::Comment && !('\u{2500}'..='\u{259f}').contains(&cell.ch) { cell.style |= clanky_core::STYLE_ITALIC; }
 }
 fn paint(frame: &mut TerminalSnapshot, rect: &Rect, row: usize, text: &str, bg: [u8; 3]) {
     if row < rect.row || row >= rect.row.saturating_add(rect.rows) { return; }
