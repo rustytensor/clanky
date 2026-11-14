@@ -124,7 +124,10 @@ fn syntax_colors(theme: &clanky::themes::Theme) -> clanky::editor::SyntaxColors 
         gutter: std::array::from_fn(|i| {
             let (bg, muted) = (theme.colors.background[i] as f32, theme.colors.muted_foreground[i] as f32);
             (bg + 0.39 * (muted - bg)).round() as u8
-        }) }
+        }),
+        // Caret-line band: 3.5% of the way from the background to the muted foreground (Graphite: #111111 -> #161616,
+        // the mockup's .ed .cur).
+        current_line: mix(c(theme.colors.background), c(theme.colors.muted_foreground), 0.035) }
 }
 fn cells(rows: usize, cols: usize, theme: &look::Theme) -> TerminalSnapshot {
     TerminalSnapshot { rows, cols, cells: vec![Cell { ch: ' ', fg: rgb(theme.ink), bg: rgb(theme.panel), color_source: None, style: 0 }; rows * cols],

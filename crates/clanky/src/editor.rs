@@ -27,6 +27,8 @@ pub struct SyntaxColors {
     pub comment: [u8; 3],
     /// Line numbers in the gutter: dim, well behind the code.
     pub gutter: [u8; 3],
+    /// Background of the caret's line, across the whole pane: a faint band just off the background.
+    pub current_line: [u8; 3],
 }
 impl SyntaxColors {
     fn of(&self, token: Token) -> Option<[u8; 3]> {
@@ -573,11 +575,16 @@ impl EditorPane {
             let row = rect.row.saturating_add(1 + visible);
             if row >= frame.rows { break; }
             info.source_lines += 1;
+            // The caret's line sits on a faint band from edge to edge (gutter included); selection still wins.
+            let line_bg = match colors { Some(c) if focused && self.cursor_line() == index => c.current_line, _ => NORMAL };
+            if line_bg != NORMAL {
+                for col in full.col..full.col.saturating_add(full.cols).min(frame.cols) { put(frame, row, col, ' ', line_bg); }
+            }
             if let Some(colors) = colors.filter(|_| self.gutter > 0) {
                 let number = (index + 1).to_string();
                 let first = full.col + self.gutter - 2 - number.len();
                 for (i, ch) in number.chars().enumerate() {
-                    put(frame, row, first + i, ch, NORMAL);
+                    put(frame, row, first + i, ch, line_bg);
                     if let Some(cell) = frame.cells.get_mut(row * frame.cols + first + i).filter(|_| first + i < frame.cols) {
                         cell.fg = colors.gutter;
                         cell.color_source = Some(SYNTAX_SOURCE);
@@ -588,7 +595,7 @@ impl EditorPane {
             for (offset, ch) in self.text()[start..end].char_indices() {
                 let width = if ch == '\t' { 4 - visual % 4 } else { 1 };
                 let byte = start + offset;
-                let bg = if byte >= low && byte < high { SELECTED } else { NORMAL };
+                let bg = if byte >= low && byte < high { SELECTED } else { line_bg };
                 while spans.get(next_span).is_some_and(|(r, _)| r.end <= byte) { next_span += 1; }
                 let token = spans.get(next_span).filter(|(r, _)| r.start <= byte).map(|(_, t)| *t);
                 let ink = colors.zip(token).and_then(|(c, t)| c.of(t).map(|fg| (fg, t)));
