@@ -19,7 +19,8 @@ left alone until you change something here; that change writes a well-formed fil
 - **General:** Post-AI mode (`post_ai`; it applies server policy and hides agent UI immediately),
   Restore layout, Robot greeting (`startup_animation`), Animations, Notify after (seconds), and the
   Columns and Rows of a new window.
-- **Appearance:** first the **Layout** group, then **Theme**, **Text**, **Window** and the window colours.
+- **Appearance:** first the **Layout** group, then **Text**, **Window** with the window colours, and last
+  **Theme** (the longest group).
   - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips
     Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`; Classic gives the pane its rows back and the shell its own prompt at its next prompt),
     **Blocks** Quiet | Cards (`block_style`) and **Status line** Show | Hide (`status_line`). A click saves at
@@ -36,7 +37,8 @@ left alone until you change something here; that change writes a well-formed fil
   - Text: **Font size** (`font_size`, pixels), **Terminal font** (type a family, or pick one of the
     installed monospace families from the menu beside it), **Interface font**, **Cell width** and
     **Line height** (1 to 2). Window: **Opacity** (a slider and its value, 0.5 to 1).
-  - Window colours: one swatch per colour token of the theme (`colors`); **Reset** appears on a changed one.
+  - Window colours: one swatch per colour token of the theme, in two columns (`colors`); **Reset** takes the
+    place of a changed colour's value. Save as new theme, Import and Export follow.
 - **Terminal:** **Cursor blink** System | On | Off, **Blink cycle** (ms), **Stop blinking after** (s),
   **Clipboard writes** and **Clipboard reads** (OSC 52), then the terminal's own colours
   (`terminal_colors`): background, foreground, cursor and the 16 ANSI colours (normal 0–7, bright 8–15),
