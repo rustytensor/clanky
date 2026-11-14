@@ -49,6 +49,9 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "history") {
         std::process::exit(clanky::history_cli::main(&args[1..]));
     }
+    if args.first().is_some_and(|arg| arg == "import-colors") {
+        std::process::exit(import_colors(&args[1..]));
+    }
     if args.first().is_some_and(|arg| arg == "terminal-colors") {
         std::process::exit(match args.get(1..).unwrap_or_default() {
             [import, path] if import == "import" => match std::fs::read_to_string(path).map_err(|e| e.to_string())
@@ -69,6 +72,24 @@ fn main() {
         }
         eprintln!("clanky: {error}");
         std::process::exit(1);
+    }
+}
+
+/// `clanky import-colors [--config PATH] FILE`: another terminal's colour file becomes terminal_colors
+/// in the config file; a running window picks it up as it does hand edits.
+fn import_colors(args: &[String]) -> i32 {
+    const USAGE: &str = "clanky import-colors [--config PATH] FILE: use another terminal's colours (iTerm2, Windows Terminal, Alacritty, Kitty, Ghostty, WezTerm, Konsole, Xresources, Ptyxis)";
+    let (config, file) = match args {
+        [flag, path, file] if flag == "--config" => (Some(PathBuf::from(path)), file),
+        [file] if !file.starts_with('-') => (None, file),
+        _ => { eprintln!("{USAGE}"); return 2; }
+    };
+    let Some(config) = config.or_else(clanky::platform::settings_path) else { eprintln!("clanky import-colors: no config file path (set HOME or pass --config)"); return 1; };
+    let result = clanky::terminal_schemes::import_file(std::path::Path::new(file))
+        .and_then(|colors| clanky::settings::Settings::open(&config)?.set("terminal_colors", colors).map(|_| ()));
+    match result {
+        Ok(()) => { println!("{file}: terminal colours saved in {}", config.display()); 0 }
+        Err(error) => { eprintln!("clanky import-colors: {error}"); 1 }
     }
 }
 
@@ -108,7 +129,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky agent [--tab] NAME [DIR]: start an agent tool in a new pane (--list shows them)\nclanky terminal-colors import FILE.palette: print a Ptyxis palette as terminal_colors JSON\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access; Ctrl+Shift+G: start an agent\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
+                    "clanky [--server|--headless|--stdio] [--socket PATH] [--config PATH] [--post-ai]\nclanky history [path|list|search|show|export|delete|clear]: saved command history\nclanky agent [--tab] NAME [DIR]: start an agent tool in a new pane (--list shows them)\nclanky terminal-colors import FILE.palette: print a Ptyxis palette as terminal_colors JSON\nclanky import-colors [--config PATH] FILE: use another terminal's colour file (iTerm2, Windows Terminal, Alacritty, Kitty, Ghostty, WezTerm, Konsole, Xresources, Ptyxis)\nclanky attach HOST [--config PATH]\nclanky +hello [--config PATH]: replay the robot in its own window\nclanky edit FILE[:LINE[:COL]] [--review FILE]\nCtrl+Shift+T: new tab; Ctrl+Shift+D/E: split right/below\nCtrl+Shift+W: close pane; Ctrl+Tab: next tab; click: focus pane\nCtrl+=/-/0: zoom/reset; Ctrl+Shift+A: toggle focused pane agent access; Ctrl+Shift+G: start an agent\nCtrl+Shift+P: palette (Open file / Load changes / Compose); Ctrl+Shift+B: sidebar\nCtrl+Shift+O: open file; click path:line: open beside terminal\nEditor: Ctrl+S save; Ctrl+Z/Shift+Z undo/redo; Ctrl+F find\nEditor: Ctrl+Alt+A/R accept/reject (Shift: all); dirty close refuses\nCompose: Ctrl+Shift+Enter opens focused terminal; Enter newline; Ctrl+Enter sends\nCompose: Escape retains draft; F7 suggestions; Ctrl+Alt+A add word\nCompose drafts are memory-only for this window; closing it can lose them\nCtrl+Shift+Escape: revoke agents (works everywhere)\nclanky mcp [--socket PATH]: agent-only MCP"
                 );
                 return Ok(());
             }
