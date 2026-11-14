@@ -61,7 +61,7 @@ fn mono_chars(p:&mut Paint,rect:PixelRect,text:&str,px:f32,color:Color,weight:u1
     }
 }
 fn dot(p:&mut Paint,x:f32,y:f32,d:f32,color:Color){p.shape(r(x,y,d,d),d/2.0,color,None);}
-fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
+pub(super) fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
 /// A sidebar-coloured surface (title bar, tab column, tools panel, status line). The window
 /// backdrop is already the sidebar colour, or the theme's window gradient, which must show here.
 fn side(p:&mut Paint,rect:PixelRect){if p.theme.window_gradient.is_none(){let c=p.theme.colors.sidebar;p.shape(rect,0.0,c,None);}}
@@ -130,10 +130,13 @@ pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
         let pill=r(x.round(),pill_y,width,pill_h);let over_tab=hovered(p,pill);let show_x=tab.active||over_tab;
         if tab.active{let fill=tint(p,0.08);p.shape(pill,9.0*s,fill,None);}else if over_tab{let fill=tint(p,0.05);p.shape(pill,9.0*s,fill,None);}
         // An agent's program always runs in the foreground, so agent comes before running.
-        let dot_color=if tab.agent{c.agent}else if tab.running{c.ok}else{faint};
-        dot(p,pill.x+pad,pill.y+(pill_h-6.0*s)/2.0,6.0*s,dot_color);
+        // An idle tab shows no dot: as in Ptyxis, only its label.
+        if tab.agent||tab.running{
+            let dot_color=if tab.agent{c.agent}else{c.ok};
+            dot(p,pill.x+pad,pill.y+(pill_h-6.0*s)/2.0,6.0*s,dot_color);
+        }
         let room=(pill.w-2.0*side_w).max(0.0);let tw=natural.min(room);
-        p.text(r(pill.x+side_w+(room-tw)/2.0,pill.y,tw+0.5,pill.h),&tab.title,title_px,if tab.active{c.foreground}else{dim},weight,false);
+        p.text(r(pill.x+side_w+(room-tw)/2.0,pill.y,tw+0.5,pill.h),&tab.title,title_px,c.foreground,weight,false);
         p.hit(pill,HitAction::Session(tab.id.clone()));
         if show_x{
             let mx=pill.x+pill.w-pad-8.0*s;let my=pill.y+(pill_h-8.0*s)/2.0;
@@ -180,7 +183,6 @@ pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
 /// The tools panel (mockup .tools): a head, the chosen tool, and a footer to switch tools.
 pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(panel)=layout.left_rail else{return;};let s=p.scale;let c=p.theme.colors.clone();let faint=faint(p);
-    let side_line=over(c.sidebar,c.border);
     // No line at the right edge: the 8 px gap before the panes keeps them apart.
     side(p,panel);
     let inner=panel;
@@ -188,7 +190,6 @@ pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
     let foot_h=if tools.is_empty(){0.0}else{(48.0*s).round()};
     let foot_y=inner.y+inner.h-foot_h;
     if !tools.is_empty(){
-        line(p,inner.x,foot_y.round(),inner.w,hair(s),side_line);
         let gap=4.0*s;let seg_w=(inner.w-16.0*s-gap*(tools.len()-1) as f32)/tools.len() as f32;
         for (i,tool) in tools.iter().enumerate(){
             // Tool tabs 32 px tall (R1: controls at least 32), radius 8, labels 14 px.
@@ -439,8 +440,11 @@ pub(super) fn sticky(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&lo
     let Some(sticky)=&data.sticky else{return;};let s=p.scale;let c=p.theme.colors.clone();
     let h=(pane.grid_origin[1]-pane.rect.y)+layout.cell_px[1] as f32;
     let band=r(pane.rect.x,pane.rect.y,pane.rect.w,h);
+    // No hard line under it: a soft shade of about 4 px, as under Ptyxis's header bar. The shadow's
+    // rect is pulled in by its blur on the sides, so it shows below the band and not in the gaps.
+    p.out.scene.layers.push(clanky_render::Layer::Shape(clanky_render::Shape{rect:band.array(),radius:0.0,fill:clanky_render::Fill::Solid([0;4]),border:None,
+        shadow:Some(clanky_render::Shadow{offset:[0.0,3.0*s],blur:4.0*s,spread:-4.0*s,color:[0,0,0,90]})}));
     p.shape(band,0.0,over(term.background,alpha(c.card,0.96)),None);
-    line(p,band.x,(band.y+band.h).round()-hair(s),band.w,hair(s),over(term.background,c.border));
     let right=match (sticky.running_s,sticky.duration_ms){(Some(n),_)=>format!("running {n} s"),(None,Some(ms))=>duration_label(ms),_=>String::new()};
     let rw=p.mono_width(&right,12.0*s,400);
     p.text(r(band.x+band.w-18.0*s-rw,band.y,rw,band.h-s),&right,12.0*s,c.muted_foreground,400,true);

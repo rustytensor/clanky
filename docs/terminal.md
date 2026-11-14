@@ -34,7 +34,9 @@ tools panel and the panes.
 Turning the wheel over a pane with scrollback shows an overlay scrollbar at its right edge, 8 px
 wide and 7 px from the edge with round ends, in the text colour at 15 % over the background. It
 stays for a second after the last turn of the wheel and then fades out (or goes at once with
-`animations` off). Nothing is redrawn while it stays or once it has gone.
+`animations` off). The pointer within 24 px of the pane's right edge also shows it, for as long as
+the pointer stays there; when the pointer leaves, it stays a second and fades the same way.
+Nothing is redrawn while it stays or once it has gone.
 
 ## Cursor
 
