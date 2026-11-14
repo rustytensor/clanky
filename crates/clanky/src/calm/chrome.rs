@@ -322,9 +322,10 @@ pub(super) fn quiet_blocks(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,da
             // Mockup .meta: folder then HH:MM from the grid's first column; exit, then duration, at the right edge.
             meta_y=origin[1]+b.meta_top(block.first_row,s);meta_h=super::breath::META_H*s;bar_y=meta_y+s;
             let mut x=origin[0];
-            for (text,color,mono) in left{let w=width(p,&text,color,mono);meta.push((text,color,mono,x));x+=w+10.0*s;}
+            // Whole pixels: small faint text keeps the same glyph shapes wherever its width puts it.
+            for (text,color,mono) in left{let w=width(p,&text,color,mono);meta.push((text,color,mono,x.round()));x+=w+10.0*s;}
             let mut x=edge;let mut placed=Vec::new();
-            for (text,color,mono) in right.into_iter().rev(){let w=width(p,&text,color,mono);x-=w;placed.push((text,color,mono,x));x-=10.0*s;}
+            for (text,color,mono) in right.into_iter().rev(){let w=width(p,&text,color,mono);x-=w;placed.push((text,color,mono,x.round()));x-=10.0*s;}
             meta.extend(placed.into_iter().rev());
             // Meta text above the pane's top (rows lifted out of view) is not drawn over the title bar.
             if meta_y<pane.rect.y{meta.clear();}
@@ -372,7 +373,7 @@ pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLa
                 p.text(r(*x,y,w+0.5,q.meta_h),text,12.0*s,alpha(*color,1.0-opacity),weight,*mono);
             }else{
                 let space=meta_width(p," ",12.0*s,weight,*mono,0.0)+q.spread*s;let mut x=*x;
-                for word in text.split(' '){let w=meta_width(p,word,12.0*s,weight,*mono,0.0);p.text(r(x,y,w+0.5,q.meta_h),word,12.0*s,alpha(*color,1.0-opacity),weight,*mono);x+=w+space;}
+                for word in text.split(' '){let w=meta_width(p,word,12.0*s,weight,*mono,0.0);p.text(r(x.round(),y,w+0.5,q.meta_h),word,12.0*s,alpha(*color,1.0-opacity),weight,*mono);x+=w+space;}
             }
         }
     }
