@@ -27,7 +27,9 @@ pub fn geometry(layout:&Layout,pane:PixelRect,lines:usize)->Geometry{
     Geometry{area:r(pane.x,top,pane.w,pane.y+pane.h-top),chips_y:top+9.0*s,line_y:top+37.0*s,text_x,cell,cols,lines}
 }
 #[derive(Clone,Debug,Default)]
-pub struct Popup{pub items:Vec<(String,&'static str)>,pub selected:usize}
+pub struct Popup{pub items:Vec<(String,&'static str)>,pub selected:usize,
+    /// The visible column where the word being completed starts; the list sits under it.
+    pub col:usize}
 /// One pane's input as the window has it now.
 #[derive(Clone,Debug,Default)]
 pub struct Bar{
@@ -39,6 +41,8 @@ pub struct Bar{
     pub ghost:String,
     /// The caret's line and column in the text, when shown.
     pub caret:Option<(usize,usize)>,
+    /// The caret belongs to this input (blink aside): the ghost text starts after its block.
+    pub caret_here:bool,
     pub folder:String,pub branch:Option<String>,pub shell:String,
     /// Agent access for the pane, when the window may show it.
     pub access:Option<bool>,
@@ -108,7 +112,10 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
                 if *selected{cell.bg=[selection[0],selection[1],selection[2]];}
                 col+=1;
             }
-            if Some(bar.top_line+row)==bar.caret.map(|c|c.0){
+            // Ghost text follows the last line (it is only offered with the caret at the end),
+            // after the caret's block when this input has the caret (mockup .caret then .ghost).
+            if !bar.ghost.is_empty() && bar.top_line+row+1==bar.lines.len(){
+                if bar.caret_here{col+=1;}
                 let ghost=blend(term.background,term.foreground,0.26);
                 for ch in bar.ghost.chars(){
                     if col>=cols{break;}
@@ -120,8 +127,16 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[g.text_x,g.line_y],clip:clip.array(),snapshot,underlines:Vec::new(),opacity:1.0}));
         if let Some((line,col))=bar.caret{
             if line>=bar.top_line && line<bar.top_line+rows && col>=bar.left_col && col-bar.left_col<=cols{
+                // A filled block in the foreground colour (mockup .caret: 7.5 x 16 px); the character
+                // under it, if any, is drawn in the background colour.
                 let cx=g.text_x+(col-bar.left_col) as f32*g.cell[0];let cy=g.line_y+(line-bar.top_line) as f32*lh;
-                p.shape(r(cx,cy+3.0*s,2.0*s,lh-6.0*s),0.0,term.cursor,None);
+                let (cw,chh)=((7.5*s).min(g.cell[0]),(16.0*s).min(lh));
+                let block=r(cx.round(),(cy+(lh-chh)/2.0).round(),cw,chh);
+                let under=bar.lines.get(line).and_then(|l|l.get(col)).map(|c|c.0).filter(|c|!c.is_control()).unwrap_or(' ');
+                let fg=[term.foreground[0],term.foreground[1],term.foreground[2]];
+                let cell=clanky_core::Cell{ch:under,fg:bg,bg:fg,color_source:None,style:0};
+                let one=clanky_core::TerminalSnapshot{rows:1,cols:1,cells:vec![cell],..Default::default()};
+                p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[cx,cy],clip:block.array(),snapshot:one,underlines:Vec::new(),opacity:1.0}));
             }
         }
         if let Some(notice)=&bar.notice{
@@ -156,7 +171,10 @@ fn completion(p:&mut Paint,g:&Geometry,popup:&Popup,c:&crate::themes::Colors,fai
     let foot="Tab completes · Enter runs · Esc closes";let foot_w=p.width(foot,10.5*s,400);
     let w=(name_w+60.0*s).max(foot_w+18.0*s).max(290.0*s).min(g.area.w-20.0*s);
     let h=4.0*s+shown as f32*row+4.0*s+22.0*s+4.0*s;
-    let x=(g.text_x-9.0*s).max(g.area.x+6.0*s);let y=(g.area.y-6.0*s-h).max(0.0);
+    // Under the word being completed, item text in line with it; the bottom covers the input's
+    // hairline and the top edge of the chip row (mockup .pop bottom 50 over .chip).
+    let x=(g.text_x+popup.col as f32*g.cell[0]-13.0*s).min(g.area.x+g.area.w-6.0*s-w).max(g.area.x+6.0*s);
+    let y=(g.chips_y+2.0*s-h).max(0.0);
     let rect=r(x,y,w,h);
     p.out.scene.layers.push(Layer::Shape(Shape{rect:rect.array(),radius:9.0*s,fill:Fill::Solid([0;4]),border:None,
         shadow:Some(Shadow{offset:[0.0,12.0*s],blur:32.0*s,spread:0.0,color:[0,0,0,140]})}));

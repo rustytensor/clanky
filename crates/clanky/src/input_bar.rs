@@ -304,10 +304,12 @@ impl App {
             let shell = info.and_then(|i| i["exe"].as_str()).and_then(|e| std::path::Path::new(e).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let access = (!self.applied_post_ai).then(|| self.studio.permissions.get(&id).copied().unwrap_or(false));
             let is_target = target.as_deref() == Some(id.as_str());
-            let caret = (is_target && focused.as_deref() == Some(id.as_str()) && caret_shown).then_some((line, col));
-            let popup = state.popup.as_ref().filter(|_| is_target).map(|(_, items, selected)| Popup {
-                items: items.iter().map(|c| (c.shown.clone(), c.kind.label())).collect(), selected: *selected });
-            out.push(Bar { pane: id.clone(), geometry: Some(g), lines, top_line, left_col, ghost, caret, folder, branch, shell,
+            let caret_here = is_target && focused.as_deref() == Some(id.as_str());
+            let caret = (caret_here && caret_shown).then_some((line, col));
+            let popup = state.popup.as_ref().filter(|_| is_target).map(|(word, items, selected)| Popup {
+                items: items.iter().map(|c| (c.shown.clone(), c.kind.label())).collect(), selected: *selected,
+                col: state.edit.line_col(word.start).1.saturating_sub(left_col) });
+            out.push(Bar { pane: id.clone(), geometry: Some(g), lines, top_line, left_col, ghost, caret, caret_here, folder, branch, shell,
                 access, aside, notice: state.notice.clone(), popup });
         }
         out
