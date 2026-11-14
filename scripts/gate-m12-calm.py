@@ -65,12 +65,12 @@ def compare(data, scene_only=False, no_idle=False):
     exact(hidden['inset'], [0, 46, 1240, 688], 'hidden inset')
     exact(hidden['a']['rect'], [0, 46, 1240, 340], 'hidden pane')
     exact([hidden['a']['cols'], hidden['a']['rows']], [151, 15], 'hidden grid size')
-    # Divider dragged to y 300: the 1 px gap centred on the pointer, as the M12 design centred its 12 px gap;
-    # pane A 300 - 0.5 - 38 = 261.5 -> 261 (the first pane takes the floor, as in the even split), B the rest
-    # 695 - 261 = 434 from y 300. Rows floor((261 - 12) / 20) = 12 and floor((434 - 12) / 20) = 21.
+    # Divider dragged to y 300: the 8 px gap [R1] centred on the pointer, as the M12 design centred its 12 px gap;
+    # pane A 300 - 4 - 46 = 250, B the rest 680 - 250 = 430 from y 304. Rows floor((250 - 28) / 20) = 11 and
+    # floor((430 - 28) / 20) = 20.
     drag = data['drag']
-    for key, rect, rows in [('a', [236, 38, 1004, 261], 12),
-                            ('b', [236, 300, 1004, 434], 21)]:
+    for key, rect, rows in [('a', [244, 46, 996, 250], 11),
+                            ('b', [244, 304, 996, 430], 20)]:
         exact(drag[key]['rect'], rect, f'drag pane {key}')
         exact(drag[key]['rows'], rows, f'drag rows {key}')
         if not scene_only:
