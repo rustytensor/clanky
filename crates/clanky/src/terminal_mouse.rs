@@ -65,7 +65,12 @@ impl App {
         let y = ((self.mouse.1 - pane.grid_origin[1] as f64) / ch).max(0.0);
         let col = (x.floor() as usize).min(pane.cols - 1);
         let right = x.floor() as usize >= pane.cols || x.fract() >= 0.5;
-        Some(Hit { id: pane.id.clone(), col, row: (y.floor() as usize).min(pane.rows - 1), right, rows: pane.rows })
+        // Space between quiet blocks: the rows as last drawn.
+        let row = match self.studio.breaths.get(&pane.id) {
+            Some(breath) => breath.row_at((self.mouse.1 - pane.grid_origin[1] as f64) as f32, ch as f32),
+            None => y.floor() as usize,
+        };
+        Some(Hit { id: pane.id.clone(), col, row: row.min(pane.rows - 1), right, rows: pane.rows })
     }
 
     fn pane_snapshot(&self, id: &str) -> Option<&TerminalSnapshot> { self.studio.snapshots.get(id) }

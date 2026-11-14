@@ -166,6 +166,7 @@ impl App {
     fn input_to_shell(&mut self, id: &str, bytes: &[u8]) -> Result<bool, String> {
         self.engine.input(id, bytes).map_err(|e| e.message)?;
         self.sent_input = true;
+        self.follow_input(id);
         Ok(true)
     }
     /// Enter: the text goes to the shell as one bracketed paste and a carriage return.
@@ -185,6 +186,7 @@ impl App {
         pane.edit = LineEdit::default();
         pane.recall = None; pane.ghost_off = false;
         self.bars.history.push(&text);
+        self.follow_input(id);
         self.terminal_dirty = true;
         Ok(())
     }
