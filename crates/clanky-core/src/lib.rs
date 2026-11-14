@@ -5,6 +5,7 @@ mod kitty;
 pub mod layout;
 pub mod platform;
 mod session;
+pub mod shell;
 mod terminal;
 pub(crate) use engine::{Command, Tab};
 pub use engine::{CoreError, Engine, set_request_connection};

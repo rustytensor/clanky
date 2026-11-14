@@ -999,8 +999,11 @@ impl Engine {
                 };
                 let command = Arc::new(Command::new(id.clone(), tab_id.into(), &tab, trusted)?);
                 let size = tab.terminal.lock().unwrap().size;
+                // The owner's shell gets Clanky's prompt marks; an agent's argv runs as given.
+                let (argv, env) = trusted.then(|| crate::shell::integrate(&argv, tab_id)).flatten()
+                    .unwrap_or((argv, Vec::new()));
                 let process =
-                    platform::spawn(&argv, cwd, size.0, size.1, command.clone(), tab.clone())
+                    platform::spawn(&argv, cwd, size.0, size.1, &env, command.clone(), tab.clone())
                         .map_err(|e| error("spawn_failed", e.to_string()))?;
                 *tab.process.lock().unwrap() = Some(process);
                 let mut commands = tab.commands.lock().unwrap();
@@ -1161,6 +1164,7 @@ impl Engine {
                 let _authority = self.0.1.authority.lock().unwrap();
                 self.check_lease(&tab, lease, trusted)?;
                 tab.close();
+                crate::shell::forget(tab_id);
                 let mut s = self.0.0.lock().unwrap();
                 if s.tabs.remove(tab_id).is_some() {
                     s.workspace.remove(tab_id);

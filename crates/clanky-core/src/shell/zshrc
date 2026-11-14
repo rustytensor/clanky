@@ -1,0 +1,6 @@
+# Clanky's shell integration for zsh, step 2 of 2: give back the user's ZDOTDIR, read their
+# .zshrc, then add the prompt marks.
+if [[ -n ${__clanky_user_zdotdir-} ]]; then ZDOTDIR=$__clanky_user_zdotdir; else unset ZDOTDIR; fi
+unset __clanky_user_zdotdir
+[[ -r ${ZDOTDIR:-$HOME}/.zshrc ]] && source "${ZDOTDIR:-$HOME}/.zshrc"
+[[ -n ${CLANKY_SHELL_DIR-} ]] && source "$CLANKY_SHELL_DIR/clanky.zsh"
