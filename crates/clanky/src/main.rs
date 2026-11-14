@@ -85,10 +85,18 @@ fn import_colors(args: &[String]) -> i32 {
         _ => { eprintln!("{USAGE}"); return 2; }
     };
     let Some(config) = config.or_else(clanky::platform::settings_path) else { eprintln!("clanky import-colors: no config file path (set HOME or pass --config)"); return 1; };
-    let result = clanky::terminal_schemes::import_file(std::path::Path::new(file))
-        .and_then(|colors| clanky::settings::Settings::open(&config)?.set("terminal_colors", colors).map(|_| ()));
+    let source = std::path::Path::new(file);
+    let result = clanky::terminal_schemes::import_file(source)
+        .and_then(|colors| clanky::settings::Settings::open(&config)?.set("terminal_colors", colors.clone()).map(|_| colors));
     match result {
-        Ok(()) => { println!("{file}: terminal colours saved in {}", config.display()); 0 }
+        Ok(colors) => {
+            // Kept next to the config file too, so Settings lists it with the built-in schemes.
+            match clanky::terminal_schemes::keep_imported(&config, source, &colors) {
+                Ok(name) => println!("{name}: terminal colours saved in {}; Settings > Terminal lists it", config.display()),
+                Err(error) => println!("{file}: terminal colours saved in {} (not kept in the scheme list: {error})", config.display()),
+            }
+            0
+        }
         Err(error) => { eprintln!("clanky import-colors: {error}"); 1 }
     }
 }

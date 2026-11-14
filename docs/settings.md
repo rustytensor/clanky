@@ -25,7 +25,8 @@ The rebuilt panel uses the same [JSON config file](config.md) as hand editing.
 - **Terminal:** font (bundled or any installed monospace family), size, opacity, the tools panel and
   animations; then line height, cursor blink (System, On, Off), the terminal's own background, text,
   cursor and selection colours, and the **Colour scheme** group: a search field, **Import…**,
-  **Follow the window theme** and 40 built-in schemes (Down and Up preview one in the terminal, Enter
+  **Follow the window theme**, the schemes you imported and 40 built-in ones, with a sample terminal
+  in the highlighted scheme's colours (Down and Up preview one in the terminal, Enter
   or a click keeps it, Escape puts the saved colours back). The page scrolls to the rows below
   Animations. See [colour schemes](terminal.md#colour-schemes).
 - **Agents:** masking status, stop/resume actions and named per-pane access switches.

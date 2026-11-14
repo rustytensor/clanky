@@ -35,17 +35,20 @@ Ptyxis), Konsole, Windows Terminal (Campbell), macOS Terminal, iTerm2, Alacritty
 Ghostty, then Ayu Mirage, Catppuccin Latte and Mocha, Dracula, Everforest Dark and Light, GitHub Dark
 and Light, Gruvbox Dark and Light, Kanagawa and Kanagawa Dragon, Material, Monokai, Night Owl, Nord,
 Oceanic Next, One Dark and One Light, Rosé Pine, Moon and Dawn, Solarized Dark and Light, Tokyo Night,
-Storm, Moon and Day, Tomorrow Night and Zenburned. Each row shows the name and four dots of the
+Storm, Moon and Day, Tomorrow Night and Zenburned. The heading names the scheme in use, whatever the
+search or a preview shows; its row has a ring (one ring while another row is previewed). Each row shows the name and four dots of the
 scheme's ANSI red, green, blue and yellow (1, 2, 4, 3) on a chip of its background, as the theme
 picker does. Typing in the search field keeps the rows whose name holds the text. **Down** and **Up**
-move a highlight and show it in the terminal behind Settings without saving; **Enter** or a click keeps
+move a highlight and show it in the terminal behind Settings, and in the small sample terminal beside
+the list (its text in six of the ANSI colours, a selection, the cursor and all 16 colours), without saving; **Enter** or a click keeps
 it, writing all 20 of its colours to `terminal_colors`; **Escape** puts the saved colours back. Where
 each scheme's colours come from, with its licence, is in
 [assets/terminal-schemes/SOURCES.md](../assets/terminal-schemes/SOURCES.md).
 
 ### Importing another terminal's colours
 
-**Import…** in the same group asks for a file; from a shell:
+**Import…** in the same group asks for a file (the field starts in your home folder: type the rest of
+the path); from a shell:
 
 ```sh
 clanky import-colors ~/Downloads/Nord.itermcolors
@@ -59,6 +62,10 @@ content and extension, and saves the colours in `terminal_colors`; a running win
 a second. A file without a cursor colour draws the cursor in its foreground; one without a selection
 colour (Konsole, Xresources, Ptyxis) gets the colour a quarter of the way from its background to its
 foreground. A file that is not a colour scheme is refused (exit 1) and the config file is left alone.
+
+Each import is also kept as `terminal-schemes/<file name>.json` next to the config file, so the list
+shows it after **Follow the window theme**, named after the file, and it can be picked again later.
+Delete that file to take it off the list.
 
 `clanky terminal-colors import FILE.palette` still prints a Ptyxis palette's `[Dark]` section as
 `terminal_colors` JSON.
