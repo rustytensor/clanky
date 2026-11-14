@@ -311,7 +311,10 @@ impl App {
                 // With space between blocks, a block is its meta row, command and output, and the space under it.
                 if let Some(breath)=&data.breath {
                     let s=layout.scale as f32;let ch=layout.cell_px[1] as f32;let last=block.last_row.min(data.snapshot.rows.saturating_sub(1));
-                    let top=(origin[1]+breath.tops[block.first_row]-clanky::calm::breath::gap_above(block.first_row==0,s)+s).max(pane.grid_clip.y);
+                    // A block starts at the hairline above it (the first block at the top of its 9 px), where
+                    // the block above ends, so a pointer in the space between two blocks belongs to one of them.
+                    let below=if block.first_row==0{0.0}else{clanky::calm::breath::BELOW*s};
+                    let top=(origin[1]+breath.tops[block.first_row]-clanky::calm::breath::gap_above(block.first_row==0,s)+below).max(pane.grid_clip.y);
                     let bottom=(origin[1]+breath.tops[last]+ch+clanky::calm::breath::BELOW*s).min(pane.grid_clip.y+pane.grid_clip.h);
                     if bottom<=top { continue; }
                     rect.y=top;rect.h=bottom-top;
