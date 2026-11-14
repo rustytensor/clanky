@@ -65,14 +65,22 @@ pub struct Studio {
     pub(super) breaths: BTreeMap<String, clanky::calm::breath::Breath>,
     /// Per pane: px the wheel took back from the lift that keeps the newest row in view.
     pub(super) lift: BTreeMap<String, f32>,
+    /// Per pane: when the wheel last moved it, for the overlay scrollbar.
+    scrollbars: BTreeMap<String, Instant>,
+    /// When a shown scrollbar starts to go (one frame then, none while it stays).
+    pub(super) scrollbar_wake: Option<Instant>,
 }
+/// The overlay scrollbar stays this long after the wheel, then fades out over SCROLLBAR_FADE
+/// (or goes at once without animations).
+const SCROLLBAR_HOLD: Duration = Duration::from_millis(1000);
+const SCROLLBAR_FADE: Duration = Duration::from_millis(350);
 impl Default for Studio {
     fn default() -> Self {
         Self { drag: None, theme: look::Theme::default(), calm_theme:clanky::themes::builtin("stone-dark").expect("bundled Stone theme"), terminal_info:BTreeMap::new(), user_name:None, pane_labels:BTreeMap::new(),seen_files:Default::default(),local_recent:Default::default(), scene_cache:look::SceneCache::default(), title:None,ime:None,hits: Vec::new(), metadata: Value::Null, permissions: BTreeMap::new(),
             blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
-            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new(), breaths: BTreeMap::new(), lift: BTreeMap::new() }
+            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new(), breaths: BTreeMap::new(), lift: BTreeMap::new(), scrollbars: BTreeMap::new(), scrollbar_wake: None }
     }
 }
 
@@ -184,10 +192,12 @@ impl App {
         let mut layout = self.layout_with(tree)?;
         // The command input takes whole terminal rows at the bottom of each terminal pane, for
         // one line of text; more lines draw over the rows above. The rows stay while a command runs.
+        // The pane's padding stays between the last row and the input.
         if self.input_on() {
             let input_h = clanky::calm::command_bar::height(layout.cell_px[1] as f32, layout.scale as f32, 1);
+            let padding = layout.metrics.pane_padding_y as f32;
             for pane in layout.panes.iter_mut().filter(|p| !self.files.panes.contains_key(&p.id)) {
-                let top = pane.rect.y + pane.rect.h - input_h;
+                let top = pane.rect.y + pane.rect.h - input_h - padding;
                 let rows = ((top - pane.grid_origin[1]) / layout.cell_px[1] as f32).floor().max(1.0) as usize;
                 if rows < pane.rows {
                     pane.rows = rows;
@@ -307,6 +317,8 @@ impl App {
         deadlines.extend(self.context_menu.animation_deadline(true));
         deadlines.extend(self.studio.card_clocks.values().map(|start|*start+Duration::from_millis(120)));
         if let Some(end)=self.settings.as_ref().and_then(|panel|panel.animation_deadline()){deadlines.push(end);}
+        // A scrollbar's fade only: while it stays, nothing redraws.
+        deadlines.extend(self.studio.scrollbars.values().filter(|start|now>=**start+SCROLLBAR_HOLD).map(|start|*start+SCROLLBAR_HOLD+SCROLLBAR_FADE));
         deadlines.into_iter().filter(|end|*end>now).max()
     }
     fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
@@ -639,6 +651,10 @@ impl App {
             self.files.scroll(&id, row, lines.round() as i32, columns.round() as i32)?;
         } else {
             if self.terminal_wheel(delta, layout.cell_px)? { return Ok(()); }
+            if self.studio.snapshots.get(&id).is_some_and(|s| s.history > 0) {
+                self.studio.scrollbars.insert(id.clone(), Instant::now());
+                self.frame_clock.invalidate();
+            }
             if self.breath_wheel(&id, lines.round(), layout.cell_px[1] as f32) { return Ok(()); }
             self.engine.scroll(&id, -lines.round() as i32).map_err(|e| e.message)?;
             // The view moved: the next frame reads a new snapshot, not the cached one.
@@ -979,8 +995,17 @@ impl App {
                 let top=image.y.max(image.clip_y); let bottom=image.y.saturating_add(image.rows).min(image.clip_y.saturating_add(image.clip_rows));
                 !view.underlines.iter().any(|u|left<right && top<bottom && left<u.end_col && right>u.start_col && top<=u.row && bottom>u.row)
             });
+            if let Some(start) = self.studio.scrollbars.get(&pane.id) {
+                let age = now.saturating_duration_since(*start);
+                view.scrollbar = if age < SCROLLBAR_HOLD { 1.0 }
+                    else if self.config.animations && age < SCROLLBAR_HOLD + SCROLLBAR_FADE { 1.0 - (age - SCROLLBAR_HOLD).as_secs_f32() / SCROLLBAR_FADE.as_secs_f32() }
+                    else { 0.0 };
+            }
             state.panes.push(view);
         }
+        let fade = if self.config.animations { SCROLLBAR_FADE } else { Duration::ZERO };
+        self.studio.scrollbars.retain(|id, start| layout.pane(id).is_some() && now < *start + SCROLLBAR_HOLD + fade);
+        self.studio.scrollbar_wake = self.studio.scrollbars.values().map(|start| *start + SCROLLBAR_HOLD).filter(|at| *at > now).min();
         // Tabs: the folder of each tab's focused pane, a dot while a command runs or an agent works.
         for (index, group) in self.groups.iter().enumerate() {
             let leaves = group.layout.leaves();
