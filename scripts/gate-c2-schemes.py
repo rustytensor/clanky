@@ -656,7 +656,10 @@ def imports_story(win, box):
              ('iTerm2', ref('schemes/Tomorrow Night.itermcolors'), parse_iterm(ref('schemes/Tomorrow Night.itermcolors')))]
     require(parse_ptyxis(work / 'lagoon.palette')['ansi'] == [rgb(c) for c in LAGOON], 'setup: the Ptyxis file reads [Dark]')
     prev = parse_iterm(button)['background']
+    # The setup reads the real files: the import fault changes only what M2 Ghostty expects, so it must reach M2.
+    real = {'Ghostty': parse_ghostty(ref('ghostty/Kanagawa Dragon'))}
     for label, path, want in files:
+        want = real.get(label, want)
         # A stale screen still shows the previous background exactly; the screen check allows +-2 per channel, so
         # a background more than 4 away from the previous one cannot pass on a stale screen.
         require(not near(want['background'], prev, 4), f'setup M2: {label} background differs from the one before')
