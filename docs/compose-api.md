@@ -65,8 +65,8 @@ undo works. Ctrl+S never saves a draft file.
 Config gains `pub compose_dictionary: String` (en_US),
 `pub compose_dictionary_dir: PathBuf` (/usr/share/hunspell),
 `pub compose_send_enter: bool` (false), `pub compose_words: Option<PathBuf>`.
-The first three are configurable JSON fields; compose_words is resolved by load
-from the config directory and is not a JSON field. from_json/default have no
+The first three are settings (Settings > Editor); compose_words is resolved by load
+from the config directory and is not a setting. from_json/default have no
 personal path. Missing personal path disables Add with a visible error.
 
 App owns Compose. Open only with a focused terminal (not a file editor), via

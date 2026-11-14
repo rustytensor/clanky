@@ -103,10 +103,10 @@ fn main() {
     }
     let _scratch = Scratch(root.clone());
     let exe = std::env::current_exe().unwrap().with_file_name("clanky");
-    let config = root.join("config.json");
-    let disabled = root.join("disabled.json");
-    fs::write(&config, "{\"post_ai\":false}").unwrap();
-    fs::write(&disabled, "{\"post_ai\":false}").unwrap();
+    let config = root.join("config.xml");
+    let disabled = root.join("disabled.xml");
+    fs::write(&config, "<clanky version=\"1\"><post_ai>false</post_ai></clanky>\n").unwrap();
+    fs::write(&disabled, "<clanky version=\"1\"><post_ai>false</post_ai></clanky>\n").unwrap();
     {
         let server = start(&exe, &root, "live", &config, false);
         let tab = server
@@ -198,7 +198,7 @@ fn main() {
         agent.exchange(4, "hello", &json!({})).unwrap();
         assert!(agent.exchange(4, "resume_agents", &json!({})).is_err());
         // Disk change, with no window present, must switch the live server on.
-        fs::write(&config, "{\"post_ai\":true}").unwrap();
+        fs::write(&config, "<clanky version=\"1\"><post_ai>true</post_ai></clanky>\n").unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             let probe = Client::connect_agent(&server.socket).unwrap();

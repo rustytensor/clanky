@@ -14,6 +14,10 @@ toggle is the title bar's tools toggle (23,19) [mockup .ico at x 10..36; Q1 T3].
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -98,12 +102,12 @@ def main(work, bins):
     fixture['name'] = 'Click fixture'
     fixture['colors']['background'] = '#010203'
     (themes / 'click-fixture.json').write_text(json.dumps(fixture))
-    config = work / 'config.json'
-    config.write_text(json.dumps(dict(theme='dark', theme_dark='user:click-fixture', theme_light='stone-light',
-                                     font_family='Geist Mono', ui_font_family='Geist', font_size=14,
-                                     columns=155, rows=37, opacity=1, rails=True, animations=False,
-                                     startup_animation=False, restore_layout=False, post_ai=False,
-                                     osc52_write=False, osc52_read=False)))
+    config = work / 'config.xml'
+    config_xml.write(config, dict(theme='dark', theme_dark='user:click-fixture', theme_light='stone-light',
+                                  font_family='Geist Mono', ui_font_family='Geist', font_size=14,
+                                  columns=155, rows=37, opacity=1, rails=True, animations=False,
+                                  startup_animation=False, restore_layout=False, post_ai=False,
+                                  osc52_write=False, osc52_read=False))
     socket = work / 'server.sock'
     trace = work / 'frames.csv'
     children, logs = [], []
@@ -128,7 +132,7 @@ def main(work, bins):
         return sum(line.startswith('frame,') for line in trace.read_text().splitlines()) if trace.exists() else 0
 
     def saved():
-        return json.loads(config.read_text())
+        return config_xml.load(config)
 
     try:
         launch([bins / 'clanky', '--server', '--socket', socket], env, 'server')

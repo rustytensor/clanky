@@ -13,6 +13,8 @@ pub mod settings_panel;
 mod settings_appearance;
 pub mod settings_layout;
 mod settings_access;
+mod settings_form;
+mod settings_pages;
 pub mod command_bar;
 pub mod breath;
 pub use recent::{human_recent,pane_label,uptime_label};
@@ -30,9 +32,11 @@ fn rect(x:f64,y:f64,w:f64,h:f64)->PixelRect{PixelRect{x:x as f32,y:y as f32,w:w.
 pub fn font_metrics(zoom:&crate::config::Zoom,scale:f64,face:Option<[f32;3]>,scales:[f32;2])->Result<crate::config::Metrics,String>{
     let mut metrics=zoom.metrics(scale)?;
     let px=f64::from(metrics.font_px);
+    // Round up to whole pixels, but not over f32 noise: 15 px x an advance of 0.6 is 9 px, not 10.
+    let up=|v:f64|{let nearest=v.round();if (v-nearest).abs()<=1e-4{nearest}else{v.ceil()}};
     let (width,height)=match face{
-        Some([advance,ascent,descent])=>((px*f64::from(advance)).ceil(),(px*f64::from(ascent)).ceil()+(px*f64::from(descent)).ceil()),
-        None=>((px*8.0/13.0).ceil(),(px*20.0/13.0).ceil()),
+        Some([advance,ascent,descent])=>(up(px*f64::from(advance)),up(px*f64::from(ascent))+up(px*f64::from(descent))),
+        None=>(up(px*8.0/13.0),up(px*20.0/13.0)),
     };
     metrics.cell_width=(width*f64::from(scales[0])).floor().max(1.0) as u32;
     metrics.cell_height=(height*f64::from(scales[1])).floor().max(2.0) as u32;
@@ -47,6 +51,9 @@ fn cells_follow_vte(){
     let zoom=crate::config::Zoom::new(11.0);
     let m=font_metrics(&zoom,1.0,Some([0.6,1.025,0.275]),[1.0,1.25]).unwrap();
     assert_eq!((m.cell_width,m.cell_height),(9,26));
+    // 15 px x 0.6 is exactly 9 px; the f32 advance must not round it up to 10.
+    let m=font_metrics(&crate::config::Zoom::new(11.25),1.0,Some([0.6,1.025,0.275]),[1.0,1.0]).unwrap();
+    assert_eq!(m.cell_width,9);
 }
 /// What the window shows around the panes (Settings › Appearance › Layout).
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
