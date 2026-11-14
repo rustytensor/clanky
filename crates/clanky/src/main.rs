@@ -9,6 +9,7 @@ mod panels;
 mod editor_workspace;
 use editor_workspace::{EditorWorkspace, TERMINALS};
 mod tui;
+mod input_bar;
 
 use clanky::{
     config::{Config, Metrics, Zoom},
@@ -199,6 +200,8 @@ struct App {
     next_polish: Instant,
     persistence: Option<(PathBuf, PathBuf)>,
     studio: studio::Studio,
+    /// Each terminal pane's command input, and the history it recalls.
+    bars: input_bar::Inputs,
     settings: Option<clanky::calm::settings_panel::SettingsPanel>,
     palette: clanky::calm::palette::Palette,
     agent_picker: clanky::calm::agent_picker::AgentPicker,
@@ -290,6 +293,7 @@ fn run_window(engine: Client, mut config: Config, local_files: bool, persistence
         next_polish: Instant::now(),
         persistence,
         studio: studio::Studio::default(),
+        bars: { let mut bars = input_bar::Inputs::default(); if local_files { bars.load_saved(); } bars },
         settings,settings_error,next_settings:Instant::now(),palette:Default::default(),agent_picker:Default::default(),context_menu:Default::default(),terminal_face:None,blink,gnome_blink,blink_start:Instant::now(),blink_shown:true,pending_agent:None,
         startup_flags, applied_post_ai, theme_runtime,
         startup: None,
@@ -875,6 +879,7 @@ impl App {
                 return Ok(());
             }
         }
+        if self.command_key(key, text)? { return Ok(()); }
         let modifiers = self.modifiers;
         let composing = self.input.composing();
         if let Some(pane) = self.files.editor() {
@@ -1050,6 +1055,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.pointer_pressed=false;
                 if let Some(panel)=&mut self.settings {panel.release();}
                 self.files.dragging = None;
+                self.bars.dragging = None;
                 self.compose_dragging = false;
                 self.studio.drag = None;
                 if let Err(e) = self.terminal_release(1) { self.status = Some(e); }
@@ -1168,6 +1174,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                         Ime::Preedit(text, _) => self.files.preedit(text),
                         _ => {}
                     }
+                    self.input.on_ime(&event);
+                    Ok(())
+                } else if matches!(&event, Ime::Commit(text) if self.command_text(text)) {
                     self.input.on_ime(&event);
                     Ok(())
                 } else if let Some(bytes) = self.input.on_ime(&event) {
