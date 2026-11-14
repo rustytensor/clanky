@@ -97,6 +97,7 @@ pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:O
         Control::Segments(vec![("Read + run","agent_pane_access","read+run"),("Off","agent_pane_access","off")],if cfg.agent_pane_access{"read+run"}else{"off"}))],None,hits);
     y=form::heading(p,g,t,y+20.0,"Agent tools");
     for (i,agent) in cfg.agents.iter().enumerate(){
+        if !super::settings_frame::row_fits(g,y){y+=form::ROW;continue;}
         let w=p.width("Remove",13.0*s,500)/s+20.0;
         let control=super::settings_frame::row(p,g,t,y,w,&agent.name,"",false);
         let mut cmd=c.muted_foreground;cmd[3]=cmd[3].max(200);

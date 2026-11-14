@@ -59,6 +59,7 @@ fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&st
     let text_width=522.0-total-24.0;
     let lines=wrap(p,description,13.0*s,text_width*s);
     let height=(if last{67.84375}else{68.84375})+extra+LINE*(lines.len().max(1)-1) as f32;
+    if !settings_frame::row_fits(g,y){return height;}
     p.pane_label(g.local(229.0,y+14.0,text_width,18.0),label,14.0*s,c.foreground,500);
     for (i,text) in lines.iter().enumerate(){p.text(g.local(229.0,y+35.0+LINE*i as f32,text_width,18.84375),text,13.0*s,c.muted_foreground,400,false);}
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,c.border,None);}
@@ -88,7 +89,7 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
         "Tab style","Tabs across the top, or a list down the left with folder, branch and last command.",false);
     let tools_y=y;
     y+=segments(p,g,t,y,35.15625,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
-        "Tools panel","A panel on the left, shown and hidden with Ctrl+Shift+B.",false);
+        "Tools panel","A panel on the left. Ctrl+Shift+B shows it or puts it away.",false);
     // Tool chips (mockup .tok): a check in the ok colour when the tool is in the panel.
     let mut x=229.0;
     for (tool,_,name) in TOOLS{
@@ -107,7 +108,7 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
         "Command input","An editor at the bottom of each pane, or the shell's own prompt.",false);
     let blocks=match cfg.block_style{BlockStyle::Quiet=>"quiet",BlockStyle::Cards=>"cards"};
     y+=segments(p,g,t,y,0.0,&[("Quiet","block_style","quiet"),("Cards","block_style","cards")],blocks,hits,
-        "Blocks","Quiet hairlines, or today's cards.",false);
+        "Blocks","Quiet hairlines between commands, or framed blocks.",false);
     y+=segments(p,g,t,y,0.0,&[("Show","status_line","show"),("Hide","status_line","hide")],if cfg.status_line{"show"}else{"hide"},hits,
         "Status line","Session, server and masking, in one row at the bottom.",true);
     y

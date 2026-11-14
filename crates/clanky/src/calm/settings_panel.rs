@@ -43,7 +43,8 @@ impl SettingsPanel{
         out
     }
     pub fn new(store:Settings)->Self{let effective=store.config().clone();Self{store,open:false,error:None,forced_post_ai:false,section:Section::General,hits:vec![],focus:None,keyboard_focus:false,menu:false,slider:None,effective,editor:None,scroll:0.0,max_scroll:0.0,active_theme:None,system_light:false,mono_fonts:Vec::new(),menu_scroll:0,picks:Vec::new(),highlight:None,preview:(None,None),palettes:None}}
-    pub fn toggle(&mut self){self.open=!self.open;self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;}
+    /// Settings opens on General, at the top.
+    pub fn toggle(&mut self){self.open=!self.open;if self.open{self.section=Section::General;self.scroll=0.0;}self.keyboard_focus=false;self.menu=false;self.focus=None;self.slider=None;self.editor=None;self.end_preview();self.palettes=None;}
     fn end_preview(&mut self){self.highlight=None;self.preview=(None,None);}
     /// The theme or terminal colours shown behind Settings while a picker row is highlighted.
     pub fn preview_theme(&self)->Option<&Theme>{self.preview.0.as_ref()}

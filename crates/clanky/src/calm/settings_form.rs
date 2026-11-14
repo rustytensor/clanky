@@ -88,6 +88,7 @@ pub(super) fn rows_then(p:&mut Paint<'_>,g:&Geometry,t:&Theme,mut y:f32,rows:&[R
     let s=g.scale;
     for (i,item) in rows.iter().enumerate(){
         let last=i+1==rows.len() && !more;
+        if !settings_frame::row_fits(g,y){y+=ROW;continue;}
         let width=match &item.control{Control::Switch(..)=>32.0,Control::Segments(options,_)=>segments_width(p,options,s),Control::Field(_,_,w,_)=>*w};
         let control=settings_frame::row(p,g,t,y,width,&item.label,&item.description,last);
         match &item.control{
