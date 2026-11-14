@@ -378,8 +378,10 @@ impl Terminal {
             let revision = self.term.grid().anchor_revision();
             let alternate = self.term.mode().contains(TermMode::ALT_SCREEN);
             self.processor.advance(&mut self.term, byte);
-            if revision != self.term.grid().anchor_revision()
-                || alternate != self.term.mode().contains(TermMode::ALT_SCREEN) {
+            // A switch to or from the alternate screen leaves the normal screen's lines where they
+            // were (the two grids are kept apart), so its anchors stay; only a change inside one grid
+            // (a clear, a non-preserving scroll) moves lines under them.
+            if alternate == self.term.mode().contains(TermMode::ALT_SCREEN) && revision != self.term.grid().anchor_revision() {
                 self.invalidate_anchors();
             }
             let point = self.term.grid().cursor.point;
@@ -754,13 +756,16 @@ impl Terminal {
     pub(crate) fn card_metadata(&self) -> serde_json::Value {
         let top = self.viewport_line();
         let oldest = self.term.grid().evicted_lines();
+        // Anchors are lines of the normal screen: the alternate screen shows none of them.
+        let normal = !self.term.mode().contains(TermMode::ALT_SCREEN);
         let blocks: Vec<_> = self.observer.blocks.iter().chain(self.observer.active.iter())
+            .filter(|_| normal)
             .filter(|b| b.prompt_line.is_some_and(|p| p >= oldest)
                 && b.command_line.is_some_and(|c| c >= top && c < top + self.size.0 as u64))
             .take(64).map(|b| Self::card_json(b)).collect();
         // The block whose command row has scrolled above the viewport while its output still shows
         // at the top (the window's sticky command line).
-        let sticky = self.observer.blocks.iter().chain(self.observer.active.iter()).rev()
+        let sticky = self.observer.blocks.iter().chain(self.observer.active.iter()).rev().filter(|_| normal)
             .find(|b| b.prompt_line.is_some_and(|p| p >= oldest) && b.command_line.is_some_and(|c| c < top)
                 && (!b.complete || b.end_line.is_some_and(|end| end > top)))
             .map(Self::card_json);
