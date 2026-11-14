@@ -92,18 +92,19 @@ impl SettingsPanel{
         self.end_preview();
         let Some((row,_))=self.schemes.rows.get(index).copied() else{return Effect::None;};
         let result=match row{Row::Follow=>self.store.reset("terminal_colors").map(|_|()),
-            Row::Scheme(_)=>self.store.set("terminal_colors",crate::terminal_schemes::to_value(&Picker::colors(row))).map(|_|())};
+            _=>{let colors=self.schemes.colors(row);self.store.set("terminal_colors",crate::terminal_schemes::to_value(&colors)).map(|_|())}};
+        self.schemes.added=None;
         match result{Ok(())=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
     }
     /// Move the Colour scheme highlight one row (the first move starts from the saved row) and preview it.
     fn step_scheme(&mut self,down:bool)->Effect{
-        let rows=&self.schemes.rows;if rows.is_empty(){return Effect::None;}
-        let last=rows.len()-1;
+        if self.schemes.rows.is_empty(){return Effect::None;}
+        let last=self.schemes.rows.len()-1;
         let start=self.schemes.highlight.or_else(||self.schemes.saved(&self.effective));
         let next=match (start,down){(Some(i),true)=>(i+1).min(last),(Some(i),false)=>i.saturating_sub(1),(None,true)=>0,(None,false)=>last};
         self.schemes.highlight=Some(next);
-        let (row,y)=rows[next];
-        self.preview=(None,Some(Picker::colors(row)));
+        let (row,y)=self.schemes.rows[next];
+        self.preview=(None,Some(self.schemes.colors(row)));
         // Keep the highlighted row inside the page body.
         let (top,bottom)=(57.0+8.0,543.0-8.0);
         if y-self.scroll<top{self.scroll=y-top;}else if y+38.0-self.scroll>bottom{self.scroll=y+38.0-bottom;}
@@ -140,7 +141,7 @@ impl SettingsPanel{
         Action::SchemeSearch=>{self.schemes.focused=true;Effect::Preview},
         Action::SchemeRow(index)=>self.keep_scheme(index),
         Action::SchemeImport=>{let dir=std::env::var_os("HOME").map(|home|format!("{}/",PathBuf::from(home).display())).unwrap_or_default();
-            self.editor=Some(Editor::new(EditKind::Palette,vec![dir]));self.error=None;Effect::None},
+            self.editor=Some(Editor::new(EditKind::Palette,vec![dir]).caret_at_end());self.error=None;Effect::None},
         Action::FontChoice(name)=>{self.menu=false;self.save("font_family",json!(name))},
         Action::FontSize(delta)=>self.save("font_size",json!((self.effective.font_size+delta).clamp(8.0,32.0))),
         Action::Toggle(key,on)=>self.save(key,json!(on)),
@@ -173,7 +174,16 @@ impl SettingsPanel{
                 let path=editor.values[0].trim();
                 let path=match path.strip_prefix("~/"){Some(rest)=>std::env::var_os("HOME").map(|home|PathBuf::from(home).join(rest)).unwrap_or_else(||PathBuf::from(path)),None=>PathBuf::from(path)};
                 let imported=crate::terminal_schemes::import_file(&path);
-                match imported.and_then(|value|self.store.set("terminal_colors",value).map(|_|())){Ok(())=>{self.editor=None;self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
+                match imported.and_then(|value|self.store.set("terminal_colors",value.clone()).map(|_|value)){
+                    Ok(value)=>{
+                        // Kept next to the config file, so the list gets its own row (named after the file) and
+                        // it can be picked again later. The search is cleared so that row shows.
+                        let added=crate::terminal_schemes::keep_imported(self.store.path(),&path,&value);
+                        self.schemes.rescan();self.schemes.query.clear();self.schemes.highlight=None;
+                        self.editor=None;
+                        match added{Ok(name)=>{self.schemes.added=Some(name);self.error=None;},Err(error)=>{self.schemes.added=None;self.error=Some(format!("The colours are in use, but the list could not keep them: {error}"));}}
+                        Effect::Changed},
+                    Err(error)=>{self.error=Some(error);Effect::None}}
             }
             EditKind::Save=>{let Some(mut theme)=self.active_theme.clone()else{return Effect::None;};theme.name=editor.values[0].trim().into();Effect::Theme(ThemeAction::Save{slug:editor.values[1].trim().into(),theme})},
             EditKind::Import=>Effect::Theme(ThemeAction::Import{path:editor.values[0].trim().into(),slug:editor.values[1].trim().into()}),
@@ -255,6 +265,7 @@ impl SettingsPanel{
             let g=&frame.geometry;let mut p=Paint::empty(theme,measure,s,layout.window_px,pointer,pressed);let mut hits=Vec::new();
             p.out.scene.layers.push(Layer::Clip(Some(g.body.array())));
             let gs=settings_frame::Geometry{panel:PixelRect{y:g.panel.y-self.scroll*s,..g.panel},..g.clone()};
+            self.schemes.config=Some(self.store.path().to_path_buf());
             let end=settings_schemes::group(&mut p,&gs,theme,config,&mut self.schemes,&mut hits);
             p.out.scene.layers.push(Layer::Clip(None));
             let body=g.body;hits.retain_mut(|hit|{let top=hit.rect.y.max(body.y);let bottom=(hit.rect.y+hit.rect.h).min(body.y+body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
@@ -281,8 +292,11 @@ impl SettingsPanel{
                 }
             }
         }
-        if let Some(error)=&self.error{p.text(frame.geometry.local(229.0,505.0,522.0,32.0),error,13.0*s,theme.colors.err,400,false);}
-        if self.keyboard_focus{if let Some(hit)=self.focus.and_then(|i|frame.hits.get(i)){
+        // An open dialog shows its own error; the page below it does not repeat it.
+        if let Some(error)=self.error.as_ref().filter(|_|self.editor.is_none()){p.text(frame.geometry.local(229.0,505.0,522.0,32.0),error,13.0*s,theme.colors.err,400,false);}
+        // The Colour scheme search field and rows draw their own focus (one ring on the field while it
+        // takes the keys, a filled row while Up/Down preview it), so they never look selected twice.
+        if self.keyboard_focus{if let Some(hit)=self.focus.and_then(|i|frame.hits.get(i)).filter(|h|!matches!(h.action,Action::SchemeSearch|Action::SchemeRow(_))){
             let mut rect=hit.rect;
             if matches!(hit.action,Action::Toggle(..)|Action::Access(_)) && rect.h>=60.0*s{
                 let border=if matches!(hit.action,Action::Toggle("animations"|"post_ai",_)){0.0}else{s};

@@ -75,11 +75,53 @@ fn color(text: &str) -> Option<Color> {
 
 /// Import FILE as terminal_colors (all 20 colours), telling the format apart by content and extension.
 pub fn import_file(path: &Path) -> Result<Value, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.len() > 1024 * 1024 { return Err(format!("{}: not a colour scheme (larger than 1 MiB)", path.display())); }
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    let folder = path.parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.display().to_string()).unwrap_or_else(|| ".".into());
+    let unreadable = |e: std::io::Error| match e.kind() {
+        std::io::ErrorKind::NotFound => format!("There is no file named {name} in {folder}."),
+        std::io::ErrorKind::PermissionDenied => format!("Clanky may not read {name}: permission denied."),
+        _ if path.is_dir() => format!("{} is a folder. Add the colour file's name after it.", path.display()),
+        _ => format!("Clanky could not read {name}: {e}."),
+    };
+    if path.as_os_str().is_empty() { return Err("Enter the path of a colour file.".into()); }
+    if path.is_dir() { return Err(format!("{} is a folder. Add the colour file's name after it.", path.display())); }
+    let meta = std::fs::metadata(path).map_err(unreadable)?;
+    if meta.len() > 1024 * 1024 { return Err(format!("{name} is not a colour scheme (it is larger than 1 MiB).")); }
+    let text = std::fs::read_to_string(path).map_err(|e| if e.kind() == std::io::ErrorKind::InvalidData { format!("{name} is not a colour scheme (it is not text).") } else { unreadable(e) })?;
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    import_text(&text, &ext).map(|colors| to_value(&colors)).map_err(|e| format!("{}: {e}", path.display()))
+    import_text(&text, &ext).map(|colors| to_value(&colors)).map_err(|e| format!("{name}: {e}"))
+}
+
+/// The folder next to the config file that keeps imported schemes, so the picker lists them.
+pub fn imported_dir(config: &Path) -> std::path::PathBuf {
+    config.parent().unwrap_or(Path::new(".")).join("terminal-schemes")
+}
+
+/// Keep an imported scheme as `<folder>/<file name>.json` ({"name", "terminal_colors"}); returns the name
+/// the picker shows: the source file's name without its extension.
+pub fn keep_imported(config: &Path, source: &Path, colors: &Value) -> Result<String, String> {
+    let name = source.file_stem().map(|n| n.to_string_lossy().trim().to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Imported colours".into());
+    let slug: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' || c == '.' { c } else { '-' }).collect();
+    let dir = imported_dir(config);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let text = serde_json::to_string_pretty(&json!({"name": name, "terminal_colors": colors})).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{}.json", slug.trim_start_matches('.'))), text + "\n").map_err(|e| format!("{}: {e}", dir.display()))?;
+    Ok(name)
+}
+
+/// The imported schemes kept next to the config file, by name. Files that do not read are left out.
+pub fn imported(config: &Path) -> Vec<Scheme> {
+    let Ok(entries) = std::fs::read_dir(imported_dir(config)) else { return Vec::new(); };
+    let mut out: Vec<Scheme> = entries.filter_map(Result::ok).filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter(|e| e.metadata().is_ok_and(|m| m.is_file() && m.len() <= 64 * 1024))
+        .filter_map(|e| {
+            let value: Value = serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
+            let name = value.get("name")?.as_str()?.chars().filter(|c| !c.is_control()).take(80).collect::<String>();
+            let colors = TerminalColors::from_value(value.get("terminal_colors")?).ok()?;
+            Some(Scheme { id: e.path().file_stem()?.to_string_lossy().into_owned(), name, colors })
+        }).collect();
+    out.sort_by_key(|s| s.name.to_lowercase());
+    out
 }
 
 pub fn import_text(text: &str, ext: &str) -> Result<TerminalColors, String> {
