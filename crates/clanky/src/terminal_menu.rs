@@ -18,7 +18,7 @@ impl App {
             context.access = self.studio.permissions.get(id).copied().unwrap_or(false);
             context.selection = self.term_mouse.selection.as_ref()
                 .is_some_and(|held| held.pane == id && self.studio.snapshots.get(id).is_some_and(|s| !held.sel.text(s).is_empty()));
-            if let (Some((col, row)), Some(snapshot)) = (studio::point(pane, self.mouse, layout.cell_px, false), self.studio.snapshots.get(id)) {
+            if let (Some((col, row)), Some(snapshot)) = (self.pane_point(pane, layout.cell_px, false), self.studio.snapshots.get(id)) {
                 context.link = window_tools::url_at(snapshot, row, col).map(|hit| hit.url).filter(|url| window_tools::valid_url(url));
                 if let Some(view) = self.studio.blocks.get(id) {
                     context.block = studio::matched_blocks(snapshot, view).into_iter()

@@ -680,9 +680,10 @@ impl App {
     fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
         if self.search.active_target().is_some() || self.compose.active_target().is_some() || self.files.focus != TERMINALS || self.files.modal() || self.panels.open { return Ok(()); }
         if !bytes.is_empty() {
-            if let Some(id) = self.focused() {
-                self.engine.input(id, bytes).map_err(|e| e.message)?;
+            if let Some(id) = self.focused().map(str::to_owned) {
+                self.engine.input(&id, bytes).map_err(|e| e.message)?;
                 self.sent_input=true;
+                self.follow_input(&id);
             }
         }
         Ok(())

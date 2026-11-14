@@ -127,12 +127,15 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
         }else{
             let quiet=super::chrome::quiet_blocks(&mut p,layout,pane,data,state,&term,origin);
             for q in &quiet{super::chrome::quiet_under(q,&mut snapshot,layout,origin);}
-            p.out.scene.layers.push(Layer::Grid(GridLayer{origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0}));
+            match &data.breath{
+                Some(breath)=>breathing_grid(&mut p,breath,pane,origin,&snapshot,&data.underlines,layout.cell_px[1] as f32),
+                None=>p.out.scene.layers.push(Layer::Grid(GridLayer{origin,clip:pane.grid_clip.array(),snapshot,underlines:data.underlines.clone(),opacity:1.0})),
+            }
             for q in &quiet{super::chrome::quiet_over(&mut p,q,layout,pane,data,state);}
         }
         // Block cursor in the cursor colour; the off half of a blink draws none.
         if focus && state.cursor_visible{if let Some((row,col))=cursor.filter(|(row,col)|*row<pane.rows && *col<pane.cols){
-            let x=origin[0]+col as f32*layout.cell_px[0] as f32;let y=origin[1]+row as f32*layout.cell_px[1] as f32;
+            let x=origin[0]+col as f32*layout.cell_px[0] as f32;let y=origin[1]+data.breath.as_ref().map_or(row as f32*layout.cell_px[1] as f32,|b|b.tops[row]);
             p.shape(r(x,y,layout.cell_px[0] as f32,layout.cell_px[1] as f32),0.0,term.cursor,None);
             let cell=&data.snapshot.cells[row*data.snapshot.cols+col];
             let weight=if cell.style&clanky_core::STYLE_BOLD!=0{700}else{400};
@@ -152,6 +155,21 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     if let Some((id,query,total))=&state.find{if let Some(pane)=layout.panes.iter().find(|pane|pane.id==*id){find_bar(&mut p,pane,query,*total);}}
     let _=(Appearance::Dark,shadow_color as fn(&Theme)->Color);
     p.out
+}
+
+/// The grid in runs of rows that share one offset, each run its own grid layer, so the space
+/// between quiet blocks falls between rows and never inside a cell.
+fn breathing_grid(p:&mut Paint,breath:&super::breath::Breath,pane:&look::PaneLayout,origin:[f32;2],snapshot:&clanky_core::TerminalSnapshot,underlines:&[clanky_render::Underline],ch:f32){
+    let clip=pane.grid_clip;let cols=snapshot.cols;
+    for (start,n,top) in breath.runs(ch){
+        let y=origin[1]+top;
+        if y>=clip.y+clip.h||y+n as f32*ch<=clip.y{continue;}
+        let part=clanky_core::TerminalSnapshot{rows:n,cols,cells:snapshot.cells[start*cols..(start+n)*cols].to_vec(),cursor:None,images:Vec::new(),
+            app_cursor:snapshot.app_cursor,modes:snapshot.modes,history:snapshot.history,display_offset:snapshot.display_offset,
+            wrapped:snapshot.wrapped.iter().filter(|r|**r>=start&&**r<start+n).map(|r|r-start).collect()};
+        let lines=underlines.iter().filter(|u|u.row>=start&&u.row<start+n).map(|u|clanky_render::Underline{row:u.row-start,..u.clone()}).collect();
+        p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[origin[0],y],clip:clip.array(),snapshot:part,underlines:lines,opacity:1.0}));
+    }
 }
 
 /// A short message from the window (an error or a notice) as a small card at the
