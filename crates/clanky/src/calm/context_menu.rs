@@ -30,7 +30,8 @@ struct Row { item:Item, label:&'static str, keys:&'static str, enabled:bool }
 #[derive(Debug,PartialEq,Eq)]
 pub enum Effect { None, Close, Run(Item) }
 
-const WIDTH:f32=252.0;const ROW:f32=26.0;const PAD:f32=4.0;const RULE:f32=9.0;const HEAD:f32=21.0;
+/// Rows 32 px apart with a highlight of radius 6 and 14 px labels (Ptyxis 50.1's popover menu).
+const WIDTH:f32=280.0;const ROW:f32=32.0;const PAD:f32=6.0;const RULE:f32=9.0;const HEAD:f32=24.0;
 /// The shadow reaches this far past the card: left/right, up, down.
 const SHADOW_SIDE:f32=6.0;const SHADOW_UP:f32=2.0;const SHADOW_DOWN:f32=10.0;
 
@@ -130,9 +131,9 @@ impl ContextMenu {
         let a=|mut color:[u8;4]|{color[3]=(color[3] as f32*fade).round() as u8;color};
         let card=self.place(layout.window_px,s);
         let mut p=Paint::empty(theme,measure,s,layout.window_px,(-1.0,-1.0),false);
-        p.out.scene.layers.push(Layer::Shape(Shape{rect:card.array(),radius:8.0*s,fill:Fill::Solid([0;4]),border:None,
+        p.out.scene.layers.push(Layer::Shape(Shape{rect:card.array(),radius:10.0*s,fill:Fill::Solid([0;4]),border:None,
             shadow:Some(Shadow{offset:[0.0,4.0*s],blur:6.0*s,spread:0.0,color:a([0,0,0,120])})}));
-        p.shape(card,8.0*s,a(c.card),Some(a(c.input)));
+        p.shape(card,10.0*s,a(c.card),Some(a(c.input)));
         let dim=|t:f32,color:[u8;4]|->[u8;4]{std::array::from_fn(|i|if i==3{color[3]}else{(color[i] as f32*(1.0-t)+c.card[i] as f32*t).round() as u8})};
         self.card=Some(card);self.rows.clear();
         let mut y=card.y+PAD*s;let mut index=0;
@@ -140,14 +141,14 @@ impl ContextMenu {
         for (g,(head,rows)) in groups.iter().enumerate(){
             if g>0{p.shape(PixelRect{x:card.x+6.0*s,y:y+4.0*s,w:card.w-12.0*s,h:s},0.0,a(c.border),None);y+=RULE*s;}
             if let Some(head)=head{
-                p.text(PixelRect{x:card.x+(PAD+8.0)*s,y:y+4.0*s,w:card.w-2.0*(PAD+8.0)*s,h:HEAD*s-4.0*s},head,11.0*s,a(c.muted_foreground),500,false);
+                p.text(PixelRect{x:card.x+(PAD+10.0)*s,y:y+4.0*s,w:card.w-2.0*(PAD+10.0)*s,h:HEAD*s-4.0*s},head,12.0*s,a(c.muted_foreground),500,false);
                 y+=HEAD*s;
             }
             for r in rows{
-                let rect=PixelRect{x:card.x+PAD*s,y,w:card.w-2.0*PAD*s,h:ROW*s};
-                if self.selected==Some(index){p.shape(rect,5.0*s,a(c.pressed),None);}
+                let rect=PixelRect{x:card.x+PAD*s,y:y.round(),w:card.w-2.0*PAD*s,h:(ROW*s).round()};
+                if self.selected==Some(index){p.shape(rect,6.0*s,a(c.pressed),None);}
                 let ink=if !r.enabled{dim(0.6,c.foreground)}else if r.item==Item::StartAgent{c.agent}else{c.foreground};
-                let mut right=rect.x+rect.w-8.0*s;
+                let mut right=rect.x+rect.w-10.0*s;
                 if r.item==Item::AgentAccess{
                     let on=self.context.access;
                     let pill=PixelRect{x:right-26.0*s,y:rect.y+(ROW-15.0)/2.0*s,w:26.0*s,h:15.0*s};
@@ -155,12 +156,12 @@ impl ContextMenu {
                     p.shape(PixelRect{x:if on{pill.x+pill.w-11.0*s}else{pill.x+2.0*s},y:pill.y+3.0*s,w:9.0*s,h:9.0*s},4.5*s,a(if on{c.card}else{c.muted_foreground}),None);
                     right=pill.x-8.0*s;
                 }else if !r.keys.is_empty(){
-                    let kw=p.mono_width(r.keys,11.5*s,400);
+                    let kw=p.mono_width(r.keys,12.0*s,400);
                     let key_ink=if r.enabled{c.muted_foreground}else{dim(0.6,c.muted_foreground)};
-                    p.text(PixelRect{x:right-kw,y:rect.y,w:kw,h:rect.h},r.keys,11.5*s,a(key_ink),400,true);
+                    p.text(PixelRect{x:right-kw,y:rect.y,w:kw,h:rect.h},r.keys,12.0*s,a(key_ink),400,true);
                     right-=kw+10.0*s;
                 }
-                p.text(PixelRect{x:rect.x+8.0*s,y:rect.y,w:(right-rect.x-8.0*s).max(0.0),h:rect.h},r.label,13.0*s,a(ink),400,false);
+                p.text(PixelRect{x:rect.x+10.0*s,y:rect.y,w:(right-rect.x-10.0*s).max(0.0),h:rect.h},r.label,14.0*s,a(ink),400,false);
                 self.rows.push((rect,index));
                 index+=1;y+=ROW*s;
             }

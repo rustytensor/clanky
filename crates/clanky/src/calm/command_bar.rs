@@ -10,9 +10,11 @@ use clanky_render::{Fill,GridLayer,Layer,Shadow,Shape,TextMetrics,TextRun};
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w:w.max(0.0),h:h.max(0.0)}}
 /// Lines of text the input shows at most; more scroll.
 pub const MAX_LINES:usize=8;
-/// The input's height for `lines` lines of text: border 1, padding 8, chips 21, gap 7, the
-/// lines in terminal rows, padding 10 (mockup .input, .chip).
-pub fn height(cell_h:f32,scale:f32,lines:usize)->f32{(1.0+8.0+21.0+7.0+10.0)*scale+cell_h*lines.clamp(1,MAX_LINES) as f32}
+/// Chips and the Shell | Agent switch: 32 px tall (Marc's R1 of 2026-11-14: controls at least 32 px).
+pub const CHIP_H:f32=32.0;
+/// The input's height for `lines` lines of text: border 1, padding 8, chips 32, gap 7, the
+/// lines in terminal rows, padding 10 (mockup .input, .chip, at R1's control height).
+pub fn height(cell_h:f32,scale:f32,lines:usize)->f32{((1.0+8.0+CHIP_H+7.0+10.0)*scale).round()+cell_h*lines.clamp(1,MAX_LINES) as f32}
 /// Where the input's parts sit in a pane.
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub struct Geometry{pub area:PixelRect,pub chips_y:f32,pub line_y:f32,pub text_x:f32,pub cell:[f32;2],pub cols:usize,pub lines:usize}
@@ -22,9 +24,9 @@ pub fn geometry(layout:&Layout,pane:PixelRect,lines:usize)->Geometry{
     let h=height(cell[1],s,lines).min(pane.h);
     let top=(pane.y+pane.h-h).round();
     let text_x=(pane.x+14.0*s+cell[0]+9.0*s).round();
-    let mode_w=110.0*s;
+    let mode_w=130.0*s;
     let cols=((pane.x+pane.w-14.0*s-mode_w-text_x)/cell[0]).floor().max(1.0) as usize;
-    Geometry{area:r(pane.x,top,pane.w,pane.y+pane.h-top),chips_y:top+9.0*s,line_y:top+37.0*s,text_x,cell,cols,lines}
+    Geometry{area:r(pane.x,top,pane.w,pane.y+pane.h-top),chips_y:(top+9.0*s).round(),line_y:(top+(9.0+CHIP_H+7.0)*s).round(),text_x,cell,cols,lines}
 }
 #[derive(Clone,Debug,Default)]
 pub struct Popup{pub items:Vec<(String,&'static str)>,pub selected:usize,
@@ -61,27 +63,27 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
     let fade=|color:Color|alpha(color,o);
     let faint=crate::calm::scene_faint(&c);
     p.shape(g.area,0.0,term.background,None);
-    p.shape(r(g.area.x,g.area.y,g.area.w,s),0.0,super::chrome::over(term.background,c.border),None);
-    // Chips: folder, branch, shell, agent access (mockup .chip: 21 px, padding 8, radius 6).
-    let mut x=g.area.x+14.0*s;let y=g.chips_y;let ch=21.0*s;let px=11.5*s;
+    p.shape(r(g.area.x,g.area.y.round(),g.area.w,super::chrome::hair(s)),0.0,super::chrome::over(term.background,c.border),None);
+    // Chips: folder, branch, shell, agent access (mockup .chip, 32 px tall, radius 8, 14 px labels).
+    let mut x=g.area.x+14.0*s;let y=g.chips_y;let ch=(CHIP_H*s).round();let px=14.0*s;
     let mut chips:Vec<(String,bool)>=vec![(bar.folder.clone(),true)];
     if let Some(branch)=&bar.branch{chips.push((format!("⎇ {branch}"),true));}
     if !bar.shell.is_empty(){chips.push((bar.shell.clone(),true));}
     let right_edge=g.area.x+g.area.w-14.0*s;
     for (text,mono) in &chips{
-        let w=(if *mono{p.mono_width(text,px,400)}else{p.width(text,px,400)}+18.0*s).ceil();
+        let w=(if *mono{p.mono_width(text,px,400)}else{p.width(text,px,400)}+24.0*s).ceil();
         if x+w>right_edge{break;}
-        p.shape(r(x,y,w,ch),6.0*s,fade(c.card),Some(fade(c.border)));
-        p.text(r(x+10.0*s,y,w-10.0*s,ch),text,px,fade(c.muted_foreground),400,*mono);
+        p.shape(r(x.round(),y,w,ch),8.0*s,fade(c.card),Some(fade(c.border)));
+        p.text(r(x+12.0*s,y,w-12.0*s,ch),text,px,fade(c.muted_foreground),400,*mono);
         x+=w+6.0*s;
     }
     if let (Some(on),None)=(bar.access,bar.aside){
-        let label="Agent access";let tw=p.width(label,px,400);let w=(tw+18.0*s+6.0*s+18.0*s).ceil();
+        let label="Agent access";let tw=p.width(label,px,400);let w=(tw+24.0*s+8.0*s+22.0*s).ceil();
         if x+w<=right_edge{
-            let chip=r(x,y,w,ch);
-            p.shape(chip,6.0*s,c.card,Some(c.border));
-            p.text(r(x+10.0*s,y,tw+1.0,ch),label,px,c.muted_foreground,400,false);
-            let sw=r((x+10.0*s+tw+6.0*s).round(),(y+(ch-10.0*s)/2.0).round(),18.0*s,10.0*s);
+            let chip=r(x.round(),y,w,ch);
+            p.shape(chip,8.0*s,c.card,Some(c.border));
+            p.text(r(x+12.0*s,y,tw+1.0,ch),label,px,c.muted_foreground,400,false);
+            let sw=r((x+12.0*s+tw+8.0*s).round(),(y+(ch-10.0*s)/2.0).round(),18.0*s,10.0*s);
             p.shape(sw,5.0*s,if on{blend(c.background,c.ok,0.55)}else{c.muted},Some(c.input));
             let knob=6.0*s;let kx=if on{sw.x+sw.w-knob-2.0*s}else{sw.x+2.0*s};
             p.shape(r(kx,sw.y+(sw.h-knob)/2.0,knob,knob),knob/2.0,if on{c.foreground}else{c.muted_foreground},None);
@@ -141,18 +143,18 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
         }
         if let Some(notice)=&bar.notice{
             let w=p.width(notice,11.0*s,400);
-            p.text(r((right_edge-112.0*s-w).max(g.text_x),g.chips_y,w+1.0,ch),notice,11.0*s,c.err,400,false);
+            p.text(r((right_edge-132.0*s-w).max(g.text_x),g.chips_y,w+1.0,ch),notice,11.0*s,c.err,400,false);
         }
     }
     // Shell | Agent (mockup .mode): Agent opens the agent picker; Clanky makes no AI calls.
     if bar.access.is_some(){
-        let mpx=11.0*s;let pad=8.0*s;
+        let mpx=14.0*s;let pad=10.0*s;let mh=(CHIP_H*s).round();
         let labels=["Shell","Agent"];let widths:Vec<f32>=labels.iter().map(|l|(p.width(l,mpx,400)+2.0*pad).ceil()).collect();
-        let mut mx=right_edge-widths.iter().sum::<f32>()-2.0*s;
-        let my=(g.line_y+(lh-18.0*s)/2.0).round();
+        let mut mx=(right_edge-widths.iter().sum::<f32>()-2.0*s).round();
+        let my=(g.line_y+(lh-mh)/2.0).round();
         for (i,(label,w)) in labels.iter().zip(&widths).enumerate(){
-            let span=r(mx,my,*w,18.0*s);
-            if i==0{p.shape(span,5.0*s,fade(c.muted),None);}
+            let span=r(mx,my,*w,mh);
+            if i==0{p.shape(span,8.0*s,fade(c.muted),None);}
             p.text(r(span.x+pad,span.y,span.w-pad,span.h),label,mpx,fade(if i==0{c.foreground}else{faint}),400,false);
             if i==1 && bar.aside.is_none(){p.hit(span,HitAction::StartAgent);}
             mx+=w+2.0*s;
