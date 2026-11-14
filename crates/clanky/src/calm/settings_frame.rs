@@ -5,17 +5,19 @@ use clanky_render::{Fill,Layer,Matrix4,PathStroke,Scene,Shadow,Shape,TextMetrics
 use clanky_render::vector::lyon::{math::{point,Box2D},path::{Path,Winding,builder::BorderRadii}};
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum Section { General, Appearance, Terminal, Agents, Keys }
+pub enum Section { General, Appearance, Terminal, Editor, Agents, History, Keys }
 impl Section {
-    pub const ALL:[Self;5]=[Self::General,Self::Appearance,Self::Terminal,Self::Agents,Self::Keys];
-    pub fn title(self)->&'static str {match self{Self::General=>"General",Self::Appearance=>"Appearance",Self::Terminal=>"Terminal",Self::Agents=>"Agents",Self::Keys=>"Keys"}}
+    pub const ALL:[Self;7]=[Self::General,Self::Appearance,Self::Terminal,Self::Editor,Self::Agents,Self::History,Self::Keys];
+    pub fn title(self)->&'static str {match self{Self::General=>"General",Self::Appearance=>"Appearance",Self::Terminal=>"Terminal",Self::Editor=>"Editor",Self::Agents=>"Agents",Self::History=>"History",Self::Keys=>"Keys"}}
 }
 #[derive(Clone,Debug,PartialEq)]
 pub enum Action { Section(Section),Close,OpenFile,FontMenu,FontChoice(String),FontSize(f32),Opacity,Toggle(&'static str,bool),Mode(&'static str),Theme(String),Color(&'static str),ResetColor(&'static str),SaveTheme,ImportTheme,ExportTheme,Field(usize),Confirm,Cancel,PickColor(String),Access(String),StopAgents,ResumeAgents,
     /// Terminal page: line height step, cursor blink mode, one terminal colour, back to theme colours, Ptyxis import.
     CellHeight(f32),Blink(&'static str),TerminalColor(&'static str),ThemeTerminalColors,ImportPalette,
     /// Appearance › Layout: one segment (config key, value), a tool chip; Theme: Follow the system, a picker row.
-    Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize) }
+    Choice(&'static str,&'static str),ToolChip(crate::config::Tool),Follow(bool),Pick(usize),
+    /// A text field edited in place (its config key); an ANSI colour swatch; the agent list.
+    Edit(&'static str),AnsiColor(usize),AddAgent,RemoveAgent(usize) }
 #[derive(Clone,Debug)]
 pub struct Hit {pub rect:PixelRect,pub action:Action}
 pub struct Frame {pub scene:Scene,pub hits:Vec<Hit>,pub geometry:Geometry,pub max_scroll:f32}
@@ -43,6 +45,8 @@ pub(super) fn icon(p:&mut Paint<'_>,kind:&str,rect:PixelRect,mut color:Color,s:f
         "Appearance"=>{path.add_circle(point(8.0,8.0),6.0,Winding::Positive);let mut half=Path::builder();half.begin(point(8.0,2.0));half.cubic_bezier_to(point(4.686292,2.0),point(2.0,4.686292),point(2.0,8.0));half.cubic_bezier_to(point(2.0,11.313708),point(4.686292,14.0),point(8.0,14.0));half.close();fill=Some(half.build());},
         "Terminal"=>{rounded(&mut path,1.8,2.8,12.4,10.4,2.0);path.begin(point(4.5,6.5));path.line_to(point(6.5,8.0));path.line_to(point(4.5,9.5));path.end(false);path.begin(point(8.5,10.0));path.line_to(point(11.5,10.0));path.end(false);},
         "Agents"=>{rounded(&mut path,3.0,5.0,10.0,8.0,2.0);for(a,b)in[([8.0,5.0],[8.0,2.5]),([6.0,9.0],[6.01,9.0]),([10.0,9.0],[10.01,9.0])]{path.begin(point(a[0],a[1]));path.line_to(point(b[0],b[1]));path.end(false);}},
+        "Editor"=>{path.begin(point(3.0,13.0));path.line_to(point(3.6,10.4));path.line_to(point(10.8,3.2));path.line_to(point(12.8,5.2));path.line_to(point(5.6,12.4));path.close();path.begin(point(9.4,4.6));path.line_to(point(11.4,6.6));path.end(false);},
+        "History"=>{path.add_circle(point(8.0,8.0),6.0,Winding::Positive);path.begin(point(8.0,4.6));path.line_to(point(8.0,8.0));path.line_to(point(10.4,9.4));path.end(false);},
         "Keys"=>{rounded(&mut path,1.8,4.0,12.4,8.0,1.6);for x in[4.5,7.0,9.5,12.0]{path.begin(point(x,7.0));path.line_to(point(x+0.01,7.0));path.end(false);}path.begin(point(5.0,9.5));path.line_to(point(11.0,9.5));path.end(false);},
         "check"=>{path.begin(point(3.5,8.5));path.line_to(point(6.5,11.5));path.line_to(point(12.5,4.5));path.end(false);},
         "close"=>{path.begin(point(4.0,4.0));path.line_to(point(12.0,12.0));path.end(false);path.begin(point(12.0,4.0));path.line_to(point(4.0,12.0));path.end(false);},
@@ -89,16 +93,7 @@ fn draw_pages(window:[u32;2],scale:f32,section:Section,theme:&Theme,config:&Conf
     heading(&mut p,g.local(229.0,1.0,490.0,56.0),section.title(),theme,s);
     p.shape(g.local(201.0,56.0,578.0,1.0),0.0,c.border,None);
     let close=g.local(735.0,13.0,32.0,32.0);hover(&mut p,close,pointer,pressed,theme,s,8.0);icon(&mut p,"close",g.local(743.0,21.0,16.0,16.0),c.foreground,s);hits.push(Hit{rect:close,action:Action::Close});
-    if section==Section::General{
-        p.text(g.local(229.0,79.0,466.0,18.0),"Post-AI mode",14.0*s,c.foreground,500,false);
-        for (i,line) in ["A plain terminal with tabs and splits. No agents, no AI features.","For coding and AI purists."].into_iter().enumerate(){p.text(g.local(229.0,100.0+i as f32*18.85,466.0,18.85),line,13.0*s,c.muted_foreground,400,false);}
-        let sw=g.local(719.0,108.0,32.0,18.0);
-        p.shape(sw,9.0*s,if config.post_ai{c.primary}else{c.input},None);
-        p.shape(r(sw.x+if config.post_ai{16.0*s}else{2.0*s},sw.y+2.0*s,14.0*s,14.0*s),7.0*s,if config.post_ai{c.primary_foreground}else{c.background},None);
-        hits.push(Hit{rect:g.local(229.0,65.0,522.0,104.0),action:Action::Toggle("post_ai",!config.post_ai)});
-    }
-    let mut max_scroll=0.0;
-    if section==Section::Terminal{max_scroll=terminal(&mut p,&g,theme,config,pointer,pressed,&mut hits,scroll);}
+    let _=(config,scroll);let max_scroll=0.0;
     p.shape(g.local(201.0,543.0,578.0,1.0),0.0,c.border,None);
     let label="Open settings file";let width=p.width(label,13.0*s,500)+20.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+557.0*s,width,28.0*s);
     hover(&mut p,button,pointer,pressed,theme,s,6.0);p.text(r(button.x+10.0*s,button.y,button.w-20.0*s,button.h),label,13.0*s,c.foreground,500,false);hits.push(Hit{rect:button,action:Action::OpenFile});
@@ -111,70 +106,6 @@ pub(super) fn row(p:&mut Paint<'_>,g:&Geometry,theme:&Theme,y:f32,width:f32,labe
     p.text(g.local(229.0,y+35.0,text_width,18.84375),description,13.0*s,theme.colors.muted_foreground,400,false);
     if !last{p.shape(g.local(229.0,y+height-1.0,522.0,1.0),0.0,theme.colors.border,None);}
     g.local(751.0-width,y+(height-if last{0.0}else{1.0}-32.0)/2.0,width,32.0)
-}
-/// A scale as people write it: 1×, 1.5×, 1.25× (never a raw 1.00).
-fn times(scale:f32)->String{format!("{}×",format!("{scale:.2}").trim_end_matches('0').trim_end_matches('.'))}
-#[cfg(test)]
-#[test]
-fn line_height_labels(){assert_eq!([times(1.0),times(1.5),times(1.25),times(2.0)],["1×","1.5×","1.25×","2×"]);}
-fn terminal(p:&mut Paint<'_>,g0:&Geometry,theme:&Theme,config:&Config,pointer:(f64,f64),pressed:bool,hits:&mut Vec<Hit>,scroll:f32)->f32{
-    // Rows keep the approved positions at scroll 0; lines, cursor and colours follow Animations.
-    let g=&Geometry{panel:PixelRect{y:g0.panel.y-scroll*g0.scale,..g0.panel},..g0.clone()};
-    let s=g.scale;let c=&theme.colors;let first=hits.len();
-    p.out.scene.layers.push(Layer::Clip(Some(g0.body.array())));
-    for(label,y)in[("Text",85.0),("Window",262.6875),("Lines and cursor",508.21875),("Terminal colours",685.90625)]{p.text(g.local(229.0,y,522.0,16.0),label,12.0*s,c.muted_foreground,500,false);}
-    let font=row(p,g,theme,105.0,180.0,"Font","Used in every terminal pane.",false);
-    p.shape(font,8.0*s,c.background,Some(c.input));p.text(r(font.x+10.0*s,font.y,font.w-40.0*s,font.h),&config.font_family,14.0*s,c.foreground,400,false);let mut arrow=c.foreground;arrow[3]=153;icon(p,"chevron",r(font.x+font.w-23.0*s,font.y+9.0*s,14.0*s,14.0*s),arrow,s*0.875);hits.push(Hit{rect:font,action:Action::FontMenu});
-    let stepper=|p:&mut Paint<'_>,hits:&mut Vec<Hit>,step:PixelRect,label:&str,minus:Action,plus:Action|{
-        p.shape(step,8.0*s,c.background,Some(c.input));
-        for (x,sign,action) in [(step.x+s,"−",minus),(step.x+77.0*s,"+",plus)]{let rect=r(x,step.y+s,32.0*s,30.0*s);hover(p,rect,pointer,pressed,theme,s,6.0);let w=p.width(sign,14.0*s,400);p.text(r(x+(32.0*s-w)/2.0,rect.y,w,rect.h),sign,14.0*s,c.muted_foreground,400,false);hits.push(Hit{rect,action});}
-        for x in[step.x+33.0*s,step.x+76.0*s]{p.shape(r(x,step.y+s,s,30.0*s),0.0,c.border,None);}
-        let width=p.mono_width(label,14.0*s,400).min(42.0*s);p.text(r(step.x+34.0*s+(42.0*s-width)/2.0,step.y,width,32.0*s),label,14.0*s,c.foreground,400,true);
-    };
-    let step=row(p,g,theme,173.84375,110.0,"Size","Ctrl + and Ctrl − change it for one window.",false);
-    stepper(p,hits,step,&format!("{}",config.font_size),Action::FontSize(-1.0),Action::FontSize(1.0));
-    let slider=row(p,g,theme,282.6875,220.0,"Opacity","How much of the desktop shows through.",false);let y=slider.y+16.0*s;let progress=((config.opacity-0.5)/0.5).clamp(0.0,1.0);let track=r(slider.x,y-2.0*s,168.0*s,4.0*s);
-    p.shape(track,2.0*s,c.muted,None);p.shape(r(track.x,track.y,track.w*progress,track.h),2.0*s,c.foreground,None);p.shape(r(track.x+track.w*progress-8.0*s,y-8.0*s,16.0*s,16.0*s),8.0*s,c.background,Some(c.input));
-    let label=format!("{:.0}%",config.opacity*100.0);let width=p.mono_width(&label,13.0*s,400).min(40.0*s);p.text(r(slider.x+220.0*s-width,slider.y,width,slider.h),&label,13.0*s,c.muted_foreground,400,true);hits.push(Hit{rect:r(track.x-8.0*s,slider.y,track.w+16.0*s,slider.h),action:Action::Opacity});
-    for (y,label,description,key,on,last) in [(351.53125,"Tools panel","Files, recent events and agents on the left.","tools_panel",config.tools_panel,false),(420.375,"Animations","Includes the robot at start-up.","animations",config.animations,true)]{
-        let control=row(p,g,theme,y,32.0,label,description,last);let switch=r(control.x,control.y+7.0*s,32.0*s,18.0*s);p.shape(switch,9.0*s,if on{c.primary}else{c.input},None);p.shape(r(switch.x+if on{16.0*s}else{2.0*s},switch.y+2.0*s,14.0*s,14.0*s),7.0*s,if on{c.primary_foreground}else{c.background},None);
-        let action=if key=="tools_panel"{Action::Choice("tools_panel",if on{"off"}else{"on"})}else{Action::Toggle(key,!on)};
-        hits.push(Hit{rect:g.local(229.0,y,522.0,if last{67.84375}else{68.84375}),action});
-    }
-    p.shape(g.local(229.0,487.21875,522.0,1.0),0.0,c.border,None);
-    let step=row(p,g,theme,528.21875,110.0,"Line height","Taller rows space the lines out, as in Ptyxis.",false);
-    let scale=(config.cell_height_scale*20.0).round()/20.0;
-    stepper(p,hits,step,&times(scale),Action::CellHeight(-0.05),Action::CellHeight(0.05));
-    // Segmented control, as Appearance's Mode.
-    let modes=[("System","system"),("On","on"),("Off","off")];let widths=modes.map(|(name,_)|p.width(name,13.0*s,500)/s+24.0);let total=widths.iter().sum::<f32>()+10.0;
-    let control=row(p,g,theme,597.0625,total,"Cursor blink","System follows GNOME's cursor blink setting.",false);
-    let selected=match config.cursor_blink{crate::config::CursorBlink::System=>"system",crate::config::CursorBlink::On=>"on",crate::config::CursorBlink::Off=>"off"};
-    p.shape(control,8.0*s,c.muted,None);let mut x=control.x+3.0*s;
-    for ((name,value),w) in modes.into_iter().zip(widths){let b=r(x,control.y+3.0*s,w*s,26.0*s);if selected==value{p.shape(b,6.0*s,c.background,None);}else if b.contains(pointer.0,pointer.1){p.shape(b,6.0*s,c.accent,None);}
-        let width=p.width(name,13.0*s,500);p.text(r(b.x+(b.w-width)/2.0,b.y,width,b.h),name,13.0*s,if selected==value{c.foreground}else{c.muted_foreground},500,false);hits.push(Hit{rect:b,action:Action::Blink(value)});x+=(w+2.0)*s;
-    }
-    // Colour rows, as Appearance's: swatch, name, hex. Unset ones show the theme's colour.
-    let t=&config.terminal_colors;let mut y=705.90625;
-    for (key,name,color) in [("background","Background",t.background.unwrap_or(c.background)),("foreground","Text",t.foreground.unwrap_or(c.foreground)),("cursor","Cursor",t.cursor.or(t.foreground).unwrap_or(c.foreground))]{
-        let row_rect=g.local(229.0,y,522.0,40.0);
-        p.shape(g.local(229.0,y+10.0,20.0,20.0),5.0*s,color,Some(c.input));p.text(g.local(259.0,y,260.0,40.0),name,14.0*s,c.foreground,400,false);
-        let value=format!("#{:02x}{:02x}{:02x}",color[0],color[1],color[2]);let width=p.mono_width(&value,13.0*s,400);let local=g.local(751.0,y,0.0,40.0);
-        p.text(r(local.x-width,local.y,width,40.0*s),&value,13.0*s,c.muted_foreground,400,true);
-        hits.push(Hit{rect:row_rect,action:Action::TerminalColor(key)});
-        p.shape(g.local(229.0,y+39.0,522.0,1.0),0.0,c.border,None);y+=40.0;
-    }
-    let mut x=229.0;
-    for(name,action)in[("Import Ptyxis palette…",Action::ImportPalette),("Use theme colours",Action::ThemeTerminalColors)]{
-        let width=p.width(name,13.0*s,500)/s+20.0;let b=g.local(x,y+16.0,width,28.0);
-        let fill=if b.contains(pointer.0,pointer.1){if pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,6.0*s,fill,Some(c.input));
-        let w=p.width(name,13.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),name,13.0*s,c.foreground,500,false);hits.push(Hit{rect:b,action});x+=width+8.0;
-    }
-    p.out.scene.layers.push(Layer::Clip(None));
-    // Hits scrolled out of the page body are dropped; partly visible ones are trimmed.
-    let body=g0.body;let mut kept=hits.split_off(first);
-    kept.retain_mut(|hit|{let top=hit.rect.y.max(body.y);let bottom=(hit.rect.y+hit.rect.h).min(body.y+body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
-    hits.extend(kept);
-    (y+68.0-543.0).max(0.0)
 }
 #[cfg(test)]
 #[test]
