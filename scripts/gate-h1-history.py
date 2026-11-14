@@ -7,6 +7,10 @@ Diagnostics are fixed labels only; observed text is never printed.
 """
 import base64, csv, hashlib, io, json, os, secrets, shutil, socket, sqlite3, stat, subprocess, sys, tempfile, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 TARGET = Path(os.environ['CARGO_TARGET_DIR'])
 APP = TARGET / 'debug/clanky'
@@ -114,8 +118,8 @@ def setup(root, name, **cfg):
     env.update(HOME=str(w / 'home'), XDG_CONFIG_HOME=str(w / 'config'), XDG_DATA_HOME=str(w / 'data'),
                XDG_STATE_HOME=str(w / 'state'), XDG_RUNTIME_DIR=str(w / 'runtime'), SHELL='/bin/sh',
                CLANKY_TEST_SECRET=SECRET)
-    config = w / 'config.json'
-    config.write_text(json.dumps(dict(restore_layout=False, startup_animation=False, **cfg)))
+    config = w / 'config.xml'
+    config_xml.write(config, dict(restore_layout=False, startup_animation=False, **cfg))
     return w, env, config, w / 'data/clanky/history.sqlite3'
 
 
@@ -222,7 +226,7 @@ def main_story(root):
     now = int(time.time() * 1000)
     tamper(db, 'UPDATE commands SET started_at = ? WHERE id = ?', now - 100 * DAY, ids[0])
     tamper(db, 'UPDATE commands SET started_at = ? WHERE id = ?', now - 89 * DAY, ids[7])
-    config.write_text(json.dumps(dict(restore_layout=False, startup_animation=False, history_days=90)))
+    config_xml.write(config, dict(restore_layout=False, startup_animation=False, history_days=90))
     s = Server(w, env, config)
     until(lambda: ids[0] not in [r['id'] for r in rows(env, 'list', '--limit', 1000)], 'retention deletes old row')
     s.stop()

@@ -33,6 +33,10 @@ Expected results, fixed before the work:
 """
 import base64, json, os, re, shutil, socket, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 TARGET = Path(os.environ['CARGO_TARGET_DIR'])
 APP = TARGET / 'debug/clanky'
@@ -126,8 +130,8 @@ def setup(name, stubs=('fake-agent',), **cfg):
     env.update(HOME=str(w / 'home'), XDG_CONFIG_HOME=str(w / 'config'), XDG_DATA_HOME=str(w / 'data'),
                XDG_STATE_HOME=str(w / 'state'), XDG_RUNTIME_DIR=str(w / 'runtime'), SHELL='/bin/sh',
                PATH=f'{w / "bin"}:/usr/bin:/bin')
-    config = w / 'config.json'
-    config.write_text(json.dumps(dict(restore_layout=False, startup_animation=False, history=False, **cfg)))
+    config = w / 'config.xml'
+    config_xml.write(config, dict(restore_layout=False, startup_animation=False, history=False, **cfg))
     return w, env, config
 
 

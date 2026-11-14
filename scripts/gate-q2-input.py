@@ -16,7 +16,7 @@ started with VTE_VERSION=8400 in its environment, as when Clanky is started from
 adds its own OSC 133 marks unless Clanky keeps them out (notes/clanky-input.md finding 1). Screenshots leave out the
 pointer (ffmpeg -draw_mouse 0). Keys and text come from xdotool, as a person types them. Outcomes are read from the
 owner API (list_blocks: each block's command, output, exit code; terminal_info rows; permission_get), the screen text,
-files the programs write, pixels sampled at measured places, the frame trace and config.json.
+files the programs write, pixels sampled at measured places, the frame trace and config.xml.
 
 Interface fixed by this gate: no new config keys. command_input "editor" (default) | "classic", as Q1 fixed it.
 Clanky starts bash and zsh with its own OSC 133 integration (the user's rc file sourced first); no setup in the home.
@@ -109,7 +109,7 @@ Expected results, fixed before the work:
   M1 command_input "classic": the screen shows "USERPS1>", no input hairline is drawn, the pane has 2..4 more rows
      than the editor window (63..73 px / 26 px rows, A2), and readline gets the keys: "echo clok" Enter, Up, Enter
      prints clok twice [B].
-  M2 Settings > Appearance > Classic in the editor window: config.json command_input "classic" within 3 s, the pane
+  M2 Settings > Appearance > Classic in the editor window: config.xml command_input "classic" within 3 s, the pane
      gains 2..4 rows within 3 s (same window process), and after "echo backclassic" Enter the last screen row with
      text reads "USERPS1>" within 5 s.
   I1 0 frames from 1 s to 3.5 s after the last key (the 0-idle-frames rule): at the empty prompt, with ghost
@@ -123,6 +123,10 @@ quiet window), classic (M1's window is started with command_input "editor").
 """
 import importlib.util, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 ROOT = Path(os.environ.get('CLANKY_Q2_WORK', '/srv/devops/build/clanky-q2-gate-run'))
 os.environ['CLANKY_Q1_WORK'] = str(ROOT)
@@ -194,8 +198,8 @@ class Win(q1.Win):
                    LP_NUM_THREADS='8', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json',
                    CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'), VTE_VERSION='8400',
                    PATH=str(self.home / 'bin') + ':' + os.environ.get('PATH', '/usr/bin:/bin'))
-        self.config = self.w / 'config.json'
-        self.config.write_text(json.dumps(cfg))
+        self.config = self.w / 'config.xml'
+        config_xml.write(self.config, cfg)
         rd, wr = os.pipe()
         x = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
                               '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -803,7 +807,7 @@ def switch_classic_step(win):
     seg = find_word(words, lambda t: t == 'classic', pick=max)
     require(seg, 'M2 the Classic segment in Settings > Appearance')
     win.click(*centre(seg))
-    until(lambda: win.saved().get('command_input') == 'classic', 'M2 config.json command_input "classic"', 3)
+    until(lambda: win.saved().get('command_input') == 'classic', 'M2 config.xml command_input "classic"', 3)
     for _ in range(2):
         if q1.settings_open(win):
             win.key('Escape')

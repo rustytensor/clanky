@@ -13,7 +13,7 @@ from Ptyxis/VTE in the T2 gate), cursor blink off, TZ=UTC, SHELL=/bin/sh. Screen
 owner API, so every window below has one terminal pane unless a step adds more. Cell geometry is measured from two
 magenta cells (the mouse gate's Pane.measure), never assumed. Text on screen is read with tesseract.
 
-Interface fixed by this gate (config.json keys; strings, as cursor_blink and agent_pane_access are):
+Interface fixed by this gate (config.xml settings; strings, as cursor_blink and agent_pane_access are):
   tab_style      "horizontal" (default, Marc's R2) | "vertical"
   tools_panel    "on" (default) | "off". The old boolean "rails" stays readable: when tools_panel is absent,
                  rails false means off and rails true means on; when both are present tools_panel wins. Settings
@@ -37,7 +37,7 @@ Interface fixed by this gate (config.json keys; strings, as cursor_blink and age
   Unicorn Tears (light), then imported Ptyxis palettes. With Follow on, two columns "In dark mode" (left) and
   "In light mode" (right), Ptyxis palettes after them. On the Appearance page Down moves the highlight one row
   (the first Down goes to the row after the saved theme) and previews it in the window behind Settings without
-  writing config.json; Escape puts the saved theme back, still without writing; Enter saves the highlighted theme.
+  writing config.xml; Escape puts the saved theme back, still without writing; Enter saves the highlighted theme.
   A click on a row saves it. Ptyxis palettes are read from $HOME/.local/share/org.gnome.Ptyxis/palettes/*.palette;
   saving one writes terminal_colors exactly as `clanky terminal-colors import` prints its [Dark] section.
   The tools panel footer has the segments Files, Recent, Agents (only the tools in "tools"). The Agents view has
@@ -102,7 +102,7 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      tools toggle: a click adds 26-27 columns (236 / 9), a second click takes them back; Ctrl+Shift+B does the same.
   T4 tools panel footer: "Recent" shows a view that reads "command" (Command finished / failed) and no file names;
      "Agents" shows "access" and one row per pane; a click on an "off" row flips exactly one pane to allow_agent true.
-  E1 Settings > Appearance > Layout, each click saved at once (config.json within 3 s, same window process, no
+  E1 Settings > Appearance > Layout, each click saved at once (config.xml within 3 s, same window process, no
      restart) and applied at once: Vertical -> tab_style "vertical", 26-27 fewer columns (a second 236 px column),
      the left column reads the tab's folder "charlie" and its last command "vtlastcmd", the title bar no longer
      reads "charlie"; Horizontal -> columns as before. Tools Off on a file with "rails": true -> tools_panel "off"
@@ -113,7 +113,7 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      pane colour; Show -> rows as before.
   E2 0 frames from 1 s to 3 s after the last Settings click.
   K1 theme picker preview, from {"theme":"dark","theme_dark":"stone-dark","theme_light":"paper-light"}: Down
-     changes the window pixel (1300,450) (Stone background (20,18,16) [T]) and leaves config.json byte for byte;
+     changes the window pixel (1300,450) (Stone background (20,18,16) [T]) and leaves config.xml byte for byte;
      Escape puts the pixel back (+-1) and the bytes are still the same. Down, Enter writes theme_dark "paper-dark";
      with Settings closed (1300,450) is Paper's background (31,28,23) +-2 [T].
   K2 Follow the system On writes theme "system" and keeps theme_dark "paper-dark" and theme_light "paper-light";
@@ -131,6 +131,10 @@ is not clicked in E1).
 """
 import importlib.util, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 ROOT = Path(os.environ.get('CLANKY_Q1_WORK', '/srv/devops/build/clanky-q1-gate-run'))
 os.environ['CLANKY_MOUSE_WORK'] = str(ROOT)
@@ -199,8 +203,8 @@ class Win(t2.Window):
                    LP_NUM_THREADS='8', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json',
                    CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'), **(extra_env or {}))
         self.home = self.w / 'home'
-        self.config = self.w / 'config.json'
-        self.config.write_text(json.dumps(cfg))
+        self.config = self.w / 'config.xml'
+        config_xml.write(self.config, cfg)
         rd, wr = os.pipe()
         x = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
                               '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -259,10 +263,7 @@ class Win(t2.Window):
         return [t['tab_id'] for t in self.o.call(1, 'list_tabs')['tabs']]
 
     def saved(self):
-        try:
-            return json.loads(self.config.read_text())
-        except ValueError:
-            return {}
+        return config_xml.load(self.config)
 
     def click(self, x, y, button=1):
         self.x('mousemove', '--window', self.wid, str(int(x)), str(int(y)), 'click', str(button))
@@ -387,7 +388,7 @@ def bad_config(name, cfg):
     d.mkdir()
     for sub in ('home', 'config', 'state', 'runtime'):
         (d / sub).mkdir(mode=0o700)
-    (d / 'config.json').write_text(json.dumps(cfg))
+    config_xml.write(d / 'config.xml', cfg)
     rd, wr = os.pipe()
     xs = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
                            '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -399,7 +400,7 @@ def bad_config(name, cfg):
                WINIT_UNIX_BACKEND='x11', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json')
     os.close(rd)
     sock = d / 'window.sock'
-    p = subprocess.Popen([str(APP), '--socket', str(sock), '--config', str(d / 'config.json')], env=env, cwd=str(d),
+    p = subprocess.Popen([str(APP), '--socket', str(sock), '--config', str(d / 'config.xml')], env=env, cwd=str(d),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         try:
@@ -865,7 +866,7 @@ def settings_story():
         def press(name, key, value, check, label):
             t = time.time()
             win.click(*centre(found[name]))
-            until(lambda: (win.saved().get(key, DEFAULTS[key]) == value), f'E1 {label}: config.json {key} = {value!r} '
+            until(lambda: (win.saved().get(key, DEFAULTS[key]) == value), f'E1 {label}: config.xml {key} = {value!r} '
                   f'(file: {json.dumps({k: win.saved().get(k) for k in (key, "rails")})})', 3)
             require(win.alive() and win.p.pid == pid, f'E1 {label}: same window process, no restart')
             if check:
@@ -882,7 +883,7 @@ def settings_story():
                 f'E1 vertical tabs list "charlie" and "vtlastcmd" on the left, not in the title bar ({left[:80]!r} / {title!r})')
         press('horizontal', 'tab_style', 'horizontal', lambda: win.info()['cols'] == c0, 'Horizontal')
         press('off', 'tools_panel', 'off', lambda: win.info()['cols'] - c0 in (26, 27), 'Tools panel Off')
-        require('rails' not in win.saved(), 'E1 Tools panel Off removes "rails" from config.json')
+        require('rails' not in win.saved(), 'E1 Tools panel Off removes "rails" from config.xml')
         press('on', 'tools_panel', 'on', lambda: win.info()['cols'] == c0, 'Tools panel On')
         require('rails' not in win.saved(), 'E1 Tools panel On leaves no "rails"')
         if FAULT != 'tools':
@@ -952,12 +953,12 @@ def theme_story():
         time.sleep(.6)
         px1 = win.shot('k1-1').getpixel((1300, 450))
         require(px1 != px0 and win.config.read_bytes() == before,
-                f'K1 Down previews the next theme ({px0} -> {px1}) without writing config.json')
+                f'K1 Down previews the next theme ({px0} -> {px1}) without writing config.xml')
         win.key('Return' if FAULT == 'preview' else 'Escape')
         time.sleep(.6)
         px2 = win.shot('k1-2').getpixel((1300, 450))
         require(near(px2, px0, 1) and win.config.read_bytes() == before,
-                f'K1 Escape puts the saved theme back ({px2} vs {px0}) and config.json is unchanged')
+                f'K1 Escape puts the saved theme back ({px2} vs {px0}) and config.xml is unchanged')
         if not settings_open(win):
             open_appearance(win)
             scroll_to(win, 'follow')

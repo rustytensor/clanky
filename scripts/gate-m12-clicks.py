@@ -20,6 +20,10 @@ from the mockup CSS [M] and the Q1 gate [Q1]:
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -91,7 +95,7 @@ def main():
         for name in ('home','config','state','runtime'):(work/name).mkdir(mode=0o700)
         env.update(HOME=str(work/'home'),XDG_CONFIG_HOME=str(work/'config'),XDG_STATE_HOME=str(work/'state'),
                    XDG_RUNTIME_DIR=str(work/'runtime'),SHELL='/bin/sh',WINIT_UNIX_BACKEND='x11')
-        config=work/'config.json';config.write_text(json.dumps({'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':13,'theme':'dark'}))
+        config=work/'config.xml';config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':13,'theme':'dark'})
         sock=work/'server.sock'; children=[]; owner=None
         def launch(args,pipe=False):
             p=subprocess.Popen([str(x) for x in args],env=env,cwd=work,stdin=subprocess.PIPE if pipe else subprocess.DEVNULL,
@@ -117,7 +121,7 @@ def main():
             wid=until(window_id,'window identity');xdo('windowsize',wid,1240,760);xdo('windowfocus','--sync',wid);time.sleep(.5)
             def click(x,y):
                 xdo('mousemove','--window',wid,x,y);xdo('click',1)
-            def saved():return json.loads(config.read_text())
+            def saved():return config_xml.load(config)
             def shot():
                 xdo('mousemove','--window',wid,600,400);time.sleep(.4)
                 g=dict(line.split('=',1) for line in xdo('getwindowgeometry','--shell',wid).splitlines() if '=' in line)
