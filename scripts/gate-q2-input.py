@@ -347,6 +347,18 @@ def hairline(im):
     return None
 
 
+def faint_words(im, box, scale=3, sat=40):
+    """OCR of box with every pixel's distance from the background stretched (40 levels above it reads as full ink), so
+    the mockup's faint meta text (#6b6b6b on #111111) reads as well as bright text. Without the stretch tesseract
+    dropped the faint folder entirely; a meta line without the folder still reads no "alpha" (planted on a saved shot)."""
+    from PIL import Image
+    crop = im.crop(box).convert('L')
+    hist = crop.histogram()
+    bg = hist.index(max(hist))
+    ink = crop.point(lambda v: 255 - min(255, abs(v - bg) * 255 // sat))
+    return ocr_words(ink.convert('RGB'), (0, 0, ink.width, ink.height), scale, 11)
+
+
 def band_words(win, im=None, name='band', scale=4):
     im = im or win.shot(name)
     return ocr_words(im, (236, win.hair + 1, W, STATUS_TOP), scale, 11)
@@ -495,7 +507,7 @@ def rc_step(win):
     expect(win, 'clear', 'clear', 'D4 clear')
     expect(win, 'echo $RCMARK', 'echo $RCMARK', 'D4 a block after clear', 'sourced-rc')
     im = win.shot('meta')
-    text = ' '.join(w[0] for w in ocr_words(im, (236, 40, W, win.hair - 1), 3, 11))
+    text = ' '.join(w[0] for w in faint_words(im, (236, 40, W, win.hair - 1)))
     require('alpha' in text, f'D4 the block meta line shows the folder "alpha" (read {text[:120]!r})')
     require(not any('USERPS1' in r for r in screen_rows(win)), 'A1 still no PS1 after commands')
     print('ok: D1 D4 rc sourced, meta line instead of the prompt')
@@ -785,6 +797,7 @@ def agent_step(win):
 
 def switch_classic_step(win):
     r0 = win.info()['rows']
+    EDITOR_ROWS_SEEN.append(r0)  # M1 compares against the editor window's rows, so they are taken before M2 switches it
     q1.open_appearance(win)
     words = ocr_words(win.shot('layout'), (539, 200, 1065, 700), 3, 11)
     seg = find_word(words, lambda t: t == 'classic', pick=max)
@@ -819,8 +832,6 @@ def main_story():
             expect(win, 'cd ~/alpha', 'cd ~/alpha', 'setup cd ~/alpha')
         for step in steps:
             step(win)
-        if FAULT is None:
-            EDITOR_ROWS_SEEN.append(win.info()['rows'])
     finally:
         win.close()
 
