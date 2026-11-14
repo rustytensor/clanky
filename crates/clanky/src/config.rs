@@ -288,6 +288,13 @@ impl Config {
         Self::from_json(&value.to_string())
     }
 
+    /// The settings in a file's text: XML, or the old JSON format for a path ending in .json.
+    pub fn from_file(path: &Path, text: &str) -> Result<Self, String> {
+        if is_json_path(path) { Self::window_from_json(text) } else { crate::config_xml::load(text).map(|(config, _)| config) }
+    }
+    /// Reads the settings. With no explicit path, an old config.json beside a missing config.xml is
+    /// migrated first. A file that does not parse or holds a bad value never stops Clanky: the
+    /// defaults are used, the error goes to stderr, and Settings shows it.
     pub fn load(explicit: Option<&Path>) -> Result<Self, String> {
         let default_path;
         let path = match explicit {
@@ -297,17 +304,21 @@ impl Config {
                     return Ok(Self::window_defaults());
                 };
                 default_path = path;
+                if let Err(error) = crate::config_xml::migrate(&default_path) { eprintln!("clanky: {error}"); }
                 &default_path
             }
         };
         let mut config = match fs::read_to_string(path) {
-            Ok(json) => Self::window_from_json(&json)
-                .map_err(|error| format!("config {}: {error}", path.display())),
-            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => {
-                Ok(Self::window_defaults())
-            }
-            Err(error) => Err(format!("config {}: {error}", path.display())),
-        }?;
+            Ok(text) => match Self::from_file(path, &text) {
+                Ok(config) => config,
+                Err(error) => {
+                    eprintln!("clanky: config {}: {error}; using the default settings", path.display());
+                    Self::window_defaults()
+                }
+            },
+            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => Self::window_defaults(),
+            Err(error) => return Err(format!("config {}: {error}", path.display())),
+        };
         config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
         Ok(config)
     }
@@ -544,6 +555,9 @@ impl Config {
         Ok(config)
     }
 }
+
+/// A settings path in the old JSON format (an explicit `--config x.json`); config.xml otherwise.
+pub fn is_json_path(path: &Path) -> bool { path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Metrics {
