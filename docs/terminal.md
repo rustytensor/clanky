@@ -72,7 +72,8 @@ the tab in place, so the agent can still read its output and exit code.
 
 On a full-screen program's screen (the alternate screen) with no mouse mode, a wheel notch sends
 max(1, ⌈lines ÷ 10⌉) Up or Down keys, as VTE does (mode 1007, on by default). On the normal
-screen the wheel scrolls the history. Ctrl+wheel zooms.
+screen the wheel scrolls the history; typing to the shell brings the view back to the newest
+rows, as VTE does. Ctrl+wheel zooms.
 
 ## Keys
 
@@ -118,9 +119,18 @@ own marks. Agents' commands run as given, without the integration.
 ## Command blocks
 
 With `block_style` `quiet` (the default), commands that the shell marks with OSC 133 are drawn
-as quiet blocks: a 1 px hairline above each command (none above the first row; red, with
-"exit N" in the error colour, when the command failed), the command row in bold, and the
-folder, start time (HH:MM) and duration right-aligned on the command row. Hovering a block
+as quiet blocks. With the command input on (`command_input` `editor`), the blocks breathe: each
+has its own meta row above the bold command, with the folder and start time (HH:MM) on the left
+and "exit N" (in the error colour, when the command failed) and the duration on the right; there
+are 9 px of space above the meta row and 11 px under the block before it, with a 1 px hairline in
+that space (red after a failure, none above the first block). The space is drawing only: the
+program's screen and its rows do not change, and clicks, selection, links, the right-click menu
+and mouse reports land on the cell under the pointer. The newest row stays in view; at the top of
+the history the wheel shows the rows the space pushed above the pane. A full-screen program (the
+alternate screen) and output without OSC 133 draw the plain grid. In `classic` mode a 1 px
+hairline sits above each command row (none above the first row; red, with "exit N" in the error
+colour, when the command failed), the command row is bold, and the folder, start time and duration
+are right-aligned on the command row. Hovering a block
 shows one floating bar over the meta text: **Copy output**, **Copy command**, **Run again**, **Ask agent** (not in
 Post-AI mode) and **⋯** (the right-click menu). When a block's command row has scrolled off the
 top while its output still shows, a sticky line at the top of the pane names the command; while
