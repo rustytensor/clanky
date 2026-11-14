@@ -59,11 +59,12 @@ def compare(data, scene_only=False, no_idle=False):
         exact([pane['cols'], pane['rows']], [121, 15], f'grid {key} size')
         if not scene_only:
             exact(layout['pty_' + key], [15, 121], f'PTY {key} size')
-    # Tools panel hidden: the content is the full width; floor((1240 - 36) / 8) = 150 columns [Q1 L1].
+    # Tools panel hidden: the content is the full width with no gap on its left [R1: the gap lies between the
+    # tools panel and the panes]; floor((1240 - 28) / 8) = 151 columns [Q1 L1], rows as above.
     hidden = data['hidden']
-    exact(hidden['inset'], [0, 38, 1240, 696], 'hidden inset')
-    exact(hidden['a']['rect'], [0, 38, 1240, 347], 'hidden pane')
-    exact([hidden['a']['cols'], hidden['a']['rows']], [150, 16], 'hidden grid size')
+    exact(hidden['inset'], [0, 46, 1240, 688], 'hidden inset')
+    exact(hidden['a']['rect'], [0, 46, 1240, 340], 'hidden pane')
+    exact([hidden['a']['cols'], hidden['a']['rows']], [151, 15], 'hidden grid size')
     # Divider dragged to y 300: the 1 px gap centred on the pointer, as the M12 design centred its 12 px gap;
     # pane A 300 - 0.5 - 38 = 261.5 -> 261 (the first pane takes the floor, as in the even split), B the rest
     # 695 - 261 = 434 from y 300. Rows floor((261 - 12) / 20) = 12 and floor((434 - 12) / 20) = 21.
