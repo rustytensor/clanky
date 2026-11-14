@@ -1031,7 +1031,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 self.modifiers = m.state();
                 Ok(())
             }
-            WindowEvent::CursorLeft { .. } => { self.pointer_pressed=false; self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} Ok(()) }
+            WindowEvent::CursorLeft { .. } => { self.pointer_pressed=false; self.mouse=(-1.0,-1.0); if let Some(panel)=&mut self.settings{panel.release();} self.scrollbar_pointer(); Ok(()) }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
                 if self.palette.open { self.palette.pointer(position.x, position.y); }
@@ -1039,6 +1039,7 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
                 if self.context_menu.open { self.context_menu.pointer(position.x, position.y); self.frame_clock.invalidate(); }
                 if let Err(e) = self.drag() { self.status = Some(e); }
                 if let Err(e) = self.terminal_motion() { self.status = Some(e); }
+                self.scrollbar_pointer();
                 Ok(())
             }
             WindowEvent::MouseInput {

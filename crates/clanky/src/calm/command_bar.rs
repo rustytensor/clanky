@@ -73,7 +73,9 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
     for (text,mono) in &chips{
         let w=(if *mono{p.mono_width(text,px,400)}else{p.width(text,px,400)}+24.0*s).ceil();
         if x+w>right_edge{break;}
-        p.shape(r(x.round(),y,w,ch),8.0*s,fade(c.card),Some(fade(c.border)));
+        // A light chip: its fill only, the border while the pointer is on it.
+        let chip=r(x.round(),y,w,ch);
+        p.shape(chip,8.0*s,fade(c.card),super::chrome::hovered(&p,chip).then(||fade(c.border)));
         p.text(r(x+12.0*s,y,w-12.0*s,ch),text,px,fade(c.muted_foreground),400,*mono);
         x+=w+6.0*s;
     }
@@ -81,7 +83,7 @@ pub fn draw(layout:&Layout,theme:&Theme,terminal:&crate::config::TerminalColors,
         let label="Agent access";let tw=p.width(label,px,400);let w=(tw+24.0*s+8.0*s+22.0*s).ceil();
         if x+w<=right_edge{
             let chip=r(x.round(),y,w,ch);
-            p.shape(chip,8.0*s,c.card,Some(c.border));
+            p.shape(chip,8.0*s,c.card,super::chrome::hovered(&p,chip).then_some(c.border));
             p.text(r(x+12.0*s,y,tw+1.0,ch),label,px,c.muted_foreground,400,false);
             let sw=r((x+12.0*s+tw+8.0*s).round(),(y+(ch-10.0*s)/2.0).round(),18.0*s,10.0*s);
             p.shape(sw,5.0*s,if on{blend(c.background,c.ok,0.55)}else{c.muted},Some(c.input));

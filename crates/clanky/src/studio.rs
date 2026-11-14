@@ -69,6 +69,8 @@ pub struct Studio {
     scrollbars: BTreeMap<String, Instant>,
     /// When a shown scrollbar starts to go (one frame then, none while it stays).
     pub(super) scrollbar_wake: Option<Instant>,
+    /// The pane whose right edge the pointer is near: its scrollbar shows while it stays there.
+    scrollbar_hovered: Option<String>,
 }
 /// The overlay scrollbar stays this long after the wheel, then fades out over SCROLLBAR_FADE
 /// (or goes at once without animations).
@@ -80,7 +82,7 @@ impl Default for Studio {
             blocks: BTreeMap::new(), mouse_panes: Default::default(), next_metadata: Instant::now(), cursors: BTreeMap::new(),
             card_clocks:BTreeMap::new(),card_keys:vec![],card_focus:None,card_action:0,
             snapshots: BTreeMap::new(), shown: BTreeMap::new(), reviews: BTreeMap::new(), scrolls: BTreeMap::new(), panels: BTreeMap::new(),
-            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new(), breaths: BTreeMap::new(), lift: BTreeMap::new(), scrollbars: BTreeMap::new(), scrollbar_wake: None }
+            activity: Vec::new(), started: Instant::now(), tool: None, tree_open: Default::default(), tree: (String::new(), Vec::new()), tick: None, running: BTreeMap::new(), shown_commands: BTreeMap::new(), breaths: BTreeMap::new(), lift: BTreeMap::new(), scrollbars: BTreeMap::new(), scrollbar_wake: None, scrollbar_hovered: None }
     }
 }
 
@@ -320,6 +322,30 @@ impl App {
         // A scrollbar's fade only: while it stays, nothing redraws.
         deadlines.extend(self.studio.scrollbars.values().filter(|start|now>=**start+SCROLLBAR_HOLD).map(|start|*start+SCROLLBAR_HOLD+SCROLLBAR_FADE));
         deadlines.into_iter().filter(|end|*end>now).max()
+    }
+    /// The pane with scrollback whose scrollbar zone (the 24 px along its right edge, as Ptyxis
+    /// shows its overlay bar for a pointer there) holds the pointer.
+    fn scrollbar_zone(&self) -> Option<String> {
+        if self.mouse_overlay() || self.context_menu.open { return None; }
+        let layout = self.pixel_layout().ok()?;
+        let (x, y) = self.mouse;
+        let pane = layout.pane_at(x, y)?;
+        if self.files.panes.contains_key(&pane.id) { return None; }
+        let s = layout.scale as f64;
+        let right = (pane.rect.x + pane.rect.w) as f64;
+        let bottom = (pane.grid_clip.y + pane.grid_clip.h) as f64;
+        if x < right - 24.0 * s || x >= right || y < pane.rect.y as f64 || y >= bottom { return None; }
+        self.studio.snapshots.get(&pane.id).filter(|snap| snap.history > 0)?;
+        Some(pane.id.clone())
+    }
+    /// After the pointer moved: show the scrollbar of the pane whose right edge it is near; one that
+    /// it leaves stays for the usual moment and then fades. One frame per change, none while it rests.
+    pub(super) fn scrollbar_pointer(&mut self) {
+        let zone = self.scrollbar_zone();
+        if zone == self.studio.scrollbar_hovered { return; }
+        if let Some(old) = self.studio.scrollbar_hovered.take() { self.studio.scrollbars.insert(old, Instant::now()); }
+        self.studio.scrollbar_hovered = zone;
+        self.frame_clock.invalidate();
     }
     fn update_card_actions(&mut self,layout:&look::Layout,state:&mut LookState,now:Instant) {
         self.studio.card_keys.clear();
@@ -1001,6 +1027,7 @@ impl App {
                     else if self.config.animations && age < SCROLLBAR_HOLD + SCROLLBAR_FADE { 1.0 - (age - SCROLLBAR_HOLD).as_secs_f32() / SCROLLBAR_FADE.as_secs_f32() }
                     else { 0.0 };
             }
+            if self.studio.scrollbar_hovered.as_deref() == Some(pane.id.as_str()) && snapshot.history > 0 { view.scrollbar = 1.0; }
             state.panes.push(view);
         }
         let fade = if self.config.animations { SCROLLBAR_FADE } else { Duration::ZERO };
