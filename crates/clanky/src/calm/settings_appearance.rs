@@ -132,6 +132,8 @@ pub(super) struct Editor{pub kind:EditKind,pub values:Vec<String>,pub focus:usiz
     pub problem:Option<String>}
 impl Editor{
     pub fn new(kind:EditKind,values:Vec<String>)->Self{let caret=values[0].len();Self{kind,start:values.clone(),values,focus:0,caret,all:true,problem:None}}
+    /// Open with the caret after the text and nothing selected, so typing adds to it (a folder to finish).
+    pub fn caret_at_end(mut self)->Self{self.all=false;self}
     /// Edited in place on its page (a text field, the new agent), not in a sheet.
     pub fn inline(&self)->bool{matches!(self.kind,EditKind::Field(_)|EditKind::NewAgent)}
     pub fn editing(&self)->Option<super::settings_form::Editing<'_>>{
@@ -160,13 +162,16 @@ impl Editor{
         let oy=((g.h-330.0)/2.0).max(8.0);
         let box_rect=g.local(220.0,oy,548.0,330.0);p.shape(box_rect,12.0*s,t.colors.card,Some(t.colors.border));
         let (title,labels)=match self.kind{EditKind::Save=>("Save as new theme",vec!["Name","File name"]),EditKind::Import=>("Import theme",vec!["Source file","File name"]),EditKind::Export=>("Export theme",vec!["Destination file"]),
-            EditKind::Palette=>("Import Ptyxis palette",vec!["Palette file (its [Dark] colours are used)"]),_=>("",vec![])};
+            EditKind::Palette=>("Import a colour scheme",vec![""]),_=>("",vec![])};
+        // The colour file prompt has a two-line note in place of a field label.
+        let palette=matches!(self.kind,EditKind::Palette);
+        if palette{for(i,line)in["A colour file from iTerm2, Windows Terminal, Alacritty (TOML or YAML), Kitty,","Ghostty, WezTerm, Konsole, Xresources or Ptyxis."].iter().enumerate(){p.text(g.local(240.0,oy+52.0+i as f32*18.0,508.0,18.0),line,12.0*s,t.colors.muted_foreground,400,false);}}
         p.text(g.local(240.0,oy+16.0,500.0,32.0),title,16.0*s,t.colors.foreground,600,false);
-        for(i,name)in labels.iter().take(self.values.len()).enumerate(){let y=oy+62.0+i as f32*68.0;p.text(g.local(240.0,y-20.0,500.0,18.0),name,13.0*s,t.colors.muted_foreground,400,false);let input=g.local(240.0,y,508.0,32.0);
+        for(i,name)in labels.iter().take(self.values.len()).enumerate(){let y=if palette{oy+100.0}else{oy+62.0}+i as f32*68.0;if !name.is_empty(){p.text(g.local(240.0,y-20.0,500.0,18.0),name,13.0*s,t.colors.muted_foreground,400,false);}let input=g.local(240.0,y,508.0,32.0);
             self.input(&mut p,input,i,t,s);hits.push(Hit{rect:input,action:Action::Field(i)});
         }
         if let Some(error)=error{p.text(g.local(240.0,oy+210.0,508.0,42.0),error,13.0*s,t.colors.err,400,false);}
-        for (x,name,action)in[(568.0,"Cancel",Action::Cancel),(664.0,"Apply",Action::Confirm)]{let rect=g.local(x,oy+276.0,84.0,32.0);button(&mut p,rect,name,t,s,pointer,pressed,true);hits.push(Hit{rect,action});}
+        for (x,name,action)in[(568.0,"Cancel",Action::Cancel),(664.0,if palette{"Import"}else{"Apply"},Action::Confirm)]{let rect=g.local(x,oy+276.0,84.0,32.0);button(&mut p,rect,name,t,s,pointer,pressed,true);hits.push(Hit{rect,action});}
         (p.out.scene.layers,hits)
     }
     /// One text input of a sheet, with its caret when focused.

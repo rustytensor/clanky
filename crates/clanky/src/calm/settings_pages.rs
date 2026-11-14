@@ -50,7 +50,8 @@ pub(super) fn terminal(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing
     ],editing,hits);
     y=form::heading(p,g,t,y+20.0,"Colours");
     let tc=&cfg.terminal_colors;
-    for (key,name,color) in [("background","Background",tc.background.unwrap_or(c.background)),("foreground","Foreground",tc.foreground.unwrap_or(c.foreground)),("cursor","Cursor",tc.cursor.or(tc.foreground).unwrap_or(c.foreground))]{
+    let selection=tc.selection.unwrap_or_else(||crate::terminal_schemes::default_selection(tc.background.unwrap_or(c.background),tc.foreground.unwrap_or(c.foreground)));
+    for (key,name,color) in [("background","Background",tc.background.unwrap_or(c.background)),("foreground","Foreground",tc.foreground.unwrap_or(c.foreground)),("cursor","Cursor",tc.cursor.or(tc.foreground).unwrap_or(c.foreground)),("selection","Selection",selection)]{
         color_row(p,g,t,y,name,color,Action::TerminalColor(key),hits);y+=40.0;
     }
     let ansi=tc.ansi.unwrap_or(t.ansi);
@@ -67,13 +68,8 @@ pub(super) fn terminal(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing
         y+=42.0;
     }
     if super::settings_frame::fits(g,y+6.0,18.0){p.text(g.local(229.0,y+6.0,522.0,18.0),"Normal and bright are ANSI colours 0 to 7 and 8 to 15. Click one to change it.",12.0*s,crate::calm::scene_faint(c),400,false);}
-    y+=30.0;
-    let mut x=229.0;
-    for(name,action)in[("Import Ptyxis palette…",Action::ImportPalette),("Use theme colours",Action::ThemeTerminalColors)]{
-        if !super::settings_frame::fits(g,y+8.0,28.0){break;}
-        let b=form::button(p,g,t,x,y+8.0,name);hits.push(Hit{rect:b,action});x+=b.w/s+8.0;
-    }
-    y+48.0
+    // The Colour scheme group (follow the theme, the built-in schemes, Import) comes next.
+    y+30.0
 }
 
 pub(super) fn editor(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:Option<Editing<'_>>,hits:&mut Vec<Hit>)->f32{

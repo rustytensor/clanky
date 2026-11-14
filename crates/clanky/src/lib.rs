@@ -8,6 +8,7 @@ pub mod cursor_blink;
 pub mod frame_trace;
 pub mod frame_clock;
 pub mod themes;
+pub mod terminal_schemes;
 pub mod theme_scene;
 pub mod calm;
 pub mod theme_store;

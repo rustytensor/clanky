@@ -49,8 +49,11 @@ view below the title bar. A thin thumb at the right of a long page shows how far
     and adds **Reset**. Save as new theme, Import and Export follow.
 - **Terminal:** **Cursor blink** System | On | Off, **Blink cycle** (ms), **Stop blinking after** (s),
   **Clipboard writes** and **Clipboard reads** (OSC 52), then the terminal's own colours
-  (`terminal_colors`): background, foreground, cursor and the 16 ANSI colours (normal 0–7, bright 8–15),
-  **Import Ptyxis palette…** and **Use theme colours**. See [the terminal](terminal.md).
+  (`terminal_colors`): background, foreground, cursor, selection and the 16 ANSI colours (normal 0–7, bright 8–15),
+  then the **Colour scheme** group: a search field, **Import…**, **Follow the window theme**, the
+  schemes you imported and 40 built-in ones, with a sample terminal in the highlighted scheme's
+  colours (Down and Up preview one in the terminal, Enter or a click keeps it, Escape puts the saved
+  colours back). See [colour schemes](terminal.md#colour-schemes).
 - **Editor:** the compose editor's spelling **Dictionary**, **Dictionary folder**, and **Enter after send**.
 - **Agents:** **New agent panes** Read + run | Off (`agent_pane_access`); the agent tools (`agents`), one row
   each with **Remove**, and **Add agent** (type the name, Tab, the command, Enter); then masking status,

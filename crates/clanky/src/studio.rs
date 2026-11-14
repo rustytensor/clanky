@@ -971,7 +971,7 @@ impl App {
                 }
             }
             if !self.files.panes.contains_key(&pane.id) && view.scroll_px == 0.0 && self.search.active_target() != Some(pane.id.as_str()) {
-                if let Some(spans) = self.selection_spans(&pane.id, &snapshot) { highlight(&mut view.snapshot, &spans, rgb(state.theme.selection)); }
+                if let Some(spans) = self.selection_spans(&pane.id, &snapshot) { highlight(&mut view.snapshot, &spans, state.terminal.selection.map(rgb).unwrap_or(rgb(state.theme.selection))); }
             }
             self.studio.shown.insert(pane.id.clone(),(view.snapshot.clone(),view.scroll_px));
             view.snapshot.images.retain(|image| {

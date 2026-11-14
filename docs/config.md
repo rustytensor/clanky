@@ -140,7 +140,7 @@ settings plus the change.
 | `cursor_blink` | string | `system` | `system` follows GNOME's cursor-blink, cursor-blink-time and cursor-blink-timeout (on, 1200, 10 when unreadable); `on` or `off` |
 | `cursor_blink_time_ms` | integer | 1200 | 100–10000; one full on-and-off cycle, for `on` (and `system` without GNOME) |
 | `cursor_blink_timeout_s` | integer | 10 | Seconds after the last key that blinking stops, with the cursor shown |
-| `terminal_colors` | object | none | `background`, `foreground`, `cursor` (`#rrggbb`) and `ansi` (16 colours); the terminal's colours only, unset ones follow the theme; see [the terminal](terminal.md) |
+| `terminal_colors` | object | `{}` | `background`, `foreground`, `cursor`, `selection` (`#rrggbb`) and `ansi` (16 colours); the terminal's colours only, unset ones follow the theme; a colour scheme or `clanky import-colors` writes all 20; see [the terminal](terminal.md#colour-schemes) |
 | `agents` | list | Claude Code `claude`, Codex `codex`, Pi `pi` | Up to 32 `<agent>` elements, each with a `<name>` and a `<command>`: nonempty text of at most 256 bytes; the tools the [agent picker](agent-pane.md) and `clanky agent` can start |
 | `agent_pane_access` | string | `read+run` | `read+run` or `off`: agent access of a pane started for an agent |
 
