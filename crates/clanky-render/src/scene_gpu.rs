@@ -947,9 +947,10 @@ impl Painter {
             ];
             let background_source=cell.color_source.map(|source| if source.inverse {source.fg}else{source.bg});
             let default_background=cell.color_source.is_some_and(|source| !source.inverse && source.bg==clanky_core::ColorSource::Default);
-            // Default backgrounds expose the themed pane/card. Explicit truecolour
-            // black is opaque; metadata-free legacy grids retain their old behaviour.
-            let transparent=default_background || (cell.bg==[0;3] && background_source!=Some(clanky_core::ColorSource::Truecolor));
+            // Default backgrounds expose the themed pane/card. An explicit colour is opaque, black
+            // too (a scheme's ANSI 0 can be black on a lighter background); metadata-free legacy
+            // grids retain their old behaviour.
+            let transparent=default_background || (cell.bg==[0;3] && background_source.is_none());
             if intersection(rect, clip).is_none() || transparent {
                 continue;
             }
