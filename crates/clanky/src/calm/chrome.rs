@@ -85,8 +85,8 @@ pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
         let edge=if state.palette_open{c.ring}else if hovered(p,field){blend(side_line,c.foreground,0.15)}else{side_line};
         p.shape(field,5.0*s,c.card,Some(edge));
         p.icon("search",field.x+8.0*s,field.y+5.5*s,faint);
-        let keys="Ctrl Shift P";let kw=p.mono_width(keys,10.0*s,400);
-        p.text(r(field.x+field.w-9.0*s-kw,field.y,kw,field.h),keys,10.0*s,faint,400,true);
+        let keys="Ctrl Shift P";let kw=p.mono_width(keys,12.0*s,400);
+        p.text(r(field.x+field.w-9.0*s-kw,field.y,kw,field.h),keys,12.0*s,faint,400,true);
         p.text(r(field.x+28.0*s,field.y,(field.w-45.0*s-kw).max(0.0),field.h),"Search or run a command",12.0*s,faint,400,false);
         p.hit(field,HitAction::Palette);
         right_edge=field.x;
