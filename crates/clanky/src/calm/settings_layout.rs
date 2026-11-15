@@ -54,7 +54,7 @@ const LINE:f32=17.0;
 #[allow(clippy::too_many_arguments)]
 fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&str,&'static str,&'static str)],selected:&str,hits:&mut Vec<Hit>,label:&str,description:&str,last:bool)->f32{
     let s=g.scale;let c=&t.colors;
-    let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).collect();
+    let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,14.0*s,500)/s+26.0).collect();
     let total=widths.iter().sum::<f32>()+6.0;
     let text_width=522.0-total-24.0;
     let lines=wrap(p,description,13.0*s,text_width*s);
@@ -72,8 +72,8 @@ fn segments(p:&mut Paint<'_>,g:&Geometry,t:&Theme,y:f32,extra:f32,options:&[(&st
     for ((name,key,value),w) in options.iter().zip(widths){
         let b=r(x,control.y+3.0*s,w*s,control.h-6.0*s);let on=selected==*value;
         if on{p.shape(b,6.0*s,c.pressed,None);}else if b.contains(p.pointer.0,p.pointer.1){p.shape(b,6.0*s,c.accent,None);}
-        let tw=p.width(name,13.0*s,500);
-        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,13.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
+        let tw=p.width(name,14.0*s,500);
+        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,14.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
         hits.push(Hit{rect:b,action:Action::Choice(key,value)});x+=w*s;
     }
     height
@@ -87,19 +87,19 @@ pub(super) fn layout_group(p:&mut Paint<'_>,g0:&Geometry,t:&Theme,cfg:&Config,hi
     y+=segments(p,g,t,y,0.0,&[("Horizontal","tab_style","horizontal"),("Vertical","tab_style","vertical")],tab,hits,
         "Tab style","Tabs across the top, or a list down the left with folder, branch and last command.",false);
     let tools_y=y;
-    y+=segments(p,g,t,y,35.15625,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
+    y+=segments(p,g,t,y,43.15625,&[("On","tools_panel","on"),("Off","tools_panel","off")],if cfg.tools_panel{"on"}else{"off"},hits,
         "Tools panel","A panel on the left. Ctrl+Shift+B shows it or puts it away.",false);
     // Tool chips (mockup .tok): a check in the ok colour when the tool is in the panel.
     let mut x=229.0;
     for (tool,_,name) in TOOLS{
         let on=cfg.tools.contains(&tool);
-        let tw=p.width(name,12.0*s,400)/s;let w=tw+20.0+if on{16.0}else{0.0};
-        let chip=g.local(x,tools_y+62.0,w,24.0);
-        p.shape(chip,6.0*s,[0;4],Some(if on{c.input}else{c.border}));
-        let mut tx=chip.x+10.0*s;
-        if on{settings_frame::icon(p,"check",r(tx-1.0*s,chip.y+5.0*s,14.0*s,14.0*s),c.ok,s*0.85);tx+=16.0*s;}
+        let tw=p.width(name,14.0*s,400)/s;let w=tw+24.0+if on{16.0}else{0.0};
+        let chip=g.local(x,tools_y+62.0,w,32.0);
+        p.shape(chip,8.0*s,[0;4],Some(if on{c.input}else{c.border}));
+        let mut tx=chip.x+12.0*s;
+        if on{settings_frame::icon(p,"check",r(tx-1.0*s,chip.y+9.0*s,14.0*s,14.0*s),c.ok,s*0.85);tx+=16.0*s;}
         let mut ink=c.foreground;if !on{ink=crate::calm::scene_faint(c);}
-        p.text(r(tx,chip.y,tw*s+1.0,chip.h),name,12.0*s,ink,400,false);
+        p.text(r(tx,chip.y,tw*s+1.0,chip.h),name,14.0*s,ink,400,false);
         hits.push(Hit{rect:chip,action:Action::ToolChip(tool)});x+=w+6.0;
     }
     let input=match cfg.command_input{CommandInput::Editor=>"editor",CommandInput::Classic=>"classic"};
@@ -120,7 +120,7 @@ pub(super) fn theme_row(p:&mut Paint<'_>,rect:PixelRect,t:&Theme,name:&str,chip_
     p.shape(rect,8.0*s,c.card,Some(c.border));
     if saved||lit{p.shape(rect,8.0*s,[0;4],Some(c.ring));p.shape(r(rect.x+s,rect.y+s,rect.w-2.0*s,rect.h-2.0*s),7.0*s,[0;4],Some(c.ring));}
     let chip=r((rect.x+rect.w-12.0*s-68.0*s).round(),(rect.y+(rect.h-21.0*s)/2.0).round(),68.0*s,21.0*s);
-    p.text(r(rect.x+12.0*s,rect.y,(chip.x-rect.x-20.0*s).max(0.0),rect.h),name,13.0*s,c.foreground,400,false);
+    p.text(r(rect.x+12.0*s,rect.y,(chip.x-rect.x-20.0*s).max(0.0),rect.h),name,14.0*s,c.foreground,400,false);
     p.shape(chip,chip.h/2.0,chip_bg,Some(c.border));
     for (i,color) in dots.into_iter().enumerate(){
         let cx=chip.x+7.0*s+(5.5+14.0*i as f32)*s;let cy=chip.y+chip.h/2.0;
@@ -135,7 +135,7 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
     let follow=cfg.theme==ThemePreference::System;
     let row_y=super::settings_form::heading(p,g,t,top,"Theme");
     let options=[("On","","on"),("Off","","off")];
-    let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).collect();
+    let widths:Vec<f32>=options.iter().map(|(name,_,_)|p.width(name,14.0*s,500)/s+26.0).collect();
     let total=widths.iter().sum::<f32>()+6.0;
     let control=settings_frame::row(p,g,t,row_y,total,"Follow the system","Use one theme in dark mode and another in light mode.",false);
     p.shape(control,8.0*s,c.card,Some(c.border));
@@ -143,8 +143,8 @@ pub(super) fn theme_group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,stor
     for ((name,_,value),w) in options.iter().zip(widths){
         let b=r(x,control.y+3.0*s,w*s,control.h-6.0*s);let on=(*value=="on")==follow;
         if on{p.shape(b,6.0*s,c.pressed,None);}else if b.contains(p.pointer.0,p.pointer.1){p.shape(b,6.0*s,c.accent,None);}
-        let tw=p.width(name,13.0*s,500);
-        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,13.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
+        let tw=p.width(name,14.0*s,500);
+        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,14.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
         hits.push(Hit{rect:b,action:Action::Follow(*value=="on")});x+=w*s;
     }
     let entries=store.picker(None)?;

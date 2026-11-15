@@ -14,6 +14,9 @@ pub(super) fn over(under:Color,top:Color)->Color{
 /// The mockup's faint text (#6b6b6b on Graphite): muted text halfway to the background.
 pub(super) fn faint(p:&Paint)->Color{super::scene_faint(&p.theme.colors)}
 fn line(p:&mut Paint,x:f32,y:f32,w:f32,h:f32,color:Color){p.shape(r(x,y,w,h),0.0,color,None);}
+/// A hairline's thickness at scale `s`: whole pixels (1 px up to scale 1.49, 2 px from 1.5), so the
+/// line covers its rows fully and stays crisp at fractional scales.
+pub(super) fn hair(s:f32)->f32{s.round().max(1.0)}
 fn stroke(p:&mut Paint,path:Path,x:f32,y:f32,color:Color,width:f32){
     let s=p.scale;let clip=p.clip;
     p.out.scene.layers.push(Layer::Vector(VectorLayer{paths:vec![VectorPath{path,fill:None,stroke:Some(PathStroke{width,color}),
@@ -58,36 +61,50 @@ fn mono_chars(p:&mut Paint,rect:PixelRect,text:&str,px:f32,color:Color,weight:u1
     }
 }
 fn dot(p:&mut Paint,x:f32,y:f32,d:f32,color:Color){p.shape(r(x,y,d,d),d/2.0,color,None);}
-fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
+pub(super) fn hovered(p:&Paint,rect:PixelRect)->bool{rect.contains(p.pointer.0,p.pointer.1)}
 /// A sidebar-coloured surface (title bar, tab column, tools panel, status line). The window
 /// backdrop is already the sidebar colour, or the theme's window gradient, which must show here.
 fn side(p:&mut Paint,rect:PixelRect){if p.theme.window_gradient.is_none(){let c=p.theme.colors.sidebar;p.shape(rect,0.0,c,None);}}
 
-/// Title bar (mockup .titlebar): 38 px on the sidebar colour with a 1 px bottom hairline.
+/// The foreground laid over the bar colour at `frac`: Ptyxis's fills for a hovered button (8 %), the
+/// active tab (8 %) and a hovered tab (5 %), opaque so the text over them keeps its own edges.
+fn tint(p:&Paint,frac:f32)->Color{let c=&p.theme.colors;let mut t=blend(c.sidebar,c.foreground,frac);t[3]=255;t}
+/// Header icon buttons (Ptyxis 50.1): 34 x 34 px, radius 8, a 16 px icon in the middle.
+const BUTTON:f32=34.0;
+/// A header icon button: no fill at rest, 8 % on hover, 12 % while pressed.
+fn header_button(p:&mut Paint,rect:PixelRect){
+    let s=p.scale;
+    if hovered(p,rect){let fill=tint(p,if p.pressed{0.12}else{0.08});p.shape(rect,8.0*s,fill,None);}
+}
+/// A whole-pixel square of side `size` centred on (x, cy).
+fn square(x:f32,cy:f32,size:f32)->PixelRect{let n=size.round();r(x.round(),(cy-n/2.0).round(),n,n)}
+
+/// Title bar (mockup .titlebar, sized as Ptyxis's header bar): 46 px on the sidebar colour with no
+/// line under it; the tools toggle at the left, then the tabs and "+"; search and settings at the right.
 pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
     let s=p.scale;let c=p.theme.colors.clone();let bar=layout.top_bar;if bar.h<=0.0{return;}
     let side_line=over(c.sidebar,c.border);let dim=c.muted_foreground;let faint=faint(p);
     side(p,bar);
-    line(p,bar.x,bar.y+bar.h-s,bar.w,s,side_line);
-    let cy=bar.y+(bar.h-s)/2.0;
-    // Tools toggle (.ico, 26 x 24, radius 6): filled while the tools panel shows.
-    let toggle=r(bar.x+10.0*s,cy-12.0*s,26.0*s,24.0*s);
-    if layout.rails_shown{p.shape(toggle,6.0*s,c.muted,None);}else if hovered(p,toggle){p.shape(toggle,6.0*s,if p.pressed{c.pressed}else{c.muted},None);}
-    p.icon("sidebar",toggle.x+5.0*s,toggle.y+4.0*s,if layout.rails_shown{c.foreground}else{dim});
+    let cy=bar.y+bar.h/2.0;let edge=6.0*s;
+    // Tools toggle: its icon is bright while the tools panel shows.
+    let toggle=square(bar.x+edge,cy,BUTTON*s);
+    header_button(p,toggle);
+    let inset=((toggle.w-16.0*s)/2.0).round();
+    p.icon("sidebar",toggle.x+inset,toggle.y+inset,if layout.rails_shown{c.foreground}else{dim});
     p.hit(toggle,HitAction::ToggleRails);
-    // Settings gear at the right, then the search field (.search 260 x 26) left of it.
-    let gear=r(bar.x+bar.w-10.0*s-26.0*s,cy-12.0*s,26.0*s,24.0*s);
-    if hovered(p,gear){p.shape(gear,6.0*s,if p.pressed{c.pressed}else{c.muted},None);}
-    p.icon("settings",gear.x+5.0*s,gear.y+4.0*s,dim);p.hit(gear,HitAction::Settings);
-    let field=r((gear.x-4.0*s-260.0*s).round(),(cy-13.0*s).round(),260.0*s,26.0*s);
+    // Settings gear at the right, then the search field (34 px, Ptyxis's entry height) left of it.
+    let gear=square(bar.x+bar.w-edge-(BUTTON*s).round(),cy,BUTTON*s);
+    header_button(p,gear);
+    p.icon("settings",gear.x+inset,gear.y+inset,if hovered(p,gear){c.foreground}else{dim});p.hit(gear,HitAction::Settings);
+    let fh=(34.0*s).round();let field=r((gear.x-edge-320.0*s).round(),(cy-fh/2.0).round(),(320.0*s).round(),fh);
     let mut right_edge=bar.x+bar.w;
     if field.x>toggle.x+toggle.w+120.0*s{
         let edge=if state.palette_open{c.ring}else if hovered(p,field){blend(side_line,c.foreground,0.15)}else{side_line};
-        p.shape(field,5.0*s,c.card,Some(edge));
-        p.icon("search",field.x+8.0*s,field.y+5.5*s,faint);
+        p.shape(field,8.0*s,c.card,Some(edge));
+        p.icon("search",field.x+10.0*s,(field.y+(fh-16.0*s)/2.0).round(),faint);
         let keys="Ctrl Shift P";let kw=p.mono_width(keys,12.0*s,400);
-        p.text(r(field.x+field.w-9.0*s-kw,field.y,kw,field.h),keys,12.0*s,faint,400,true);
-        p.text(r(field.x+28.0*s,field.y,(field.w-45.0*s-kw).max(0.0),field.h),"Search or run a command",12.0*s,faint,400,false);
+        p.text(r(field.x+field.w-10.0*s-kw,field.y,kw,field.h),keys,12.0*s,faint,400,true);
+        p.text(r(field.x+32.0*s,field.y,(field.w-50.0*s-kw).max(0.0),field.h),"Search or run a command",14.0*s,faint,400,false);
         p.hit(field,HitAction::Palette);
         right_edge=field.x;
     }
@@ -97,42 +114,48 @@ pub(super) fn title_bar(p:&mut Paint,layout:&Layout,state:&LookState){
         if chip.x>toggle.x+200.0*s{p.shape(chip,6.0*s,c.muted,None);p.text(r(chip.x+8.0*s,chip.y,w,chip.h),owner,12.0*s,c.foreground,500,false);right_edge=chip.x;}
     }
     if layout.tabs_column.is_some(){return;}
-    // Horizontal tabs (.tab): padding 4 x 11, radius 7, gap 2; a 6 px state dot, 7 px gaps,
-    // the folder name, and a close mark on the active or hovered tab; "+" after the last.
-    let mut x=toggle.x+toggle.w+12.0*s;let limit=right_edge-16.0*s;
+    // Horizontal tabs (Ptyxis's tabs, Clanky's content width): 34 px pills of radius 9, 6 px apart;
+    // a 6 px state dot, the folder name centred, and an 8 px close mark that shows on the active or
+    // hovered tab (its space is kept on every tab, so a tab never changes width under the pointer).
+    let gap=6.0*s;let pad=11.0*s;let side_w=pad+6.0*s+9.0*s;
+    let mut x=toggle.x+toggle.w+gap;let limit=right_edge-16.0*s-(BUTTON*s).round();
     let count=state.tabs.len().max(1);
-    let each=((limit-x-30.0*s)/count as f32-2.0*s).max(60.0*s);
+    let each=((limit-x)/count as f32-gap).max(80.0*s);
+    let pill_h=(34.0*s).round();let pill_y=(cy-pill_h/2.0).round();
     for tab in &state.tabs{
-        let title_px=13.0*s;let natural=p.width(&tab.title,title_px,if tab.active{500}else{400});
-        let pill_h=26.0*s;let pill_y=(cy-pill_h/2.0).round();
-        let reserve=if tab.active{15.0*s}else{0.0};
-        let width=(11.0*s+6.0*s+7.0*s+natural+reserve+11.0*s).min(each.max(80.0*s));
+        let title_px=14.0*s;let weight=if tab.active{500}else{400};
+        let natural=p.width(&tab.title,title_px,weight);
+        let width=(2.0*side_w+natural).min(each).round();
         if x+width>limit{break;}
-        let pill=r(x,pill_y,width,pill_h);let over_tab=hovered(p,pill);let show_x=tab.active||over_tab;
-        if tab.active{p.shape(pill,7.0*s,c.muted,None);}else if over_tab{p.shape(pill,7.0*s,blend(c.sidebar,c.muted,0.6),None);}
+        let pill=r(x.round(),pill_y,width,pill_h);let over_tab=hovered(p,pill);let show_x=tab.active||over_tab;
+        if tab.active{let fill=tint(p,0.08);p.shape(pill,9.0*s,fill,None);}else if over_tab{let fill=tint(p,0.05);p.shape(pill,9.0*s,fill,None);}
         // An agent's program always runs in the foreground, so agent comes before running.
-        let dot_color=if tab.agent{c.agent}else if tab.running{c.ok}else{faint};
-        dot(p,pill.x+11.0*s,pill.y+(pill_h-6.0*s)/2.0,6.0*s,dot_color);
-        let tx=pill.x+11.0*s+6.0*s+7.0*s;let tw=(pill.x+pill.w-11.0*s-if show_x{15.0*s}else{0.0}-tx).max(0.0);
-        p.text(r(tx,pill.y,tw,pill.h),&tab.title,title_px,if tab.active{c.foreground}else{dim},if tab.active{500}else{400},false);
+        // An idle tab shows no dot: as in Ptyxis, only its label.
+        if tab.agent||tab.running{
+            let dot_color=if tab.agent{c.agent}else{c.ok};
+            dot(p,pill.x+pad,pill.y+(pill_h-6.0*s)/2.0,6.0*s,dot_color);
+        }
+        let room=(pill.w-2.0*side_w).max(0.0);let tw=natural.min(room);
+        p.text(r(pill.x+side_w+(room-tw)/2.0,pill.y,tw+0.5,pill.h),&tab.title,title_px,c.foreground,weight,false);
         p.hit(pill,HitAction::Session(tab.id.clone()));
         if show_x{
-            let mx=tx+natural.min(tw)+7.0*s;let my=pill.y+(pill_h-7.0*s)/2.0;
-            let mark=r(mx-3.0*s,my-3.0*s,13.0*s,13.0*s);
-            close_mark(p,mx,my,7.0,if hovered(p,mark){c.foreground}else{faint});
+            let mx=pill.x+pill.w-pad-8.0*s;let my=pill.y+(pill_h-8.0*s)/2.0;
+            let mark=r(mx-4.0*s,my-4.0*s,16.0*s,16.0*s);
+            close_mark(p,mx,my,8.0,if hovered(p,mark){c.foreground}else{faint});
             p.hit(mark,HitAction::CloseTab(tab.panes.clone()));
         }
-        x+=width+2.0*s;
+        x+=width+gap;
     }
-    let plus=r(x+4.0*s,cy-12.0*s,24.0*s,24.0*s);
-    if hovered(p,plus){p.shape(plus,6.0*s,c.muted,None);}
-    plus_mark(p,plus.x+7.0*s,plus.y+7.0*s,10.0,dim);p.hit(plus,HitAction::NewTab);
+    let plus=square(x,cy,BUTTON*s);
+    header_button(p,plus);
+    let pi=((plus.w-12.0*s)/2.0).round();
+    plus_mark(p,plus.x+pi,plus.y+pi,12.0,if hovered(p,plus){c.foreground}else{dim});p.hit(plus,HitAction::NewTab);
 }
 
 /// The vertical tab list (mockup picture 2, .vtabs): folder and branch, last command, state.
 pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(col)=layout.tabs_column else{return;};let s=p.scale;let c=p.theme.colors.clone();let faint=faint(p);
-    side(p,col);line(p,col.x+col.w-s,col.y,s,col.h,over(c.sidebar,c.border));
+    side(p,col);line(p,(col.x+col.w).round()-hair(s),col.y,hair(s),col.h,over(c.sidebar,c.border));
     let x=col.x+8.0*s;let w=col.w-16.0*s-s;let mut y=col.y+8.0*s;
     p.text(r(x+9.0*s,y,w-18.0*s,22.0*s),"Session 1",12.0*s,faint,500,false);y+=26.0*s;
     for tab in &state.tabs{
@@ -160,39 +183,39 @@ pub(super) fn tabs_column(p:&mut Paint,layout:&Layout,state:&LookState){
 /// The tools panel (mockup .tools): a head, the chosen tool, and a footer to switch tools.
 pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(panel)=layout.left_rail else{return;};let s=p.scale;let c=p.theme.colors.clone();let faint=faint(p);
-    let side_line=over(c.sidebar,c.border);
-    side(p,panel);line(p,panel.x+panel.w-s,panel.y,s,panel.h,side_line);
-    let inner=r(panel.x,panel.y,panel.w-s,panel.h);
+    // No line at the right edge: the 8 px gap before the panes keeps them apart.
+    side(p,panel);
+    let inner=panel;
     let tools:Vec<Tool>=state.tools.iter().copied().filter(|t|!(state.post_ai && *t==Tool::Agents)).collect();
-    let foot_h=if tools.is_empty(){0.0}else{42.0*s};
+    let foot_h=if tools.is_empty(){0.0}else{(48.0*s).round()};
     let foot_y=inner.y+inner.h-foot_h;
     if !tools.is_empty(){
-        line(p,inner.x,foot_y,inner.w,s,side_line);
         let gap=4.0*s;let seg_w=(inner.w-16.0*s-gap*(tools.len()-1) as f32)/tools.len() as f32;
         for (i,tool) in tools.iter().enumerate(){
-            let seg=r(inner.x+8.0*s+i as f32*(seg_w+gap),foot_y+8.0*s,seg_w,26.0*s);let on=state.tool==Some(*tool);
-            if on{p.shape(seg,6.0*s,c.muted,None);}else if hovered(p,seg){p.shape(seg,6.0*s,blend(c.sidebar,c.muted,0.6),None);}
-            let label=tool.label();let tw=p.width(label,12.0*s,on.then_some(500).unwrap_or(400));
-            p.text(r(seg.x+(seg.w-tw)/2.0,seg.y,tw,seg.h),label,12.0*s,if on{c.foreground}else{c.muted_foreground},if on{500}else{400},false);
+            // Tool tabs 32 px tall (R1: controls at least 32), radius 8, labels 14 px.
+            let seg=r(inner.x+8.0*s+i as f32*(seg_w+gap),(foot_y+8.0*s).round(),seg_w,(32.0*s).round());let on=state.tool==Some(*tool);
+            if on{p.shape(seg,8.0*s,c.muted,None);}else if hovered(p,seg){p.shape(seg,8.0*s,blend(c.sidebar,c.muted,0.6),None);}
+            let label=tool.label();let tw=p.width(label,14.0*s,on.then_some(500).unwrap_or(400));
+            p.text(r(seg.x+(seg.w-tw)/2.0,seg.y,tw+0.5,seg.h),label,14.0*s,if on{c.foreground}else{c.muted_foreground},if on{500}else{400},false);
             p.hit(seg,HitAction::Tool(*tool));
         }
     }
     let Some(tool)=state.tool.filter(|t|tools.contains(t)) else{return;};
-    let head=r(inner.x+8.0*s,inner.y+8.0*s,inner.w-16.0*s,24.0*s);
+    let head=r(inner.x+8.0*s,inner.y+8.0*s,inner.w-16.0*s,32.0*s);
     let title=match tool{Tool::Files=>state.tree_title.as_str(),Tool::Recent=>"Recent",Tool::Agents=>"Agents"};
     // Files head (mockup .tools-head): the folder name, then search and + icons at the right.
     let mut name_w=head.w-8.0*s;
     if tool==Tool::Files{
-        let plus=r(head.x+head.w-24.0*s,head.y,24.0*s,24.0*s);let find=r(plus.x-2.0*s-24.0*s,head.y,24.0*s,24.0*s);
+        let plus=r(head.x+head.w-32.0*s,head.y,32.0*s,32.0*s);let find=r(plus.x-2.0*s-32.0*s,head.y,32.0*s,32.0*s);
         for (rect,action) in [(find,HitAction::Palette),(plus,HitAction::NewTab)]{
-            let over_icon=hovered(p,rect);if over_icon{p.shape(rect,6.0*s,if p.pressed{c.pressed}else{c.muted},None);}
+            let over_icon=hovered(p,rect);if over_icon{p.shape(rect,8.0*s,if p.pressed{c.pressed}else{c.muted},None);}
             let ink=if over_icon{c.foreground}else{c.muted_foreground};
-            if matches!(action,HitAction::Palette){p.icon("search",rect.x+4.5*s,rect.y+4.5*s,ink);}else{plus_mark(p,rect.x+7.0*s,rect.y+7.0*s,10.0,ink);}
+            if matches!(action,HitAction::Palette){p.icon("search",rect.x+8.5*s,rect.y+8.5*s,ink);}else{plus_mark(p,rect.x+11.0*s,rect.y+11.0*s,10.0,ink);}
             p.hit(rect,action);
         }
         name_w=(find.x-4.0*s-head.x-4.0*s).max(0.0);
     }
-    p.text(r(head.x+4.0*s,head.y,name_w,head.h),title,13.0*s,c.foreground,500,false);
+    p.text(r(head.x+4.0*s,head.y,name_w,head.h),title,14.0*s,c.foreground,500,false);
     let body=r(inner.x+8.0*s,head.y+head.h+6.0*s,inner.w-16.0*s,(foot_y-head.y-head.h-12.0*s).max(0.0));
     match tool{
         Tool::Files=>files(p,body,state,faint),
@@ -202,16 +225,16 @@ pub(super) fn tools_panel(p:&mut Paint,layout:&Layout,state:&LookState){
 }
 fn files(p:&mut Paint,body:PixelRect,state:&LookState,faint:Color){
     let s=p.scale;let c=p.theme.colors.clone();let mut y=body.y;
-    if state.tree.is_empty(){p.text(r(body.x+6.0*s,y,body.w-12.0*s,24.0*s),if state.tree_title.is_empty(){"No folder to show"}else{"This folder is empty"},12.0*s,faint,400,false);return;}
+    if state.tree.is_empty(){p.text(r(body.x+6.0*s,y,body.w-12.0*s,28.0*s),if state.tree_title.is_empty(){"No folder to show"}else{"This folder is empty"},14.0*s,faint,400,false);return;}
     for row in &state.tree{
-        let rect=r(body.x,y,body.w,23.0*s);if rect.y+rect.h>body.y+body.h{break;}
-        if hovered(p,rect){p.shape(rect,5.0*s,if p.pressed{c.pressed}else{c.muted},None);}
+        let rect=r(body.x,y,body.w,28.0*s);if rect.y+rect.h>body.y+body.h{break;}
+        if hovered(p,rect){p.shape(rect,6.0*s,if p.pressed{c.pressed}else{c.muted},None);}
         let indent=row.depth as f32*12.0*s;
-        if row.dir{chevron(p,rect.x+6.0*s+indent,rect.y+8.0*s,row.open,faint);}
+        if row.dir{chevron(p,rect.x+6.0*s+indent,rect.y+10.5*s,row.open,faint);}
         let tx=rect.x+6.0*s+indent+if row.dir{14.0*s}else{14.0*s};
-        p.text(r(tx,rect.y,(rect.x+rect.w-6.0*s-tx).max(0.0),rect.h),&row.name,13.0*s,if row.dir{c.foreground}else{c.muted_foreground},400,false);
+        p.text(r(tx,rect.y,(rect.x+rect.w-6.0*s-tx).max(0.0),rect.h),&row.name,14.0*s,if row.dir{c.foreground}else{c.muted_foreground},400,false);
         p.hit(rect,if row.dir{HitAction::TreeToggle(row.path.clone())}else{HitAction::OpenPath(row.path.clone())});
-        y+=24.0*s;
+        y+=29.0*s;
     }
 }
 fn recent(p:&mut Paint,body:PixelRect,state:&LookState,faint:Color){
@@ -259,7 +282,7 @@ fn agents(p:&mut Paint,body:PixelRect,state:&LookState,faint:Color){
 /// The status line (mockup .status): session, tabs and server on the left; masking and agents on the right.
 pub(super) fn status_line(p:&mut Paint,layout:&Layout,state:&LookState){
     let Some(bar)=layout.status_line else{return;};let s=p.scale;let c=p.theme.colors.clone();
-    side(p,bar);line(p,bar.x,bar.y,bar.w,s,over(c.sidebar,c.border));
+    side(p,bar);line(p,bar.x,bar.y.round(),bar.w,hair(s),over(c.sidebar,c.border));
     let y=bar.y+s;let h=bar.h-s;let gap=16.0*s;let px=12.0*s;let faint=c.muted_foreground;
     let tabs=state.tabs.len().max(1);
     let left=["Session 1".to_string(),format!("{tabs} {}",if tabs==1{"tab"}else{"tabs"}),super::uptime_label(state.uptime_seconds)];
@@ -363,7 +386,7 @@ pub(super) fn quiet_under(q:&Quiet,snapshot:&mut clanky_core::TerminalSnapshot,l
 }
 pub(super) fn quiet_over(p:&mut Paint,q:&Quiet,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,state:&LookState){
     let s=p.scale;let c=p.theme.colors.clone();let _=layout;
-    if let Some((y,color))=q.hairline{line(p,pane.rect.x,y.floor(),pane.rect.w,s,color);}
+    if let Some((y,color))=q.hairline{line(p,pane.rect.x,y.floor(),pane.rect.w,hair(s),color);}
     let key=(data.id.clone(),q.id.clone());let opacity=state.block_actions.get(&key).copied().unwrap_or(0.0).clamp(0.0,1.0);
     let mut items:Vec<(&str,&str)>=vec![("Copy output","copy"),("Copy command","copy_command"),("Run again","rerun")];
     if !state.post_ai{items.push(("Ask agent","send"));}
@@ -417,8 +440,11 @@ pub(super) fn sticky(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&lo
     let Some(sticky)=&data.sticky else{return;};let s=p.scale;let c=p.theme.colors.clone();
     let h=(pane.grid_origin[1]-pane.rect.y)+layout.cell_px[1] as f32;
     let band=r(pane.rect.x,pane.rect.y,pane.rect.w,h);
+    // No hard line under it: a soft shade of about 4 px, as under Ptyxis's header bar. The shadow's
+    // rect is pulled in by its blur on the sides, so it shows below the band and not in the gaps.
+    p.out.scene.layers.push(clanky_render::Layer::Shape(clanky_render::Shape{rect:band.array(),radius:0.0,fill:clanky_render::Fill::Solid([0;4]),border:None,
+        shadow:Some(clanky_render::Shadow{offset:[0.0,3.0*s],blur:4.0*s,spread:-4.0*s,color:[0,0,0,90]})}));
     p.shape(band,0.0,over(term.background,alpha(c.card,0.96)),None);
-    line(p,band.x,band.y+band.h-s,band.w,s,over(term.background,c.border));
     let right=match (sticky.running_s,sticky.duration_ms){(Some(n),_)=>format!("running {n} s"),(None,Some(ms))=>duration_label(ms),_=>String::new()};
     let rw=p.mono_width(&right,12.0*s,400);
     p.text(r(band.x+band.w-18.0*s-rw,band.y,rw,band.h-s),&right,12.0*s,c.muted_foreground,400,true);

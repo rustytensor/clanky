@@ -53,16 +53,16 @@ pub(super) fn segments(p:&mut Paint<'_>,control:PixelRect,options:&[(&'static st
     p.shape(control,8.0*s,c.card,Some(c.border));
     let mut x=control.x+3.0*s;
     for (name,key,value) in options{
-        let w=p.width(name,13.0*s,500)+26.0*s;
+        let w=p.width(name,14.0*s,500)+26.0*s;
         let b=r(x,control.y+3.0*s,w,control.h-6.0*s);let on=selected==*value;
         if on{p.shape(b,6.0*s,c.pressed,None);}else if b.contains(p.pointer.0,p.pointer.1){p.shape(b,6.0*s,c.accent,None);}
-        let tw=p.width(name,13.0*s,500);
-        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,13.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
+        let tw=p.width(name,14.0*s,500);
+        p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),name,14.0*s,if on{c.foreground}else{c.muted_foreground},500,false);
         hits.push(Hit{rect:b,action:Action::Choice(key,value)});x+=w;
     }
 }
 pub(super) fn segments_width(p:&mut Paint<'_>,options:&[(&'static str,&'static str,&'static str)],s:f32)->f32{
-    options.iter().map(|(name,_,_)|p.width(name,13.0*s,500)/s+26.0).sum::<f32>()+6.0
+    options.iter().map(|(name,_,_)|p.width(name,14.0*s,500)/s+26.0).sum::<f32>()+6.0
 }
 
 /// A text field: its stored value, or while edited the text with a caret (the selection, when
@@ -75,7 +75,7 @@ pub(super) fn field(p:&mut Paint<'_>,rect:PixelRect,value:&str,mono:bool,editing
     if focused{p.shape(rect,8.0*s,c.background,Some(ring));}else{p.shape(rect,8.0*s,c.muted,None);}
     if focused{p.shape(r(rect.x-s,rect.y-s,rect.w+2.0*s,rect.h+2.0*s),9.0*s,[0;4],Some(ring));}
     let inner=r(rect.x+10.0*s,rect.y,rect.w-20.0*s,rect.h);
-    let measure=|p:&mut Paint<'_>,text:&str|if mono{p.mono_width(text,13.0*s,400)}else{p.width(text,13.0*s,400)};
+    let measure=|p:&mut Paint<'_>,text:&str|if mono{p.mono_width(text,14.0*s,400)}else{p.width(text,14.0*s,400)};
     match editing{
         Some(edit)=>{
             let text=edit.text;let caret=edit.caret.min(text.len());
@@ -83,12 +83,12 @@ pub(super) fn field(p:&mut Paint<'_>,rect:PixelRect,value:&str,mono:bool,editing
             let mut start=0;while start<caret && measure(p,&text[start..caret])>inner.w-2.0*s{start+=text[start..].chars().next().map_or(1,char::len_utf8);}
             let shown=&text[start..];
             if edit.all && !text.is_empty(){let w=measure(p,shown).min(inner.w);let mut sel=c.ring;sel[3]=110;p.shape(r(inner.x-2.0*s,rect.y+7.0*s,w+4.0*s,18.0*s),3.0*s,sel,None);}
-            p.text(inner,shown,13.0*s,c.foreground,400,mono);
+            p.text(inner,shown,14.0*s,c.foreground,400,mono);
             if !edit.all{let x=inner.x+measure(p,&text[start..caret]);p.shape(r(x,rect.y+8.0*s,s,16.0*s),0.0,c.foreground,None);}
         }
         None=>{
-            if value.is_empty(){p.text(inner,placeholder,13.0*s,crate::calm::scene_faint(c),400,false);}
-            else{p.text(inner,value,13.0*s,c.foreground,400,mono);}
+            if value.is_empty(){p.text(inner,placeholder,14.0*s,crate::calm::scene_faint(c),400,false);}
+            else{p.text(inner,value,14.0*s,c.foreground,400,mono);}
         }
     }
 }
@@ -122,11 +122,11 @@ pub(super) fn rows_then(p:&mut Paint<'_>,g:&Geometry,t:&Theme,mut y:f32,rows:&[R
     y
 }
 
-/// An outlined button (13 px, 28 px tall) at page x, y; returns its rect.
+/// An outlined button (14 px text, 32 px tall, radius 8) at page x, y; returns its rect.
 pub(super) fn button(p:&mut Paint<'_>,g:&Geometry,t:&Theme,x:f32,y:f32,label:&str)->PixelRect{
-    let s=g.scale;let c=&t.colors;let width=p.width(label,13.0*s,500)/s+20.0;let b=g.local(x,y,width,28.0);
-    let fill=if b.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,6.0*s,fill,Some(c.input));
-    let w=p.width(label,13.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),label,13.0*s,c.foreground,500,false);
+    let s=g.scale;let c=&t.colors;let width=p.width(label,14.0*s,500)/s+24.0;let b=g.local(x,y,width,32.0);
+    let fill=if b.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,8.0*s,fill,Some(c.input));
+    let w=p.width(label,14.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),label,14.0*s,c.foreground,500,false);
     b
 }
 

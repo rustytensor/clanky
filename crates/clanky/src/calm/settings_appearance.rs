@@ -22,8 +22,8 @@ pub(super) fn hex(c:Color)->String{if c[3]==255{format!("#{:02x}{:02x}{:02x}",c[
 pub(super) fn label(token:&str)->String{let text=token.replace('_'," ");let mut chars=text.chars();chars.next().map(|c|c.to_uppercase().collect::<String>()+chars.as_str()).unwrap_or_default()}
 fn button(p:&mut Paint<'_>,rect:PixelRect,text:&str,t:&Theme,s:f32,pointer:(f64,f64),pressed:bool,outline:bool){
     let fill=if rect.contains(pointer.0,pointer.1){if pressed{t.colors.pressed}else{t.colors.accent}}else{t.colors.background};
-    if outline || rect.contains(pointer.0,pointer.1){p.shape(rect,6.0*s,fill,outline.then_some(t.colors.input));}
-    let w=p.width(text,13.0*s,500);p.text(r(rect.x+(rect.w-w)/2.0,rect.y,w,rect.h),text,13.0*s,t.colors.foreground,500,false);
+    if outline || rect.contains(pointer.0,pointer.1){p.shape(rect,8.0*s,fill,outline.then_some(t.colors.input));}
+    let w=p.width(text,14.0*s,500);p.text(r(rect.x+(rect.w-w)/2.0,rect.y,w,rect.h),text,14.0*s,t.colors.foreground,500,false);
 }
 #[allow(clippy::too_many_arguments,clippy::type_complexity)]
 pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeStore,system_light:bool,scroll:f32,pointer:(f64,f64),pressed:bool,measure:&mut dyn FnMut(&TextRun)->TextMetrics,palettes:&[(String,serde_json::Value)],highlight:Option<usize>,editing:Option<super::settings_form::Editing<'_>>)->Result<(Vec<Layer>,Vec<Hit>,f32,Vec<super::settings_layout::PickItem>),String>{
@@ -52,16 +52,16 @@ pub(super) fn page(window:[u32;2],g:&Geometry,t:&Theme,cfg:&Config,store:&ThemeS
         if !super::settings_frame::fits(&gs,cy,32.0){continue;}
         p.shape(rect(x,cy+6.0,20.0,20.0),5.0*s,color,Some(t.colors.input));
         let changed=cfg.colors.get(token).is_some_and(|value|base.as_ref().and_then(|b|b.colors.get(token)).as_ref()!=Some(value));
-        let reset=if changed{p.width("Reset",13.0*s,500)/s+16.0}else{0.0};
+        let reset=if changed{p.width("Reset",14.0*s,500)/s+20.0}else{0.0};
         let value=hex(color);let vw=p.mono_width(&value,12.0*s,400)/s;let vx=right-reset-if changed{6.0}else{0.0}-vw;
         p.text(rect(vx,cy,vw+1.0,32.0),&value,12.0*s,t.colors.muted_foreground,400,true);
-        p.text(rect(x+30.0,cy,(vx-8.0-x-30.0).max(0.0),32.0),&label(token),13.0*s,t.colors.foreground,400,false);
+        p.text(rect(x+30.0,cy,(vx-8.0-x-30.0).max(0.0),32.0),&label(token),14.0*s,t.colors.foreground,400,false);
         hits.push(Hit{rect:rect(x,cy,vx+vw-x,32.0),action:Action::Color(token)});
-        if changed{let b=rect(right-reset,cy+2.0,reset,28.0);button(&mut p,b,"Reset",t,s,pointer,pressed,true);hits.push(Hit{rect:b,action:Action::ResetColor(token)});}
+        if changed{let b=rect(right-reset,cy,reset,32.0);button(&mut p,b,"Reset",t,s,pointer,pressed,true);hits.push(Hit{rect:b,action:Action::ResetColor(token)});}
     }
     y+=tokens.len().div_ceil(2) as f32*32.0;
     let mut x=229.0;
-    for(name,action)in[("Save as new theme",Action::SaveTheme),("Import",Action::ImportTheme),("Export",Action::ExportTheme)]{if !super::settings_frame::fits(&gs,y+12.0,28.0){break;}let width=p.width(name,13.0*s,500)/s+20.0;let b=rect(x,y+12.0,width,28.0);button(&mut p,b,name,t,s,pointer,pressed,true);hits.push(Hit{rect:b,action});x+=width+8.0;}
+    for(name,action)in[("Save as new theme",Action::SaveTheme),("Import",Action::ImportTheme),("Export",Action::ExportTheme)]{if !super::settings_frame::fits(&gs,y+12.0,32.0){break;}let width=p.width(name,14.0*s,500)/s+24.0;let b=rect(x,y+12.0,width,32.0);button(&mut p,b,name,t,s,pointer,pressed,true);hits.push(Hit{rect:b,action});x+=width+8.0;}
     let y=y+48.0;
     hits.retain_mut(|hit|{let top=hit.rect.y.max(g.body.y);let bottom=(hit.rect.y+hit.rect.h).min(g.body.y+g.body.h);hit.rect.y=top;hit.rect.h=(bottom-top).max(0.0);hit.rect.h>0.0});
     p.out.scene.layers.push(Layer::Clip(None));Ok((p.out.scene.layers,hits,(y+24.0-(g.h-57.0)).max(0.0),items))
@@ -178,9 +178,9 @@ impl Editor{
     fn input(&self,p:&mut Paint<'_>,input:PixelRect,i:usize,t:&Theme,s:f32){
         let value=&self.values[i];
         p.shape(input,8.0*s,t.colors.background,Some(if self.focus==i{t.colors.ring}else{t.colors.input}));
-        let caret=if self.focus==i{self.caret}else{value.len()};let mut start=0;while p.mono_width(&value[start..caret],13.0*s,400)>input.w-20.0*s{start+=value[start..].chars().next().unwrap().len_utf8();}
-        p.text(r(input.x+10.0*s,input.y,input.w-20.0*s,input.h),&value[start..],13.0*s,t.colors.foreground,400,true);
-        if self.focus==i{let x=input.x+10.0*s+p.mono_width(&value[start..caret],13.0*s,400);p.shape(r(x,input.y+8.0*s,s,16.0*s),0.0,t.colors.foreground,None);}
+        let caret=if self.focus==i{self.caret}else{value.len()};let mut start=0;while p.mono_width(&value[start..caret],14.0*s,400)>input.w-20.0*s{start+=value[start..].chars().next().unwrap().len_utf8();}
+        p.text(r(input.x+10.0*s,input.y,input.w-20.0*s,input.h),&value[start..],14.0*s,t.colors.foreground,400,true);
+        if self.focus==i{let x=input.x+10.0*s+p.mono_width(&value[start..caret],14.0*s,400);p.shape(r(x,input.y+8.0*s,s,16.0*s),0.0,t.colors.foreground,None);}
     }
     /// The colour picker: which colour it changes, its hex value, the current and the new colour side
     /// by side, and colours to start from: shades and hues of this colour, and the theme's own.

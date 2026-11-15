@@ -102,13 +102,13 @@ pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:O
     y=form::heading(p,g,t,y+20.0,"Agent tools");
     for (i,agent) in cfg.agents.iter().enumerate(){
         if !super::settings_frame::row_fits(g,y){y+=form::ROW;continue;}
-        let w=p.width("Remove",13.0*s,500)/s+20.0;
+        let w=p.width("Remove",14.0*s,500)/s+24.0;
         let control=super::settings_frame::row(p,g,t,y,w,&agent.name,"",false);
         let mut cmd=c.muted_foreground;cmd[3]=cmd[3].max(200);
         p.text(g.local(229.0,y+35.0,522.0-w-24.0,18.84375),&agent.command,13.0*s,cmd,400,true);
-        let b=r(control.x,control.y+2.0*s,control.w,28.0*s);
-        let fill=if b.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,6.0*s,fill,Some(c.input));
-        let tw=p.width("Remove",13.0*s,500);p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),"Remove",13.0*s,c.foreground,500,false);
+        let b=control;
+        let fill=if b.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};p.shape(b,8.0*s,fill,Some(c.input));
+        let tw=p.width("Remove",14.0*s,500);p.text(r(b.x+(b.w-tw)/2.0,b.y,tw,b.h),"Remove",14.0*s,c.foreground,500,false);
         hits.push(Hit{rect:b,action:Action::RemoveAgent(i)});
         y+=form::ROW;
     }
@@ -125,7 +125,7 @@ pub(super) fn agents(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,editing:O
         p.text(g.local(229.0,y+70.0,522.0,18.0),"Tab moves to the command. Enter adds the agent; Escape cancels.",12.0*s,faint,400,false);
         y+=100.0;
     }else if cfg.agents.len()<32{
-        if super::settings_frame::fits(g,y+12.0,28.0){let b=form::button(p,g,t,229.0,y+12.0,"Add agent");hits.push(Hit{rect:b,action:Action::AddAgent});}
+        if super::settings_frame::fits(g,y+12.0,32.0){let b=form::button(p,g,t,229.0,y+12.0,"Add agent");hits.push(Hit{rect:b,action:Action::AddAgent});}
         y+=52.0;
     }
     if cfg.post_ai{return y;}
