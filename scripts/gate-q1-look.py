@@ -55,7 +55,11 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      window, and its pane has 124-125 columns: vertical tab column 236 px [M .vtabs, same width as .tools], pane
      padding 18 px each side [M .blk], 9 px cells [P]: floor((1400-236-36)/9) = 125, one column of slack.
   P2 each bad value (tab_style "diagonal", tools_panel true, tools ["files","bogus"], command_input "fancy",
-     block_style "loud", status_line 1) makes the window exit with an error within 20 s and open no window.
+     block_style "loud", status_line 1) never stops the window (Marc's Y2 2026-11-14): the window opens with the
+     default values (there is no last good file at a cold start) and is still running 3 s later; its pane has the
+     defaults' 124-125 columns (as P3) and the status line is shown ((700,890) sidebar (8,8,8) +-3, as P3); Ctrl+,
+     opens Settings and the part of the window it changed reads "line 11": config.xml holds the XML declaration
+     (line 1), <clanky version="1"> (line 2), the 8 BASE settings (lines 3..10), then the bad value on line 11.
   P3 config {} (no Q1 key): the defaults; 124-125 columns (tools panel 236 px [M .body grid 236px]) and the status
      line shown (pixel (700,890) is the sidebar colour (8,8,8), +-3).
   L1 {"rails": false}: tools panel off, 151-152 columns (pane padding 14 each side, Marc's sizes of 2026-11-14:
@@ -388,49 +392,39 @@ def cols(win, tab=None):
 
 # ---------------------------------------------------------------- parse, defaults, legacy rails
 
-def bad_config(name, cfg):
-    """Starts a window with cfg on its own display; returns True when it exits with an error and opens no window."""
-    d = ROOT / f'bad-{name}'
-    d.mkdir()
-    for sub in ('home', 'config', 'state', 'runtime'):
-        (d / sub).mkdir(mode=0o700)
-    config_xml.write(d / 'config.xml', cfg)
-    rd, wr = os.pipe()
-    xs = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
-                           '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    os.close(wr)
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith(('XDG_', 'CLANKY', 'WAYLAND', 'DBUS', 'GNOME', 'GSETTINGS'))}
-    env.update(DISPLAY=':' + os.read(rd, 32).decode().strip(), HOME=str(d / 'home'), XDG_CONFIG_HOME=str(d / 'config'),
-               XDG_STATE_HOME=str(d / 'state'), XDG_RUNTIME_DIR=str(d / 'runtime'), SHELL='/bin/sh',
-               WINIT_UNIX_BACKEND='x11', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json')
-    os.close(rd)
-    sock = d / 'window.sock'
-    p = subprocess.Popen([str(APP), '--socket', str(sock), '--config', str(d / 'config.xml')], env=env, cwd=str(d),
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def bad_value(key, value):
+    """P2: a window on BASE plus one bad value opens with the defaults and Settings shows the error's line."""
+    import numpy as np
+    cfg = dict(BASE, **{key: value})
+    line = 2 + list(cfg).index(key) + 1
+    assert config_xml.dump(cfg).splitlines()[line - 1].lstrip().startswith(f'<{key}>')
+    label = f'P2 {key}={json.dumps(value)}'
     try:
-        try:
-            code = p.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            code = None
-        shown = subprocess.run(['xdotool', 'search', '--pid', str(p.pid)], env=env, capture_output=True,
-                               text=True).stdout.split()
-        return code not in (None, 0) and not shown
+        win = Win(f'p2-{key}', cfg)
+    except Fail as e:
+        raise Fail(f'{label}: the window opens anyway ({e})')
+    try:
+        time.sleep(3)
+        require(win.alive(), f'{label}: the window is still running 3 s after it opened')
+        c = cols(win)
+        require(c in (124, 125), f'{label}: the defaults, 124-125 columns (observed {c})')
+        win.away()
+        before = win.shot(f'p2-{key}-closed')
+        require(near(before.getpixel((700, 890)), SIDEBAR, 3),
+                f'{label}: the defaults, status line shown at (700,890): {before.getpixel((700, 890))}')
+        win.key('ctrl+comma')
+        time.sleep(1.2)
+        after = win.shot(f'p2-{key}-settings')
+        changed = np.abs(np.asarray(after).astype(int) - np.asarray(before).astype(int)).max(axis=2) > 12
+        rows, columns = np.where(changed.sum(axis=1) >= 50)[0], np.where(changed.sum(axis=0) >= 50)[0]
+        require(len(rows) and len(columns), f'{label}: Ctrl+, opens Settings')
+        box = (int(columns[0]), int(rows[0]), int(columns[-1]) + 1, int(rows[-1]) + 1)
+        texts = [ocr_text(after, box, 3, psm) for psm in (11, 6, 4)]
+        require(any(re.search(rf'line\s*:?\s*{line}\b', t) for t in texts),
+                f'{label}: Settings shows the error at "line {line}" (read {texts[0][-200:]!r})')
+        require(win.alive(), f'{label}: the window is still running')
     finally:
-        if sock.exists():
-            try:
-                c = t2.Conn(sock)
-                c.call(3, 'auth', token=Path(str(sock) + '.owner').read_text().strip())
-                os.kill(c.call(3, 'hello')['server_pid'], 15)
-            except Exception:
-                pass
-        for proc in (p, xs):
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+        win.close()
 
 
 def parse_story():
@@ -447,8 +441,8 @@ def parse_story():
     print('ok: P1 every Q1 key starts the window')
     for key, value in (('tab_style', 'diagonal'), ('tools_panel', True), ('tools', ['files', 'bogus']),
                        ('command_input', 'fancy'), ('block_style', 'loud'), ('status_line', 1)):
-        require(bad_config(key, dict(BASE, **{key: value})), f'P2 {key}={json.dumps(value)} is refused')
-    print('ok: P2 bad values refused')
+        bad_value(key, value)
+    print('ok: P2 bad values open the window with the defaults and show the error line in Settings')
     win = Win('p3', dict(BASE, theme='dark', theme_dark='graphite-dark'))
     try:
         c = cols(win)
