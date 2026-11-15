@@ -79,16 +79,19 @@ def compare(data, scene_only=False, no_idle=False):
     pane = data['post_ai']['a']
     exact(pane['rect'], [244, 46, 996, 340], 'Post-AI pane')  # pane A above [R1]
     exact(pane['cols'], 121, 'Post-AI columns')
-    coords = ['128,700', '600,4', '600,37', '235,200', '600,200', '600,385', '1100,200', '600,734', '600,750']
-    # tools panel, title bar, its bottom hairline, the tools panel's right hairline, pane A, the split hairline,
+    coords = ['128,700', '600,4', '600,45', '235,200', '240,200', '600,200', '600,390', '1100,200', '600,734',
+              '600,750']
+    # tools panel, title bar, the title bar's last row (y 45 of R1's 46 px bar), the tools panel's last column,
+    # the 8 px gap after it (x 236..243 [R1]), pane A, the 8 px gap between panes A and B (y 386..393 [R1]),
     # where the right column was (now pane), the status line's top hairline, the status line [M].
-    # Stone dark [T]: sidebar #0f0d0b, background #141210, border #fff0e1 at 20/255:
-    # over the sidebar (34,31,28), over the background (38,35,32).
-    side, bg, side_line, bg_line = [15,13,11,255], [20,18,16,255], [34,31,28,255], [38,35,32,255]
-    dark = [side, side, side_line, side_line, bg, bg_line, bg, side_line, side]
+    # Marc's Y1 of 2026-11-14 (the Ptyxis look): no line under the title bar, and the gaps between panes and after
+    # the tools panel in the window colour (the sidebar colour of the title bar and tools panel), no divider lines.
+    # Stone dark [T]: sidebar #0f0d0b, background #141210, border #fff0e1 at 20/255 over the sidebar (34,31,28).
+    side, bg, side_line = [15,13,11,255], [20,18,16,255], [34,31,28,255]
+    dark = [side, side, side, side, side, bg, side, bg, side_line, side]
     # Stone light [T]: sidebar #f3f0eb, background #fbfaf8, border #e7e1d9 (opaque).
     side, bg, line = [243,240,235,255], [251,250,248,255], [231,225,217,255]
-    light = [side, side, line, line, bg, line, bg, line, side]
+    light = [side, side, side, side, side, bg, side, bg, line, side]
     pixels(data['pixels']['dark'], dict(zip(coords, dark)), 'Stone dark')
     pixels(data['pixels']['light'], dict(zip(coords, light)), 'Stone light')
     # The window gradient shows behind the title bar (y 20) and the status line (y 740), as it showed behind the

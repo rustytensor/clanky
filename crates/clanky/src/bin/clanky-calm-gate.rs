@@ -81,19 +81,19 @@ fn render(layout: &clanky::look::Layout, state: &LookState, name: &str, output: 
     let theme = themes::builtin(name)?;
     let mut presentation = calm::presentation(layout,state,&theme,13.0,(-1.0,-1.0),false,&mut clanky_render::measure_text);
     if fault {
-        // Planted fault: drop the title bar's 1 px bottom hairline (mockup .titlebar border-bottom).
-        let bar = layout.top_bar;
-        let hairline = [bar.x, bar.y + bar.h - 1.0, bar.w, 1.0];
+        // Planted fault: drop the status line's 1 px top hairline (the title bar has no line under it any more).
+        let status = layout.status_line.ok_or("missing status line for planted fault")?;
         let before = presentation.scene.layers.len();
-        presentation.scene.layers.retain(|layer| !matches!(layer, Layer::Shape(shape) if shape.rect == hairline));
-        if presentation.scene.layers.len() == before { return Err("missing title bar hairline for planted fault".into()); }
+        presentation.scene.layers.retain(|layer| !matches!(layer, Layer::Shape(shape)
+            if shape.rect[3] <= 1.0 && (shape.rect[1] - status.y).abs() <= 1.0));
+        if presentation.scene.layers.len() == before { return Err("missing status line hairline for planted fault".into()); }
     }
     let sizes = presentation.scene.layers.iter().filter_map(|layer| match layer {
         Layer::Text(run) => Some(run.px), _ => None,
     }).collect();
     let rgba = offscreen_scene(&presentation.scene,1240,760)?;
     fs::write(output.join(format!("{name}.rgba")),&rgba).map_err(|e| e.to_string())?;
-    let coords = [(128,700),(600,4),(600,37),(235,200),(600,200),(600,385),(1100,200),(600,734),(600,750),(128,20),(128,740)];
+    let coords = [(128,700),(600,4),(600,45),(235,200),(240,200),(600,200),(600,390),(1100,200),(600,734),(600,750),(128,20),(128,740)];
     let mut result = serde_json::Map::new();
     for (x,y) in coords { result.insert(format!("{x},{y}"),json!(sample(&rgba,x,y))); }
     Ok((Value::Object(result),sizes))
