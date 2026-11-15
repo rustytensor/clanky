@@ -15,6 +15,7 @@ clanky-api = { path = "../clanky-api" }
 crossterm = "=0.28.1"
 ratatui = { version = "=0.29.0", default-features = false, features = ["crossterm"] }
 serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+roxmltree = "=0.20.0"
 spellbook = { version = "=0.4.2", default-features = false }
 winit = "=0.30.13"
 tree-sitter = "=0.27.2"

@@ -69,7 +69,7 @@ mod linux {
         std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").filter(|v| !v.is_empty())
                 .map(|home| PathBuf::from(home).join(".config")))
-            .map(|base| base.join("clanky/config.json"))
+            .map(|base| base.join("clanky/config.xml"))
     }
 }
 

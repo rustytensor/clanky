@@ -118,9 +118,11 @@ def find_cell(win, text):
 
 
 def bar_text(win, p):
-    """OCR of the strip just above the pane's first row (the pane's top bar)."""
+    """OCR of the strip above the pane's first row, up to the window's top: the title bar, where the chip is.
+    Marc's R1 of 2026-11-14: the title bar is 46 px and the pane has 14 px of padding, so the first row starts at
+    46 + 14 = 60 and the strip is the 60 px above it (was 40: the old 38 px bar and its pane padding)."""
     x0, y0, cw, ch = p.geo
-    im = win.shot('bar').crop((max(0, int(x0) - 8), max(0, int(y0) - 40), int(x0 + p.cols * cw), int(y0) - 1))
+    im = win.shot('bar').crop((max(0, int(x0) - 8), max(0, int(y0) - 60), int(x0 + p.cols * cw), int(y0) - 1))
     im = im.resize((im.width * 3, im.height * 3))
     path = win.w / 'bar.png'
     im.save(path)

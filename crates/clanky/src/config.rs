@@ -59,6 +59,8 @@ pub struct Config {
     pub agents: Vec<AgentTool>,
     /// Whether a pane started for an agent gets agent access (read + run) or none.
     pub agent_pane_access: bool,
+    /// How many panes a new window opens with when no saved layout is restored: 1, or 2 (one above the other).
+    pub new_window_panes: u8,
 }
 
 /// Terminal colours set apart from the window theme; each unset one follows the theme.
@@ -67,6 +69,8 @@ pub struct TerminalColors {
     pub background: Option<crate::themes::Color>,
     pub foreground: Option<crate::themes::Color>,
     pub cursor: Option<crate::themes::Color>,
+    /// The background of selected cells.
+    pub selection: Option<crate::themes::Color>,
     pub ansi: Option<[crate::themes::Color; 16]>,
 }
 
@@ -101,6 +105,7 @@ impl TerminalColors {
                 "background" => out.background = Some(color(key, value)?),
                 "foreground" => out.foreground = Some(color(key, value)?),
                 "cursor" => out.cursor = Some(color(key, value)?),
+                "selection" => out.selection = Some(color(key, value)?),
                 "ansi" => {
                     let list = value.as_array().filter(|l| l.len() == 16).ok_or("terminal_colors.ansi must list 16 colours")?;
                     let mut ansi = [[0; 4]; 16];
@@ -196,6 +201,7 @@ impl Default for Config {
             cursor_blink_timeout_s: 10,
             agents: default_agents(),
             agent_pane_access: true,
+            new_window_panes: 2,
         }
     }
 }
@@ -224,7 +230,7 @@ impl StartupOverrides {
 fn calm_window_defaults(){
     let mut config=Config::window_from_json("{}").unwrap();
     if std::env::var_os("CLANKY_WINDOW_FONT_FAULT").is_some(){config.font_size=12.0;}
-    assert_eq!((config.font_size,config.font_size_pt,config.opacity),(13.0,9.75,1.0));
+    assert_eq!((config.font_size,config.font_size_pt,config.opacity,config.cell_height_scale),(11.0*4.0/3.0,11.0,1.0,1.25));
     assert_eq!((config.font_family.as_str(),config.ui_font_family.as_str()),("Geist Mono","Geist"));
     let old=Config::window_from_json(r#"{"font_size_pt":12,"font_family":"JetBrains Mono","ui_font_family":"Inter","opacity":0.94}"#).unwrap();
     assert_eq!((old.font_size,old.font_size_pt,old.opacity),(16.0,12.0,0.94));
@@ -276,18 +282,29 @@ impl Config {
 
     /// Live-window defaults. Legacy fixture constructors keep their original metrics.
     pub fn window_defaults() -> Self {
-        Self { font_size:13.0, font_size_pt:9.75, font_family:"Geist Mono".into(),ui_font_family:"Geist".into(),opacity:1.0,..Self::default() }
+        // Terminal text 11 pt (14.67 px) with lines 1.25 times the font's natural height, as Ptyxis draws it.
+        Self { font_size:11.0*4.0/3.0, font_size_pt:11.0, cell_height_scale:1.25, font_family:"Geist Mono".into(),ui_font_family:"Geist".into(),opacity:1.0,..Self::default() }
     }
     pub fn window_from_json(json:&str)->Result<Self,String>{
         let mut value:serde_json::Value=serde_json::from_str(json).map_err(|error|format!("invalid JSON: {error}"))?;
         let object=value.as_object_mut().ok_or("config must be a JSON object")?;
-        if !object.contains_key("font_size") && !object.contains_key("font_size_pt"){object.insert("font_size".into(),serde_json::json!(13));}
-        for (key,value) in [("font_family",serde_json::json!("Geist Mono")),("ui_font_family",serde_json::json!("Geist")),("opacity",serde_json::json!(1.0))]{
+        if !object.contains_key("font_size") && !object.contains_key("font_size_pt"){object.insert("font_size_pt".into(),serde_json::json!(11));}
+        for (key,value) in [("font_family",serde_json::json!("Geist Mono")),("ui_font_family",serde_json::json!("Geist")),("opacity",serde_json::json!(1.0)),("cell_height_scale",serde_json::json!(1.25))]{
             object.entry(key.to_owned()).or_insert(value);
         }
         Self::from_json(&value.to_string())
     }
 
+    /// The settings in a file's text: XML, or the old JSON format for a path ending in .json.
+    pub fn from_file(path: &Path, text: &str) -> Result<Self, String> {
+        if is_json_path(path) { return Self::window_from_json(text); }
+        let (config, _, soft) = crate::config_xml::load_soft(text)?;
+        if let Some(error) = soft { eprintln!("clanky: config {}: {error}", path.display()); }
+        Ok(config)
+    }
+    /// Reads the settings. With no explicit path, an old config.json beside a missing config.xml is
+    /// migrated first. A file that does not parse or holds a bad value never stops Clanky: the
+    /// defaults are used, the error goes to stderr, and Settings shows it.
     pub fn load(explicit: Option<&Path>) -> Result<Self, String> {
         let default_path;
         let path = match explicit {
@@ -297,17 +314,21 @@ impl Config {
                     return Ok(Self::window_defaults());
                 };
                 default_path = path;
+                if let Err(error) = crate::config_xml::migrate(&default_path) { eprintln!("clanky: {error}"); }
                 &default_path
             }
         };
         let mut config = match fs::read_to_string(path) {
-            Ok(json) => Self::window_from_json(&json)
-                .map_err(|error| format!("config {}: {error}", path.display())),
-            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => {
-                Ok(Self::window_defaults())
-            }
-            Err(error) => Err(format!("config {}: {error}", path.display())),
-        }?;
+            Ok(text) => match Self::from_file(path, &text) {
+                Ok(config) => config,
+                Err(error) => {
+                    eprintln!("clanky: config {}: {error}; using the default settings", path.display());
+                    Self::window_defaults()
+                }
+            },
+            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => Self::window_defaults(),
+            Err(error) => return Err(format!("config {}: {error}", path.display())),
+        };
         config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
         Ok(config)
     }
@@ -529,6 +550,10 @@ impl Config {
                         _ => return Err("agent_pane_access must be \"read+run\" or \"off\"".into()),
                     };
                 }
+                "new_window_panes" => {
+                    config.new_window_panes = value.as_u64().filter(|n| (1..=2).contains(n))
+                        .ok_or("new_window_panes must be 1 or 2")? as u8;
+                }
                 _ => return Err(format!("unknown config field: {key}")),
             }
         }
@@ -544,6 +569,9 @@ impl Config {
         Ok(config)
     }
 }
+
+/// A settings path in the old JSON format (an explicit `--config x.json`); config.xml otherwise.
+pub fn is_json_path(path: &Path) -> bool { path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Metrics {

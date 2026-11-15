@@ -6,20 +6,36 @@ a control's place depends on text width it is found on screen, as the Q1 gate do
 from the mockup CSS [M] and the Q1 gate [Q1]:
   title bar 38 px [M .win]; tools toggle at x 10..36 [M .titlebar padding 10, .ico 26]; the first tab's pill
     starts at x 48 [M .tabs margin-left 8 after the toggle and a 4 px gap], its state dot at x 59..65
-    [M .tab padding 11, .dot 6]; the "+" is the last mark right of the tabs [M .plus, Q1 T1]; the search box
-    is x 940..1200 [M .search 260, gap 4, .ico 26, padding 10]; the settings gear x 1204..1230 [M, Q1 T3].
+    [M .tab padding 11, .dot 6]; the "+" is the last mark right of the tabs and left of x 862 [M .plus, Q1 T1];
+    the search box is 318 wide (Marc's Y1 of 2026-11-14, was 260 [M .search]) and still ends at the right next to
+    the gear [M], so it starts at 1240 - 10 - 34 - 318 = 878, or left of it by any gap before the gear (padding 10 [M], a 34 px header button [R1,
+    Ptyxis]); the "+" scan stops at 878 - 16 = 862, so a gap of up to 16 px between box and gear never brings the
+    box's edge or its icon into it. Tabs are titled by their folder ("m12-click-" and 8 random letters, wider or
+    narrower by letter), so with three tabs the "+" lands anywhere from about x 600 to 710: an old bound of 620
+    picked the third tab's title instead of "+" whenever the random name was wide. A click at x 1070
+    lands in it either way [M .search 940..1200, Y1 882..1200]; the settings gear x 1196..1230 (R1's 34 px button
+    after the 10 px padding; was 1204..1230 [M, Q1 T3]), so a click at x 1217 opens Settings either way.
   New tab = a click on "+"; a session = a click on its tab; Split = a click on the search box, then
     "Split right" and Enter [Q1 T3] (the mockup's title bar has no Split button).
   Agent access: the tools panel footer's "Agents" segment, then the pane's "off" row [Q1 T4] (R3: today's
     right column moved into the tools panel).
-  Settings: the gear opens it; its 780 x 600 frame and nav are unchanged [Q1] (Appearance (270,188), Terminal
-    (270,222), close (980,109), the Terminal page's font + (965,288) and Animations row (600,534)).
-    Appearance starts with the Layout group [Q1 E1]: its "Vertical" segment writes tab_style "vertical",
-    "Horizontal" writes it back (in place of the old Light mode segment, which the redesign removed).
+  Settings: the gear opens it; its 780 x 600 frame is unchanged [Q1] (close (980,109)); the nav lists General,
+    Appearance, Terminal, Editor, Agents, History, Keys [C1] in the old rows, 34 px apart (General (270,154),
+    Appearance (270,188)). Appearance starts with the Layout group [Q1 E1]: its "Vertical" segment writes tab_style
+    "vertical", "Horizontal" writes it back (in place of the old Light mode segment, which the redesign removed).
+    Font size is a field on the Appearance page, below the theme lists [C1]: its row is found by the label "Font size"
+    (the page scrolled with the wheel), its value by the stored text on that line; a click on the value, Ctrl+A,
+    "16", Enter writes font_size 16. The window starts at R1's default (Marc's R1 2026-11-14: terminal text 11 pt =
+    11 x 4 / 3 = 14.67 px; the old default was 13), and 16 px is 12 pt, one point up (the old + step was 13 -> 14).
+    Animations is a switch row on the General page [C1], found by its label; a click on the label flips it.
 """
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -91,7 +107,7 @@ def main():
         for name in ('home','config','state','runtime'):(work/name).mkdir(mode=0o700)
         env.update(HOME=str(work/'home'),XDG_CONFIG_HOME=str(work/'config'),XDG_STATE_HOME=str(work/'state'),
                    XDG_RUNTIME_DIR=str(work/'runtime'),SHELL='/bin/sh',WINIT_UNIX_BACKEND='x11')
-        config=work/'config.json';config.write_text(json.dumps({'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':13,'theme':'dark'}))
+        config=work/'config.xml';config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':14.67,'theme':'dark'})
         sock=work/'server.sock'; children=[]; owner=None
         def launch(args,pipe=False):
             p=subprocess.Popen([str(x) for x in args],env=env,cwd=work,stdin=subprocess.PIPE if pipe else subprocess.DEVNULL,
@@ -117,14 +133,14 @@ def main():
             wid=until(window_id,'window identity');xdo('windowsize',wid,1240,760);xdo('windowfocus','--sync',wid);time.sleep(.5)
             def click(x,y):
                 xdo('mousemove','--window',wid,x,y);xdo('click',1)
-            def saved():return json.loads(config.read_text())
+            def saved():return config_xml.load(config)
             def shot():
                 xdo('mousemove','--window',wid,600,400);time.sleep(.4)
                 g=dict(line.split('=',1) for line in xdo('getwindowgeometry','--shell',wid).splitlines() if '=' in line)
                 x,y=int(g['X']),int(g['Y'])
                 return ImageGrab.grab(bbox=(x,y,x+1240,y+760),xdisplay=env['DISPLAY']).convert('RGB')
             def plus():
-                found=marks(shot(),40,936)
+                found=marks(shot(),40,862)  # left of the 318 px search box: 1240 - 10 - 34 - 318 - 16
                 require(found,'title bar marks right of the toggle');return found[-1]
             before=call('workspace_get',{},3);require(len(before['groups'])==1,'initial session count')
             # Agent access lives in the tools panel's Agents view: footer segment, then the pane's "off" row.
@@ -175,10 +191,28 @@ def main():
             until(lambda:saved().get('tab_style')=='vertical','Settings Vertical segment')
             click(*centre(horizontal))
             until(lambda:saved().get('tab_style','horizontal')=='horizontal','Settings Horizontal segment')
-            click(270,222);time.sleep(.2)  # Terminal
-            click(965,288)  # Font size +, 13 → 14
-            until(lambda:saved().get('font_size')==14,'Settings font stepper')
-            click(600,534)  # Whole Animations row, false → true
+            body=(459,130,985,630)  # the Settings page body, right of the nav
+            def row(label,notches=40):
+                # Scrolls the page from its top until the label's words lie on one line in the body's middle part.
+                xdo('mousemove','--window',wid,720,380);xdo('click','--repeat',30,'--delay',30,4);time.sleep(.4)
+                first,second=label.lower().split() if ' ' in label else (label.lower(),None)
+                for _ in range(notches):
+                    words=ocr_words(shot(),body,tmp)
+                    for w in words:
+                        if w[0]==first and 160<=w[2]<=580 and (second is None or any(
+                                v[0]==second and abs(v[2]-w[2])<=6 and 0<=v[1]-w[3]<=20 for v in words)):
+                            return w,words
+                    xdo('mousemove','--window',wid,720,380);xdo('click',5);time.sleep(.3)
+                raise RuntimeError(f'the row "{label}" found on the page')
+            size,words=row('Font size')
+            value=next((w for w in words if w[0]=='14.67' and abs(w[2]-size[2])<=24 and w[1]>size[3]+40),None)
+            require(value,f'the Font size field shows 14.67 ({[w[0] for w in words if abs(w[2]-size[2])<=24]})')
+            click(*centre(value));time.sleep(.2)
+            xdo('key','--window',wid,'ctrl+a');xdo('type','--window',wid,'--delay','25','16');xdo('key','--window',wid,'Return')
+            until(lambda:saved().get('font_size')==16,'Settings font size field 14.67 -> 16')
+            click(270,154);time.sleep(.4)  # General
+            anim,_=row('Animations')
+            click(*centre(anim))  # the Animations row's label, false → true
             until(lambda:saved().get('animations') is True,'Settings animations row')
             click(980,109);time.sleep(.2)  # close button
             old=len(workspace()['groups']);add=plus();click((add[0]+add[1])//2,19)
@@ -186,7 +220,7 @@ def main():
             click(1217,19);time.sleep(.6);xdo('key','--window',wid,'Escape');time.sleep(.4)
             old=len(workspace()['groups']);add=plus();click((add[0]+add[1])//2,19)
             until(lambda:len(workspace()['groups'])==old+1,'Escape returns pointer to window')
-            print('PASS: Settings section, Layout segments, font 13→14, animations off→on, close and Escape')
+            print('PASS: Settings section, Layout segments, font size 14.67→16, animations off→on, close and Escape')
             # A forced Post-AI switch is rendered disabled. Confirm the panel
             # really opened, then verify clicking its row does not write config.
             stop(window)

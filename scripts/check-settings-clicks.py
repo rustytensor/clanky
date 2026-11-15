@@ -4,16 +4,29 @@ All expected points/colours are fixed in docs/m12-click-checks.md before the run
 
 Quiet layout (design 2026-11-13, Marc's Y1 of 2026-11-14): Settings opens from the title bar's
 gear (1217,19) [mockup .titlebar: padding 10, .ico 26; Q1 gate T3]; its frame, nav and pages keep their places
-[Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3]: with
-Follow the system off, one list (dark themes first: Graphite, Ink, Stone, ...); a click on a row saves it. The
-Stone row is found by its word (scrolling the page when needed), as the Q1 gate does; "Follow the system" On
+[Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3, C1]: a
+Dark list in the left column (Graphite, Ink, Stone, ...) and a Light list in the right one (Graphite, Stone, ...); a
+click on a row saves it. Stone dark is found by its word in the left half of the page body (scrolling the page when
+needed), as the C1 gate tells the two lists apart; "Follow the system" On
 writes theme "system", Off writes "dark" or "light" (the system's mode). The Terminal page's Side columns row is
 now the Tools panel row at the same place: it writes tools_panel "off"/"on" and no "rails" [Q1]. The sidebar
 toggle is the title bar's tools toggle (23,19) [mockup .ico at x 10..36; Q1 T3].
+
+Settings with every setting (C1): the nav lists General, Appearance, Terminal, Editor, Agents, History, Keys, and
+the rows moved, so no Settings control is clicked at a fixed point any more. Settings opens with Ctrl+, and the nav
+and every row are found by their words, read more than one way, with the C1 gate's helpers
+(scripts/gate-c1-config.py: open_settings, page, label_at, row_band, rightmost_mark, readings). Font size is a field
+on Appearance (the old stepper's minus is typed: 14 -> 13), the Tools panel row is Appearance's On | Off segment pair,
+and the Post-AI switch is the mark at the right of its label's row. Every expected colour is computed from
+assets/themes/*.json (the active theme's tokens, an alpha colour over its background), never read from the build.
 """
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -75,8 +88,40 @@ def stop(process):
         process.wait(timeout=4)
 
 
+def load_c1(work):
+    """The C1 gate's Settings helpers, with their OCR scratch file in this run's folder."""
+    os.environ['CLANKY_C1_WORK'] = str(work)
+    argv = sys.argv
+    sys.argv = argv[:1]
+    try:
+        spec = _config_xml_util.spec_from_file_location('c1', Path(__file__).with_name('gate-c1-config.py'))
+        module = _config_xml_util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.argv = argv
+    return module
+
+
+def theme_colour(doc, token):
+    """A theme token as RGB bytes; #rrggbbaa is composed over the theme's background."""
+    def rgb(h):
+        return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    value = doc['colors'][token]
+    if len(value) == 9:
+        alpha = int(value[7:9], 16) / 255
+        return tuple(round(c * alpha + b * (1 - alpha)) for c, b in zip(rgb(value), rgb(doc['colors']['background'])))
+    return rgb(value)
+
+
+def count_near(im, box, colour, tol=3):
+    import numpy as np
+    a = np.asarray(im.crop(tuple(int(v) for v in box))).astype(int)
+    return int((np.abs(a - np.array(colour)).max(axis=2) <= tol).sum())
+
+
 def main(work, bins):
     root = Path(__file__).resolve().parent.parent
+    c1 = load_c1(work)
     target = Path(os.environ['CARGO_TARGET_DIR'])
     pictures = target / 'look/settings-clicks'
     pictures.mkdir(parents=True, exist_ok=True)
@@ -94,16 +139,18 @@ def main(work, bins):
                SHELL='/bin/sh', WINIT_UNIX_BACKEND='x11')
     themes = work / 'config/clanky/themes'
     themes.mkdir(parents=True)
-    fixture = json.loads((root / 'assets/themes/stone-dark.json').read_text())
+    stone_dark = json.loads((root / 'assets/themes/stone-dark.json').read_text())
+    stone_light = json.loads((root / 'assets/themes/stone-light.json').read_text())
+    fixture = json.loads(json.dumps(stone_dark))
     fixture['name'] = 'Click fixture'
     fixture['colors']['background'] = '#010203'
     (themes / 'click-fixture.json').write_text(json.dumps(fixture))
-    config = work / 'config.json'
-    config.write_text(json.dumps(dict(theme='dark', theme_dark='user:click-fixture', theme_light='stone-light',
-                                     font_family='Geist Mono', ui_font_family='Geist', font_size=14,
-                                     columns=155, rows=37, opacity=1, rails=True, animations=False,
-                                     startup_animation=False, restore_layout=False, post_ai=False,
-                                     osc52_write=False, osc52_read=False)))
+    config = work / 'config.xml'
+    config_xml.write(config, dict(theme='dark', theme_dark='user:click-fixture', theme_light='stone-light',
+                                  font_family='Geist Mono', ui_font_family='Geist', font_size=14,
+                                  columns=155, rows=37, opacity=1, rails=True, animations=False,
+                                  startup_animation=False, restore_layout=False, post_ai=False,
+                                  osc52_write=False, osc52_read=False))
     socket = work / 'server.sock'
     trace = work / 'frames.csv'
     children, logs = [], []
@@ -128,7 +175,7 @@ def main(work, bins):
         return sum(line.startswith('frame,') for line in trace.read_text().splitlines()) if trace.exists() else 0
 
     def saved():
-        return json.loads(config.read_text())
+        return config_xml.load(config)
 
     try:
         launch([bins / 'clanky', '--server', '--socket', socket], env, 'server')
@@ -190,20 +237,52 @@ def main(work, bins):
         def setting(key, value):
             until(lambda: saved().get(key) == value, 'saved ' + key)
 
-        names = ('General', 'Appearance', 'Terminal', 'Agents', 'Keys')
+        class SettingsWindow:
+            """What the C1 gate's helpers need of a window: shots, real clicks, keys and the Settings boxes."""
+            frame = nav = content = None
 
-        def section(index):
-            click(330, 154 + 34 * index)
-            image = capture('section-' + names[index].lower())
-            for i in range(5):
-                pixel(image, (410, 154 + 34 * i), (26, 24, 21) if i == index else (15, 13, 11),
-                      names[index] + ' selected section')
-            results.append('section ' + names[index])
+            def __init__(self):
+                self.wid, self.config, self.p, self.pid0 = wid, config, app, app.pid
+
+            def shot(self, label):
+                return capture(label)
+
+            def click(self, x, y):
+                click(int(x), int(y))
+
+            def x(self, *args):
+                xdo(*args)
+
+            def key(self, *keys):
+                for k in keys:
+                    xdo('key', k)
+                    time.sleep(.3)
+
+            def type(self, text):
+                xdo('type', '--delay', '25', text)
+
+            def alive(self):
+                return app.poll() is None
+
+        win = SettingsWindow()
+        names = ('General', 'Appearance', 'Terminal', 'Editor', 'Agents', 'History', 'Keys')
+        theme = dict(doc=fixture)  # the active theme document; its tokens give every expected colour
+
+        def section(name):
+            c1.page(win, name)
+            image = capture('section-' + name.lower())
+            # A point inside the nav rows, right of the longest name, on each name's line.
+            x = int(max(w[3] for w in win.nav.values())) + 12
+            on, off = theme_colour(theme['doc'], 'sidebar_accent'), theme_colour(theme['doc'], 'sidebar')
+            for other in names:
+                w = win.nav[other.lower()]
+                pixel(image, (x, int((w[2] + w[4]) / 2)), on if other == name else off, name + ' selected section')
+            results.append('section ' + name)
             return image
 
         # Opening/closing is setup: clanky-pkg owns those acceptance checks.
-        click(1217, 19)  # the title bar's settings gear
-        section(1)
+        c1.open_settings(win, 'Settings opens with its seven groups')
+        section('Appearance')
         pixel(capture('before-theme'), (997, 600), (1, 2, 3), 'synthetic initial background')
         body = (459, 130, 985, 630)  # Settings body text, the Q1 gate's OCR box moved to the 1240 x 760 frame
 
@@ -218,12 +297,18 @@ def main(work, bins):
                 settle()
             raise Failure(f'"{label}" found on the Appearance page')
 
-        stone, _ = find('stone-row', lambda words: min((w for w in words if w[0] == 'stone' and w[2] < 600),
-                                                     key=lambda w: w[2], default=None))
+        # The picker shows the dark list in the left column and the light list in the right one [C1: "Mocha" in the
+        # dark list, "Paper" in the light list; Q1: dark on the left], so Stone dark is the Stone left of the body's
+        # middle (the light list's Stone is its second row and would be found first).
+        middle = (body[0] + body[2]) / 2
+        stone, _ = find('stone-row', lambda words: min((w for w in words if w[0] == 'stone' and w[2] < 600
+                                                        and (w[1] + w[3]) / 2 < middle),
+                                                       key=lambda w: w[2], default=None))
         if fault != 'click':
-            click(*centre(stone))  # the first Stone row: Stone dark, as the picker lists dark themes first
+            click(*centre(stone))  # Stone in the Dark column: theme_dark stone-dark
         image = capture('stone-row')
-        pixel(image, (997, 600), (20, 18, 16), 'theme row applies Stone pixel')
+        theme['doc'] = stone_dark
+        pixel(image, (997, 600), theme_colour(stone_dark, 'background'), 'theme row applies Stone pixel')
         setting('theme_dark', 'stone-dark')
         results.append('theme row pixel')
 
@@ -241,50 +326,101 @@ def main(work, bins):
         click(*centre(follow_segment('off')))
         mode = until(lambda: saved().get('theme') if saved().get('theme') in ('dark', 'light') else None,
                      'saved theme dark or light')
-        pixel(capture('follow-off'), (997, 600), (20, 18, 16) if mode == 'dark' else (251, 250, 248),
+        theme['doc'] = stone_dark if mode == 'dark' else stone_light
+        pixel(capture('follow-off'), (997, 600), theme_colour(theme['doc'], 'background'),
               'Follow the system Off background')
         results.append('Follow the system On and Off')
 
-        section(0)
-        click(500, 175)
+        section('General')
+        lab, image = c1.label_at(win, 'Post-AI mode')
+        band = c1.row_band(win, lab)
+        mark = c1.rightmost_mark(image, int(lab[2]) + 40, band)
+        require(mark, 'the "Post-AI mode" row has a switch')
+        # The switch: a primary track when on; a muted_foreground knob and no primary ink when off.
+        knob = (mark[0] - 40, band[1], min(win.content[2], mark[0] + 12), band[3])
+        primary, knob_off = theme_colour(theme['doc'], 'primary'), theme_colour(theme['doc'], 'muted_foreground')
+        click(*mark)
         setting('post_ai', True)
-        pixel(capture('post-ai-on'), (955, 197), (235, 230, 223), 'Post-AI label toggles on')
-        click(500, 175)
+        image = capture('post-ai-on')
+        require(count_near(image, knob, primary) >= 60,
+                f'Post-AI switch turns on: primary {primary} track ({count_near(image, knob, primary)} px)')
+        click(*mark)
         setting('post_ai', False)
-        pixel(capture('post-ai-off'), (955, 197), (20, 18, 16), 'Post-AI label toggles off')
-        results.append('Post-AI row label')
+        image = capture('post-ai-off')
+        require(count_near(image, knob, primary) < 5 and count_near(image, knob, knob_off) >= 30,
+                f'Post-AI switch turns off: no primary track, a {knob_off} knob '
+                f'({count_near(image, knob, primary)} / {count_near(image, knob, knob_off)} px)')
+        results.append('Post-AI switch')
 
-        section(2)
-        click(888, 288)
+        section('Appearance')
+        lab, image = c1.label_at(win, 'Font size')
+        hit = None
+        for words in c1.band_words(win, image, c1.row_band(win, lab)):
+            hit = next((w for w in words if w[1] > lab[2] + 6 and c1.num_is(14)(w[0])), None)
+            if hit:
+                break
+        require(hit, 'the "Font size" field shows 14')
+        click(*centre(hit))
+        win.key('ctrl+a')
+        win.type('13')
+        win.key('Return')
         setting('font_size', 13)
-        results.append('stepper minus 14 to 13')
-        click(500, 450)
+        results.append('Font size one step down, 14 to 13')
+
+        def tools_segment(word):
+            lab, image = c1.label_at(win, 'Tools panel')
+            for words in c1.band_words(win, image, c1.row_band(win, lab)):
+                hits = [w for w in words if w[1] > lab[2] + 8 and c1.norm(w[0]) == word]
+                if hits:
+                    return centre(max(hits, key=lambda w: w[1]))
+            raise Failure(f'the "Tools panel" row has an "{word}" segment')
+
+        click(*tools_segment('off'))
         setting('tools_panel', 'off')
         require('rails' not in saved(), 'Tools panel row removes rails')
-        pixel(capture('columns-off'), (128, 700), (20, 18, 16), 'Tools panel label hides the panel')
-        click(500, 450)
+        pixel(capture('columns-off'), (128, 700), theme_colour(theme['doc'], 'background'), 'Tools panel Off hides the panel')
+        click(*tools_segment('on'))
         # "on" is the default, which Settings may write by removing the key [Q1].
         until(lambda: saved().get('tools_panel', 'on') == 'on' and 'rails' not in saved(), 'saved tools_panel on')
-        pixel(capture('columns-on'), (128, 700), (15, 13, 11), 'Tools panel label restores the panel')
-        results.append('Tools panel row label')
+        pixel(capture('columns-on'), (128, 700), theme_colour(theme['doc'], 'sidebar'), 'Tools panel On restores the panel')
+        results.append('Tools panel On and Off')
 
-        image = section(3)
-        pixel(image, (980, 250), (49, 45, 41), 'Agents page stop button border')
-        image = section(4)
-        pixel(image, (975, 172), (31, 28, 25), 'Keys page shortcut chip')
+        for name in ('Terminal', 'Editor', 'History'):
+            section(name)
+        section('Agents')
+
+        def word_box(word):
+            def found(im):
+                for words in c1.readings(im, win.content):
+                    w = next((w for w in words if c1.token_ok(w[0], word)), None)
+                    if w:
+                        return w[1:]
+            return c1.seek(win, found, f'"{word}" on the page')
+
+        box, image = word_box('remove')
+        border = theme_colour(theme['doc'], 'input')
+        around = (box[0] - 16, box[1] - 12, box[2] + 16, box[3] + 12)
+        require(count_near(image, around, border) >= 20,
+                f'Agents page Remove button border {border} ({count_near(image, around, border)} px)')
+        section('Keys')
+        box, image = word_box('ctrl')
+        chip = theme_colour(theme['doc'], 'muted')
+        around = (box[0] - 6, box[1] - 6, box[2] + 6, box[3] + 6)
+        require(count_near(image, around, chip) >= 20,
+                f'Keys page shortcut chip {chip} ({count_near(image, around, chip)} px)')
         xdo('key', '--window', wid, 'Escape')
         settle()
         click(23, 19)
-        pixel(capture('sidebar-hidden'), (128, 700), (20, 18, 16), 'tools toggle hides the panel')
+        pixel(capture('sidebar-hidden'), (128, 700), theme_colour(theme['doc'], 'background'), 'tools toggle hides the panel')
         click(23, 19)
-        pixel(capture('sidebar-shown'), (128, 700), (15, 13, 11), 'tools toggle shows the panel')
+        pixel(capture('sidebar-shown'), (128, 700), theme_colour(theme['doc'], 'sidebar'), 'tools toggle shows the panel')
         results.append('tools toggle')
 
         stop(app)
         for entry in call('list_tabs')['tabs']:
             call('close_tab', dict(tab_id=entry['tab_id']))
         (pictures / 'result.json').write_text(json.dumps(dict(passed=results), indent=2) + '\n')
-        print('PASS: remaining real-window Settings clicks (sections, Follow the system, theme row pixel, minus, row labels, tools toggle)')
+        print('PASS: remaining real-window Settings clicks (seven sections, Follow the system, theme row pixel, font size step, Post-AI switch, Tools panel, Agents and Keys pages, tools toggle)')
     finally:
         for process in reversed(children):
             stop(process)
@@ -297,9 +433,9 @@ def main(work, bins):
 if __name__ == '__main__':
     try:
         main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
-    except Failure as error:
-        print('FAIL: M12 Settings clicks ' + str(error), file=sys.stderr)
-        sys.exit(1)
-    except BaseException:
-        print('FAIL: M12 Settings clicks fixture or transport', file=sys.stderr)
+    except BaseException as error:
+        if type(error).__name__ in ('Failure', 'Fail'):  # Fail: raised by the C1 gate's helpers
+            print('FAIL: M12 Settings clicks ' + str(error), file=sys.stderr)
+        else:
+            print(f'FAIL: M12 Settings clicks fixture or transport ({type(error).__name__}: {error})', file=sys.stderr)
         sys.exit(1)

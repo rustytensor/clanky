@@ -106,13 +106,14 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     let c=&theme.colors;let s=layout.scale as f32;let [w,h]=layout.window_px.map(|n|n as f32);
     let mut p=Paint{out:Presentation{scene:crate::theme_scene::window_background(theme,layout.window_px,state.opacity),hits:vec![]},theme,measure,scale:s,pointer,pressed,clip:[0.0,0.0,w,h]};
     let term=term_colors(theme,&state.terminal);
-    // The pane area takes the terminal background; splits are 1 px hairlines.
-    p.shape(layout.content,0.0,term.background,None);
-    for divider in &layout.dividers{p.shape(divider.rect,0.0,super::chrome::over(term.background,c.border),None);}
+    // Each pane takes the terminal background; between panes (and between the tools panel and the
+    // panes) the window's own colour shows, 8 px wide, as Ptyxis keeps its terminal apart from the frame.
     for pane in &layout.panes{
         let data=state.panes.iter().find(|data|data.id==pane.id);let focus=state.focused.as_ref()==Some(&pane.id);
         let driving=data.is_some_and(|d|d.agent_running);
-        p.shape(pane.rect,0.0,term.background,None);
+        // An editor pane draws in the window theme, never the terminal colours: its padding too.
+        let editor=state.files.iter().any(|file|file.id==pane.id);
+        p.shape(pane.rect,0.0,if editor{c.background}else{term.background},None);
         // An agent at work: a 2 px agent-coloured edge along the pane's top.
         if driving && !state.post_ai{p.shape(r(pane.rect.x,pane.rect.y,pane.rect.w,2.0*s),0.0,c.agent,None);}
         let Some(data)=data else{continue;};
@@ -146,6 +147,7 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
             }
         }}
         if !state.block_cards{super::chrome::sticky(&mut p,layout,pane,data,&term);}
+        scrollbar(&mut p,pane,data,&term);
     }
     super::chrome::tabs_column(&mut p,layout,state);
     super::chrome::tools_panel(&mut p,layout,state);
@@ -155,6 +157,23 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     if let Some((id,query,total))=&state.find{if let Some(pane)=layout.panes.iter().find(|pane|pane.id==*id){find_bar(&mut p,pane,query,*total);}}
     let _=(Appearance::Dark,shadow_color as fn(&Theme)->Color);
     p.out
+}
+
+/// The overlay scrollbar (Ptyxis 50.1): 8 px wide, 7 px from the pane's right edge, round ends,
+/// the foreground at 15 % over the background; its length and place follow the view in the scrollback.
+fn scrollbar(p:&mut Paint,pane:&look::PaneLayout,data:&look::PaneState,term:&TermColors){
+    let opacity=data.scrollbar.clamp(0.0,1.0);let snap=&data.snapshot;
+    if opacity<=0.0 || snap.history==0 || snap.rows==0{return;}
+    let s=p.scale;
+    let w=(8.0*s).round();let x=(pane.rect.x+pane.rect.w).round()-(7.0*s).ceil()-w;
+    let top=(pane.rect.y+8.0*s).round();let bottom=(pane.grid_clip.y+pane.grid_clip.h).round();
+    let track=bottom-top;if track<=w{return;}
+    let total=(snap.history+snap.rows) as f32;
+    let len=(track*snap.rows as f32/total).max(40.0*s).min(track).round();
+    let back=snap.display_offset.min(snap.history) as f32/snap.history as f32;
+    let y=(top+(track-len)*(1.0-back)).round();
+    let mut color=blend(term.background,term.foreground,0.15);color[3]=255;
+    p.shape(r(x,y,w,len),w/2.0,alpha(color,opacity),None);
 }
 
 /// The grid in runs of rows that share one offset, each run its own grid layer, so the space

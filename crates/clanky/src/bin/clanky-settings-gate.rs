@@ -19,7 +19,7 @@ fn run()->Result<(),String>{
         let theme=themes::builtin(id)?;
         let mut panel=SettingsPanel::new(Settings::open(directory.join(format!("{id}.json")))?);
         panel.toggle();
-        for (index,section) in Section::ALL.into_iter().enumerate(){
+        for (index,_) in Section::ALL.into_iter().enumerate(){
             // Draw before click so the controller uses its real navigation hits.
             let _=panel.draw(&layout,&theme,&config,&[],true,Some(&store),false,(-1.0,-1.0),false,&mut clanky_render::measure_text);
             let _=panel.click(270.0,154.0+34.0*index as f64);
@@ -31,13 +31,15 @@ fn run()->Result<(),String>{
             }}
             row_labels.sort_by(f32::total_cmp);
             row_gaps.extend(row_labels.windows(2).map(|pair|pair[1]-pair[0]));
-            let frame=settings_frame::draw_live([1240,760],1.0,section,&theme,&config,(-1.0,-1.0),false,&mut clanky_render::measure_text);
-            // Whole-row targets (522 px wide): the switches, and the Terminal page's Tools panel row,
-            // whose switch now writes tools_panel through Action::Choice (it was the rails Toggle).
-            // Appearance › Layout's own On | Off segments are not rows and are left out.
-            for hit in frame.hits {
-                let row=matches!(hit.action,Action::Toggle(..)) || (matches!(hit.action,Action::Choice("tools_panel",_)) && (hit.rect.w-522.0).abs()<1.0);
-                if row {row_heights.push(hit.rect.h);}
+            // Whole-row targets (522 px wide): the switch rows. The pages are drawn by the panel (the frame alone
+            // draws only the nav, header and footer), so its own targets are read; a row cut by the top or bottom
+            // of the scrolled body is left out, since only its visible part is a target. Tools panel is an
+            // On | Off segment pair in Appearance › Layout, not a row, and is left out.
+            let body=geometry.body;
+            for hit in panel.hits() {
+                let row=matches!(hit.action,Action::Toggle(..)) && (hit.rect.w-522.0).abs()<1.0;
+                let whole=hit.rect.y>body.y+0.5 && hit.rect.y+hit.rect.h<body.y+body.h-0.5;
+                if row && whole {row_heights.push(hit.rect.h);}
             }
             if index==0 {
                 let radius=layers.iter().find_map(|layer|match layer{Layer::Shape(shape) if shape.rect==geometry.panel.array() && shape.border.is_some()=>Some(shape.radius),_=>None}).ok_or("missing panel shape")?;
