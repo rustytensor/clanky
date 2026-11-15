@@ -32,8 +32,9 @@ Expected results, fixed before the work:
   A1 editor mode (default config): after the first prompt no screen row holds "USERPS1" (the shell's own PS1 is not
      shown; design). Still none after `cd ~/alpha`, `echo $RCMARK`, `ll2`.
   A2 the input sits at the bottom of the pane [M .input]: a hairline (41,41,41) +-6 across >= 90 % of x 300..1300 at
-     a y in 796..816 (status line top hairline 874 [Q1 G2] minus the input's height 1 + 8 + 21 + 7 + line + 10 with a
-     line of 16 [M .caret] to 26 px [P] = 63..73, +-3).
+     a y in 787..803 (status line top hairline 874 [Q1 G2] minus the input's height 1 + 8 + 32 + 7 + line + 10 with
+     the chip row 32 px tall (Marc's R1 of 2026-11-14: chips >= 32 px, Ptyxis's chips 32; was the mockup's 21) and a
+     line of 16 [M .caret] to 26 px [P] = 74..84, +-3).
   A3 the caret: typing 10 spaces after one "x" moves it 10 cells to the right (cell width 5..14 px measured from the
      move), its rows lie between the hairline + 30 (8 + 21 + 7 [M] - 6) and 873.
   D1 the user's rc was sourced: `echo $RCMARK` prints sourced-rc, `ll2` prints aliasok (an alias, so bash is
@@ -473,8 +474,8 @@ def prompt_step(win):
     require(not any('USERPS1' in r for r in rows), f'A1 editor mode: the shell\'s own PS1 is not shown (rows {last_rows(win)})')
     im = win.shot('start')
     win.hair = hairline(im)
-    require(win.hair is not None and 796 <= win.hair <= 816,
-            f'A2 the input\'s top hairline (41,41,41) at y 796..816 (observed {win.hair})')
+    require(win.hair is not None and 787 <= win.hair <= 803,
+            f'A2 the input\'s top hairline (41,41,41) at y 787..803 (observed {win.hair})')
     win.type('x')
     time.sleep(.6)
     a = win.shot('probe-a')
