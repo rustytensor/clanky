@@ -59,6 +59,8 @@ pub struct Config {
     pub agents: Vec<AgentTool>,
     /// Whether a pane started for an agent gets agent access (read + run) or none.
     pub agent_pane_access: bool,
+    /// How many panes a new window opens with when no saved layout is restored: 1, or 2 (one above the other).
+    pub new_window_panes: u8,
 }
 
 /// Terminal colours set apart from the window theme; each unset one follows the theme.
@@ -199,6 +201,7 @@ impl Default for Config {
             cursor_blink_timeout_s: 10,
             agents: default_agents(),
             agent_pane_access: true,
+            new_window_panes: 2,
         }
     }
 }
@@ -294,7 +297,10 @@ impl Config {
 
     /// The settings in a file's text: XML, or the old JSON format for a path ending in .json.
     pub fn from_file(path: &Path, text: &str) -> Result<Self, String> {
-        if is_json_path(path) { Self::window_from_json(text) } else { crate::config_xml::load(text).map(|(config, _)| config) }
+        if is_json_path(path) { return Self::window_from_json(text); }
+        let (config, _, soft) = crate::config_xml::load_soft(text)?;
+        if let Some(error) = soft { eprintln!("clanky: config {}: {error}", path.display()); }
+        Ok(config)
     }
     /// Reads the settings. With no explicit path, an old config.json beside a missing config.xml is
     /// migrated first. A file that does not parse or holds a bad value never stops Clanky: the
@@ -543,6 +549,10 @@ impl Config {
                         Some("off") => false,
                         _ => return Err("agent_pane_access must be \"read+run\" or \"off\"".into()),
                     };
+                }
+                "new_window_panes" => {
+                    config.new_window_panes = value.as_u64().filter(|n| (1..=2).contains(n))
+                        .ok_or("new_window_panes must be 1 or 2")? as u8;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }

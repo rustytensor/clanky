@@ -36,6 +36,7 @@ settings plus the change.
 <clanky version="1">
   <post_ai>false</post_ai>
   <restore_layout>true</restore_layout>
+  <new_window_panes>2</new_window_panes>
   <startup_animation>true</startup_animation>
   <animations>true</animations>
   <notify_after_seconds>10</notify_after_seconds>
@@ -121,6 +122,7 @@ settings plus the change.
 | `osc52_read` | boolean | false | Explicitly allow clipboard reads, capped at 64 KiB |
 | `notify_after_seconds` | integer | 10 | Nonnegative u64 seconds; 0 disables command-finished notifications |
 | `restore_layout` | boolean | true | Save/restore local terminal layout and directories; existing server state wins |
+| `new_window_panes` | integer | 2 | `1` or `2`: a new window opens with one pane, or two (one above the other); applies to the next new window, and a restored layout keeps its own panes. A bad value falls back to 2, keeps the other settings, and Settings shows the error with its line |
 | `opacity` | number | 1.0 | Finite, 0.5–1.0; window background alpha |
 | `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
 | `rails` | boolean | true | Legacy: read as `tools_panel` (`true` on, `false` off) when `tools_panel` is absent; Settings removes it the first time it writes `tools_panel` |
@@ -147,7 +149,7 @@ settings plus the change.
 Settings load at startup and apply live when the file changes (checked every
 500 ms). Invalid edits retain the last good settings and show the error, with its line.
 Settings writing a Layout value that is the default removes its element. `columns` and `rows`
-size new windows; every other setting applies at once in the open window. Zoom changes remain
+size new windows and `new_window_panes` sets their panes; every other setting applies at once in the open window. Zoom changes remain
 window-local and do not rewrite the file. Headless terminals use their socket size defaults. Font family names
 must be nonempty, at most 256 UTF-8 bytes, and contain no control characters.
 The default scene fonts are Geist Mono and Geist. JetBrains Mono and Inter remain
