@@ -87,7 +87,8 @@ Expected results, fixed before the work:
   K1 chips [M .chip]: the input reads "alpha" (folder ~/alpha), "papaya" (branch), "bash", "Agent access", and the
      switch "Shell" "Agent" [M .mode]. The folder chip is found by its fill [M .chip, a faint raised fill]: the
      background 6 % of the way to the foreground [T] per channel, round(17 + 0.06 x (250 - 17)) = round(30.98) = 31,
-     so (31,31,31) +-6, at rest (no hover border). It is 21 px tall (+-2) [M height 21], its top 9 px (+-3) below
+     so (31,31,31) +-6, at rest (no hover border). It is 32 px tall (+-2) [Marc's R1 2026-11-14: chips >= 32 px,
+     Ptyxis's chips 32, as in A2; was the mockup's 21], its top 9 px (+-3) below
      the input hairline [M 1 px border + 8 px padding], its left edge at x 258 (+-3) [Marc's R1 2026-11-14: tools
      panel 236 + gap between panes 8 + padding inside the pane 14 = 258]. After `git switch kiwi` the input reads
      "kiwi" within 3 s; after `cd ~/bravo` (no repository) it reads "bravo" and neither "kiwi" nor "papaya".
@@ -541,7 +542,7 @@ def chips_step(win):
     above = next((y for y in range(yc, win.hair, -1) if not hfill(y)), None)
     below = next((y for y in range(yc, STATUS_TOP) if not hfill(y)), None)
     top, bot = above and above + 1, below and below - 1
-    require(top and bot and abs((bot - top + 1) - 21) <= 2, f'K1 the folder chip is 21 px tall (edges {top}, {bot})')
+    require(top and bot and abs((bot - top + 1) - 32) <= 2, f'K1 the folder chip is 32 px tall (edges {top}, {bot})')
     require(abs(top - win.hair - 9) <= 3, f'K1 the chip top is 9 px below the input hairline ({top} vs {win.hair})')
     box = (left + 2, top + 2, int(folder[3]) + 2, bot - 1)
     ACTIVE.update(box=box, peak=peak(im, box))
