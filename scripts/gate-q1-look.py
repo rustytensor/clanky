@@ -63,8 +63,10 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
   G1 default window: grid origin x = 236 + 8 + 14 = 258 (+-3) [M tools panel 236; Marc's sizes of 2026-11-14: 8 px
      between the tools panel and the pane, 14 px pane padding], grid origin y in 42..70 (title bar 46 + padding 14
      = 60 with those sizes; no 40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
-  G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); its bottom hairline (900,37) (33,33,33);
-     tools panel (120,450) (8,8,8) with its right hairline (235,450) (33,33,33); pane (300,450) (17,17,17); the old
+  G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); no line under it, Marc's Y1 of 2026-11-14 (the
+     Ptyxis look): its last row (900,45) of the 46 px bar is (8,8,8); tools panel (120,450) (8,8,8), no divider
+     after it (Y1): its last column (235,450) and the 8 px gap after it (240,450) are the window colour (8,8,8);
+     pane (300,450) (17,17,17); the old
      right column is gone: (1300,450) (17,17,17); status line (700,890) (8,8,8), its top hairline (700,874)
      (33,33,33). Tolerance 4.
   G3 the status line reads "Session 1", "1 tab", "server up" and "masking" [M .status].
@@ -487,8 +489,10 @@ def geometry(win, p):
     require(y0 + info['rows'] * ch <= 874 + 1, f'G1 the last row ends above the status line ({y0 + info["rows"] * ch:.0f})')
     im = win.shot('g2')
     for (x, y), want, what in (((900, 4), SIDEBAR, 'title bar'), ((900, 33), SIDEBAR, 'title bar'),
-                               ((900, 37), LINE_SIDE, 'title bar bottom hairline'), ((120, 450), SIDEBAR, 'tools panel'),
-                               ((235, 450), LINE_SIDE, 'tools panel right hairline'), ((300, 450), BG, 'pane'),
+                               ((900, 45), SIDEBAR, 'title bar last row, no line under it'),
+                               ((120, 450), SIDEBAR, 'tools panel'),
+                               ((235, 450), SIDEBAR, 'tools panel last column, no divider'),
+                               ((240, 450), SIDEBAR, 'gap after the tools panel in the window colour'), ((300, 450), BG, 'pane'),
                                ((1300, 450), BG, 'pane where the right column was'), ((700, 890), SIDEBAR, 'status line'),
                                ((700, 874), LINE_SIDE, 'status line top hairline')):
         got = im.getpixel((x, y))
