@@ -1070,28 +1070,36 @@ def live():
     require(abs(s - 1.25) < .01, f'live: DP-2 runs at scale 1.25 (observed {s})')
     w = ROOT / 'live'
     w.mkdir(parents=True, mode=0o700)
-    for d in ('home', 'config', 'data', 'state'):
+    for d in ('home', 'config', 'data', 'state', 'runtime'):
         (w / d).mkdir(mode=0o700)
     home = w / 'home'
     log = w / 'c3prog.log'
     (home / 'c3prog').write_text(PROG)
     (home / 'c3prog').chmod(0o755)
     shell = w / 'shell.sh'
-    shell.write_text(f'#!/bin/sh\nexec {home / "c3prog"} {log} "{TERM_TEXT}"\n')
+    go = w / 'go'  # the program starts once the window holds its one pane at its final size
+    shell.write_text(f'#!/bin/sh\nwhile [ ! -e {go} ]; do sleep 0.1; done\nexec {home / "c3prog"} {log} "{TERM_TEXT}"\n')
     shell.chmod(0o755)
     cfgp = w / 'config.json'
     cfgp.write_text(json.dumps(CFG))
     sock, pidf = w / 'window.sock', w / 'window.pid'
     launch = w / 'launch.sh'
-    env = {k: v for k, v in os.environ.items() if not k.startswith(('CLANKY', 'XDG_CONFIG', 'XDG_DATA', 'XDG_STATE'))}
-    keep = ' '.join(f'{k}={json.dumps(v)}' for k, v in sorted(env.items())
-                    if k in ('WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'PATH', 'LANG', 'HYPRLAND_INSTANCE_SIGNATURE'))
-    launch.write_text(f'#!/bin/sh\necho $$ > {pidf}\nexec env -i {keep} HOME={home} XDG_CONFIG_HOME={w / "config"} '
-                      f'XDG_DATA_HOME={w / "data"} XDG_STATE_HOME={w / "state"} SHELL={shell} TZ=UTC '
-                      f'WINIT_UNIX_BACKEND=wayland CLANKY_FRAME_TRACE={w / "frames.csv"} '
-                      f'{q2.APP} --socket {sock} --config {cfgp}\n')
+    # The window is isolated from the desktop's Clanky: its own HOME, config, data, state and runtime folder (so no
+    # shared server socket, shell scripts or saved layout), no session bus, and the Wayland socket by absolute path.
+    wl = os.environ['WAYLAND_DISPLAY']
+    if not wl.startswith('/'):
+        wl = str(Path(os.environ['XDG_RUNTIME_DIR']) / wl)
+    keep = ' '.join(f'{k}={json.dumps(os.environ[k])}' for k in ('PATH', 'LANG') if k in os.environ)
+    launch.write_text(f'#!/bin/sh\necho $$ > {pidf}\nexec env -i {keep} WAYLAND_DISPLAY={wl} HOME={home} '
+                      f'XDG_CONFIG_HOME={w / "config"} XDG_DATA_HOME={w / "data"} XDG_STATE_HOME={w / "state"} '
+                      f'XDG_RUNTIME_DIR={w / "runtime"} SHELL={shell} TZ=UTC WINIT_UNIX_BACKEND=wayland '
+                      f'CLANKY_FRAME_TRACE={w / "frames.csv"} {q2.APP} --socket {sock} --config {cfgp} '
+                      f'2> {w / "window.err"}\n')
     launch.chmod(0o755)
-    subprocess.run(['hyprctl', 'dispatch', 'exec', f'[float;monitor DP-2;size 1200 800;center] {launch}'],
+    # Hyprland 0.57 takes Lua. no_initial_focus: the window never takes the keyboard from the desktop, so nothing
+    # typed elsewhere reaches it; the checks only look at pixels.
+    rules = '{float=true, monitor="DP-2", size="1200 800", center=true, no_initial_focus=true}'
+    subprocess.run(['hyprctl', 'eval', f'hl.exec_cmd({json.dumps(f"/bin/sh {launch}")}, {rules})'],
                    check=True, stdout=subprocess.DEVNULL)
     pid = None
     server = None
@@ -1103,6 +1111,14 @@ def live():
         conn = t2.Conn(sock)
         conn.call(3, 'auth', token=Path(str(sock) + '.owner').read_text().strip())
         server = conn.call(3, 'hello').get('server_pid')
+        # A fresh window opens two stacked panes by design (the Xvfb harness closes the second the same way).
+        until(lambda: len(conn.call(1, 'list_tabs')['tabs']) >= 1, 'live: the first pane')
+        time.sleep(1.5)
+        for extra in [t['tab_id'] for t in conn.call(1, 'list_tabs')['tabs']][1:]:
+            conn.call(1, 'close_tab', tab_id=extra)
+        until(lambda: len(conn.call(1, 'list_tabs')['tabs']) == 1, 'live: one pane after closing the second')
+        time.sleep(1)
+        go.touch()
         size = Path(str(log) + '.size')
         until(lambda: size.exists() and size.read_text().strip(), 'live: the program runs', 30)
         time.sleep(2)
