@@ -2,7 +2,7 @@
 %global __brp_mangle_shebangs_exclude_from ^%{_prefix}/src/debug/
 
 Name:           clanky
-Version:        1.6.0
+Version:        1.7.0
 Release:        1%{?dist}
 Summary:        GPU-rendered terminal for coding agents
 # Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, Geist Mono, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
@@ -59,6 +59,13 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_mandir}/man1/clanky.1*
 
 %changelog
+* Sun Nov 15 2026 Clanky contributors <noreply@github.com> - 1.7.0-1
+- Every setting has a control in Settings; settings live in config.xml, and config.json is converted on first start.
+- 40 terminal colour schemes with search and live preview; import from iTerm2, Windows Terminal, Alacritty, Kitty, Ghostty, WezTerm, Konsole, Xresources and Ptyxis.
+- Larger default sizes in the style of Ptyxis (11 pt terminal text, 14 px interface, 46 px title bar, 8 px pane gaps), sharp at every display scale.
+- New windows open with one or two panes (setting).
+- Fixes: the first Up key in full-screen programs, editor frame colour, invisible command-input chips.
+
 * Sat Nov 14 2026 Clanky contributors <noreply@github.com> - 1.6.0-1
 - A quieter window: tabs with state dots in the title bar (or vertical tabs), a tools panel with files, recent sessions and agents (Ctrl+Shift+B), and a status line.
 - Quiet command blocks with space between them, a meta line with folder, time and duration, red only on failure, hover actions and a sticky line for long commands.
