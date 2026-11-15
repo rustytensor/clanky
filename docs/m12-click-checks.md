@@ -24,7 +24,7 @@ Panel 780×600, centred at (230,80). RGB tolerance is 3 per channel.
 | Remaining control | Click point | Expected result |
 |---|---|---|
 | Each of General, Appearance, Terminal, Agents, Keys | (330,154+34×index) | Selected nav fill at (410,154+34×index) is (34,31,28); other rows (20,18,16) |
-| Theme picker row: Stone (the first, dark) | found by its word on Appearance, scrolling if needed | theme_dark becomes stone-dark; body pixel (997,600) changes from (1,2,3) to (20,18,16) |
+| Theme picker row: Stone in the Dark (left) column | found by its word in the left half of the Appearance body, scrolling if needed | theme_dark becomes stone-dark; body pixel (997,600) changes from (1,2,3) to (20,18,16) |
 | Follow the system On / Off | its On / Off words on the Follow row | Config theme becomes system, then dark or light (the system's mode); body pixel (997,600) is that theme's background, (20,18,16) or (251,250,248) |
 | Size minus | (888,288) | Starting at 14, saved font_size becomes 13 |
 | Tools panel label (Terminal page) | (500,450) | Saved tools_panel "off", then "on" or absent, never rails; pixel (128,700) changes 15/13/11 → 20/18/16 → 15/13/11 |

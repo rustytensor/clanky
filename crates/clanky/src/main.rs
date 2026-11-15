@@ -918,8 +918,8 @@ impl App {
         }
         // Cursor keys read DECCKM from the terminal now: the last drawn frame can predate a
         // program's ESC[?1h by a few milliseconds, and its first Up would go out as ESC[A.
-        let cursor_key = matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown | NamedKey::ArrowLeft
-            | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End));
+        // These keys go to the program like any other key; only their encoding depends on DECCKM.
+        let cursor_key = clanky::input::reads_app_cursor(key);
         let app_cursor = self.focused().is_some_and(|id| {
             if cursor_key { if let Ok(fresh) = self.engine.snapshot(id) { return fresh.app_cursor; } }
             self.app_cursor(id)
