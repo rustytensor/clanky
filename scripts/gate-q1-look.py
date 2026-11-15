@@ -56,10 +56,14 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      padding 18 px each side [M .blk], 9 px cells [P]: floor((1400-236-36)/9) = 125, one column of slack.
   P2 each bad value (tab_style "diagonal", tools_panel true, tools ["files","bogus"], command_input "fancy",
      block_style "loud", status_line 1) never stops the window (Marc's Y2 2026-11-14): the window opens with the
-     default values (there is no last good file at a cold start) and is still running 3 s later; its pane has the
-     defaults' 124-125 columns (as P3) and the status line is shown ((700,890) sidebar (8,8,8) +-3, as P3); Ctrl+,
-     opens Settings and the part of the window it changed reads "line 11": config.xml holds the XML declaration
-     (line 1), <clanky version="1"> (line 2), the 8 BASE settings (lines 3..10), then the bad value on line 11.
+     last good values, which at a cold start are the default settings (docs/config.md), not the rest of the file,
+     and is still running 3 s later and after Settings. Defaults: the same column count as a reference window
+     started on an empty config.xml (no setting at all), and the status line shown in the default theme's colour:
+     theme "system" under GSETTINGS_BACKEND=memory is dark, theme_dark "stone-dark", sidebar #0f0d0b, so (700,890)
+     is (15,13,11) +-3 [T] (the file asks for Graphite, sidebar (8,8,8)). Ctrl+, opens Settings and the part of the
+     window it changed reads "line 13": config.xml holds the XML declaration (line 1), <clanky version="1">
+     (line 2), the 8 BASE settings and theme "dark", theme_dark "graphite-dark" (lines 3..12), then the bad value
+     on line 13.
   P3 config {} (no Q1 key): the defaults; 124-125 columns (tools panel 236 px [M .body grid 236px]) and the status
      line shown (pixel (700,890) is the sidebar colour (8,8,8), +-3).
   L1 {"rails": false}: tools panel off, 151-152 columns (pane padding 14 each side, Marc's sizes of 2026-11-14:
@@ -392,13 +396,23 @@ def cols(win, tab=None):
 
 # ---------------------------------------------------------------- parse, defaults, legacy rails
 
+STONE_SIDEBAR = (15, 13, 11)  # assets/themes/stone-dark.json sidebar #0f0d0b, the default dark theme
+DEFAULT_WINDOW = {}
+
+
 def bad_value(key, value):
-    """P2: a window on BASE plus one bad value opens with the defaults and Settings shows the error's line."""
+    """P2: a window on BASE plus one bad value opens with the default settings and Settings shows the line."""
     import numpy as np
-    cfg = dict(BASE, **{key: value})
+    cfg = dict(BASE, theme='dark', theme_dark='graphite-dark', **{key: value})
     line = 2 + list(cfg).index(key) + 1
     assert config_xml.dump(cfg).splitlines()[line - 1].lstrip().startswith(f'<{key}>')
     label = f'P2 {key}={json.dumps(value)}'
+    if 'cols' not in DEFAULT_WINDOW:
+        ref = Win('p2-defaults', {})
+        try:
+            DEFAULT_WINDOW['cols'] = cols(ref)
+        finally:
+            ref.close()
     try:
         win = Win(f'p2-{key}', cfg)
     except Fail as e:
@@ -407,11 +421,13 @@ def bad_value(key, value):
         time.sleep(3)
         require(win.alive(), f'{label}: the window is still running 3 s after it opened')
         c = cols(win)
-        require(c in (124, 125), f'{label}: the defaults, 124-125 columns (observed {c})')
+        require(c == DEFAULT_WINDOW['cols'], f'{label}: the defaults, {DEFAULT_WINDOW["cols"]} columns as on an empty '
+                                             f'config.xml (observed {c})')
         win.away()
         before = win.shot(f'p2-{key}-closed')
-        require(near(before.getpixel((700, 890)), SIDEBAR, 3),
-                f'{label}: the defaults, status line shown at (700,890): {before.getpixel((700, 890))}')
+        require(near(before.getpixel((700, 890)), STONE_SIDEBAR, 3),
+                f'{label}: the defaults, status line shown in Stone dark {STONE_SIDEBAR} at (700,890): '
+                f'{before.getpixel((700, 890))}')
         win.key('ctrl+comma')
         time.sleep(1.2)
         after = win.shot(f'p2-{key}-settings')
