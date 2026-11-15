@@ -111,7 +111,9 @@ pub fn presentation(layout:&Layout,state:&LookState,theme:&Theme,font_px:f32,poi
     for pane in &layout.panes{
         let data=state.panes.iter().find(|data|data.id==pane.id);let focus=state.focused.as_ref()==Some(&pane.id);
         let driving=data.is_some_and(|d|d.agent_running);
-        p.shape(pane.rect,0.0,term.background,None);
+        // An editor pane draws in the window theme, never the terminal colours: its padding too.
+        let editor=state.files.iter().any(|file|file.id==pane.id);
+        p.shape(pane.rect,0.0,if editor{c.background}else{term.background},None);
         // An agent at work: a 2 px agent-coloured edge along the pane's top.
         if driving && !state.post_ai{p.shape(r(pane.rect.x,pane.rect.y,pane.rect.w,2.0*s),0.0,c.agent,None);}
         let Some(data)=data else{continue;};
