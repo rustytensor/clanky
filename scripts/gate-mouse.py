@@ -115,8 +115,9 @@ class Pane:
         return new
 
     def measure(self):
-        """Cell (10,5) and (30,12) are painted magenta; returns origin and cell size in window pixels."""
-        self.start('-', '10:5,30:12')
+        """Cell (10,5) and (30,10) are painted magenta; returns origin and cell size in window pixels.
+        Row 10, not 12: at the R1 sizes a half-window pane has 11 rows, and a mark past the last row is clamped."""
+        self.start('-', '10:5,30:10')
         im = self.win.shot(f'measure-{self.n}')
         W, H = im.size
         px = im.load()
@@ -127,7 +128,7 @@ class Pane:
         require(a and b, 'measure: two magenta cells')
         ax, ay = min(x for x, _ in a), min(y for _, y in a)
         bx, by = min(x for x, _ in b), min(y for _, y in b)
-        cw, ch = (bx - ax) / 20, (by - ay) / 7
+        cw, ch = (bx - ax) / 20, (by - ay) / 5
         require(cw > 3 and ch > 6, f'measure: cell size {cw}x{ch}')
         self.geo = (ax - 9 * cw, ay - 4 * ch, cw, ch)  # pixel of cell (1,1)'s top-left
         self.stop()
