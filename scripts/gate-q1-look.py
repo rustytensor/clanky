@@ -100,7 +100,8 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
   T2 state dots [M .tab .dot]: while a block runs in a tab, the title bar has a 4-8 px blob of ok (124,196,143)
      +-12 left of that tab's title; after it ends, none. A tab started by `clanky agent --tab Fake DIR` gets a 4-8 px
      blob of agent (223,174,116) +-12.
-  T3 the search box [M .search 260 x 26]: its card-coloured inside is 255-261 px wide and 22-26 px tall, it reads
+  T3 the search box, 318 x 28 (Marc's Y1 2026-11-14, the wider box; was [M .search 260 x 26]): its card-coloured
+     inside is 313-319 px wide and 24-28 px tall (the same -5..+1 and -4..0 px as before), it reads
      "search"; a click on it opens the palette: typing "Split right" and Enter adds a pane. The rightmost mark in
      the title bar is the settings gear: a click opens Settings ("Appearance" on screen). The leftmost mark is the
      tools toggle: a click adds 26-27 columns (236 / 9), a second click takes them back; Ctrl+Shift+B does the same.
@@ -742,10 +743,10 @@ def bar_story(win):
     xs = [x for x in range(900, W) if near(im.getpixel((x, 19)), BG, 2)]
     require(xs, 'T3 a card-coloured search box in the title bar')
     xl, xr = min(xs), max(xs)
-    ys = [y for y in range(0, 37) if near(im.getpixel((xl + 2, y)), BG, 2)]
+    ys = [y for y in range(0, 46) if near(im.getpixel((xl + 2, y)), BG, 2)]
     width, height = xr - xl + 1, (max(ys) - min(ys) + 1 if ys else 0)
-    require(255 <= width <= 261 and 22 <= height <= 26, f'T3 search box inside is 255-261 x 22-26 px (observed {width} x {height})')
-    require('search' in ocr_text(im, (xl, 0, xr, 37), 4, 7), 'T3 the search box reads "search"')
+    require(313 <= width <= 319 and 24 <= height <= 28, f'T3 search box inside is 313-319 x 24-28 px (observed {width} x {height})')
+    require('search' in ocr_text(im, (xl, 0, xr, 46), 4, 7), 'T3 the search box reads "search"')
     win.away()
     im = win.shot('bar-2')
     m = marks(im, 6, 32, 0, W)
