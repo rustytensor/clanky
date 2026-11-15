@@ -289,35 +289,45 @@ def readings(im, box):
     return out
 
 
-def meta_ok(words, x1col, stamps, exit_code, dur):
+def meta_fails(words, x1col, stamps, exit_code, dur):
+    """The parts of the meta row one OCR reading gets wrong (an empty set: all right)."""
     words = sorted(words, key=lambda w: w[1])
     if not words:
-        return False
+        return {'empty'}
+    bad = set()
     if not (x1col - 3 <= words[0][1] <= x1col + 12):
-        return False
+        bad.add('left edge')
     folder = next((w for w in words if 'alpha' in w[0]), None)
     if not folder or folder[1] > x1col + 30:
-        return False
-    if not any(any(s in w[0] for s in stamps) and w[1] > folder[1] and w[3] < MID for w in words):
-        return False
+        bad.add('folder')
+    if not any(any(s in w[0] for s in stamps) and (not folder or w[1] > folder[1]) and w[3] < MID for w in words):
+        bad.add('time')
     if not (W - 18 - 10 <= max(w[3] for w in words) <= W - 18 + 3):
-        return False
+        bad.add('right edge')
     right = ' '.join(w[0] for w in words if w[1] > MID)
     if exit_code is None:
         if 'exit' in ' '.join(w[0] for w in words):
-            return False
+            bad.add('exit')
     elif not re.search(rf'exit ?{exit_code}\b.*\d', right):
-        return False
+        bad.add('exit')
     if dur:
         vals = [float(v) for v in re.findall(r'(\d+\.\d) ?s\b', right)]
         if not any(dur[0] <= v <= dur[1] for v in vals):
-            return False
-    return True
+            bad.add('duration')
+    return bad
+
+
+def meta_ok(readings_, x1col, stamps, exit_code, dur):
+    """Faint 13 px text: each part must be read right by at least one of the OCR passes ("exit" absent: by all)."""
+    fails = [meta_fails(r, x1col, stamps, exit_code, dur) for r in readings_]
+    if exit_code is None and any('exit' in f for f in fails):
+        return False
+    return bool(fails) and not set.intersection(*fails)
 
 
 def meta_check(im, box, x1col, stamps, exit_code, dur, label):
     reads = readings(im, box)
-    require(any(meta_ok(r, x1col, stamps, exit_code, dur) for r in reads),
+    require(meta_ok(reads, x1col, stamps, exit_code, dur),
             f'M1 {label} meta row: folder alpha and {"/".join(sorted(stamps))} on the left, '
             f'{"exit " + str(exit_code) + " then " if exit_code else ""}duration'
             f'{" %.1f-%.1f s" % dur if dur else ""} on the right edge (x 1372-1385) '
