@@ -136,6 +136,10 @@ class Conn:
         return reply['result']
 
 
+# The Xvfb screen of each window's private display; a gate that needs a wider window sets this first.
+SCREEN = '1600x1000x24'
+
+
 class Window:
     """One private Xvfb display with one Clanky window; close() stops both and the window's server."""
 
@@ -154,7 +158,7 @@ class Window:
         config = self.w / 'config.xml'
         config_xml.write(config, dict(restore_layout=False, startup_animation=False, history=False, rails=True, **cfg))
         rd, wr = os.pipe()
-        x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'],
+        x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', SCREEN, '-nolisten', 'tcp'],
                              pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(x)
         os.close(wr)
