@@ -92,7 +92,8 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      "alpha" and the six names, every folder above every file. After `cd ~/bravo` it shows kilo and mike.txt
      within 5 s and no "crates"; a file november.txt created from outside appears within 4 s; then I1 holds.
   T1 horizontal tabs: after Ctrl+Shift+T and `cd ~/alpha` the title bar reads "bravo" and "alpha"; the active tab
-     has the muted fill (31,31,31) +-3 just left of its title [M .tab.on], the other does not. A click on "bravo"
+     has the Ptyxis fill, white at 8 % over the bar (Marc's Y1 2026-11-14): 8 + 0.08 x (255 - 8) = 27.8, so
+     (28,28,28) +-3 just left of its title, the other does not. A click on "bravo"
      makes its group active (owner workspace_get). The first mark right of the inactive last tab's title is "+":
      a click adds a group. The first mark right of the active tab's title (within 30 px) is its close mark: a click
      removes that group and its terminal.
@@ -153,6 +154,7 @@ W, H = 1400, 900
 SIDEBAR, BG, MUTED, LINE_SIDE, LINE_BG = (8, 8, 8), (17, 17, 17), (31, 31, 31), (33, 33, 33), (41, 41, 41)
 OK, ERR, AGENT, FAIL_LINE = (124, 196, 143), (236, 138, 124), (223, 174, 116), (116, 72, 65)
 NAV_APPEARANCE = (410, 258)
+TAB_ON = (28, 28, 28)  # white at 8 % over the bar (8,8,8): 8 + 0.08 x 247 = 27.8 (Marc's Y1 2026-11-14)
 BASE = dict(restore_layout=False, startup_animation=False, history=False, animations=False, cursor_blink='off',
             font_family='IBM Plex Mono', font_size_pt=11, cell_height_scale=1.25)
 HARBOR = {'background': '#102030', 'foreground': '#d8dee9', 'cursor': '#f0f0f0',
@@ -685,8 +687,8 @@ def tabs_story(win):
         title_words(win, 'tabs')), 'T1 the title bar reads "bravo" and "alpha"', 8)
     a, b = find_word(words, lambda t: t == 'alpha'), find_word(words, lambda t: t == 'bravo')
     fill = lambda w: im.getpixel((int(w[1]) - 4, int(centre(w)[1])))
-    require(near(fill(a), MUTED, 3) and not near(fill(b), MUTED, 3),
-            f'T1 the active tab has the muted fill, the other not ({fill(a)} / {fill(b)})')
+    require(near(fill(a), TAB_ON, 3) and not near(fill(b), TAB_ON, 3),
+            f'T1 the active tab has the 8 % fill {TAB_ON}, the other not ({fill(a)} / {fill(b)})')
     win.click(*centre(b))
     until(lambda: win.workspace()['active'] == 0, 'T1 a click on "bravo" makes it the active tab')
     win.away()
