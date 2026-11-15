@@ -111,9 +111,9 @@ fn draw_pages(g:Geometry,window:[u32;2],section:Section,theme:&Theme,config:&Con
     let close=g.local(735.0,13.0,32.0,32.0);hover(&mut p,close,pointer,pressed,theme,s,8.0);icon(&mut p,"close",g.local(743.0,21.0,16.0,16.0),c.foreground,s);hits.push(Hit{rect:close,action:Action::Close});
     let _=config;let max_scroll=0.0;
     p.shape(g.local(201.0,h-57.0,578.0,1.0),0.0,c.border,None);
-    let label="Open settings file";let width=p.width(label,13.0*s,500)+20.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+(h-43.0)*s,width,28.0*s);
-    hover(&mut p,button,pointer,pressed,theme,s,6.0);p.text(r(button.x+10.0*s,button.y,button.w-20.0*s,button.h),label,13.0*s,c.foreground,500,false);hits.push(Hit{rect:button,action:Action::OpenFile});
-    p.text(r(g.panel.x+229.0*s,g.footer.y,(button.x-g.panel.x-237.0*s).max(0.0),g.footer.h),"Changes apply and save as you go.",13.0*s,c.muted_foreground,400,false);
+    let label="Open settings file";let width=p.width(label,14.0*s,500)+24.0*s;let button=r(g.panel.x+767.0*s-width,g.panel.y+(h-45.0)*s,width,32.0*s);
+    hover(&mut p,button,pointer,pressed,theme,s,8.0);p.text(r(button.x+12.0*s,button.y,button.w-24.0*s,button.h),label,14.0*s,c.foreground,500,false);hits.push(Hit{rect:button,action:Action::OpenFile});
+    p.text(r(g.panel.x+229.0*s,g.footer.y,(button.x-g.panel.x-237.0*s).max(0.0),g.footer.h),"Changes apply and save as you go.",14.0*s,c.muted_foreground,400,false);
     Frame{scene:p.out.scene,hits,geometry:g,max_scroll}
 }
 /// A text field sits level with its row's label (its text on the label's line), 7 px above centre.

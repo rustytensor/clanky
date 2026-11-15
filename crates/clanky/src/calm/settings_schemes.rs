@@ -81,7 +81,7 @@ fn row(p:&mut Paint<'_>,rect:PixelRect,t:&Theme,name:&str,chip_bg:Color,dots:[Co
     if lit||(saved&&!previewing){p.shape(rect,8.0*s,[0;4],Some(c.ring));p.shape(r(rect.x+s,rect.y+s,rect.w-2.0*s,rect.h-2.0*s),7.0*s,[0;4],Some(c.ring));}
     else if saved{p.shape(rect,8.0*s,[0;4],Some(c.ring));}
     let chip=r((rect.x+rect.w-12.0*s-68.0*s).round(),(rect.y+(rect.h-21.0*s)/2.0).round(),68.0*s,21.0*s);
-    p.text(r(rect.x+12.0*s,rect.y,(chip.x-rect.x-20.0*s).max(0.0),rect.h),name,13.0*s,c.foreground,400,false);
+    p.text(r(rect.x+12.0*s,rect.y,(chip.x-rect.x-20.0*s).max(0.0),rect.h),name,14.0*s,c.foreground,400,false);
     p.shape(chip,chip.h/2.0,chip_bg,Some(c.border));
     for (i,color) in dots.into_iter().enumerate(){
         let cx=chip.x+7.0*s+(5.5+14.0*i as f32)*s;let cy=chip.y+chip.h/2.0;
@@ -151,7 +151,7 @@ pub(super) fn group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,picker:&mu
     let label="Import…";let b=g.local(SIDE_X,head+20.0,SIDE_W,32.0);
     let fill=if b.contains(p.pointer.0,p.pointer.1){if p.pressed{c.pressed}else{c.accent}}else{c.background};
     p.shape(b,8.0*s,fill,Some(c.input));
-    let w=p.width(label,13.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),label,13.0*s,c.foreground,500,false);
+    let w=p.width(label,14.0*s,500);p.text(r(b.x+(b.w-w)/2.0,b.y,w,b.h),label,14.0*s,c.foreground,500,false);
     hits.push(Hit{rect:b,action:Action::SchemeImport});
     // The rows.
     let shown=picker.shown();let top=head+64.0;
@@ -163,7 +163,7 @@ pub(super) fn group(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,picker:&mu
         row(p,rect,t,&name,f.bg,[f.ansi[1],f.ansi[2],f.ansi[4],f.ansi[3]],saved==Some(i),picker.highlight==Some(i),previewing,s);
         hits.push(Hit{rect,action:Action::SchemeRow(i)});
     }
-    if shown.is_empty(){p.text(g.local(231.0,top,LIST_W,ROW_H),"No scheme has that name.",13.0*s,faint,400,false);}
+    if shown.is_empty(){p.text(g.local(231.0,top,LIST_W,ROW_H),"No scheme has that name.",14.0*s,faint,400,false);}
     let end=top+shown.len().max(MIN_ROWS) as f32*PITCH;
     // The sample terminal: the highlighted row's colours, else the saved ones. It stays below the
     // top of the page body while the list scrolls under it, and never past the list's end.

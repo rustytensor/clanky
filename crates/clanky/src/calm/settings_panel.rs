@@ -375,7 +375,7 @@ impl SettingsPanel{
                 let menu=PixelRect{x:anchor.x,y:anchor.y+anchor.h+4.0*s,w:anchor.w,h:(8.0+32.0*shown as f32)*s};p.shape(menu,8.0*s,theme.colors.card,Some(theme.colors.input));
                 for (i,name) in fonts.iter().skip(first).take(shown).enumerate(){let name=name.as_str();let rect=PixelRect{x:menu.x+4.0*s,y:menu.y+4.0*s+i as f32*32.0*s,w:menu.w-8.0*s,h:32.0*s};
                     if name==config.font_family || rect.contains(pointer.0,pointer.1){p.shape(rect,6.0*s,theme.colors.accent,None);}
-                    p.text(PixelRect{x:rect.x+6.0*s,w:rect.w-12.0*s,..rect},name,13.0*s,theme.colors.foreground,400,false);
+                    p.text(PixelRect{x:rect.x+6.0*s,w:rect.w-12.0*s,..rect},name,14.0*s,theme.colors.foreground,400,false);
                     frame.hits.push(Hit{rect,action:Action::FontChoice(name.into())});
                 }
             }

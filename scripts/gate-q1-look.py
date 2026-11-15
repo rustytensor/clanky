@@ -58,10 +58,11 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      block_style "loud", status_line 1) makes the window exit with an error within 20 s and open no window.
   P3 config {} (no Q1 key): the defaults; 124-125 columns (tools panel 236 px [M .body grid 236px]) and the status
      line shown (pixel (700,890) is the sidebar colour (8,8,8), +-3).
-  L1 {"rails": false}: tools panel off, 150-151 columns (floor(1364/9) = 151). L2 {"rails": false,
-     "tools_panel": "on"}: 124-125 columns.
-  G1 default window: grid origin x = 236 + 18 = 254 (+-3) [M], grid origin y in 42..70 (title bar 38 [M], no
-     40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
+  L1 {"rails": false}: tools panel off, 151-152 columns (pane padding 14 each side, Marc's sizes of 2026-11-14:
+     floor(1372/9) = 152). L2 {"rails": false, "tools_panel": "on"}: 124-125 columns.
+  G1 default window: grid origin x = 236 + 8 + 14 = 258 (+-3) [M tools panel 236; Marc's sizes of 2026-11-14: 8 px
+     between the tools panel and the pane, 14 px pane padding], grid origin y in 42..70 (title bar 46 + padding 14
+     = 60 with those sizes; no 40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
   G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); its bottom hairline (900,37) (33,33,33);
      tools panel (120,450) (8,8,8) with its right hairline (235,450) (33,33,33); pane (300,450) (17,17,17); the old
      right column is gone: (1300,450) (17,17,17); status line (700,890) (8,8,8), its top hairline (700,874)
@@ -456,7 +457,7 @@ def parse_story():
 
 def legacy_story():
     for name, cfg, want, label in (
-            ('l1', {'rails': FAULT == 'rails'}, (150, 151), 'L1 rails false hides the tools panel'),
+            ('l1', {'rails': FAULT == 'rails'}, (151, 152), 'L1 rails false hides the tools panel'),
             ('l2', {'rails': False, 'tools_panel': 'on'}, (124, 125), 'L2 tools_panel wins over rails')):
         win = Win(name, dict(BASE, theme='dark', theme_dark='graphite-dark', **cfg))
         try:
@@ -480,7 +481,7 @@ def geometry(win, p):
     x0, y0, cw, ch = p.geo
     require(abs(cw - 9) <= .5 and abs(ch - 26) <= .5, f'setup: cells are 9 x 26 px (observed {cw:.2f} x {ch:.2f})')
     info = win.info()
-    require(abs(x0 - 254) <= 3, f'G1 grid origin x is 236 + 18 = 254 (observed {x0:.1f})')
+    require(abs(x0 - 258) <= 3, f'G1 grid origin x is 236 + 8 + 14 = 258 (observed {x0:.1f})')
     require(42 <= y0 <= 70, f'G1 grid origin y in 42..70, no 40 px pane header (observed {y0:.1f})')
     require(info['cols'] in (124, 125), f'G1 124-125 columns (observed {info["cols"]})')
     require(y0 + info['rows'] * ch <= 874 + 1, f'G1 the last row ends above the status line ({y0 + info["rows"] * ch:.0f})')
