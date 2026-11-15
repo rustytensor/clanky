@@ -20,7 +20,7 @@ Interface fixed by this gate.
   File. ~/.config/clanky/config.xml ($XDG_CONFIG_HOME/clanky/config.xml); `clanky --config PATH` reads PATH as XML.
   One root element <clanky version="1">, one child element per setting, named exactly as the key in docs/config.md,
   the value as text: booleans true | false, integers in decimal, numbers in decimal without an exponent and without
-  float noise (0.85, 1.2, 1.25, 18: the shortest decimal that reads back as the stored value), strings as text.
+  float noise (0.85, 1.2, 1.5, 18: the shortest decimal that reads back as the stored value), strings as text.
   Structured values:
     tools            <tools><tool>files</tool><tool>agents</tool></tools>
     colors           <colors><accent>#3a7bd5</accent></colors>            (one element per colour token)
@@ -127,7 +127,8 @@ Expected results, fixed before the work.
                block_style "cards"; Hide: status_line "hide", >= 1 more row. Font size 15 -> 18: font_size 18,
                columns at most 0.9 x before; Terminal font -> "DejaVu Sans Mono" [F]: font_family, the strip
                y 40..140 of the pane (above Settings) changes; Interface font -> "IBM Plex Sans" [F]: ui_font_family,
-               the nav column's pixels change; Cell width 1 -> 1.2: at most 0.9 x the columns; Line height 1 -> 1.25:
+               the nav column's pixels change; Cell width 1 -> 1.2: at most 0.9 x the columns; Line height 1.25 -> 1.5
+               (R1 2026-11-14 made 1.25 the default):
                at most 0.9 x the rows; Window colours: the accent swatch (#b8327a) set to #3a7bd5 gives colors
                {accent #3a7bd5, err #d2462c} and a #3a7bd5 swatch on screen; Reset on the err swatch's row gives
                colors {accent #3a7bd5}; Opacity 1 -> 0.85 (last, so no pixel check above sees the alpha).
@@ -212,7 +213,7 @@ def expect_all(home):
         theme='dark', theme_dark='catppuccin-mocha', theme_light='paper-light', tab_style='vertical',
         tools_panel='off', tools=['files', 'agents'], command_input='classic', block_style='cards',
         status_line='hide', font_size=18, font_family='DejaVu Sans Mono', ui_font_family='IBM Plex Sans',
-        opacity=0.85, cell_width_scale=1.2, cell_height_scale=1.25, colors={'accent': ACCENT_NEW},
+        opacity=0.85, cell_width_scale=1.2, cell_height_scale=1.5, colors={'accent': ACCENT_NEW},
         cursor_blink='off', cursor_blink_time_ms=800, cursor_blink_timeout_s=5, osc52_write=False, osc52_read=True,
         terminal_colors=NEW,
         compose_dictionary='de_DE', compose_dictionary_dir=str(home / 'dicts'), compose_send_enter=True,
@@ -876,8 +877,8 @@ def appearance_page(win):
     field(win, 'Cell width', num_is(1), '1.2', 'cell_width_scale', 1.2, tag)
     until(lambda: cols() <= .9 * c3, f'{tag}: cell width 1.2 leaves <= 0.9 x {c3} columns', 3)
     r1 = rows()
-    field(win, 'Line height', num_is(1), '1.25', 'cell_height_scale', 1.25, tag)
-    until(lambda: rows() <= .9 * r1, f'{tag}: line height 1.25 leaves <= 0.9 x {r1} rows', 3)
+    field(win, 'Line height', num_is(1.25), '1.5', 'cell_height_scale', 1.5, tag)  # 1.25 is R1's default
+    until(lambda: rows() <= .9 * r1, f'{tag}: line height 1.5 leaves <= 0.9 x {r1} rows', 3)
 
     set_swatch(win, ACCENT_OLD, ACCENT_NEW, 'colors', {'accent': ACCENT_NEW, 'err': ERR_OLD}, f'{tag} Window colours accent')
     find_swatch(win, ACCENT_NEW, f'{tag}: the accent swatch shows {ACCENT_NEW}')
