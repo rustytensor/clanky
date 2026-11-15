@@ -10,8 +10,8 @@ use std::{fs, io::Write, path::Path};
 const BOOL: [&str; 9] = ["post_ai", "startup_animation", "compose_send_enter", "osc52_write", "osc52_read",
     "restore_layout", "animations", "rails", "history"];
 /// Settings written as whole numbers.
-const INT: [&str; 7] = ["columns", "rows", "notify_after_seconds", "history_days", "history_output_kib",
-    "cursor_blink_time_ms", "cursor_blink_timeout_s"];
+const INT: [&str; 8] = ["columns", "rows", "notify_after_seconds", "history_days", "history_output_kib",
+    "cursor_blink_time_ms", "cursor_blink_timeout_s", "new_window_panes"];
 /// Settings written as decimal numbers (stored as f32, written as the shortest decimal that reads back).
 const NUM: [&str; 5] = ["font_size", "font_size_pt", "opacity", "cell_width_scale", "cell_height_scale"];
 
@@ -127,12 +127,35 @@ pub fn document(entries: &[Entry]) -> Value {
 /// Validates a config.xml text: the window's Config, and the document it came from. A bad value's
 /// error names its line ("line 3: opacity must be ...").
 pub fn load(text: &str) -> Result<(crate::config::Config, Value), String> {
+    load_entries(&parse(text)?)
+}
+
+/// Settings whose bad value falls back to its default on its own, the other settings kept.
+const SOFT: [&str; 1] = ["new_window_panes"];
+
+/// As `load`, except that a bad value of a SOFT setting (and only that) is left out: the Config and
+/// document hold the other settings, and the third item is that value's error ("line 3: ...").
+pub fn load_soft(text: &str) -> Result<(crate::config::Config, Value, Option<String>), String> {
     let entries = parse(text)?;
-    let doc = document(&entries);
+    let error = match load_entries(&entries) { Ok((config, doc)) => return Ok((config, doc, None)), Err(error) => error };
+    let bad = entries.iter().find(|entry| SOFT.contains(&entry.key.as_str()) && {
+        let single = Value::Object(std::iter::once((entry.key.clone(), entry.value.clone())).collect());
+        crate::config::Config::from_json(&single.to_string()).is_err()
+    });
+    let Some(bad) = bad else { return Err(error) };
+    let rest: Vec<Entry> = entries.iter().filter(|entry| entry.key != bad.key).cloned().collect();
+    let soft = load_entries(&rest).map_err(|_| error.clone())?;
+    let single = Value::Object(std::iter::once((bad.key.clone(), bad.value.clone())).collect());
+    let own = crate::config::Config::from_json(&single.to_string()).err().unwrap_or_default();
+    Ok((soft.0, soft.1, Some(format!("line {}: {own}", bad.line))))
+}
+
+fn load_entries(entries: &[Entry]) -> Result<(crate::config::Config, Value), String> {
+    let doc = document(entries);
     match crate::config::Config::window_from_json(&doc.to_string()) {
         Ok(config) => Ok((config, doc)),
         Err(error) => {
-            for entry in &entries {
+            for entry in entries {
                 let single = Value::Object(std::iter::once((entry.key.clone(), entry.value.clone())).collect());
                 if let Err(own) = crate::config::Config::from_json(&single.to_string()) {
                     return Err(format!("line {}: {own}", entry.line));

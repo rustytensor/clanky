@@ -26,8 +26,8 @@ impl Settings {
         let (observed, read_error) = match read_optional(&path) { Ok(bytes) => (bytes, None), Err(error) => (None, Some(error)) };
         let mut settings = Self { config: defaults(&path), bytes: empty(&path), document: Value::Object(Default::default()), observed: observed.clone(), last_error: read_error, path };
         if let Some(bytes) = observed {
-            match validate(&settings.path, &bytes) {
-                Ok((config, document)) => { settings.config = config; settings.document = document; settings.bytes = bytes; }
+            match validate_soft(&settings.path, &bytes) {
+                Ok((config, document, soft)) => { settings.config = config; settings.document = document; settings.bytes = bytes; settings.last_error = soft; }
                 Err(error) => settings.last_error = Some(error),
             }
         }
@@ -55,8 +55,8 @@ impl Settings {
             self.last_error = Some(error.clone());
             return Err(error);
         };
-        match validate(&self.path, &bytes) {
-            Ok((config, document)) => { self.config = config; self.document = document; self.bytes = bytes; self.last_error = None; Ok(true) }
+        match validate_soft(&self.path, &bytes) {
+            Ok((config, document, soft)) => { self.config = config; self.document = document; self.bytes = bytes; self.last_error = soft; Ok(true) }
             Err(error) => { self.last_error = Some(error.clone()); Err(error) }
         }
     }
@@ -102,8 +102,8 @@ impl Settings {
         // Merge against the latest valid disk content, never a stale UI copy; while the file on
         // disk is broken, against the last good settings (a change replaces the broken file).
         let expected = read_optional(&self.path)?;
-        let mut document = match expected.as_deref().map(|bytes| validate(&self.path, bytes)) {
-            Some(Ok((_, document))) => document,
+        let mut document = match expected.as_deref().map(|bytes| validate_soft(&self.path, bytes)) {
+            Some(Ok((_, document, _))) => document,
             _ => self.document.clone(),
         };
         if !document.is_object() { document = Value::Object(Default::default()); }
@@ -146,16 +146,23 @@ fn empty(path: &Path) -> Vec<u8> {
 }
 /// The file's Config and settings document; errors start with the file name ("config.xml line 4: ...").
 fn validate(path: &Path, bytes: &[u8]) -> Result<(Config, Value), String> {
+    let (config, document, soft) = validate_soft(path, bytes)?;
+    match soft { Some(error) => Err(error), None => Ok((config, document)) }
+}
+/// As `validate`, except that a bad value of a setting that falls back on its own (new_window_panes)
+/// gives the other settings and that value's error.
+fn validate_soft(path: &Path, bytes: &[u8]) -> Result<(Config, Value, Option<String>), String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let text = std::str::from_utf8(bytes).map_err(|_| format!("{name}: the file must be UTF-8"))?;
-    let (mut config, document) = if crate::config::is_json_path(path) {
+    let named = |e: String| if e.starts_with("line ") { format!("{name} {e}") } else { format!("{name}: {e}") };
+    let (mut config, document, soft) = if crate::config::is_json_path(path) {
         let document: Value = serde_json::from_str(text).map_err(|e| format!("{name}: invalid JSON: {e}"))?;
-        (Config::window_from_json(text).map_err(|e| format!("{name}: {e}"))?, document)
+        (Config::window_from_json(text).map_err(|e| format!("{name}: {e}"))?, document, None)
     } else {
-        crate::config_xml::load(text).map_err(|e| if e.starts_with("line ") { format!("{name} {e}") } else { format!("{name}: {e}") })?
+        crate::config_xml::load_soft(text).map_err(named)?
     };
     config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
-    Ok((config, document))
+    Ok((config, document, soft.map(named)))
 }
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     let metadata = match fs::symlink_metadata(path) {

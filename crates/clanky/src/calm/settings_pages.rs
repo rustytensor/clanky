@@ -13,6 +13,8 @@ pub(super) fn general(p:&mut Paint<'_>,g:&Geometry,t:&Theme,cfg:&Config,forced_p
     let rows:Vec<Row>=vec![
         row("Post-AI mode",post_ai,Control::Switch("post_ai",cfg.post_ai)),
         row("Restore layout","Reopen the last tabs and splits when Clanky starts.",Control::Switch("restore_layout",cfg.restore_layout)),
+        row("New windows open with","Applies to the next new window. A restored layout keeps its own panes.",
+            Control::Segments(vec![("One pane","new_window_panes","1"),("Two panes","new_window_panes","2")],if cfg.new_window_panes==1{"1"}else{"2"})),
         row("Robot greeting","The robot says hello when a window opens.",Control::Switch("startup_animation",cfg.startup_animation)),
         row("Animations","Motion in the window, the robot's greeting included.",Control::Switch("animations",cfg.animations)),
         row("Notify after","A notice when a command runs this long, in seconds.",Control::Field("notify_after_seconds",cfg.notify_after_seconds.to_string(),80.0,true)),

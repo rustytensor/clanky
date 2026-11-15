@@ -23,8 +23,10 @@ view below the title bar. A thin thumb at the right of a long page shows how far
 ## Pages
 
 - **General:** Post-AI mode (`post_ai`; it applies server policy and hides agent UI immediately),
-  Restore layout, Robot greeting (`startup_animation`), Animations, Notify after (seconds), and the
-  Columns and Rows of a new window.
+  Restore layout, New windows open with (One pane | Two panes, `new_window_panes`, default Two
+  panes; it applies to the next new window, and a restored layout keeps its own panes), Robot
+  greeting (`startup_animation`), Animations, Notify after (seconds), and the Columns and Rows of a
+  new window.
 - **Appearance:** the groups **Layout**, **Theme**, **Text**, **Window** and last **Window colours** (the
   longest group).
   - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips

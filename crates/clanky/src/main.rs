@@ -1029,8 +1029,9 @@ impl ApplicationHandler<window_events::WindowNotice> for App {
             self.window = Some(window);
             self.metrics_changed()?;
             if self.groups.is_empty() {
+                // A new window's panes (new_window_panes); a restored layout has groups already.
                 self.new_tab()?;
-                self.split(Axis::Rows)?;
+                if self.config.new_window_panes >= 2 { self.split(Axis::Rows)?; }
             }
             self.start_robot();
             Ok(())

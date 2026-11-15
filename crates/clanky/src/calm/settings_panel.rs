@@ -50,7 +50,7 @@ impl SettingsPanel{
     pub fn preview_terminal(&self)->Option<&crate::config::TerminalColors>{self.preview.1.as_ref()}
     /// A Layout choice: a default value is left out of the file; tools_panel also drops the old rails key.
     fn save_layout(&mut self,key:&str,value:serde_json::Value)->Effect{
-        let default=match key{"tools"=>json!(crate::config::TOOLS.iter().map(|t|t.1).collect::<Vec<_>>()),_=>LAYOUT_DEFAULTS.iter().find(|d|d.0==key).map(|d|json!(d.1)).unwrap_or(serde_json::Value::Null)};
+        let default=match key{"tools"=>json!(crate::config::TOOLS.iter().map(|t|t.1).collect::<Vec<_>>()),"new_window_panes"=>json!(2),_=>LAYOUT_DEFAULTS.iter().find(|d|d.0==key).map(|d|json!(d.1)).unwrap_or(serde_json::Value::Null)};
         let mut changes=vec![(key,(value!=default).then_some(value))];
         if key=="tools_panel"{changes.push(("rails",None));}
         match self.store.set_many(&changes){Ok(_)=>{self.error=None;Effect::Changed},Err(error)=>{self.error=Some(error);Effect::None}}
@@ -124,6 +124,7 @@ impl SettingsPanel{
     }
     fn activate(&mut self,action:Action,x:f64)->Effect{match action{
         Action::Section(section)=>{self.section=section;self.menu=false;self.focus=None;self.scroll=0.0;self.end_preview();self.palettes=None;self.schemes=Picker::default();Effect::Preview},
+        Action::Choice("new_window_panes",value)=>self.save_layout("new_window_panes",json!(if value=="1"{1}else{2})),
         Action::Choice(key,value)=>self.save_layout(key,json!(value)),
         Action::ToolChip(tool)=>{
             let mut tools=self.effective.tools.clone();
