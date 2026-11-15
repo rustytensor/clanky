@@ -6,7 +6,12 @@ Usage: gate-q3-syntax.py [--fault table|theme|edit|italic|idle|language|oldmap]
 A fault changes the run's input on purpose; the gate must then FAIL.
 
 Runs in real Clanky windows on private Xvfb displays (:100 and up, the T2 harness's Window and free_display), at
-1600x1000, default font and size, cursor blink off, rails hidden with Ctrl+Shift+B. Files are opened in an editor pane
+1800x1000, default font and size, cursor blink off, rails hidden with Ctrl+Shift+B. The width holds the longest fixture
+line (cursor_blink.rs line 2, 88 columns) in the half-width editor pane at Marc's R1 sizes (2026-11-14): tools panel
+hidden, so the two panes share the window with one 8 px gap; each pane has 14 px of padding on both sides; cells are
+9 px; the editor's line-number gutter takes 2 digits + 3 = 5 columns. Pane (1800 - 8) / 2 = 896 px, text columns
+floor((896 - 28) / 9) - 5 = 96 - 5 = 91 >= 90 (at 1600: floor((796 - 28) / 9) - 5 = 80, which cut line 2 at column
+81). Files are opened in an editor pane
 with Ctrl+Shift+O, path, Enter, and closed with Ctrl+Shift+W. Screenshots are taken without the pointer
 (ffmpeg x11grab -draw_mouse 0). Everything is judged from pixels, bytes on disk and the frame trace.
 
@@ -124,7 +129,8 @@ spec.loader.exec_module(t2)
 Fail, require, until, Window, RILEY = t2.Fail, t2.require, t2.until, t2.Window, t2.RILEY
 FAULT = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == '--fault' else None
 FIX = REPO / 'tests/syntax'
-W, H = 1600, 1000
+W, H = 1800, 1000
+t2.SCREEN = f'{W}x{H}x24'
 BLOCK = '█'
 SLANT_DEG = 9.4
 PERF_COMMIT = 'a818fac'
