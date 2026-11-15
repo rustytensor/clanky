@@ -18,6 +18,8 @@ work=$(mktemp -d "$build/vendor.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/clanky-$version"
 git archive HEAD | tar -x -C "$work/clanky-$version"
+# The tarball has no git history; this file names the build for clanky --version (see crates/clanky/build.rs).
+git describe --tags --match 'v[0-9]*' HEAD | sed 's/^v//' > "$work/clanky-$version/BUILD-VERSION"
 cd "$work/clanky-$version"
 archive_version=$(python3 scripts/packaging-version.py --check --tarball "$output")
 [[ $archive_version == "$version" ]] || { echo "FAIL: committed Cargo version $archive_version differs from workspace $version" >&2; exit 1; }
