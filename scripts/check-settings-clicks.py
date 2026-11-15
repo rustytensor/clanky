@@ -4,9 +4,10 @@ All expected points/colours are fixed in docs/m12-click-checks.md before the run
 
 Quiet layout (design 2026-11-13, Marc's Y1 of 2026-11-14): Settings opens from the title bar's
 gear (1217,19) [mockup .titlebar: padding 10, .ico 26; Q1 gate T3]; its frame, nav and pages keep their places
-[Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3]: with
-Follow the system off, one list (dark themes first: Graphite, Ink, Stone, ...); a click on a row saves it. The
-Stone row is found by its word (scrolling the page when needed), as the Q1 gate does; "Follow the system" On
+[Q1]. Appearance's theme cards and Light/System/Dark segments are replaced by the theme picker [Q1 K1-K3, C1]: a
+Dark list in the left column (Graphite, Ink, Stone, ...) and a Light list in the right one (Graphite, Stone, ...); a
+click on a row saves it. Stone dark is found by its word in the left half of the page body (scrolling the page when
+needed), as the C1 gate tells the two lists apart; "Follow the system" On
 writes theme "system", Off writes "dark" or "light" (the system's mode). The Terminal page's Side columns row is
 now the Tools panel row at the same place: it writes tools_panel "off"/"on" and no "rails" [Q1]. The sidebar
 toggle is the title bar's tools toggle (23,19) [mockup .ico at x 10..36; Q1 T3].
@@ -222,10 +223,15 @@ def main(work, bins):
                 settle()
             raise Failure(f'"{label}" found on the Appearance page')
 
-        stone, _ = find('stone-row', lambda words: min((w for w in words if w[0] == 'stone' and w[2] < 600),
-                                                     key=lambda w: w[2], default=None))
+        # The picker shows the dark list in the left column and the light list in the right one [C1: "Mocha" in the
+        # dark list, "Paper" in the light list; Q1: dark on the left], so Stone dark is the Stone left of the body's
+        # middle (the light list's Stone is its second row and would be found first).
+        middle = (body[0] + body[2]) / 2
+        stone, _ = find('stone-row', lambda words: min((w for w in words if w[0] == 'stone' and w[2] < 600
+                                                        and (w[1] + w[3]) / 2 < middle),
+                                                       key=lambda w: w[2], default=None))
         if fault != 'click':
-            click(*centre(stone))  # the first Stone row: Stone dark, as the picker lists dark themes first
+            click(*centre(stone))  # Stone in the Dark column: theme_dark stone-dark
         image = capture('stone-row')
         pixel(image, (997, 600), (20, 18, 16), 'theme row applies Stone pixel')
         setting('theme_dark', 'stone-dark')
