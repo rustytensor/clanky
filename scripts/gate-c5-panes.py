@@ -42,7 +42,8 @@ Expected results, fixed before the work (window 1400 x 900, scale 1, default the
   P2 <new_window_panes>1</new_window_panes> [M]: 1 pane by the owner API and 1 pane region whose rectangle equals
      AREA (each edge +-1): one pane fills the pane area. A program on the alternate screen [V] paints magenta cells
      at (1,1) and at the last column of the last row: cell (1,1) starts 14 right of the pane's left edge and 14 below
-     its top [R1]; right of the last cell and below it the pane goes on for 14 .. 14 + one cell (+-1) [R1].
+     its top [R1]; right of the last cell the pane goes on for 14 .. 14 + one cell (+-1) [R1], below it for the
+     command input's reserved rows (58 + one cell, docs/terminal.md) and then 14 .. 14 + one cell (+-1).
   I2 0 frames from 1 s to 3.5 s in that window.
   S1 a fresh window without the key; Settings (Ctrl+,) > General: the row "New windows open with" shows "One" and
      "Two" segments and its text holds "Applies" and a second "window"; a click on "One" makes config.xml hold
@@ -87,6 +88,7 @@ TERM = {'background': PANE_BG, 'foreground': '#d9c8a9', 'cursor': '#f2a541',
                  '#5a4a7a', '#ff6b6b', '#6bff9e', '#ffd76b', '#6b9eff', '#e06bff', '#6bfff0', '#fff3c4']}
 BASE = dict(startup_animation=False, animations=False, cursor_blink='off', terminal_colors=TERM)
 GAP, PAD = 8, 14
+INPUT_H = 1 + 8 + 32 + 7 + 10  # command input without its text line (command_bar.rs height)
 MAG = (255, 0, 255)
 PROG = r'''#!/usr/bin/python3 -I
 # c5prog: alternate screen, cursor hidden; magenta cells at (1,1) and at the last cell; quits on "q".
@@ -303,10 +305,14 @@ def one_pane_story(area):
         cw, ch = ax1 - ax0 + 1, ay1 - ay0 + 1
         require(near(ax0 - r[0], PAD) and near(ay0 - r[1], PAD),
                 f'P2 cell (1,1) is {PAD} px inside the pane (observed {ax0 - r[0]} left, {ay0 - r[1]} top)')
+        # Below the grid sit the command input's reserved rows (docs/terminal.md: "Its rows stay reserved
+        # meanwhile, so the terminal is not resized at each command"); one line of input is
+        # command_bar::height = 58 px + one cell at scale 1.
+        bar = INPUT_H + ch
         right, below = r[2] - bx1, r[3] - by1
-        require(PAD - 1 <= right <= PAD + cw + 1 and PAD - 1 <= below <= PAD + ch + 1,
-                f'P2 right of and below the last cell the pane goes on for {PAD} .. {PAD} + one cell '
-                f'(cell {cw} x {ch}; observed {right} right, {below} below)')
+        require(PAD - 1 <= right <= PAD + cw + 1 and PAD + bar - 1 <= below <= PAD + bar + ch + 1,
+                f'P2 right of the last cell the pane goes on for {PAD} .. {PAD} + one cell, below it for the '
+                f'input ({bar}) + {PAD} .. {PAD} + one cell (cell {cw} x {ch}; observed {right} right, {below} below)')
         print(f'ok: P2 1 pane {r} fills the area; padding {ax0 - r[0]}/{ay0 - r[1]}, {right}/{below}')
         win.type('q')
         time.sleep(1)
