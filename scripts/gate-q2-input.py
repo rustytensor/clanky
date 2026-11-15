@@ -85,10 +85,12 @@ Expected results, fixed before the work:
   C3 commands from PATH for the first word (~/bin/zzqcmd-unique on the window's and the shell's PATH): "zzq" Tab
      Enter runs "zzqcmd-unique" (output zzq-ran), not the file zzq-file.txt.
   K1 chips [M .chip]: the input reads "alpha" (folder ~/alpha), "papaya" (branch), "bash", "Agent access", and the
-     switch "Shell" "Agent" [M .mode]. The folder chip's outline (41,41,41) +-8 is 21 px tall (+-2) [M height 21],
-     its top 9 px (+-3) below the input hairline [M 1 px border + 8 px padding], its left edge at x 250 (+-3)
-     [M tools panel 236 + padding 14]. After `git switch kiwi` the input reads "kiwi" within 3 s; after `cd ~/bravo`
-     (no repository) it reads "bravo" and neither "kiwi" nor "papaya".
+     switch "Shell" "Agent" [M .mode]. The folder chip is found by its fill [M .chip, a faint raised fill]: the
+     background 6 % of the way to the foreground [T] per channel, round(17 + 0.06 x (250 - 17)) = round(30.98) = 31,
+     so (31,31,31) +-6, at rest (no hover border). It is 21 px tall (+-2) [M height 21], its top 9 px (+-3) below
+     the input hairline [M 1 px border + 8 px padding], its left edge at x 258 (+-3) [Marc's R1 2026-11-14: tools
+     panel 236 + gap between panes 8 + padding inside the pane 14 = 258]. After `git switch kiwi` the input reads
+     "kiwi" within 3 s; after `cd ~/bravo` (no repository) it reads "bravo" and neither "kiwi" nor "papaya".
   K2 a click on the agent access switch (15 px right of the word "access" [M gap 6 + switch 18 / 2]) makes
      permission_get allow_agent true within 2 s; a second click makes it false.
   K3 with a second pane (palette "Split right"), each pane's input has its own "access" chip; a click on the right
@@ -150,6 +152,9 @@ def rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
 
 
+# K1: the chip fill, the background 6 % of the way to the foreground [T].
+CHIP = tuple(round(b + 0.06 * (f - b))
+             for b, f in zip(rgb(THEME['colors']['background']), rgb(THEME['colors']['foreground'])))
 A = THEME['ansi']
 CANDS = {'plain': rgb(THEME['colors']['foreground']), 'muted': rgb(THEME['colors']['muted_foreground']),
          'ansi1': rgb(A[1]), 'ansi2': rgb(A[2]), 'ansi3': rgb(A[3]), 'ansi4': rgb(A[4]), 'ansi5': rgb(A[5]),
@@ -527,12 +532,15 @@ def chips_step(win):
     folder = find_word(words, lambda t: 'alpha' in t)
     px = im.load()
     yc = int(centre(folder)[1])
-    vline = lambda x: all(near(px[x, y], LINE, 8) for y in (yc - 4, yc, yc + 4))
-    left = next((x for x in range(int(folder[1]) - 1, 237, -1) if vline(x)), None)
-    require(left and abs(left - 250) <= 3, f'K1 the folder chip\'s left edge is at x 250 (observed {left})')
-    hline = lambda y: near(px[left + 7, y], LINE, 8) and near(px[left + 9, y], LINE, 8)
-    top = next((y for y in range(yc, win.hair, -1) if hline(y)), None)
-    bot = next((y for y in range(yc, STATUS_TOP) if hline(y)), None)
+    vfill = lambda x: all(near(px[x, y], CHIP, 6) for y in (yc - 4, yc, yc + 4))
+    start = int(folder[1]) - 2
+    out = next((x for x in range(start, 237, -1) if not vfill(x)), None) if vfill(start) else None
+    left = out + 1 if out else None
+    require(left and abs(left - 258) <= 3, f'K1 the folder chip\'s left edge is at x 258, fill {CHIP} (observed {left})')
+    hfill = lambda y: near(px[left + 8, y], CHIP, 6) and near(px[left + 9, y], CHIP, 6)
+    above = next((y for y in range(yc, win.hair, -1) if not hfill(y)), None)
+    below = next((y for y in range(yc, STATUS_TOP) if not hfill(y)), None)
+    top, bot = above and above + 1, below and below - 1
     require(top and bot and abs((bot - top + 1) - 21) <= 2, f'K1 the folder chip is 21 px tall (edges {top}, {bot})')
     require(abs(top - win.hair - 9) <= 3, f'K1 the chip top is 9 px below the input hairline ({top} vs {win.hair})')
     box = (left + 2, top + 2, int(folder[3]) + 2, bot - 1)
