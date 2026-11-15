@@ -11,6 +11,10 @@ frames (1..2, the M12 design) plus one Files frame within the next second:
 import json
 import os
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 import select
 import subprocess
 import sys
@@ -51,8 +55,8 @@ def run(extra):
         trace = work / 'frames.csv'
         env.update(HOME=str(work/'home'), XDG_CONFIG_HOME=str(work/'config'), XDG_STATE_HOME=str(work/'state'),
                    XDG_RUNTIME_DIR=str(work/'runtime'), SHELL='/bin/sh', WINIT_UNIX_BACKEND='x11', CLANKY_FRAME_TRACE=str(trace))
-        config=work/'config.json'
-        config.write_text(json.dumps({'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'cursor_blink':'off',**extra}))
+        config=work/'config.xml'
+        config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'cursor_blink':'off',**extra})
         reader=work/'reader.py'
         reader.write_text("import os,tty,time\ntty.setraw(0)\nos.write(1,b'READY\\r\\n')\nb=os.read(0,1)\nopen('received','wb').write(b)\nos.write(1,b'ECHO:'+b+b'\\r\\n')\nwhile not os.path.exists('release'): time.sleep(.05)\n")
         sock=work/'server.sock'; children=[]; owner=None

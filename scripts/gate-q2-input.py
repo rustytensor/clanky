@@ -16,7 +16,7 @@ started with VTE_VERSION=8400 in its environment, as when Clanky is started from
 adds its own OSC 133 marks unless Clanky keeps them out (notes/clanky-input.md finding 1). Screenshots leave out the
 pointer (ffmpeg -draw_mouse 0). Keys and text come from xdotool, as a person types them. Outcomes are read from the
 owner API (list_blocks: each block's command, output, exit code; terminal_info rows; permission_get), the screen text,
-files the programs write, pixels sampled at measured places, the frame trace and config.json.
+files the programs write, pixels sampled at measured places, the frame trace and config.xml.
 
 Interface fixed by this gate: no new config keys. command_input "editor" (default) | "classic", as Q1 fixed it.
 Clanky starts bash and zsh with its own OSC 133 integration (the user's rc file sourced first); no setup in the home.
@@ -32,8 +32,9 @@ Expected results, fixed before the work:
   A1 editor mode (default config): after the first prompt no screen row holds "USERPS1" (the shell's own PS1 is not
      shown; design). Still none after `cd ~/alpha`, `echo $RCMARK`, `ll2`.
   A2 the input sits at the bottom of the pane [M .input]: a hairline (41,41,41) +-6 across >= 90 % of x 300..1300 at
-     a y in 796..816 (status line top hairline 874 [Q1 G2] minus the input's height 1 + 8 + 21 + 7 + line + 10 with a
-     line of 16 [M .caret] to 26 px [P] = 63..73, +-3).
+     a y in 787..803 (status line top hairline 874 [Q1 G2] minus the input's height 1 + 8 + 32 + 7 + line + 10 with
+     the chip row 32 px tall (Marc's R1 of 2026-11-14: chips >= 32 px, Ptyxis's chips 32; was the mockup's 21) and a
+     line of 16 [M .caret] to 26 px [P] = 74..84, +-3).
   A3 the caret: typing 10 spaces after one "x" moves it 10 cells to the right (cell width 5..14 px measured from the
      move), its rows lie between the hairline + 30 (8 + 21 + 7 [M] - 6) and 873.
   D1 the user's rc was sourced: `echo $RCMARK` prints sourced-rc, `ll2` prints aliasok (an alias, so bash is
@@ -84,10 +85,13 @@ Expected results, fixed before the work:
   C3 commands from PATH for the first word (~/bin/zzqcmd-unique on the window's and the shell's PATH): "zzq" Tab
      Enter runs "zzqcmd-unique" (output zzq-ran), not the file zzq-file.txt.
   K1 chips [M .chip]: the input reads "alpha" (folder ~/alpha), "papaya" (branch), "bash", "Agent access", and the
-     switch "Shell" "Agent" [M .mode]. The folder chip's outline (41,41,41) +-8 is 21 px tall (+-2) [M height 21],
-     its top 9 px (+-3) below the input hairline [M 1 px border + 8 px padding], its left edge at x 250 (+-3)
-     [M tools panel 236 + padding 14]. After `git switch kiwi` the input reads "kiwi" within 3 s; after `cd ~/bravo`
-     (no repository) it reads "bravo" and neither "kiwi" nor "papaya".
+     switch "Shell" "Agent" [M .mode]. The folder chip is found by its fill [M .chip, a faint raised fill]: the
+     background 6 % of the way to the foreground [T] per channel, round(17 + 0.06 x (250 - 17)) = round(30.98) = 31,
+     so (31,31,31) +-6, at rest (no hover border). It is 32 px tall (+-2) [Marc's R1 2026-11-14: chips >= 32 px,
+     Ptyxis's chips 32, as in A2; was the mockup's 21], its top 9 px (+-3) below
+     the input hairline [M 1 px border + 8 px padding], its left edge at x 258 (+-3) [Marc's R1 2026-11-14: tools
+     panel 236 + gap between panes 8 + padding inside the pane 14 = 258]. After `git switch kiwi` the input reads
+     "kiwi" within 3 s; after `cd ~/bravo` (no repository) it reads "bravo" and neither "kiwi" nor "papaya".
   K2 a click on the agent access switch (15 px right of the word "access" [M gap 6 + switch 18 / 2]) makes
      permission_get allow_agent true within 2 s; a second click makes it false.
   K3 with a second pane (palette "Split right"), each pane's input has its own "access" chip; a click on the right
@@ -109,7 +113,7 @@ Expected results, fixed before the work:
   M1 command_input "classic": the screen shows "USERPS1>", no input hairline is drawn, the pane has 2..4 more rows
      than the editor window (63..73 px / 26 px rows, A2), and readline gets the keys: "echo clok" Enter, Up, Enter
      prints clok twice [B].
-  M2 Settings > Appearance > Classic in the editor window: config.json command_input "classic" within 3 s, the pane
+  M2 Settings > Appearance > Classic in the editor window: config.xml command_input "classic" within 3 s, the pane
      gains 2..4 rows within 3 s (same window process), and after "echo backclassic" Enter the last screen row with
      text reads "USERPS1>" within 5 s.
   I1 0 frames from 1 s to 3.5 s after the last key (the 0-idle-frames rule): at the empty prompt, with ghost
@@ -123,6 +127,10 @@ quiet window), classic (M1's window is started with command_input "editor").
 """
 import importlib.util, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 ROOT = Path(os.environ.get('CLANKY_Q2_WORK', '/srv/devops/build/clanky-q2-gate-run'))
 os.environ['CLANKY_Q1_WORK'] = str(ROOT)
@@ -145,6 +153,9 @@ def rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
 
 
+# K1: the chip fill, the background 6 % of the way to the foreground [T].
+CHIP = tuple(round(b + 0.06 * (f - b))
+             for b, f in zip(rgb(THEME['colors']['background']), rgb(THEME['colors']['foreground'])))
 A = THEME['ansi']
 CANDS = {'plain': rgb(THEME['colors']['foreground']), 'muted': rgb(THEME['colors']['muted_foreground']),
          'ansi1': rgb(A[1]), 'ansi2': rgb(A[2]), 'ansi3': rgb(A[3]), 'ansi4': rgb(A[4]), 'ansi5': rgb(A[5]),
@@ -194,8 +205,8 @@ class Win(q1.Win):
                    LP_NUM_THREADS='8', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json',
                    CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'), VTE_VERSION='8400',
                    PATH=str(self.home / 'bin') + ':' + os.environ.get('PATH', '/usr/bin:/bin'))
-        self.config = self.w / 'config.json'
-        self.config.write_text(json.dumps(cfg))
+        self.config = self.w / 'config.xml'
+        config_xml.write(self.config, cfg)
         rd, wr = os.pipe()
         x = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
                               '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -469,8 +480,8 @@ def prompt_step(win):
     require(not any('USERPS1' in r for r in rows), f'A1 editor mode: the shell\'s own PS1 is not shown (rows {last_rows(win)})')
     im = win.shot('start')
     win.hair = hairline(im)
-    require(win.hair is not None and 796 <= win.hair <= 816,
-            f'A2 the input\'s top hairline (41,41,41) at y 796..816 (observed {win.hair})')
+    require(win.hair is not None and 787 <= win.hair <= 803,
+            f'A2 the input\'s top hairline (41,41,41) at y 787..803 (observed {win.hair})')
     win.type('x')
     time.sleep(.6)
     a = win.shot('probe-a')
@@ -522,13 +533,16 @@ def chips_step(win):
     folder = find_word(words, lambda t: 'alpha' in t)
     px = im.load()
     yc = int(centre(folder)[1])
-    vline = lambda x: all(near(px[x, y], LINE, 8) for y in (yc - 4, yc, yc + 4))
-    left = next((x for x in range(int(folder[1]) - 1, 237, -1) if vline(x)), None)
-    require(left and abs(left - 250) <= 3, f'K1 the folder chip\'s left edge is at x 250 (observed {left})')
-    hline = lambda y: near(px[left + 7, y], LINE, 8) and near(px[left + 9, y], LINE, 8)
-    top = next((y for y in range(yc, win.hair, -1) if hline(y)), None)
-    bot = next((y for y in range(yc, STATUS_TOP) if hline(y)), None)
-    require(top and bot and abs((bot - top + 1) - 21) <= 2, f'K1 the folder chip is 21 px tall (edges {top}, {bot})')
+    vfill = lambda x: all(near(px[x, y], CHIP, 6) for y in (yc - 4, yc, yc + 4))
+    start = int(folder[1]) - 2
+    out = next((x for x in range(start, 237, -1) if not vfill(x)), None) if vfill(start) else None
+    left = out + 1 if out else None
+    require(left and abs(left - 258) <= 3, f'K1 the folder chip\'s left edge is at x 258, fill {CHIP} (observed {left})')
+    hfill = lambda y: near(px[left + 8, y], CHIP, 6) and near(px[left + 9, y], CHIP, 6)
+    above = next((y for y in range(yc, win.hair, -1) if not hfill(y)), None)
+    below = next((y for y in range(yc, STATUS_TOP) if not hfill(y)), None)
+    top, bot = above and above + 1, below and below - 1
+    require(top and bot and abs((bot - top + 1) - 32) <= 2, f'K1 the folder chip is 32 px tall (edges {top}, {bot})')
     require(abs(top - win.hair - 9) <= 3, f'K1 the chip top is 9 px below the input hairline ({top} vs {win.hair})')
     box = (left + 2, top + 2, int(folder[3]) + 2, bot - 1)
     ACTIVE.update(box=box, peak=peak(im, box))
@@ -803,7 +817,7 @@ def switch_classic_step(win):
     seg = find_word(words, lambda t: t == 'classic', pick=max)
     require(seg, 'M2 the Classic segment in Settings > Appearance')
     win.click(*centre(seg))
-    until(lambda: win.saved().get('command_input') == 'classic', 'M2 config.json command_input "classic"', 3)
+    until(lambda: win.saved().get('command_input') == 'classic', 'M2 config.xml command_input "classic"', 3)
     for _ in range(2):
         if q1.settings_open(win):
             win.key('Escape')

@@ -47,6 +47,10 @@ Expected results, fixed before the work from independent sources:
 """
 import os, re, shutil, socket, json, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 TARGET = Path(os.environ['CARGO_TARGET_DIR'])
 APP = TARGET / 'debug/clanky'
@@ -132,6 +136,10 @@ class Conn:
         return reply['result']
 
 
+# The Xvfb screen of each window's private display; a gate that needs a wider window sets this first.
+SCREEN = '1600x1000x24'
+
+
 class Window:
     """One private Xvfb display with one Clanky window; close() stops both and the window's server."""
 
@@ -147,10 +155,10 @@ class Window:
                    XDG_STATE_HOME=str(self.w / 'state'), XDG_RUNTIME_DIR=str(self.w / 'runtime'), SHELL='/bin/sh',
                    GSETTINGS_BACKEND='memory', WINIT_UNIX_BACKEND='x11', WINIT_X11_SCALE_FACTOR='1', LP_NUM_THREADS='8',
                    VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json', CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'))
-        config = self.w / 'config.json'
-        config.write_text(json.dumps(dict(restore_layout=False, startup_animation=False, history=False, rails=True, **cfg)))
+        config = self.w / 'config.xml'
+        config_xml.write(config, dict(restore_layout=False, startup_animation=False, history=False, rails=True, **cfg))
         rd, wr = os.pipe()
-        x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'],
+        x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', SCREEN, '-nolisten', 'tcp'],
                              pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(x)
         os.close(wr)

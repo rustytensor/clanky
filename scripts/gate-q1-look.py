@@ -13,7 +13,7 @@ from Ptyxis/VTE in the T2 gate), cursor blink off, TZ=UTC, SHELL=/bin/sh. Screen
 owner API, so every window below has one terminal pane unless a step adds more. Cell geometry is measured from two
 magenta cells (the mouse gate's Pane.measure), never assumed. Text on screen is read with tesseract.
 
-Interface fixed by this gate (config.json keys; strings, as cursor_blink and agent_pane_access are):
+Interface fixed by this gate (config.xml settings; strings, as cursor_blink and agent_pane_access are):
   tab_style      "horizontal" (default, Marc's R2) | "vertical"
   tools_panel    "on" (default) | "off". The old boolean "rails" stays readable: when tools_panel is absent,
                  rails false means off and rails true means on; when both are present tools_panel wins. Settings
@@ -37,7 +37,7 @@ Interface fixed by this gate (config.json keys; strings, as cursor_blink and age
   Unicorn Tears (light), then imported Ptyxis palettes. With Follow on, two columns "In dark mode" (left) and
   "In light mode" (right), Ptyxis palettes after them. On the Appearance page Down moves the highlight one row
   (the first Down goes to the row after the saved theme) and previews it in the window behind Settings without
-  writing config.json; Escape puts the saved theme back, still without writing; Enter saves the highlighted theme.
+  writing config.xml; Escape puts the saved theme back, still without writing; Enter saves the highlighted theme.
   A click on a row saves it. Ptyxis palettes are read from $HOME/.local/share/org.gnome.Ptyxis/palettes/*.palette;
   saving one writes terminal_colors exactly as `clanky terminal-colors import` prints its [Dark] section.
   The tools panel footer has the segments Files, Recent, Agents (only the tools in "tools"). The Agents view has
@@ -55,15 +55,26 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      window, and its pane has 124-125 columns: vertical tab column 236 px [M .vtabs, same width as .tools], pane
      padding 18 px each side [M .blk], 9 px cells [P]: floor((1400-236-36)/9) = 125, one column of slack.
   P2 each bad value (tab_style "diagonal", tools_panel true, tools ["files","bogus"], command_input "fancy",
-     block_style "loud", status_line 1) makes the window exit with an error within 20 s and open no window.
+     block_style "loud", status_line 1) never stops the window (Marc's Y2 2026-11-14): the window opens with the
+     last good values, which at a cold start are the default settings (docs/config.md), not the rest of the file,
+     and is still running 3 s later and after Settings. Defaults: the same column count as a reference window
+     started on an empty config.xml (no setting at all), and the status line shown in the default theme's colour:
+     theme "system" under GSETTINGS_BACKEND=memory is dark, theme_dark "stone-dark", sidebar #0f0d0b, so (700,890)
+     is (15,13,11) +-3 [T] (the file asks for Graphite, sidebar (8,8,8)). Ctrl+, opens Settings and the part of the
+     window it changed reads "line 13": config.xml holds the XML declaration (line 1), <clanky version="1">
+     (line 2), the 8 BASE settings and theme "dark", theme_dark "graphite-dark" (lines 3..12), then the bad value
+     on line 13.
   P3 config {} (no Q1 key): the defaults; 124-125 columns (tools panel 236 px [M .body grid 236px]) and the status
      line shown (pixel (700,890) is the sidebar colour (8,8,8), +-3).
-  L1 {"rails": false}: tools panel off, 150-151 columns (floor(1364/9) = 151). L2 {"rails": false,
-     "tools_panel": "on"}: 124-125 columns.
-  G1 default window: grid origin x = 236 + 18 = 254 (+-3) [M], grid origin y in 42..70 (title bar 38 [M], no
-     40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
-  G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); its bottom hairline (900,37) (33,33,33);
-     tools panel (120,450) (8,8,8) with its right hairline (235,450) (33,33,33); pane (300,450) (17,17,17); the old
+  L1 {"rails": false}: tools panel off, 151-152 columns (pane padding 14 each side, Marc's sizes of 2026-11-14:
+     floor(1372/9) = 152). L2 {"rails": false, "tools_panel": "on"}: 124-125 columns.
+  G1 default window: grid origin x = 236 + 8 + 14 = 258 (+-3) [M tools panel 236; Marc's sizes of 2026-11-14: 8 px
+     between the tools panel and the pane, 14 px pane padding], grid origin y in 42..70 (title bar 46 + padding 14
+     = 60 with those sizes; no 40 px pane header), 124-125 columns, the last row ends above the status line (y <= 874).
+  G2 pixels [M, T]: title bar (900,4) and (900,33) sidebar (8,8,8); no line under it, Marc's Y1 of 2026-11-14 (the
+     Ptyxis look): its last row (900,45) of the 46 px bar is (8,8,8); tools panel (120,450) (8,8,8), no divider
+     after it (Y1): its last column (235,450) and the 8 px gap after it (240,450) are the window colour (8,8,8);
+     pane (300,450) (17,17,17); the old
      right column is gone: (1300,450) (17,17,17); status line (700,890) (8,8,8), its top hairline (700,874)
      (33,33,33). Tolerance 4.
   G3 the status line reads "Session 1", "1 tab", "server up" and "masking" [M .status].
@@ -89,20 +100,22 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      "alpha" and the six names, every folder above every file. After `cd ~/bravo` it shows kilo and mike.txt
      within 5 s and no "crates"; a file november.txt created from outside appears within 4 s; then I1 holds.
   T1 horizontal tabs: after Ctrl+Shift+T and `cd ~/alpha` the title bar reads "bravo" and "alpha"; the active tab
-     has the muted fill (31,31,31) +-3 just left of its title [M .tab.on], the other does not. A click on "bravo"
+     has the Ptyxis fill, white at 8 % over the bar (Marc's Y1 2026-11-14): 8 + 0.08 x (255 - 8) = 27.8, so
+     (28,28,28) +-3 just left of its title, the other does not. A click on "bravo"
      makes its group active (owner workspace_get). The first mark right of the inactive last tab's title is "+":
      a click adds a group. The first mark right of the active tab's title (within 30 px) is its close mark: a click
      removes that group and its terminal.
   T2 state dots [M .tab .dot]: while a block runs in a tab, the title bar has a 4-8 px blob of ok (124,196,143)
      +-12 left of that tab's title; after it ends, none. A tab started by `clanky agent --tab Fake DIR` gets a 4-8 px
      blob of agent (223,174,116) +-12.
-  T3 the search box [M .search 260 x 26]: its card-coloured inside is 255-261 px wide and 22-26 px tall, it reads
+  T3 the search box, 318 x 28 (Marc's Y1 2026-11-14, the wider box; was [M .search 260 x 26]): its card-coloured
+     inside is 313-319 px wide and 24-28 px tall (the same -5..+1 and -4..0 px as before), it reads
      "search"; a click on it opens the palette: typing "Split right" and Enter adds a pane. The rightmost mark in
      the title bar is the settings gear: a click opens Settings ("Appearance" on screen). The leftmost mark is the
      tools toggle: a click adds 26-27 columns (236 / 9), a second click takes them back; Ctrl+Shift+B does the same.
   T4 tools panel footer: "Recent" shows a view that reads "command" (Command finished / failed) and no file names;
      "Agents" shows "access" and one row per pane; a click on an "off" row flips exactly one pane to allow_agent true.
-  E1 Settings > Appearance > Layout, each click saved at once (config.json within 3 s, same window process, no
+  E1 Settings > Appearance > Layout, each click saved at once (config.xml within 3 s, same window process, no
      restart) and applied at once: Vertical -> tab_style "vertical", 26-27 fewer columns (a second 236 px column),
      the left column reads the tab's folder "charlie" and its last command "vtlastcmd", the title bar no longer
      reads "charlie"; Horizontal -> columns as before. Tools Off on a file with "rails": true -> tools_panel "off"
@@ -113,7 +126,7 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      pane colour; Show -> rows as before.
   E2 0 frames from 1 s to 3 s after the last Settings click.
   K1 theme picker preview, from {"theme":"dark","theme_dark":"stone-dark","theme_light":"paper-light"}: Down
-     changes the window pixel (1300,450) (Stone background (20,18,16) [T]) and leaves config.json byte for byte;
+     changes the window pixel (1300,450) (Stone background (20,18,16) [T]) and leaves config.xml byte for byte;
      Escape puts the pixel back (+-1) and the bytes are still the same. Down, Enter writes theme_dark "paper-dark";
      with Settings closed (1300,450) is Paper's background (31,28,23) +-2 [T].
   K2 Follow the system On writes theme "system" and keeps theme_dark "paper-dark" and theme_light "paper-light";
@@ -131,6 +144,10 @@ is not clicked in E1).
 """
 import importlib.util, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
+import importlib.util as _config_xml_util
+_config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
+config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
+_config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
 ROOT = Path(os.environ.get('CLANKY_Q1_WORK', '/srv/devops/build/clanky-q1-gate-run'))
 os.environ['CLANKY_MOUSE_WORK'] = str(ROOT)
@@ -146,6 +163,7 @@ W, H = 1400, 900
 SIDEBAR, BG, MUTED, LINE_SIDE, LINE_BG = (8, 8, 8), (17, 17, 17), (31, 31, 31), (33, 33, 33), (41, 41, 41)
 OK, ERR, AGENT, FAIL_LINE = (124, 196, 143), (236, 138, 124), (223, 174, 116), (116, 72, 65)
 NAV_APPEARANCE = (410, 258)
+TAB_ON = (28, 28, 28)  # white at 8 % over the bar (8,8,8): 8 + 0.08 x 247 = 27.8 (Marc's Y1 2026-11-14)
 BASE = dict(restore_layout=False, startup_animation=False, history=False, animations=False, cursor_blink='off',
             font_family='IBM Plex Mono', font_size_pt=11, cell_height_scale=1.25)
 HARBOR = {'background': '#102030', 'foreground': '#d8dee9', 'cursor': '#f0f0f0',
@@ -199,8 +217,8 @@ class Win(t2.Window):
                    LP_NUM_THREADS='8', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json',
                    CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'), **(extra_env or {}))
         self.home = self.w / 'home'
-        self.config = self.w / 'config.json'
-        self.config.write_text(json.dumps(cfg))
+        self.config = self.w / 'config.xml'
+        config_xml.write(self.config, cfg)
         rd, wr = os.pipe()
         x = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
                               '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -259,10 +277,7 @@ class Win(t2.Window):
         return [t['tab_id'] for t in self.o.call(1, 'list_tabs')['tabs']]
 
     def saved(self):
-        try:
-            return json.loads(self.config.read_text())
-        except ValueError:
-            return {}
+        return config_xml.load(self.config)
 
     def click(self, x, y, button=1):
         self.x('mousemove', '--window', self.wid, str(int(x)), str(int(y)), 'click', str(button))
@@ -381,49 +396,51 @@ def cols(win, tab=None):
 
 # ---------------------------------------------------------------- parse, defaults, legacy rails
 
-def bad_config(name, cfg):
-    """Starts a window with cfg on its own display; returns True when it exits with an error and opens no window."""
-    d = ROOT / f'bad-{name}'
-    d.mkdir()
-    for sub in ('home', 'config', 'state', 'runtime'):
-        (d / sub).mkdir(mode=0o700)
-    (d / 'config.json').write_text(json.dumps(cfg))
-    rd, wr = os.pipe()
-    xs = subprocess.Popen(['Xvfb', ':' + t2.free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24',
-                           '-nolisten', 'tcp'], pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    os.close(wr)
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith(('XDG_', 'CLANKY', 'WAYLAND', 'DBUS', 'GNOME', 'GSETTINGS'))}
-    env.update(DISPLAY=':' + os.read(rd, 32).decode().strip(), HOME=str(d / 'home'), XDG_CONFIG_HOME=str(d / 'config'),
-               XDG_STATE_HOME=str(d / 'state'), XDG_RUNTIME_DIR=str(d / 'runtime'), SHELL='/bin/sh',
-               WINIT_UNIX_BACKEND='x11', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json')
-    os.close(rd)
-    sock = d / 'window.sock'
-    p = subprocess.Popen([str(APP), '--socket', str(sock), '--config', str(d / 'config.json')], env=env, cwd=str(d),
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
+STONE_SIDEBAR = (15, 13, 11)  # assets/themes/stone-dark.json sidebar #0f0d0b, the default dark theme
+DEFAULT_WINDOW = {}
+
+
+def bad_value(key, value):
+    """P2: a window on BASE plus one bad value opens with the default settings and Settings shows the line."""
+    import numpy as np
+    cfg = dict(BASE, theme='dark', theme_dark='graphite-dark', **{key: value})
+    line = 2 + list(cfg).index(key) + 1
+    assert config_xml.dump(cfg).splitlines()[line - 1].lstrip().startswith(f'<{key}>')
+    label = f'P2 {key}={json.dumps(value)}'
+    if 'cols' not in DEFAULT_WINDOW:
+        ref = Win('p2-defaults', {})
         try:
-            code = p.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            code = None
-        shown = subprocess.run(['xdotool', 'search', '--pid', str(p.pid)], env=env, capture_output=True,
-                               text=True).stdout.split()
-        return code not in (None, 0) and not shown
+            DEFAULT_WINDOW['cols'] = cols(ref)
+        finally:
+            ref.close()
+    try:
+        win = Win(f'p2-{key}', cfg)
+    except Fail as e:
+        raise Fail(f'{label}: the window opens anyway ({e})')
+    try:
+        time.sleep(3)
+        require(win.alive(), f'{label}: the window is still running 3 s after it opened')
+        c = cols(win)
+        require(c == DEFAULT_WINDOW['cols'], f'{label}: the defaults, {DEFAULT_WINDOW["cols"]} columns as on an empty '
+                                             f'config.xml (observed {c})')
+        win.away()
+        before = win.shot(f'p2-{key}-closed')
+        require(near(before.getpixel((700, 890)), STONE_SIDEBAR, 3),
+                f'{label}: the defaults, status line shown in Stone dark {STONE_SIDEBAR} at (700,890): '
+                f'{before.getpixel((700, 890))}')
+        win.key('ctrl+comma')
+        time.sleep(1.2)
+        after = win.shot(f'p2-{key}-settings')
+        changed = np.abs(np.asarray(after).astype(int) - np.asarray(before).astype(int)).max(axis=2) > 12
+        rows, columns = np.where(changed.sum(axis=1) >= 50)[0], np.where(changed.sum(axis=0) >= 50)[0]
+        require(len(rows) and len(columns), f'{label}: Ctrl+, opens Settings')
+        box = (int(columns[0]), int(rows[0]), int(columns[-1]) + 1, int(rows[-1]) + 1)
+        texts = [ocr_text(after, box, 3, psm) for psm in (11, 6, 4)]
+        require(any(re.search(rf'line\s*:?\s*{line}\b', t) for t in texts),
+                f'{label}: Settings shows the error at "line {line}" (read {texts[0][-200:]!r})')
+        require(win.alive(), f'{label}: the window is still running')
     finally:
-        if sock.exists():
-            try:
-                c = t2.Conn(sock)
-                c.call(3, 'auth', token=Path(str(sock) + '.owner').read_text().strip())
-                os.kill(c.call(3, 'hello')['server_pid'], 15)
-            except Exception:
-                pass
-        for proc in (p, xs):
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+        win.close()
 
 
 def parse_story():
@@ -440,8 +457,8 @@ def parse_story():
     print('ok: P1 every Q1 key starts the window')
     for key, value in (('tab_style', 'diagonal'), ('tools_panel', True), ('tools', ['files', 'bogus']),
                        ('command_input', 'fancy'), ('block_style', 'loud'), ('status_line', 1)):
-        require(bad_config(key, dict(BASE, **{key: value})), f'P2 {key}={json.dumps(value)} is refused')
-    print('ok: P2 bad values refused')
+        bad_value(key, value)
+    print('ok: P2 bad values open the window with the defaults and show the error line in Settings')
     win = Win('p3', dict(BASE, theme='dark', theme_dark='graphite-dark'))
     try:
         c = cols(win)
@@ -455,7 +472,7 @@ def parse_story():
 
 def legacy_story():
     for name, cfg, want, label in (
-            ('l1', {'rails': FAULT == 'rails'}, (150, 151), 'L1 rails false hides the tools panel'),
+            ('l1', {'rails': FAULT == 'rails'}, (151, 152), 'L1 rails false hides the tools panel'),
             ('l2', {'rails': False, 'tools_panel': 'on'}, (124, 125), 'L2 tools_panel wins over rails')):
         win = Win(name, dict(BASE, theme='dark', theme_dark='graphite-dark', **cfg))
         try:
@@ -479,14 +496,16 @@ def geometry(win, p):
     x0, y0, cw, ch = p.geo
     require(abs(cw - 9) <= .5 and abs(ch - 26) <= .5, f'setup: cells are 9 x 26 px (observed {cw:.2f} x {ch:.2f})')
     info = win.info()
-    require(abs(x0 - 254) <= 3, f'G1 grid origin x is 236 + 18 = 254 (observed {x0:.1f})')
+    require(abs(x0 - 258) <= 3, f'G1 grid origin x is 236 + 8 + 14 = 258 (observed {x0:.1f})')
     require(42 <= y0 <= 70, f'G1 grid origin y in 42..70, no 40 px pane header (observed {y0:.1f})')
     require(info['cols'] in (124, 125), f'G1 124-125 columns (observed {info["cols"]})')
     require(y0 + info['rows'] * ch <= 874 + 1, f'G1 the last row ends above the status line ({y0 + info["rows"] * ch:.0f})')
     im = win.shot('g2')
     for (x, y), want, what in (((900, 4), SIDEBAR, 'title bar'), ((900, 33), SIDEBAR, 'title bar'),
-                               ((900, 37), LINE_SIDE, 'title bar bottom hairline'), ((120, 450), SIDEBAR, 'tools panel'),
-                               ((235, 450), LINE_SIDE, 'tools panel right hairline'), ((300, 450), BG, 'pane'),
+                               ((900, 45), SIDEBAR, 'title bar last row, no line under it'),
+                               ((120, 450), SIDEBAR, 'tools panel'),
+                               ((235, 450), SIDEBAR, 'tools panel last column, no divider'),
+                               ((240, 450), SIDEBAR, 'gap after the tools panel in the window colour'), ((300, 450), BG, 'pane'),
                                ((1300, 450), BG, 'pane where the right column was'), ((700, 890), SIDEBAR, 'status line'),
                                ((700, 874), LINE_SIDE, 'status line top hairline')):
         got = im.getpixel((x, y))
@@ -679,8 +698,8 @@ def tabs_story(win):
         title_words(win, 'tabs')), 'T1 the title bar reads "bravo" and "alpha"', 8)
     a, b = find_word(words, lambda t: t == 'alpha'), find_word(words, lambda t: t == 'bravo')
     fill = lambda w: im.getpixel((int(w[1]) - 4, int(centre(w)[1])))
-    require(near(fill(a), MUTED, 3) and not near(fill(b), MUTED, 3),
-            f'T1 the active tab has the muted fill, the other not ({fill(a)} / {fill(b)})')
+    require(near(fill(a), TAB_ON, 3) and not near(fill(b), TAB_ON, 3),
+            f'T1 the active tab has the 8 % fill {TAB_ON}, the other not ({fill(a)} / {fill(b)})')
     win.click(*centre(b))
     until(lambda: win.workspace()['active'] == 0, 'T1 a click on "bravo" makes it the active tab')
     win.away()
@@ -734,10 +753,10 @@ def bar_story(win):
     xs = [x for x in range(900, W) if near(im.getpixel((x, 19)), BG, 2)]
     require(xs, 'T3 a card-coloured search box in the title bar')
     xl, xr = min(xs), max(xs)
-    ys = [y for y in range(0, 37) if near(im.getpixel((xl + 2, y)), BG, 2)]
+    ys = [y for y in range(0, 46) if near(im.getpixel((xl + 2, y)), BG, 2)]
     width, height = xr - xl + 1, (max(ys) - min(ys) + 1 if ys else 0)
-    require(255 <= width <= 261 and 22 <= height <= 26, f'T3 search box inside is 255-261 x 22-26 px (observed {width} x {height})')
-    require('search' in ocr_text(im, (xl, 0, xr, 37), 4, 7), 'T3 the search box reads "search"')
+    require(313 <= width <= 319 and 24 <= height <= 28, f'T3 search box inside is 313-319 x 24-28 px (observed {width} x {height})')
+    require('search' in ocr_text(im, (xl, 0, xr, 46), 4, 7), 'T3 the search box reads "search"')
     win.away()
     im = win.shot('bar-2')
     m = marks(im, 6, 32, 0, W)
@@ -865,7 +884,7 @@ def settings_story():
         def press(name, key, value, check, label):
             t = time.time()
             win.click(*centre(found[name]))
-            until(lambda: (win.saved().get(key, DEFAULTS[key]) == value), f'E1 {label}: config.json {key} = {value!r} '
+            until(lambda: (win.saved().get(key, DEFAULTS[key]) == value), f'E1 {label}: config.xml {key} = {value!r} '
                   f'(file: {json.dumps({k: win.saved().get(k) for k in (key, "rails")})})', 3)
             require(win.alive() and win.p.pid == pid, f'E1 {label}: same window process, no restart')
             if check:
@@ -882,7 +901,7 @@ def settings_story():
                 f'E1 vertical tabs list "charlie" and "vtlastcmd" on the left, not in the title bar ({left[:80]!r} / {title!r})')
         press('horizontal', 'tab_style', 'horizontal', lambda: win.info()['cols'] == c0, 'Horizontal')
         press('off', 'tools_panel', 'off', lambda: win.info()['cols'] - c0 in (26, 27), 'Tools panel Off')
-        require('rails' not in win.saved(), 'E1 Tools panel Off removes "rails" from config.json')
+        require('rails' not in win.saved(), 'E1 Tools panel Off removes "rails" from config.xml')
         press('on', 'tools_panel', 'on', lambda: win.info()['cols'] == c0, 'Tools panel On')
         require('rails' not in win.saved(), 'E1 Tools panel On leaves no "rails"')
         if FAULT != 'tools':
@@ -952,12 +971,12 @@ def theme_story():
         time.sleep(.6)
         px1 = win.shot('k1-1').getpixel((1300, 450))
         require(px1 != px0 and win.config.read_bytes() == before,
-                f'K1 Down previews the next theme ({px0} -> {px1}) without writing config.json')
+                f'K1 Down previews the next theme ({px0} -> {px1}) without writing config.xml')
         win.key('Return' if FAULT == 'preview' else 'Escape')
         time.sleep(.6)
         px2 = win.shot('k1-2').getpixel((1300, 450))
         require(near(px2, px0, 1) and win.config.read_bytes() == before,
-                f'K1 Escape puts the saved theme back ({px2} vs {px0}) and config.json is unchanged')
+                f'K1 Escape puts the saved theme back ({px2} vs {px0}) and config.xml is unchanged')
         if not settings_open(win):
             open_appearance(win)
             scroll_to(win, 'follow')

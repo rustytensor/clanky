@@ -1,5 +1,6 @@
 //! Shared application configuration and input state.
 pub mod config;
+pub mod config_xml;
 pub mod history_cli;
 pub mod agent_launch;
 pub mod agent_cli;
@@ -7,6 +8,7 @@ pub mod cursor_blink;
 pub mod frame_trace;
 pub mod frame_clock;
 pub mod themes;
+pub mod terminal_schemes;
 pub mod theme_scene;
 pub mod calm;
 pub mod theme_store;

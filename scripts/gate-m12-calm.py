@@ -45,46 +45,53 @@ def compare(data, scene_only=False, no_idle=False):
     # panel), .blk padding 18px left and right, .blocks padding-top 6px, 1 px hairlines between regions; [Q1] the
     # Q1 gate: grid x = 236 + 18, columns floor((W - 236 - 36) / cell), no pane header; [N] notes clanky-ui.md 5.2
     # (worked out from the mockup before Q1): panes padded 6 px top and bottom, split by a 1 px hairline.
-    # Content 1240 - 236 = 1004 wide, 760 - 38 - 26 = 696 tall; split: 696 - 1 = 695 = 347 + 348.
-    # Columns floor((1004 - 36) / 8) = 121; rows floor((347 - 12) / 20) = floor((348 - 12) / 20) = 16.
-    exact(layout['inset'], [236, 38, 1004, 696], 'inset')
-    for key, rect, origin in [('a', [236, 38, 1004, 347], [254, 44]),
-                              ('b', [236, 386, 1004, 348], [254, 392])]:
+    # [R1] Marc's R1 of 2026-11-14 replaces the mockup's sizes: title bar 46, 8 px between the tools panel and the
+    # panes and between two panes, 14 px of padding on every side of a pane (the status line stays 26 [M]).
+    # Content x = 236 + 8 = 244, 1240 - 244 = 996 wide, 760 - 46 - 26 = 688 tall; split: 688 - 8 = 680 = 340 + 340,
+    # pane B from 46 + 340 + 8 = 394. Grid origin = rect + 14. Columns floor((996 - 28) / 8) = 121;
+    # rows floor((340 - 28) / 20) = 15.
+    exact(layout['inset'], [244, 46, 996, 688], 'inset')
+    for key, rect, origin in [('a', [244, 46, 996, 340], [258, 60]),
+                              ('b', [244, 394, 996, 340], [258, 408])]:
         pane = layout[key]
         exact(pane['rect'], rect, f'pane {key}')
         exact(pane['origin'], origin, f'grid {key} origin')
-        exact([pane['cols'], pane['rows']], [121, 16], f'grid {key} size')
+        exact([pane['cols'], pane['rows']], [121, 15], f'grid {key} size')
         if not scene_only:
-            exact(layout['pty_' + key], [16, 121], f'PTY {key} size')
-    # Tools panel hidden: the content is the full width; floor((1240 - 36) / 8) = 150 columns [Q1 L1].
+            exact(layout['pty_' + key], [15, 121], f'PTY {key} size')
+    # Tools panel hidden: the content is the full width with no gap on its left [R1: the gap lies between the
+    # tools panel and the panes]; floor((1240 - 28) / 8) = 151 columns [Q1 L1], rows as above.
     hidden = data['hidden']
-    exact(hidden['inset'], [0, 38, 1240, 696], 'hidden inset')
-    exact(hidden['a']['rect'], [0, 38, 1240, 347], 'hidden pane')
-    exact([hidden['a']['cols'], hidden['a']['rows']], [150, 16], 'hidden grid size')
-    # Divider dragged to y 300: the 1 px gap centred on the pointer, as the M12 design centred its 12 px gap;
-    # pane A 300 - 0.5 - 38 = 261.5 -> 261 (the first pane takes the floor, as in the even split), B the rest
-    # 695 - 261 = 434 from y 300. Rows floor((261 - 12) / 20) = 12 and floor((434 - 12) / 20) = 21.
+    exact(hidden['inset'], [0, 46, 1240, 688], 'hidden inset')
+    exact(hidden['a']['rect'], [0, 46, 1240, 340], 'hidden pane')
+    exact([hidden['a']['cols'], hidden['a']['rows']], [151, 15], 'hidden grid size')
+    # Divider dragged to y 300: the 8 px gap [R1] centred on the pointer, as the M12 design centred its 12 px gap;
+    # pane A 300 - 4 - 46 = 250, B the rest 680 - 250 = 430 from y 304. Rows floor((250 - 28) / 20) = 11 and
+    # floor((430 - 28) / 20) = 20.
     drag = data['drag']
-    for key, rect, rows in [('a', [236, 38, 1004, 261], 12),
-                            ('b', [236, 300, 1004, 434], 21)]:
+    for key, rect, rows in [('a', [244, 46, 996, 250], 11),
+                            ('b', [244, 304, 996, 430], 20)]:
         exact(drag[key]['rect'], rect, f'drag pane {key}')
         exact(drag[key]['rows'], rows, f'drag rows {key}')
         if not scene_only:
             exact(drag['restored_' + key]['rect'], rect, f'restored pane {key}')
     # Post-AI only took away the right column, which the redesign removed for everyone (Marc's R3).
     pane = data['post_ai']['a']
-    exact(pane['rect'], [236, 38, 1004, 347], 'Post-AI pane')
+    exact(pane['rect'], [244, 46, 996, 340], 'Post-AI pane')  # pane A above [R1]
     exact(pane['cols'], 121, 'Post-AI columns')
-    coords = ['128,700', '600,4', '600,37', '235,200', '600,200', '600,385', '1100,200', '600,734', '600,750']
-    # tools panel, title bar, its bottom hairline, the tools panel's right hairline, pane A, the split hairline,
+    coords = ['128,700', '600,4', '600,45', '235,200', '240,200', '600,200', '600,390', '1100,200', '600,734',
+              '600,750']
+    # tools panel, title bar, the title bar's last row (y 45 of R1's 46 px bar), the tools panel's last column,
+    # the 8 px gap after it (x 236..243 [R1]), pane A, the 8 px gap between panes A and B (y 386..393 [R1]),
     # where the right column was (now pane), the status line's top hairline, the status line [M].
-    # Stone dark [T]: sidebar #0f0d0b, background #141210, border #fff0e1 at 20/255:
-    # over the sidebar (34,31,28), over the background (38,35,32).
-    side, bg, side_line, bg_line = [15,13,11,255], [20,18,16,255], [34,31,28,255], [38,35,32,255]
-    dark = [side, side, side_line, side_line, bg, bg_line, bg, side_line, side]
+    # Marc's Y1 of 2026-11-14 (the Ptyxis look): no line under the title bar, and the gaps between panes and after
+    # the tools panel in the window colour (the sidebar colour of the title bar and tools panel), no divider lines.
+    # Stone dark [T]: sidebar #0f0d0b, background #141210, border #fff0e1 at 20/255 over the sidebar (34,31,28).
+    side, bg, side_line = [15,13,11,255], [20,18,16,255], [34,31,28,255]
+    dark = [side, side, side, side, side, bg, side, bg, side_line, side]
     # Stone light [T]: sidebar #f3f0eb, background #fbfaf8, border #e7e1d9 (opaque).
     side, bg, line = [243,240,235,255], [251,250,248,255], [231,225,217,255]
-    light = [side, side, line, line, bg, line, bg, line, side]
+    light = [side, side, side, side, side, bg, side, bg, line, side]
     pixels(data['pixels']['dark'], dict(zip(coords, dark)), 'Stone dark')
     pixels(data['pixels']['light'], dict(zip(coords, light)), 'Stone light')
     # The window gradient shows behind the title bar (y 20) and the status line (y 740), as it showed behind the

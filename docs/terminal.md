@@ -9,8 +9,34 @@ monospace family; Settings > Terminal lists them. Cells are sized from the font 
 the width is the widest ASCII character's advance rounded up, the height the font's ascent and
 descent each rounded up, and each is then multiplied by `cell_width_scale` / `cell_height_scale`
 (1.0–2.0, Settings' **Line height**) and truncated. IBM Plex Mono 11 pt with a line height of
-1.25 gives 9 × 26 px cells, as in Ptyxis. Bold text (SGR 1) uses the font's bold face in the same
+1.25 gives 9 × 26 px cells, as in Ptyxis. The default is Geist Mono 11 pt (14.67 px) with a line
+height of 1.25: 9 × 25 px cells. Bold text (SGR 1) uses the font's bold face in the same
 colour; faint text (SGR 2) is drawn two thirds of the way from the background to its colour.
+
+On a scaled display (HiDPI, including fractional scales such as 1.25) the cell is worked out at
+scale 1 and multiplied by the scale, rounded to whole pixels, so a pane shows the same columns
+and rows at every scale; the glyphs themselves are drawn at the full physical size, never
+enlarged from a smaller bitmap.
+
+## Window sizes
+
+The window follows Ptyxis's look at these sizes (logical pixels, each multiplied by the display
+scale): a 46 px title bar with no line under it; tabs 34 px tall with corners of 9 px, 6 px apart,
+the active one filled with the text colour at 8 % and a hovered one at 5 %, with an 8 px close
+mark on the active or hovered tab; header buttons 34 × 34 px with a radius of 8 and a fill on
+hover; a 34 px search field; chips, the Shell | Agent switch and the tools panel's Files, Recent
+and Agents 32 px tall; menu rows 32 px apart; labels 14 px. Each pane has 14 px of padding on
+every side, and panes stand 8 px apart, with the window's colour between them and between the
+tools panel and the panes.
+
+## Scrollbar
+
+Turning the wheel over a pane with scrollback shows an overlay scrollbar at its right edge, 8 px
+wide and 7 px from the edge with round ends, in the text colour at 15 % over the background. It
+stays for a second after the last turn of the wheel and then fades out (or goes at once with
+`animations` off). The pointer within 24 px of the pane's right edge also shows it, for as long as
+the pointer stays there; when the pointer leaves, it stays a second and fades the same way.
+Nothing is redrawn while it stays or once it has gone.
 
 ## Cursor
 
@@ -22,19 +48,53 @@ Nothing is redrawn once it stops, or with `cursor_blink` `off`.
 
 ## Colours
 
-`terminal_colors` sets the terminal's background, text, cursor and 16 ANSI colours apart from the
-window theme; the title bar, tools panel and status line keep the theme. Unset entries follow the theme, and
-**Use theme colours** in Settings removes them all. Code in editor panes keeps the window theme's
-colours too (see [editor colours](config.md#editor-colours)).
+`terminal_colors` sets the terminal's background, text, cursor, selection and 16 ANSI colours apart
+from the window theme; the title bar, tools panel and status line keep the theme. Unset entries follow
+the theme. Code in editor panes keeps the window theme's colours too (see
+[editor colours](config.md#editor-colours)).
 
-To use a Ptyxis palette, choose **Import Ptyxis palette…** in Settings > Terminal (palettes live in
-`~/.local/share/org.gnome.Ptyxis/palettes/`), or print it as JSON for the config file:
+### Colour schemes
+
+Settings > Terminal > **Colour scheme** lists **Follow the window theme** (the default: no
+`terminal_colors`) and 40 built-in schemes: the default colours of xterm, GNOME Terminal (and
+Ptyxis), Konsole, Windows Terminal (Campbell), macOS Terminal, iTerm2, Alacritty, Kitty, WezTerm and
+Ghostty, then Ayu Mirage, Catppuccin Latte and Mocha, Dracula, Everforest Dark and Light, GitHub Dark
+and Light, Gruvbox Dark and Light, Kanagawa and Kanagawa Dragon, Material, Monokai, Night Owl, Nord,
+Oceanic Next, One Dark and One Light, Rosé Pine, Moon and Dawn, Solarized Dark and Light, Tokyo Night,
+Storm, Moon and Day, Tomorrow Night and Zenburned. The heading names the scheme in use, whatever the
+search or a preview shows; its row has a ring (one ring while another row is previewed). Each row shows the name and four dots of the
+scheme's ANSI red, green, blue and yellow (1, 2, 4, 3) on a chip of its background, as the theme
+picker does. Typing in the search field keeps the rows whose name holds the text. **Down** and **Up**
+move a highlight and show it in the terminal behind Settings, and in the small sample terminal beside
+the list (its text in six of the ANSI colours, a selection, the cursor and all 16 colours), without saving; **Enter** or a click keeps
+it, writing all 20 of its colours to `terminal_colors`; **Escape** puts the saved colours back. Where
+each scheme's colours come from, with its licence, is in
+[assets/terminal-schemes/SOURCES.md](../assets/terminal-schemes/SOURCES.md).
+
+### Importing another terminal's colours
+
+**Import…** in the same group asks for a file (the field starts in your home folder: type the rest of
+the path); from a shell:
 
 ```sh
-clanky terminal-colors import ~/.local/share/org.gnome.Ptyxis/palettes/riley.palette
+clanky import-colors ~/Downloads/Nord.itermcolors
+clanky import-colors --config ~/.config/clanky/config.xml kitty-theme.conf
 ```
 
-Both use the palette's `[Dark]` section: Background, Foreground, Cursor and Color0–Color15.
+It reads iTerm2 `.itermcolors`, Windows Terminal JSON schemes (a `settings.json` gives its first
+scheme), Alacritty TOML and YAML, Kitty `.conf`, Ghostty theme files, WezTerm TOML, Konsole
+`.colorscheme`, Xresources and Ptyxis `.palette` files (their `[Dark]` section), telling them apart by
+content and extension, and saves the colours in `terminal_colors`; a running window shows them within
+a second. A file without a cursor colour draws the cursor in its foreground; one without a selection
+colour (Konsole, Xresources, Ptyxis) gets the colour a quarter of the way from its background to its
+foreground. A file that is not a colour scheme is refused (exit 1) and the config file is left alone.
+
+Each import is also kept as `terminal-schemes/<file name>.json` next to the config file, so the list
+shows it after **Follow the window theme**, named after the file, and it can be picked again later.
+Delete that file to take it off the list.
+
+`clanky terminal-colors import FILE.palette` still prints a Ptyxis palette's `[Dark]` section as
+`terminal_colors` JSON.
 
 ## Mouse
 

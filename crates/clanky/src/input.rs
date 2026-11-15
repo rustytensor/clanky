@@ -37,6 +37,12 @@ impl InputState {
     }
 }
 
+/// Whether a key's bytes depend on application cursor mode (DECCKM): the cursor keys, Home and End.
+pub fn reads_app_cursor(key: &Key) -> bool {
+    matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown | NamedKey::ArrowLeft
+        | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End))
+}
+
 /// Bytes a key sends, as xterm (TERM=xterm-256color) encodes them: cursor keys use
 /// ESC O x in application cursor mode (DECCKM); modified cursor, editing and function
 /// keys use xterm's CSI 1;m x and CSI n;m ~ forms, m = 1 + Shift + 2 Alt + 4 Ctrl.
