@@ -67,6 +67,9 @@ impl ClipboardBridge {
         let worker = thread::Builder::new().name("clipboard-bridge".into()).spawn(move || {
             let mut clipboard = Clipboard::new();
             let mut next = 0usize;
+            // A tab closed between the list and the poll, or one slow reply, is not news: only a
+            // failure that repeats on a tab still open reaches the window.
+            let mut failures = 0u32;
             loop {
                 let tab = {
                     let (lock, wake) = &*state;
@@ -86,7 +89,14 @@ impl ClipboardBridge {
                     || platform::clipboard_read().map_err(|_| "Clipboard read failed".into()));
                 let (lock, wake) = &*state;
                 let mut guard = lock.lock().unwrap();
-                if let Err(error) = result { guard.error = Some(error); }
+                match result {
+                    Ok(()) => failures = 0,
+                    Err(_) if !guard.tabs.contains(&tab) => (),
+                    Err(error) => {
+                        failures += 1;
+                        if failures >= 3 { guard.error = Some(error); failures = 0; }
+                    }
+                }
                 if client.is_closed() {
                     guard.error = Some("Clipboard connection closed".into());
                     break;
