@@ -916,7 +916,14 @@ impl App {
             pane.key(key, text, modifiers, composing)?;
             return Ok(());
         }
-        let app_cursor = self.focused().is_some_and(|id| self.app_cursor(id));
+        // Cursor keys read DECCKM from the terminal now: the last drawn frame can predate a
+        // program's ESC[?1h by a few milliseconds, and its first Up would go out as ESC[A.
+        let cursor_key = matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown | NamedKey::ArrowLeft
+            | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End));
+        let app_cursor = self.focused().is_some_and(|id| {
+            if cursor_key { if let Ok(fresh) = self.engine.snapshot(id) { return fresh.app_cursor; } }
+            self.app_cursor(id)
+        });
         self.send(&key_bytes(
             key,
             text,
