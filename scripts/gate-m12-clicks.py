@@ -6,11 +6,15 @@ a control's place depends on text width it is found on screen, as the Q1 gate do
 from the mockup CSS [M] and the Q1 gate [Q1]:
   title bar 38 px [M .win]; tools toggle at x 10..36 [M .titlebar padding 10, .ico 26]; the first tab's pill
     starts at x 48 [M .tabs margin-left 8 after the toggle and a 4 px gap], its state dot at x 59..65
-    [M .tab padding 11, .dot 6]; the "+" is the last mark right of the tabs and left of x 620 [M .plus, Q1 T1];
+    [M .tab padding 11, .dot 6]; the "+" is the last mark right of the tabs and left of x 862 [M .plus, Q1 T1];
     the search box is 318 wide (Marc's Y1 of 2026-11-14, was 260 [M .search]) and still ends at the right next to
-    the gear [M], so it starts right of 1240 - 10 - 34 - 318 = 878 (padding 10 [M], a 34 px header button [R1,
-    Ptyxis]), far right of x 620 (with one or two tabs from x 48 the "+" ends well before 620); a click at x 1070
-    lands in it either way [M .search 940..1200, Y1 882..1200]; the settings gear x 1204..1230 [M, Q1 T3].
+    the gear [M], so it starts at 1240 - 10 - 34 - 318 = 878, or left of it by any gap before the gear (padding 10 [M], a 34 px header button [R1,
+    Ptyxis]); the "+" scan stops at 878 - 16 = 862, so a gap of up to 16 px between box and gear never brings the
+    box's edge or its icon into it. Tabs are titled by their folder ("m12-click-" and 8 random letters, wider or
+    narrower by letter), so with three tabs the "+" lands anywhere from about x 600 to 710: an old bound of 620
+    picked the third tab's title instead of "+" whenever the random name was wide. A click at x 1070
+    lands in it either way [M .search 940..1200, Y1 882..1200]; the settings gear x 1196..1230 (R1's 34 px button
+    after the 10 px padding; was 1204..1230 [M, Q1 T3]), so a click at x 1217 opens Settings either way.
   New tab = a click on "+"; a session = a click on its tab; Split = a click on the search box, then
     "Split right" and Enter [Q1 T3] (the mockup's title bar has no Split button).
   Agent access: the tools panel footer's "Agents" segment, then the pane's "off" row [Q1 T4] (R3: today's
@@ -136,7 +140,7 @@ def main():
                 x,y=int(g['X']),int(g['Y'])
                 return ImageGrab.grab(bbox=(x,y,x+1240,y+760),xdisplay=env['DISPLAY']).convert('RGB')
             def plus():
-                found=marks(shot(),40,620)  # left of the 318 px search box (Marc's Y1 2026-11-14)
+                found=marks(shot(),40,862)  # left of the 318 px search box: 1240 - 10 - 34 - 318 - 16
                 require(found,'title bar marks right of the toggle');return found[-1]
             before=call('workspace_get',{},3);require(len(before['groups'])==1,'initial session count')
             # Agent access lives in the tools panel's Agents view: footer segment, then the pane's "off" row.
