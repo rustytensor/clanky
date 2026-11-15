@@ -148,7 +148,8 @@ Expected results, fixed before the work.
   B3 live: a window on {BASE, tab_style vertical}; the file is replaced by one malformed at line 5: within 3 s
      Settings reads "line 5", the columns stay the same (last good values kept), the file is unchanged 3 s later;
      then Restore layout clicked: config.xml well-formed with tab_style "vertical" and restore_layout false.
-  M1 a copy of Marc's own config.json (read only; the copy lives in the gate's folder and is deleted with it) as
+  M1 a copy of Marc's own config.json, or of his config.json.migrated when his window has already migrated it (the
+     same bytes, docs/config.md) (read only; the copy lives in the gate's folder and is deleted with it) as
      $XDG_CONFIG_HOME/clanky/config.json, no config.xml, no --config: within 5 s config.xml exists, config.json is
      gone, config.json.migrated equals the copy byte for byte, and config.xml has exactly the copy's keys (an empty
      colors object may be left out), each value equal to what Python's json reads [J] (numbers within 1e-6, colours
@@ -188,6 +189,9 @@ REPO = Path(__file__).resolve().parents[1]
 APP = q1.APP
 W, H = 1400, 900
 MARC_CONFIG = Path('/home/marcm/.config/clanky/config.json')
+# Once Marc's own window has migrated, config.json is gone and config.json.migrated holds the same bytes
+# (docs/config.md: "renames the old file to config.json.migrated, unchanged").
+MARC_CONFIG_MIGRATED = Path('/home/marcm/.config/clanky/config.json.migrated')
 
 OLD = {'background': '#1b2a3a', 'foreground': '#d9c8a9', 'cursor': '#f2a541',
        'ansi': ['#2e1f4d', '#c23b3b', '#3bb273', '#d9a21b', '#3b6fd9', '#b03bd9', '#2bb3b3', '#c8b88a',
@@ -1017,8 +1021,9 @@ def migrated(win, source_bytes, tag):
 
 
 def migration_story():
-    require(MARC_CONFIG.is_file(), 'M1 the source config.json exists')
-    source = MARC_CONFIG.read_bytes()
+    marc = MARC_CONFIG if MARC_CONFIG.is_file() else MARC_CONFIG_MIGRATED
+    require(marc.is_file(), 'M1 the source config.json exists')
+    source = marc.read_bytes()
     want = json.loads(source)
     if want.get('colors') == {}:
         want_keys = set(want) - {'colors'}
