@@ -24,7 +24,7 @@ use std::{
     time::Instant,
 };
 
-use clanky_state::themes::Colors;
+use clanky_state::themes::{Color, Colors};
 use gpui::{
     AnyElement, App, ElementId, FocusHandle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled,
@@ -505,6 +505,55 @@ impl Kit {
         .into_any_element()
     }
 
+    /// A control's label text, with its measuring child.
+    fn label(&self, screen: &'static str, control: &Control, ink: Color) -> AnyElement {
+        let kind = control.kind;
+        let weight = if kind == Kind::Tab && control.checked == Some(true) {
+            t::WEIGHT_MEDIUM
+        } else {
+            t::WEIGHT_REGULAR
+        };
+        let text = |weight: u16| {
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .font_family(INTERFACE_FONT_FAMILY)
+                .text_size(px(kind.text_size()))
+                .font_weight(FontWeight(f32::from(weight)))
+                .text_color(paint(ink, 1.0))
+                .child(control.label.clone())
+        };
+        let label = if kind == Kind::Tab {
+            // A tab's room is its label's at the active weight, whatever its own, so a tab is as wide active as
+            // not; the label is centred in that room.
+            div()
+                .relative()
+                .min_w_0()
+                .child(text(t::WEIGHT_MEDIUM).invisible())
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .flex()
+                        .justify_center()
+                        .child(text(weight).relative().child(self.record.part(
+                            screen,
+                            control.id,
+                            Part::Label,
+                        ))),
+                )
+        } else {
+            text(weight)
+                .relative()
+                .child(self.record.part(screen, control.id, Part::Label))
+        };
+        label.into_any_element()
+    }
+
     /// The icon, label and trailing keys; a switch's knob; a field's content.
     fn content(
         &self,
@@ -563,50 +612,7 @@ impl Kit {
                 .into_any_element();
         }
         if !kind.is_icon_only() && !control.label.is_empty() {
-            let weight = if kind == Kind::Tab && control.checked == Some(true) {
-                t::WEIGHT_MEDIUM
-            } else {
-                t::WEIGHT_REGULAR
-            };
-            let text = |weight: u16| {
-                div()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_family(INTERFACE_FONT_FAMILY)
-                    .text_size(px(kind.text_size()))
-                    .font_weight(FontWeight(f32::from(weight)))
-                    .text_color(paint(ink, 1.0))
-                    .child(control.label.clone())
-            };
-            let label = if kind == Kind::Tab {
-                // A tab's room is its label's at the active weight, whatever its own, so a tab is as wide active as
-                // not; the label is centred in that room.
-                div()
-                    .relative()
-                    .min_w_0()
-                    .child(text(t::WEIGHT_MEDIUM).invisible())
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full()
-                            .flex()
-                            .justify_center()
-                            .child(text(weight).relative().child(self.record.part(
-                                screen,
-                                control.id,
-                                Part::Label,
-                            ))),
-                    )
-            } else {
-                text(weight)
-                    .relative()
-                    .child(self.record.part(screen, control.id, Part::Label))
-            };
-            inner = inner.child(label);
+            inner = inner.child(self.label(screen, control, ink));
         }
         if let Some(keys) = &control.keys {
             inner = inner.child(
