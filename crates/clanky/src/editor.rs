@@ -7,8 +7,10 @@ use std::{collections::HashMap, path::{Path, PathBuf}};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 type Result<T> = std::result::Result<T, String>;
-const NORMAL: [u8; 3] = [24, 24, 28];
-const SELECTED: [u8; 3] = [40, 70, 120];
+/// The pane's own background as drawn here; a window maps it to its theme's role.
+pub const NORMAL: [u8; 3] = [24, 24, 28];
+/// The selection's background as drawn here; a window maps it to its theme's selection colour.
+pub const SELECTED: [u8; 3] = [40, 70, 120];
 const OLD: [u8; 3] = [80, 24, 24];
 const NEW: [u8; 3] = [24, 80, 40];
 

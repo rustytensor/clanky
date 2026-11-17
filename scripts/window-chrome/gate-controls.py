@@ -333,6 +333,61 @@ FLOATING_SCREENS = {
         stays_open=True,  # firing Next or Previous leaves the bar open
     ),
 }
+
+
+def open_editor(win):
+    """The main window with an editor pane open beside the pane (its bar's Save and Close), opened as a person would:
+    a file in the shell's folder, clicked in the Files tree. Once open it stays open for the screen's checks."""
+
+    def has_editor():
+        return any(c["label"] == "Save" for c in (win.screen("main-window") or {}).get("controls", []))
+
+    if has_editor():
+        return
+    open_tool_view("Files")(win)
+    if hasattr(win, "work"):
+        (win.work / "home/HIH/editor.txt").write_text("alpha\n")
+    row = until(
+        lambda: next(
+            (
+                c
+                for c in (win.screen("main-window") or {}).get("controls", [])
+                if c["kind"] == "list-row" and c["label"] == "editor.txt"
+            ),
+            None,
+        ),
+        "editor.txt in the Files tree",
+        6,
+    )
+    win.move(*centre(row["box"]))
+    win.x("mousedown", "1")
+    win.x("mouseup", "1")
+    until(has_editor, "the editor pane opens", 4)
+    # The tools panel goes, so the screen holds the window's chrome and the editor's bar, not the Files tree.
+    win.key("ctrl+shift+b")
+    until(
+        lambda: not any(c["group"] == "tools" for c in (win.screen("main-window") or {}).get("controls", [])),
+        "the tools panel hides",
+        3,
+    )
+    win.away()
+
+
+# The editor pane's bar is part of the main window (--editor): its controls are checked with the window's own, the
+# tools panel hidden.
+EDITOR_SCREENS = {
+    "main-window-editor": dict(
+        record="main-window",
+        open=open_editor,
+        close=None,
+        container=None,
+        # Saving a file with no changes writes the same bytes: nothing the rest of the run depends on changes.
+        harmless="Save",
+        # The click-focus check types into the terminal pane; here the editor pane has the keyboard. The main-window
+        # screen checks the rule on the terminal pane.
+        click_focus=False,
+    ),
+}
 ROWS_FILE = HERE.parent / "settings/rows.json"
 
 
@@ -447,6 +502,8 @@ if SETTINGS:
     SCREENS.update(SETTINGS_SCREENS)
 if "--test-popover" in ARGS:
     SCREENS.update(TEST_POPOVER_SCREENS)
+if "--editor" in ARGS:
+    SCREENS.update(EDITOR_SCREENS)
 
 RECORD_FIELDS = {
     "id",

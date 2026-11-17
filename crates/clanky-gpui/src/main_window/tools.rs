@@ -405,14 +405,18 @@ impl MainWindow {
                     .icon(if row.dir { Icon::Folder } else { Icon::File })
                     .tree(row.depth, row.dir.then_some(row.open))
                     .group(Group::vertical("files"));
-            // A file opens nowhere yet: the editor pane comes with its own milestone. A folder opens and closes.
-            if row.dir {
-                let (this, path) = (this.clone(), row.path.clone());
-                control = control.on_click(move |_, cx| {
+            // A folder opens and closes; a file opens in an editor pane beside the focused pane.
+            let (this, path) = (this.clone(), row.path.clone());
+            control = if row.dir {
+                control.on_click(move |_, cx| {
                     let path = path.clone();
                     this.update(cx, |this, cx| this.toggle_folder(path, cx));
-                });
-            }
+                })
+            } else {
+                control.on_click(move |window, cx| {
+                    this.update(cx, |this, cx| this.open_editor(&path, window, cx));
+                })
+            };
             list = list.child(self.kit.build(SCREEN, control, window, cx));
         }
         list.into_any_element()

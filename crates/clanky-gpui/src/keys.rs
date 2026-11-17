@@ -36,7 +36,8 @@ fn control_letter(key: &str) -> Option<u8> {
     }
 }
 
-fn named(key: &str) -> Option<NamedKey> {
+/// The named key a gpui-ce key name stands for, or None for a text key.
+pub fn named(key: &str) -> Option<NamedKey> {
     Some(match key {
         "enter" => NamedKey::Enter,
         "backspace" => NamedKey::Backspace,

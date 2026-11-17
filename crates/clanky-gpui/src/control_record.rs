@@ -80,6 +80,10 @@ pub enum Faults {
     BorderTwoPixels,
     PopoverOverOpener,
     EscLosesFocus,
+    SaveNotWritten,
+    MarkerStays,
+    SyntaxOffByOne,
+    CloseDropsPending,
 }
 
 impl Faults {
@@ -92,6 +96,10 @@ impl Faults {
             "border-2px" => Self::BorderTwoPixels,
             "popover-over-opener" => Self::PopoverOverOpener,
             "esc-loses-focus" => Self::EscLosesFocus,
+            "save-not-written" => Self::SaveNotWritten,
+            "marker-stays" => Self::MarkerStays,
+            "syntax-off-by-one" => Self::SyntaxOffByOne,
+            "close-drops-pending" => Self::CloseDropsPending,
             _ => Self::None,
         }
     }
@@ -135,6 +143,26 @@ impl Faults {
     /// Esc closes a popover without giving the focus back to what had it.
     pub fn esc_loses_focus(self) -> bool {
         self == Self::EscLosesFocus
+    }
+
+    /// Ctrl+S in an editor pane that writes nothing to the file.
+    pub fn save_not_written(self) -> bool {
+        self == Self::SaveNotWritten
+    }
+
+    /// An editor pane's pending-change marker that stays once it has shown, after a save too.
+    pub fn marker_stays(self) -> bool {
+        self == Self::MarkerStays
+    }
+
+    /// Editor keywords drawn one ANSI colour along from the theme's (ANSI 6 instead of 5).
+    pub fn syntax_off_by_one(self) -> bool {
+        self == Self::SyntaxOffByOne
+    }
+
+    /// An editor pane that closes with its pending changes, which are lost.
+    pub fn close_drops_pending(self) -> bool {
+        self == Self::CloseDropsPending
     }
 
     fn hit(self, painted: DeviceBox) -> DeviceBox {

@@ -9,10 +9,10 @@ use clanky_core::{
     STYLE_STRIKEOUT, STYLE_TERMINAL_ITALIC, STYLE_UNDERCURL, STYLE_UNDERLINE, TerminalSnapshot,
 };
 use gpui::{
-    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, FocusHandle, Font,
-    FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId,
-    PaintQuad, Pixels, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, Window, point,
-    px, relative, rgb_to_hsla, rgba, size,
+    App, Bounds, ContentMask, Context, Element, ElementId, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Font, FontStyle, FontWeight, GlobalElementId, Hsla,
+    InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, SharedString, StrikethroughStyle,
+    Style, TextAlign, TextRun, Window, point, px, relative, rgb_to_hsla, rgba, size,
 };
 
 use crate::{
@@ -79,8 +79,14 @@ pub struct TextSettings {
     pub line_height: f32,
 }
 
-pub struct GridElement {
-    pub pane: Entity<TerminalPane>,
+/// What owns a grid: it takes the keyboard's text through the input handler, and hears the grid's size in cells
+/// each time the grid is laid out.
+pub trait GridOwner: EntityInputHandler {
+    fn fit(&mut self, rows: usize, cols: usize, cx: &mut Context<Self>);
+}
+
+pub struct GridElement<V: GridOwner = TerminalPane> {
+    pub pane: Entity<V>,
     pub snapshot: Option<Arc<TerminalSnapshot>>,
     pub palette: Palette,
     pub text: TextSettings,
@@ -155,14 +161,14 @@ fn colour_alpha(value: [u8; 3], alpha: f32) -> Hsla {
     c
 }
 
-impl IntoElement for GridElement {
+impl<V: GridOwner> IntoElement for GridElement<V> {
     type Element = Self;
     fn into_element(self) -> Self::Element {
         self
     }
 }
 
-impl Element for GridElement {
+impl<V: GridOwner> Element for GridElement<V> {
     type RequestLayoutState = ();
     type PrepaintState = Option<cells::GridLayout>;
 
@@ -199,7 +205,7 @@ impl Element for GridElement {
         let metrics = self.measure(bounds, window);
         self.metrics.set(metrics);
         let (rows, cols) = (metrics.rows, metrics.cols);
-        self.pane.update(cx, |pane, _| pane.fit(rows, cols));
+        self.pane.update(cx, |pane, cx| pane.fit(rows, cols, cx));
         let snapshot = self.snapshot.as_ref()?;
         let shown: Vec<SnapshotCell> = snapshot
             .cells
@@ -255,7 +261,7 @@ impl Element for GridElement {
     }
 }
 
-impl GridElement {
+impl<V: GridOwner> GridElement<V> {
     /// A row's top in device pixels.
     fn row_top(&self, m: Metrics, row: usize) -> f32 {
         m.origin_y
