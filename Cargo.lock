@@ -1006,6 +1006,7 @@ dependencies = [
  "clanky",
  "clanky-api",
  "clanky-core",
+ "clanky-state",
  "gpui-ce",
  "gpui_ce_platform",
  "serde_json",

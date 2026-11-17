@@ -27,8 +27,15 @@ mod keys;
 mod link;
 mod palette;
 mod pane;
+// The controls and the window chrome use the rest of the table.
+#[allow(dead_code)]
+mod tokens;
 
-use std::{borrow::Cow, path::PathBuf, process::ExitCode};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use clanky::config::{Config, StartupOverrides};
 use clanky_api::Client;
@@ -47,8 +54,6 @@ use crate::{
 
 const TITLE: &str = "clanky-gpui";
 const DEFAULT_SIZE: (f32, f32) = (1240.0, 760.0);
-/// Line height as a multiple of the font size when the config does not set `cell_height_scale`.
-const DEFAULT_LINE_HEIGHT: f32 = 1.2;
 
 /// The bundled terminal fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt and OFL-Geist.txt):
 /// Geist Mono is the window's default `font_family`, so without it a default config draws text in a proportional
@@ -175,6 +180,60 @@ fn open_tab(
     Ok(id)
 }
 
+/// The settings the settings file sets itself, by name, so a value it leaves out takes clanky-gpui's own default
+/// rather than the old window's. An unreadable or broken file sets nothing: `Config::load` has already reported it
+/// and used the defaults.
+fn settings_names(explicit: Option<&Path>) -> Vec<String> {
+    let Some(path) = explicit
+        .map(Path::to_owned)
+        .or_else(clanky_state::platform::settings_path)
+    else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let document = if clanky_state::config::is_json_path(&path) {
+        serde_json::from_str::<serde_json::Value>(&text).ok()
+    } else {
+        clanky_state::config_xml::load(&text)
+            .ok()
+            .map(|(_, document)| document)
+    };
+    document
+        .and_then(|document| {
+            document
+                .as_object()
+                .map(|object| object.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// The terminal's text: the config's where it sets it, else the design rulebook's terminal font (JetBrains Mono 16,
+/// line height 1.2).
+fn text_settings(config: &Config, is_set: &dyn Fn(&str) -> bool) -> TextSettings {
+    let family = if is_set("font_family") {
+        config.font_family.clone()
+    } else {
+        tokens::TERMINAL_FONT_FAMILY.to_owned()
+    };
+    let size = if is_set("font_size") || is_set("font_size_pt") {
+        config.font_size
+    } else {
+        tokens::TERMINAL_FONT_SIZE
+    };
+    let line_height = if is_set("cell_height_scale") && config.cell_height_scale > 0.0 {
+        config.cell_height_scale
+    } else {
+        tokens::TERMINAL_LINE_HEIGHT
+    };
+    TextSettings {
+        family: family.into(),
+        size,
+        line_height,
+    }
+}
+
 fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     let socket = match args.socket {
         Some(path) => path,
@@ -193,21 +252,13 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     cx.text_system()
         .add_fonts(FONTS.iter().map(|bytes| Cow::Borrowed(*bytes)).collect())
         .map_err(|e| format!("loading the bundled fonts: {e}"))?;
-    let line_height = if config.cell_height_scale > 0.0 {
-        config.cell_height_scale
-    } else {
-        DEFAULT_LINE_HEIGHT
-    };
-    let text = TextSettings {
-        family: config.font_family.clone().into(),
-        size: config.font_size,
-        line_height,
-    };
+    let named = settings_names(args.config.as_deref());
+    let text = text_settings(&config, &|name| named.iter().any(|set| set == name));
+    let line_height = text.line_height;
     // A first guess at the grid in logical pixels; the pane sends the exact size once the window is laid out.
-    let cols =
-        (((args.size.0 - 2.0 * PANE_PADDING) / (config.font_size * 0.6)) as usize).clamp(2, 1000);
-    let rows = (((args.size.1 - 2.0 * PANE_PADDING) / (config.font_size * line_height)) as usize)
-        .clamp(1, 1000);
+    let cols = (((args.size.0 - 2.0 * PANE_PADDING) / (text.size * 0.6)) as usize).clamp(2, 1000);
+    let rows =
+        (((args.size.1 - 2.0 * PANE_PADDING) / (text.size * line_height)) as usize).clamp(1, 1000);
     let tab = open_tab(&client, args.exec.as_deref(), rows, cols)?;
     // A pane started with --exec stays open after its command ends; a shell's pane closes the window, as today.
     let (link, updates) = Link::start(&client, tab.clone(), args.exec.is_none())?;
@@ -281,6 +332,26 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use clanky::config::CommandInput;
+
+    #[test]
+    fn the_terminal_text_defaults_to_the_rulebooks_font() {
+        // The old window's defaults (Geist Mono 11 pt, 1.25) do not apply to a file that sets nothing.
+        let config = Config::window_from_json("{}").expect("an empty config is valid");
+        let unset = text_settings(&config, &|_| false);
+        assert_eq!(
+            (unset.family.as_ref(), unset.size, unset.line_height),
+            ("JetBrains Mono", 16.0, 1.2)
+        );
+        let set = Config::window_from_json(
+            r#"{"font_family":"IBM Plex Mono","font_size_pt":12,"cell_height_scale":1.3}"#,
+        )
+        .expect("the config is valid");
+        let all = text_settings(&set, &|_| true);
+        assert_eq!(
+            (all.family.as_ref(), all.size, all.line_height),
+            ("IBM Plex Mono", 16.0, 1.3)
+        );
+    }
 
     #[test]
     fn panes_show_the_shell_prompt_whatever_the_config_says() {

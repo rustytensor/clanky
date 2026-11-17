@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clanky = { path = "../clanky" }
+clanky-state = { path = "../clanky-state" }
 clanky-api = { path = "../clanky-api" }
 clanky-core = { path = "../clanky-core" }
 # Our copy of gpui-ce, pinned; never github.com (the copy exists so Clanky builds if upstream goes away).
