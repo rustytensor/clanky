@@ -21,6 +21,7 @@ FAULTS=(
   "gate-controls.py:border-2px:border-width"
   "gate-controls.py:click-takes-focus:click-focus"
   "gate-controls.py:active-tab-grows:tab-stable"
+  "gate-controls.py:selected-segment-hover:hover-colour"
   "gate-design-tokens.py:tab-too-tall:tab-height"
   "gate-design-tokens.py:loose-literal:loose-numbers"
 )

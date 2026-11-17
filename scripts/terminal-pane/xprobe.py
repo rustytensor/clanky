@@ -151,6 +151,25 @@ class Display:
         _x11.XFlush(self.handle)
         return pressed
 
+    def chord(self, *names):
+        """Presses the first keys as modifiers, then the last key, and releases them all, through XTest; returns the
+        monotonic time the last key's press was flushed."""
+        codes = []
+        for name in names:
+            keycode = _x11.XKeysymToKeycode(self.handle, _x11.XStringToKeysym(name.encode()))
+            if not keycode:
+                raise RuntimeError(f'no keycode for key {name!r}')
+            codes.append(keycode)
+        for keycode in codes[:-1]:
+            _xtst.XTestFakeKeyEvent(self.handle, keycode, 1, 0)
+        _xtst.XTestFakeKeyEvent(self.handle, codes[-1], 1, 0)
+        _x11.XFlush(self.handle)
+        pressed = time.monotonic()
+        for keycode in reversed(codes):
+            _xtst.XTestFakeKeyEvent(self.handle, keycode, 0, 0)
+        _x11.XFlush(self.handle)
+        return pressed
+
     def grab(self, x, y, width, height):
         """Returns the screen pixels in the box as an (height, width, 4) uint8 array."""
         image = _x11.XGetImage(self.handle, self.root, x, y, width, height, ALL_PLANES, Z_PIXMAP)

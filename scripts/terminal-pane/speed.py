@@ -10,6 +10,11 @@ Five numbers per run, then the median and the spread (lowest..highest) over the 
   key p50/99 XTest key press to the echoed character changing on screen (ms), over --keys keys
   cat        time for `cat` of 100 MB of mixed text to finish writing into the pane (s)
 
+With --scene palette the window first gets two tabs and four panes (Ctrl+Shift+D, T, D) and the command palette
+(Ctrl+Shift+P), and a sixth number is added: the time from that key press to the palette's first frame (ms). Then
+memory and idle are measured with the palette open, the key number is the time from a typed letter or a Backspace
+to the palette's changed pixels, and cat runs in a pane behind it.
+
 The pane runs a stand-in shell (SHELL points at a small program in the work folder) that echoes each key back at
 the start of the line and, when told, runs cat on the text file and records how long it took. Drawing is seen
 through the X DAMAGE extension on the root window; a key counts as shown when the pixels where the echo lands
@@ -40,6 +45,13 @@ TEXT_FILE = DATA_DIR / 'mixed-100mb.txt'
 TEXT_BYTES = 100_000_000
 TEXT_SEED = 20261117
 IDLE_SECONDS = 10
+SCENE_CHORDS = (
+    ('Control_L', 'Shift_L', 'd'),  # split right: two panes in the first tab
+    ('Control_L', 'Shift_L', 't'),  # a second tab
+    ('Control_L', 'Shift_L', 'd'),  # two panes in it: four in all
+)
+PALETTE_CHORD = ('Control_L', 'Shift_L', 'p')
+SETTLE_SECONDS = 15
 SCREEN = (1600, 1000)
 
 STAND_IN_SHELL = r"""#!/usr/bin/python3 -I
@@ -277,8 +289,25 @@ class Session:
         ids = result.stdout.split()
         return ids[0] if ids else None
 
-    def latency(self, keys, rng):
-        """Echo latency in ms for `keys` key presses, alternating a and b so each changes the echoed cell."""
+    def open_scene(self):
+        """Two tabs and four panes, then the palette. Returns ms from the palette's key press to its first frame."""
+        for chord in SCENE_CHORDS:
+            self.x.chord(*chord)
+            until(lambda: self.x.wait_damage(0.5) is None, 'the layout to settle', SETTLE_SECONDS)
+        self.x.count_damage(0.2)
+        before = self.x.grab(0, 0, *SCREEN)
+        pressed = self.x.chord(*PALETTE_CHORD)
+        while True:
+            seen = self.x.wait_damage(2)
+            if seen is None:
+                raise RuntimeError('the palette key drew nothing')
+            if np.any(self.x.grab(0, 0, *SCREEN) != before):
+                break
+        until(lambda: self.x.wait_damage(0.5) is None, 'the palette to settle', SETTLE_SECONDS)
+        return (seen - pressed) * 1000
+
+    def latency(self, keys, rng, pair=('b', 'a')):
+        """Echo latency in ms for `keys` key presses, alternating the two keys of `pair` so each changes the pixels."""
         self.x.count_damage(0.3)
         before = self.x.grab(0, 0, *SCREEN)
         self.x.key('a')
@@ -295,7 +324,7 @@ class Session:
         for index in range(keys):
             self.x.count_damage(0.03 + rng.random() * 0.05)
             previous = self.x.grab(x0, y0, width, height)
-            pressed = self.x.key('b' if index % 2 == 0 else 'a')
+            pressed = self.x.key(pair[index % 2])
             while True:
                 seen = self.x.wait_damage(2)
                 if seen is None:
@@ -348,22 +377,26 @@ def percentile(values, share):
     return ordered[min(len(ordered) - 1, round(share * (len(ordered) - 1)))]
 
 
-def one_run(binary, scale, keys, seed):
+def one_run(binary, scale, keys, seed, scene):
     with tempfile.TemporaryDirectory(prefix='speed-', dir=DATA_DIR) as folder:
         session = Session(binary, scale, Path(folder))
         try:
             start_ms = session.start()
             time.sleep(2)
+            popover_ms = session.open_scene() if scene else None
+            time.sleep(2 if scene else 0)
             memory = resident_mib(binary)
             idle_from = trace_frames(session.work)
             idle = session.x.count_damage(IDLE_SECONDS)
             idle_trace = trace_frames(session.work) - idle_from
-            samples, box = session.latency(keys, random.Random(seed))
+            pair = ('BackSpace', 'a') if scene else ('b', 'a')
+            samples, box = session.latency(keys, random.Random(seed), pair)
             cat = session.cat_seconds()
             trace_start = trace_first_frame_ms(session.work, session.launched_unix)
         finally:
             session.close()
     return {
+        'popover_ms': popover_ms,
         'start_ms': start_ms,
         'memory_mib': memory,
         'idle_draws': idle,
@@ -377,6 +410,7 @@ def one_run(binary, scale, keys, seed):
     }
 
 
+POPOVER_NUMBER = ('popover_ms', 'palette first frame', 'ms', 1)
 NUMBERS = [
     ('start_ms', 'start to first frame', 'ms', 1),
     ('memory_mib', 'memory after start', 'MiB', 1),
@@ -394,7 +428,9 @@ def main():
     parser.add_argument('--scale', type=float, default=1.0)
     parser.add_argument('--keys', type=int, default=200)
     parser.add_argument('--out', type=Path)
+    parser.add_argument('--scene', choices=['palette'], help='open two tabs, four panes and the palette first')
     args = parser.parse_args()
+    numbers = NUMBERS + [POPOVER_NUMBER] if args.scene else NUMBERS
     if not os.access(args.binary, os.X_OK):
         parser.error(f'{args.binary} is not an executable file')
     if args.runs < 1 or args.keys < 2:
@@ -405,9 +441,9 @@ def main():
     print(f'binary {args.binary} ({version}), scale {args.scale:g}, {args.runs} runs, {args.keys} keys each')
     runs = []
     for number in range(args.runs):
-        result = one_run(args.binary, args.scale, args.keys, seed=TEXT_SEED + number)
+        result = one_run(args.binary, args.scale, args.keys, TEXT_SEED + number, args.scene)
         runs.append(result)
-        print(f'run {number + 1}: ' + ', '.join(f'{key} {result[key]:.{digits}f}' for key, _, _, digits in NUMBERS))
+        print(f'run {number + 1}: ' + ', '.join(f'{key} {result[key]:.{digits}f}' for key, _, _, digits in numbers))
         if result['trace_start_ms'] is not None:
             print(
                 f'       its own frame log: first frame {result["trace_start_ms"]:.1f} ms after launch, '
@@ -415,7 +451,7 @@ def main():
             )
     print(f'{"number":<24}{"median":>10}{"spread":>22}')
     summary = {}
-    for key, label, unit, digits in NUMBERS:
+    for key, label, unit, digits in numbers:
         values = [run[key] for run in runs]
         summary[key] = {'median': statistics.median(values), 'low': min(values), 'high': max(values)}
         spread = f'{min(values):.{digits}f}..{max(values):.{digits}f}'
@@ -423,7 +459,14 @@ def main():
     if args.out:
         args.out.write_text(
             json.dumps(
-                {'binary': str(args.binary), 'version': version, 'scale': args.scale, 'runs': runs, 'summary': summary},
+                {
+                    'binary': str(args.binary),
+                    'version': version,
+                    'scale': args.scale,
+                    'scene': args.scene,
+                    'runs': runs,
+                    'summary': summary,
+                },
                 indent=2,
             )
             + '\n'

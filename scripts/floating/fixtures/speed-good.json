@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "cat_s": {
+      "median": 53.293
+    },
+    "idle_draws": {
+      "median": 0
+    },
+    "key_p50_ms": {
+      "median": 16.699
+    },
+    "key_p99_ms": {
+      "median": 20.142
+    },
+    "memory_mib": {
+      "median": 259.059
+    },
+    "popover_ms": {
+      "median": 12.0
+    },
+    "start_ms": {
+      "median": 400.442
+    }
+  }
+}

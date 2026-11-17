@@ -25,6 +25,7 @@ FAULTS = (
     "tab-too-tall",
     "click-takes-focus",
     "active-tab-grows",
+    "selected-segment-hover",
 )
 FOCUS_ON_CLICK = (
     "field",
@@ -73,6 +74,10 @@ class SimWindow:
             return self.popover["items"]
         return self.layout.controls
 
+    def _in_main_window(self, ident):
+        """Whether an id belongs to a control of the main window (popover ids are a separate range)."""
+        return any(c["id"] == ident for c in self.layout.controls)
+
     def _hit_box(self, control):
         box = control["box"]
         if self.fault == "hit-larger" and "popover" not in control:
@@ -109,7 +114,7 @@ class SimWindow:
         main = self.layout.record_lines("main-window", states)[-1]
         main["focus"] = (
             self.focus_id
-            if self.focus_id and self.focus_id < FIRST_POPOVER_ID
+            if self._in_main_window(self.focus_id)
             else (self.return_focus if self.popover else None)
         )
         main["keyboard"] = self.keyboard
@@ -232,11 +237,18 @@ class SimWindow:
                 control["checked"] = not control["checked"]
             if control["kind"] == "tab":
                 self._select_tab(control)
+            if control["kind"] == "segment":
+                self._select_segment(control)
         self.pressed = None
         if self.selection_start is not None:
             low, high = sorted((self.selection_start, self.pointer[0]))
             self.selection = (low, high) if high - low > 2 else None
             self.selection_start = None
+
+    def _select_segment(self, chosen):
+        """Makes one segment of the tools switcher the selected one."""
+        for segment in (c for c in self.layout.controls if c["kind"] == "segment"):
+            segment["checked"] = segment is chosen
 
     def _select_tab(self, chosen):
         """Makes one tab the active one. Every tab keeps its box (the planted fault grows the active one by a pixel)."""
@@ -346,6 +358,8 @@ class SimWindow:
         self._activate(control, "key")
         if control["kind"] == "switch" and name == "space":
             control["checked"] = not control["checked"]
+        if control["kind"] == "segment":
+            self._select_segment(control)
 
     def type(self, text):
         if not self.popover:

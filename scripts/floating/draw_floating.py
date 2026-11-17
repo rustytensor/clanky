@@ -28,6 +28,7 @@ PALETTE_COMMANDS = (
     "Close pane",
     "Show or hide the tools panel",
     "Open settings",
+    "Go to HIH",
 )
 AGENTS = ("Fake Tool", "Codex", "Claude")
 COMPLETIONS = ("scripts/gate-menu.sh", "scripts/gate-mouse.sh")
@@ -42,6 +43,7 @@ COMPLETION_WIDTH = 320
 FIND_FIELD_WIDTH = 200
 FIND_GAP = 4
 SHORT_ROW_PX = 2  # the planted fault: a palette row this much too short (device px)
+BIG_TEXT_PX = 2  # the planted fault: palette row text this much too large (logical px)
 INTER_CAP = 1490 / 2048
 
 
@@ -260,14 +262,14 @@ def draw_card(canvas, theme, expected, box):
     )
 
 
-def draw_text(canvas, theme, expected, left, box, text, role, muted=False):
-    px = expected["cap_heights"][role]["size_px"] * expected["scale"]
+def draw_text(canvas, theme, expected, left, box, text, role, muted=False, extra_px=0):
+    px = (expected["cap_heights"][role]["size_px"] + extra_px) * expected["scale"]
     baseline = box[1] + box[3] / 2 + INTER_CAP * px / 2
     colour = theme.rgb["muted_foreground" if muted else "foreground"]
     canvas.text(left, baseline, text, 400, px, colour)
 
 
-def draw_rows(canvas, theme, expected, popover, states, keyboard):
+def draw_rows(canvas, theme, expected, popover, states, keyboard, fault=None):
     s = expected["scale"]
     for control in popover["items"]:
         spec = expected["controls"][control["kind"]]
@@ -304,10 +306,13 @@ def draw_rows(canvas, theme, expected, popover, states, keyboard):
             box,
             control["label"],
             role,
+            extra_px=BIG_TEXT_PX
+            if fault == "palette-text-big" and popover["screen"] == "palette"
+            else 0,
         )
 
 
-def draw_popover(canvas, theme, expected, popover, states, keyboard):
+def draw_popover(canvas, theme, expected, popover, states, keyboard, fault=None):
     """The whole popover on a canvas that already holds the window: shadow, card, input, rows, footer."""
     box = popover["box"]
     shadow(canvas, expected, box)
@@ -359,7 +364,7 @@ def draw_popover(canvas, theme, expected, popover, states, keyboard):
             "text_ui",
             muted=not popover["query"],
         )
-    draw_rows(canvas, theme, expected, popover, states, keyboard)
+    draw_rows(canvas, theme, expected, popover, states, keyboard, fault)
 
 
 def landmarks_of(popover):

@@ -28,6 +28,7 @@ FLOATING_FAULTS = (
     "esc-loses-focus",
     "palette-row-short",
     "idle-draw",
+    "palette-text-big",
 )
 POPOVER_SCREENS = (
     "context-menu",
@@ -62,7 +63,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         px = self.expected["cap_heights"]["text_ui"]["size_px"] * s
         height = chrome_draw.round_half_up(px * 1.2)
         return [
-            chrome_draw.round_half_up(24 * s),
+            chrome_draw.round_half_up((self.layout.content_left + 16) * s),
             chrome_draw.round_half_up(FIND_ROW_TOP * s),
             chrome_draw.round_half_up(300 * s),
             height,
@@ -164,9 +165,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         states = self._states()
         main = self.layout.record_lines("main-window", states)[-1]
         main["focus"] = (
-            self.focus_id
-            if self.focus_id and self.focus_id < floating_draw.FIRST_ID
-            else self._main_focus()
+            self.focus_id if self._in_main_window(self.focus_id) else self._main_focus()
         )
         main["keyboard"] = self.keyboard
         lines = [main]
@@ -392,6 +391,12 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         canvas.text(row[0], baseline, FIND_TEXT, 400, px, self.theme.rgb["foreground"])
         if self.popover:
             floating_draw.draw_popover(
-                canvas, self.theme, self.expected, self.popover, states, self.keyboard
+                canvas,
+                self.theme,
+                self.expected,
+                self.popover,
+                states,
+                self.keyboard,
+                self.float_fault,
             )
         return np.clip(canvas.array + 0.5, 0, 255).astype(int)

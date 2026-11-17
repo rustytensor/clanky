@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Floating screens gate (G3): the palette, the agent picker, the completion list, the find bar and the context menu.
 # Prints one "ok:", "CAUGHT:" or "FAIL:" line per step, then PASS or FAIL.
+# Without --faults, after the two gates it measures speed (speed.py --scene palette) and runs the engine check.
 # --faults needs no clanky-gpui binary and no display: the controls gate and the design gate (window-chrome/) run on a
 #   simulated window with the floating screens (floating/simulated_floating.py); the good runs must pass and each of
-#   four planted faults must fail the check aimed at it. Without --faults the gate stops with "FAIL: clanky-gpui has no
+#   the planted faults must fail the check aimed at it. The speed verdict (floating/speed_verdict.py) is proven on
+#   fixture results, one slow number each, and the engine check on a clanky-state that depends on gpui-ce. Without --faults the gate stops with "FAIL: clanky-gpui has no
 #   floating screens yet" until the window code writes a `find-bar` screen in its control record; after that it runs
 #   both gates on the real window, with CLANKY_GPUI_BIN=PATH or target/release/clanky-gpui, under the gate lock.
 set -euo pipefail
@@ -21,7 +23,11 @@ FAULTS=(
   "gate-controls.py:esc-loses-focus:palette:focus-return"
   "gate-controls.py:idle-draw:completion-list:idle-frames"
   "gate-design-tokens.py:palette-row-short:-:palette-row-height"
+  "gate-design-tokens.py:palette-text-big:-:palette-row-cap-height"
 )
+SPEED_RUNS=3
+ENGINE_CHECK=scripts/terminal-pane/check_engine_free.sh
+BASELINE=scripts/terminal-pane/baseline.json
 failed=0
 scratch=$(mktemp -d /srv/devops/build/floating-gate.XXXXXX)
 trap 'rm -rf -- "${scratch:?}"' EXIT
@@ -52,6 +58,7 @@ if [[ ${1:-} == --faults ]]; then
   run_gate gate-design-tokens.py --sources "$CHROME/fixtures/clean.rs"
   if ((status == 0)) && [[ $output == *"PASS: design tokens"* ]]; then ok "design gate passes the simulated floating screens"; else fail "design gate on the good window: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
   caught=0
+  extra_faults=0
   for entry in "${FAULTS[@]}"; do
     IFS=: read -r gate fault screens check <<<"$entry"
     extra=(--fault "$fault")
@@ -64,11 +71,32 @@ if [[ ${1:-} == --faults ]]; then
       fail "planted fault $fault was not caught by $check in $gate (exit $status)"
     fi
   done
-  if ((failed == 0 && caught == ${#FAULTS[@]})); then
+  # The speed verdict: the good run passes, each slow number is named.
+  if python3 "$FLOATING/speed_verdict.py" "$FLOATING/fixtures/speed-good.json" "$BASELINE" >/dev/null; then ok "speed verdict passes the good run"; else fail "speed verdict on the good run"; fi
+  for slow in idle:idle_draws cat:cat_s key:key_p50_ms popover:popover_ms; do
+    IFS=: read -r name number <<<"$slow"
+    if verdict=$(python3 "$FLOATING/speed_verdict.py" "$FLOATING/fixtures/speed-slow-$name.json" "$BASELINE") || ! grep -q "over the limit: $number" <<<"$verdict"; then
+      fail "speed verdict did not name $number for a slow $name: $verdict"
+    else
+      echo "CAUGHT: slow $name by the speed verdict ($number)"
+      caught=$((caught + 1))
+      extra_faults=$((extra_faults + 1))
+    fi
+  done
+  # The engine check: clanky-state is free of gpui-ce, and a planted gpui-ce dependency is caught.
+  if output=$(bash "$ENGINE_CHECK" 2>&1) && [[ $output == ok:* ]]; then ok "${output#ok: }"; else fail "engine check on the workspace: $output"; fi
+  if output=$(bash "$ENGINE_CHECK" --fault clanky-state 2>&1) && [[ $output == *"FAIL: engine-free clanky-state depends on gpui"* ]]; then
+    echo "CAUGHT: gpui-ce in clanky-state (check engine-free)"
+    caught=$((caught + 1))
+    extra_faults=$((extra_faults + 1))
+  else
+    fail "planted engine fault in clanky-state was not caught: $output"
+  fi
+  if ((failed == 0 && caught == ${#FAULTS[@]} + extra_faults)); then
     echo "PASS: floating gates catch all $caught planted faults and pass the good fixtures"
     exit 0
   fi
-  echo "FAIL: floating gates caught $caught of ${#FAULTS[@]} planted faults"
+  echo "FAIL: floating gates caught $caught of $((${#FAULTS[@]} + extra_faults)) planted faults"
   exit 1
 fi
 
@@ -84,6 +112,14 @@ for gate in gate-controls.py gate-design-tokens.py; do
   output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/$gate" "${args[@]}" 2>&1) || status=$?
   if ((status == 0)); then ok "$gate: $(tail -n 1 <<<"$output")"; else fail "$gate: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 done
+# Check 5: speed with two tabs, four panes and the palette open (the old window's numbers are in baseline.json).
+if bash scripts/terminal-pane/speed.sh "$binary" --scene palette --runs "$SPEED_RUNS" --out "$scratch/speed.json" >"$scratch/speed.log" 2>&1; then
+  if verdict=$(python3 "$FLOATING/speed_verdict.py" "$scratch/speed.json" "$BASELINE"); then ok "speed: $verdict"; else fail "speed: $verdict"; fi
+else
+  fail "speed harness failed: $(tail -n 1 "$scratch/speed.log")"
+fi
+# Check 6: clanky-state is free of gpui-ce.
+if output=$(bash "$ENGINE_CHECK" 2>&1) && [[ $output == ok:* ]]; then ok "${output#ok: }"; else fail "engine check: $output"; fi
 if ((failed)); then
   echo "FAIL: floating screens"
   exit 1

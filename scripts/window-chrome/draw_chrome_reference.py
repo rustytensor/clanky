@@ -3,8 +3,10 @@
 
 Usage: python3 draw_chrome_reference.py --scale S --theme T --out-dir DIR
 
-writes DIR/record-good-S.jsonl and DIR/main-window-good-S.png: a synthetic window (title bar with two tabs and a new-tab
-button, two panes, a row of buttons, a switch, a field, a chip, a status line) in its rest state. The simulated window
+writes DIR/record-good-S.jsonl and DIR/main-window-good-S.png: a synthetic window (title bar with a tools toggle, two
+tabs and a new-tab button, the tools panel with its list rows, switches and segmented switcher, two panes, a row of
+buttons, a switch, a field, a chip, a status line) in its rest state. The panel shows the controls of all three of its
+tools at once, so that every kind is on one screen. The simulated window
 (simulated_window.py) uses the same drawing for every state, and the gates are proven on it before the real window
 exists. Nothing here reads the program under test.
 """
@@ -32,6 +34,17 @@ LOGICAL_W, LOGICAL_H = 1200, 800
 INTER_UNITS, INTER_CAP = 2048, 1490
 MENU_WIDTH, MENU_PADDING, MENU_ITEMS = 160, 4, ("Copy", "Paste", "Select all")
 SELECTION_ROW_TEXT = "echo g1-ok"
+PANEL_WIDTH = 236  # logical px, the tools panel at the window's left
+SEGMENT_WIDTH, SEGMENT_GAP, TRAY_PADDING = 70, 2, 2
+TOOLS = ("Files", "Recent", "Agents")
+FIRST_SEGMENT_ID, FIRST_ROW_ID, FIRST_SWITCH_ID, TOOLS_TOGGLE_ID = 50, 1000, 4000, 2
+PANEL_ROWS = ("src", "Cargo.toml", "README.md")
+FIRST_AUTO_ID = 10
+ROW_KINDS = (
+    "menu-item",
+    "list-row",
+    "palette-row",
+)  # a focused row is lifted as a hovered one
 
 
 def round_half_up(value):
@@ -185,6 +198,7 @@ class Layout:
         )
         self.controls = []
         self.landmarks = []
+        self._next_id = FIRST_AUTO_ID
         self._build()
 
     def kind_logical(self, kind, key="height"):
@@ -195,8 +209,12 @@ class Layout:
         height = self.kind_logical(kind)
         if kind == "tab" and self.fault == "tab-too-tall":
             height += 2
+        ident = extra.pop("ident", None)
+        if ident is None:
+            ident = self._next_id
+            self._next_id += 1
         control = {
-            "id": len(self.controls) + 1,
+            "id": ident,
             "kind": kind,
             "label": label,
             "box": box_of(s, left, top, width, height),
@@ -221,6 +239,14 @@ class Layout:
         )
         margin, gap = chrome["pane_margin"]["logical"], chrome["pane_gap"]["logical"]
         tab_top = (bar_h - self.kind_logical("tab")) / 2
+        self.add(
+            "icon-button",
+            "Tools panel",
+            12,
+            (bar_h - 28) / 2,
+            28,
+            ident=TOOLS_TOGGLE_ID,
+        )
         tab = self.add(
             "tab",
             "HIH",
@@ -243,23 +269,75 @@ class Layout:
             axis="horizontal",
         )
         self.add("icon-button", "", 296, (bar_h - 28) / 2, 28)
-        pane_w = (LOGICAL_W - 2 * margin - gap) / 2
         top = bar_h + gap
         pane_h = LOGICAL_H - status_h - margin - top
+        self.panel = box_of(s, margin, top, PANEL_WIDTH, pane_h)
+        left = margin + PANEL_WIDTH + gap
+        self.content_left = left
+        pane_w = (LOGICAL_W - left - margin - gap) / 2
         self.panes = [
-            box_of(s, margin, top, pane_w, pane_h),
-            box_of(s, margin + pane_w + gap, top, pane_w, pane_h),
+            box_of(s, left, top, pane_w, pane_h),
+            box_of(s, left + pane_w + gap, top, pane_w, pane_h),
         ]
-        for index, label in enumerate(("Files", "Recent", "Agents", "Delete")):
+        self._build_panel(margin, top, pane_h)
+        for index, label in enumerate(("Open", "Save", "Share", "Delete")):
             self.add(
-                "button", label, 24 + index * 104, 64, 96, enabled=label != "Delete"
+                "button",
+                label,
+                left + 16 + index * 104,
+                64,
+                96,
+                enabled=label != "Delete",
             )
-        self.add("switch", "", 24, 112, 40, checked=True)
-        self.add("field", "Command", 24, 152, 200)
-        self.add("chip", "Shell", 24, 200, 72)
+        self.add("switch", "", left + 16, 112, 40, checked=True)
+        self.add("field", "Command", left + 16, 152, 200)
+        self.add("chip", "Shell", left + 16, 200, 72)
         self.landmarks = self._landmarks(bar_h, status_h)
         for control in self.controls:
             self._place_content(control)
+
+    def _build_panel(self, left, top, height):
+        """The tools panel: list rows, the Agents switches and the segmented switcher at the foot, in a tray."""
+        row_h = self.kind_logical("list-row")
+        for index, label in enumerate(PANEL_ROWS):
+            self.add(
+                "list-row",
+                label,
+                left + 8,
+                top + 40 + index * (row_h + 2),
+                PANEL_WIDTH - 16,
+                ident=FIRST_ROW_ID + index,
+                group="files",
+                axis="vertical",
+            )
+        for index, on in enumerate((True, False)):
+            self.add(
+                "switch",
+                "",
+                left + PANEL_WIDTH - 8 - 40,
+                top + 160 + index * 32,
+                40,
+                ident=FIRST_SWITCH_ID + index,
+                checked=on,
+            )
+        seg_h = self.kind_logical("segment")
+        tray_w = 3 * SEGMENT_WIDTH + 2 * SEGMENT_GAP + 2 * TRAY_PADDING
+        tray_top = top + height - 8 - seg_h - 2 * TRAY_PADDING
+        self.tray = box_of(
+            self.scale, left + 8, tray_top, tray_w, seg_h + 2 * TRAY_PADDING
+        )
+        for index, label in enumerate(TOOLS):
+            self.add(
+                "segment",
+                label,
+                left + 8 + TRAY_PADDING + index * (SEGMENT_WIDTH + SEGMENT_GAP),
+                tray_top + TRAY_PADDING,
+                SEGMENT_WIDTH,
+                ident=FIRST_SEGMENT_ID + index,
+                group="tools",
+                axis="horizontal",
+                checked=index == 0,
+            )
 
     def _landmarks(self, bar_h, status_h):
         s = self.scale
@@ -280,13 +358,13 @@ class Layout:
         line = round_half_up(row * 1.2 * s)
         self.text_rows = {
             "pane-text": [
-                round_half_up(24 * s),
+                round_half_up((self.content_left + 16) * s),
                 round_half_up(240 * s),
                 round_half_up(300 * s),
                 line,
             ],
             "meta-text": [
-                round_half_up(24 * s),
+                round_half_up((self.content_left + 16) * s),
                 round_half_up(280 * s),
                 round_half_up(60 * s),
                 line,
@@ -327,6 +405,8 @@ class Layout:
             (icon if has_icon else 0) + (gap if has_icon and label_w else 0) + label_w
         )
         left = x + (w - both) / 2
+        if kind == "list-row":
+            left = x + round_half_up(8 * s)
         if has_icon:
             control["icon"] = [
                 round_half_up(left),
@@ -412,9 +492,14 @@ def draw_control(
         fill = theme.switch_on_track if control["checked"] else theme.switch_off_track
     elif kind == "field":
         fill = None
+    elif kind == "segment" and control["checked"]:
+        # A selected segment keeps its own fill under the pointer and in focus; only a press changes it.
+        fill = theme.rgb["pressed" if state == "pressed" else "background"]
+        if state == "hover" and fault == "selected-segment-hover":
+            fill = theme.rgb["accent"]
     elif state == "pressed":
         fill = theme.rgb["pressed"]
-    elif state == "hover":
+    elif state == "hover" or (state == "focus" and kind in ROW_KINDS):
         fill = theme.rgb["accent"]
     elif kind == "tab" and control["checked"]:
         fill = blend(container, theme.rgb["foreground"], theme.tab_fill_alpha)
@@ -478,6 +563,18 @@ def draw_window(
             theme.border[1],
             outline=1,
         )
+    panel = layout.panel
+    canvas.rounded(panel, e["chrome"]["pane_radius"]["device"], background)
+    canvas.rounded(
+        panel,
+        e["chrome"]["pane_radius"]["device"],
+        theme.border[0],
+        theme.border[1],
+        outline=1,
+    )
+    canvas.rounded(
+        layout.tray, e["controls"]["button"]["radius"]["device"], theme.rgb["card"]
+    )
     status = dict(layout.landmarks)["status-line"]
     canvas.rect([0, status[1], layout.width, 1], theme.border[0], theme.border[1])
     ink, muted = theme.rgb["foreground"], theme.rgb["muted_foreground"]

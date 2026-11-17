@@ -79,6 +79,7 @@ FAULTS = {
     "idle-draw": "idle-frames",
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
+    "selected-segment-hover": "hover-colour",
 }
 SIMULATE = "--simulate" in ARGS
 FLOATING = "--floating" in ARGS  # the simulation includes G3's floating screens
@@ -128,7 +129,7 @@ GHOST = {
 OUTLINED = {"button-small", "button", "button-large", "chip"}
 ROWS = {"menu-item", "list-row", "palette-row"}
 KINDS = {}
-CARD = ACCENT = PRESSED = RING = FOREGROUND = PRIMARY = PRIMARY_PRESSED = 0
+BACKGROUND = CARD = ACCENT = PRESSED = RING = FOREGROUND = PRIMARY = PRIMARY_PRESSED = 0
 RING_ALPHA = DISABLED_ALPHA = TAB_ACTIVE_FILL = TAB_RING_ALPHA = INPUT_OVER = (
     INPUT_ALPHA
 ) = 0.0
@@ -147,6 +148,7 @@ def use_expected(scale, theme):
     """Loads expected.py's values for this scale and theme into the module's names, before each window."""
     global \
         KINDS, \
+        BACKGROUND, \
         CARD, \
         ACCENT, \
         PRESSED, \
@@ -180,8 +182,9 @@ def use_expected(scale, theme):
             spec.get("text_weight"),
             spec["icon"]["logical"],
         )
-    CARD, ACCENT, PRESSED, RING = (
-        grey_of(EXPECTED, r) for r in ("card", "accent", "pressed", "ring")
+    BACKGROUND, CARD, ACCENT, PRESSED, RING = (
+        grey_of(EXPECTED, r)
+        for r in ("background", "card", "accent", "pressed", "ring")
     )
     FOREGROUND, PRIMARY, PRIMARY_PRESSED = (
         grey_of(EXPECTED, r) for r in ("foreground", "primary", "primary_pressed")
@@ -210,7 +213,6 @@ def use_expected(scale, theme):
 # The screens, how to open and close each, the colour of what holds its controls (None: the pixel just outside each
 # control, as drawn), and the one control the gate may fire (its label), chosen because its action changes nothing
 # the rest of the run depends on. A screen that names none fails activate-keys and release until it names one.
-# TODO(G2): the harmless control of the main window is a guess until G2's tools panel exists.
 
 
 def open_main(win):
@@ -284,7 +286,7 @@ POPOVER_MAX_GAP_LOGICAL_PX = (
 
 SCREENS = {
     "main-window": dict(
-        open=open_main, close=None, container=None, harmless="Files", click_focus=True
+        open=open_main, close=None, container=None, harmless="Recent", click_focus=True
     ),
     # TODO(G2): the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
     "context-menu": dict(
@@ -516,7 +518,8 @@ def expected_fill(ctl, state, container):
     if kind == "tab" and ctl.get("checked"):
         rest = round(blend(container, FOREGROUND, TAB_ACTIVE_FILL))
     elif kind == "segment" and ctl.get("checked"):
-        return None  # the selected segment's own fill is the switcher's, not a state's
+        # The selected segment keeps its own fill under the pointer and in focus; only a press changes it.
+        return PRESSED if state == "pressed" and ctl["enabled"] else BACKGROUND
     if state == "rest" or not ctl["enabled"] or kind == "field":
         return rest
     if state == "hover":
@@ -583,8 +586,29 @@ class Screen:
     def container(self, a, ctl):
         if self.spec["container"] == "card":
             return CARD
+        if ctl["kind"] == "segment":
+            return self.tray_colour(a, ctl)
         x, y, w, h = ctl["box"]
         return grey(a, x - ring_width(self.s) - 2, y + h / 2)
+
+    def tray_colour(self, a, ctl):
+        """The switcher tray's colour, read off another unselected segment (a segment's own surroundings are covered by
+        its focus ring), which shows the tray at rest."""
+        other = next(
+            (
+                c
+                for c in self.controls()
+                if c["kind"] == "segment"
+                and c["id"] != ctl["id"]
+                and not c.get("checked")
+                and c["enabled"]
+            ),
+            None,
+        )
+        if other is None:
+            x, y, w, _ = ctl["box"]
+            return grey(a, x + w / 2, y - 1)
+        return fill_sample(a, other, hair(self.s) + 1)
 
     def rest_point(self):
         """A pointer position over no control and inside no popover: the popover's opener when there is one."""
@@ -1062,9 +1086,19 @@ class Screen:
                 continue
             self.win.away(self.rest_point())
             order = reading_order(members)
+            names = {c["id"]: c["label"] for c in members}
+            if not self.focus_on(order[0]):
+                self.ok(
+                    "arrows",
+                    False,
+                    f"group {group}",
+                    "its first member reached by Tab",
+                    "never focused",
+                )
+                continue
             fwd, back = ("Down", "Up") if axis != "horizontal" else ("Right", "Left")
             seen = []
-            for k in (fwd, fwd, back):
+            for k in (fwd, back):
                 before = (self.current() or {}).get("focus")
                 self.win.key(k)
                 try:
@@ -1072,12 +1106,11 @@ class Screen:
                 except Fail:
                     pass
                 seen.append((self.current() or {}).get("focus"))
-            want = [order[0], order[1], order[0]]
-            names = {c["id"]: c["label"] for c in members}
+            want = [order[1], order[0]]
             self.ok(
                 "arrows",
                 seen == want,
-                f"group {group}: {fwd}, {fwd}, {back}",
+                f"group {group}: {fwd}, {back} from its first member",
                 [names.get(i) for i in want],
                 [names.get(i) for i in seen],
             )
@@ -1611,6 +1644,7 @@ class Screen:
                 "idle-draw": [self.idle_checks],
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],
+                "selected-segment-hover": [self.hover_checks],
             }[FAULT]
         for step in steps:
             try:

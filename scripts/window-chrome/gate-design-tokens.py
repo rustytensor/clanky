@@ -67,6 +67,7 @@ FAULTS = {
     "tab-too-tall": "tab-height",
     "loose-literal": "loose-numbers",
     "palette-row-short": "palette-row-height",  # G3: a palette row 2 px short (--floating)
+    "palette-text-big": "palette-row-cap-height",  # G3: palette row text 2 px too large (--floating)
 }
 SIMULATE = "--simulate" in ARGS
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
@@ -658,6 +659,7 @@ FLOATING_SCREENS = {
         row="palette_row",
         input="palette_input",
         footer="palette_footer",
+        text=True,
     ),
     "agent-picker": dict(
         open=lambda win: win.key("ctrl+shift+g"),
@@ -838,9 +840,68 @@ def floating_screen_checks(win, e, screen, spec):
         f"{radius:.2f}",
     )
     shadow_check(win, e, screen, box, closed)
+    if spec.get("text"):
+        palette_text_checks(win, e, screen)
     win.key("Escape")
     win.key("ctrl+u")
     time.sleep(0.3)
+
+
+def palette_text_checks(win, e, screen):
+    """Cap heights of the palette's three texts: the typed line, a row's label and the footer's first letter. The
+    typed letters HIH make the row "Go to HIH" the one match, whose capitals have flat tops."""
+    import numpy as np
+
+    win.type("HIH")
+    row = until(
+        lambda: next(
+            (
+                c
+                for c in (win.screen(screen) or {}).get("controls", [])
+                if c["label"] == "Go to HIH"
+            ),
+            None,
+        ),
+        "the palette lists Go to HIH",
+        5,
+    )
+    time.sleep(0.3)
+    a = win.shot("palette-text")
+    card = tuple(e_rgb(e, "card"))
+    inset = round(4 * e["scale"])
+    roles = {
+        "input": "text_title",
+        "row": e["controls"]["palette-row"]["text_role"],
+        "footer": "text_status",
+    }
+
+    def measure(name, box, background, first_letter=False, last_word=False):
+        x, y, w, h = box
+        region = (x + inset, y + 3, x + w - inset, y + h - 3)
+        if last_word:
+            # The label ends in the capitals HIH, 1.77 em wide in Inter; the rest of the label has round letters.
+            cols = np.abs(
+                a[region[1] : region[3], region[0] : region[2]] - np.array(background)
+            ).max(axis=(0, 2))
+            right = region[0] + int(np.where(cols >= 0.25 * cols.max())[0].max())
+            em = e["cap_heights"][roles[name]]["size_px"] * e["scale"]
+            region = (right - round(1.85 * em), region[1], right + 1, region[3])
+        if first_letter:
+            region = pixels.first_stem_box(a, region, background)
+        height = None if region is None else pixels.ink_height(a, region, background)
+        role = roles[name]
+        text_check(
+            f"palette-{name}-cap-height",
+            e["cap_heights"][role]["device"],
+            height,
+            e["cap_heights"][role]["tolerance_px"],
+        )
+
+    measure("input", landmark(win, "popover-input"), card)
+    x, y, w, h = row["box"]
+    row_background = tuple(a[y + h // 2, x + w - inset])
+    measure("row", row["box"], row_background, last_word=True)
+    measure("footer", landmark(win, "popover-footer"), card, first_letter=True)
 
 
 def floating_checks(win, e):
