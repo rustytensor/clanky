@@ -1,9 +1,11 @@
-//! The pane's colours: the config's terminal colours, each unset one taken from Clanky's resolved theme.
+//! The pane's colours: the config's terminal colours, each unset one taken from the window's theme (Graphite unless
+//! the config names another), so the terminal and the interface around it share one background.
 //! Cells keep where their colour came from (default, ANSI index or true colour), so a cell's colour is looked
 //! up here rather than trusted from the server's built-in palette.
 
 use clanky::config::Config;
 use clanky_core::{Cell, ColorSource};
+use clanky_state::themes::Theme;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
@@ -19,17 +21,21 @@ fn rgb(colour: [u8; 4]) -> [u8; 3] {
 }
 
 impl Palette {
-    pub fn from_config(config: &Config) -> Self {
-        let theme = config.resolved_theme(false);
+    /// The theme has no cursor role, so the cursor takes the foreground; a theme without a selection role selects
+    /// with `accent`.
+    pub fn from_config(config: &Config, theme: &Theme) -> Self {
         let set = &config.terminal_colors;
-        let foreground = set.foreground.map_or(theme.terminal_foreground, rgb);
-        let background = set.background.map_or(theme.terminal_background, rgb);
+        let foreground = rgb(set.foreground.unwrap_or(theme.colors.foreground));
+        let background = rgb(set.background.unwrap_or(theme.colors.background));
         Self {
             foreground,
             background,
             cursor: set.cursor.map_or(foreground, rgb),
-            selection: set.selection.map_or(rgb(theme.selection), rgb),
-            ansi: set.ansi.map_or(theme.ansi, |ansi| ansi.map(rgb)),
+            selection: rgb(set
+                .selection
+                .or(theme.selection)
+                .unwrap_or(theme.colors.accent)),
+            ansi: set.ansi.unwrap_or(theme.ansi).map(rgb),
         }
     }
 

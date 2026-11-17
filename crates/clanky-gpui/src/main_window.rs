@@ -19,7 +19,7 @@ use clanky_core::{
 };
 use clanky_state::{
     keys::{Action, Chord, Key, Mods, action_for},
-    themes::Colors,
+    themes::{Colors, Theme},
 };
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement, KeyDownEvent,
@@ -778,9 +778,9 @@ pub fn chord_of(keystroke: &Keystroke) -> Option<Chord> {
     ))
 }
 
-/// The interface theme's colours: the settings file's dark theme where it names one, else Graphite, the rulebook's
-/// default.
-pub fn interface_colors(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Result<Colors, String> {
+/// The window's theme, for the interface and the terminal alike: the settings file's dark theme where it names one,
+/// else Graphite, the rulebook's default.
+pub fn interface_theme(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Result<Theme, String> {
     let id = if is_set("theme_dark") {
         config.theme_dark.as_str()
     } else {
@@ -788,7 +788,6 @@ pub fn interface_colors(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Resul
     };
     clanky_state::themes::builtin(id)
         .or_else(|_| clanky_state::themes::builtin("graphite-dark"))
-        .map(|theme| theme.colors)
         .map_err(|e| format!("loading the interface theme: {e}"))
 }
 

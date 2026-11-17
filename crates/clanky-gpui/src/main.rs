@@ -57,7 +57,7 @@ use crate::{
     control_record::ControlRecord,
     controls::Kit,
     grid_element::{PANE_PADDING, TextSettings},
-    main_window::{MainWindow, WindowSetup, interface_colors, shared_trace},
+    main_window::{MainWindow, WindowSetup, interface_theme, shared_trace},
     palette::Palette,
 };
 
@@ -189,6 +189,20 @@ fn open_tab(
             true,
         )
         .map_err(|e| format!("running --exec: {}", e.message))?;
+    // The window shows the session's active tab: the command's own tab is the one asked for.
+    let mut workspace = client
+        .workspace_get()
+        .map_err(|e| format!("reading the workspace: {}", e.message))?;
+    if let Some(index) = workspace
+        .groups
+        .iter()
+        .position(|group| group.layout.leaves().contains(&id))
+    {
+        workspace.active = index;
+        client
+            .workspace_set(&workspace)
+            .map_err(|e| format!("showing the --exec tab: {}", e.message))?;
+    }
     Ok(id)
 }
 
@@ -276,10 +290,11 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     let trace = clanky::frame_trace::FrameTrace::from_env()
         .map_err(|e| format!("opening CLANKY_FRAME_TRACE: {e}"))?;
     let record = ControlRecord::from_environment().map_err(|e| e.to_string())?;
-    let colors = interface_colors(&config, &|name| named.iter().any(|set| set == name))?;
+    let theme = interface_theme(&config, &|name| named.iter().any(|set| set == name))?;
+    let colors = theme.colors.clone();
     let setup = WindowSetup {
         client,
-        palette: Palette::from_config(&config),
+        palette: Palette::from_config(&config, &theme),
         text,
         trace: shared_trace(trace),
         kit: Kit::new(record, colors.clone(), config.animations),
