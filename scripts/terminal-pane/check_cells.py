@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 FONT_REGULAR = REPO_ROOT / "assets/fonts/JetBrainsMono-Regular.ttf"
-THEME_FILE = SCRIPT_DIR / "graphite-dark.json"
+THEME_FILE = SCRIPT_DIR.parents[1] / "assets/themes/graphite-dark.json"
 FONT_SIZE_LOGICAL_PX = 16  # the fixture's font size, the same as in expected.py
 
 # Thresholds. Each is fixed here so that a failing check cannot be argued away by editing a call.

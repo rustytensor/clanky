@@ -16,6 +16,8 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=url.git@git.servorra.com:.insteadOf GIT_CONFIG_VALUE_0=https://git.servorra.com/
 
 CHECK_DIR=scripts/terminal-pane
+# The window's default theme; the terminal's colours come from it.
+THEME_FILE=assets/themes/graphite-dark.json
 BUILD_LOCK=${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}
 GATE_LOCK=${CLANKY_GATE_LOCK:-/srv/devops/build/clanky/.gate.lock}
 SCALES=(1 1.5)
@@ -85,8 +87,7 @@ fail() { echo "FAIL: $*"; failed=1; }
 if [[ ${1:-} == --faults ]]; then
   caught=0
   expected_count=$(((${#FAULT_PAIRS[@]} + 1) * ${#SCALES[@]} + 1))
-  selection=0,10,30,$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["colors"]["selection"])' \
-    "$CHECK_DIR/graphite-dark.json")
+  selection=0,10,30,$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["selection"])' "$THEME_FILE")
   for scale in "${SCALES[@]}"; do
     python3 "$CHECK_DIR/expected.py" --scale "$scale" >"$scratch/expected-$scale.json"
     python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/reference.png"
@@ -187,23 +188,18 @@ start_display() {
   display_number=$number
 }
 
-# The config's terminal colours come from the Graphite dark theme file, in the format Clanky's `terminal_colors` reads.
-# The theme has no cursor role, so the cursor takes the foreground; the selection is the theme's own selection role.
+# The config sets no terminal colours: the window takes them from its default theme, Graphite dark, the file the
+# expected cells are worked out from.
 write_config() {
   mkdir -p "$scratch/home"
-  python3 - "$CHECK_DIR/graphite-dark.json" "$scratch/home/config.json" <<'PY'
+  python3 - "$scratch/home/config.json" <<'PY'
 import json, sys
-colors = json.load(open(sys.argv[1]))
-theme = colors["colors"]
 config = {
     "font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "theme": "dark",
     "restore_layout": False, "startup_animation": False, "history": False, "animations": False, "cursor_blink": "off",
-    "terminal_colors": {
-        "background": theme["background"], "foreground": theme["foreground"], "cursor": theme["foreground"],
-        "selection": theme["selection"], "ansi": colors["ansi"],
-    },
+    "tools_panel": "off",
 }
-json.dump(config, open(sys.argv[2], "w"))
+json.dump(config, open(sys.argv[1], "w"))
 PY
 }
 
@@ -251,13 +247,13 @@ stop_app() {
 
 # row_10_has_ink PNG EXPECTED: true when the full block in row 10 shows in the screenshot.
 row_10_has_ink() {
-  python3 - "$1" "$2" "$CHECK_DIR" <<'PY'
+  python3 - "$1" "$2" "$THEME_FILE" <<'PY'
 import json, sys
 from PIL import Image
 image = Image.open(sys.argv[1]).convert("RGB")
 cell = next(c for c in json.load(open(sys.argv[2]))["cells"] if c["row"] == 10 and c["col"] == 0)
 x, y = int(cell["left"] + cell["width"] / 2), int(cell["top"] + cell["height"] / 2)
-theme = json.load(open(sys.argv[3] + "/graphite-dark.json"))["colors"]["background"]
+theme = json.load(open(sys.argv[3]))["colors"]["background"]
 background = tuple(int(theme[i:i + 2], 16) for i in (1, 3, 5))
 sys.exit(0 if x < image.width and y < image.height and image.getpixel((x, y)) != background else 1)
 PY
@@ -291,9 +287,9 @@ run_checks() {
 }
 
 selection_colour() {
-  python3 - "$scratch/home/config.json" <<'PY'
+  python3 - "$THEME_FILE" <<'PY'
 import json, sys
-print(json.load(open(sys.argv[1]))["terminal_colors"]["selection"])
+print(json.load(open(sys.argv[1]))["selection"])
 PY
 }
 

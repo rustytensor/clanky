@@ -23,8 +23,13 @@ FONT_SIZE_LOGICAL_PX = 16
 LINE_HEIGHT_FACTOR = 1.2
 # Pane padding on every side, in logical pixels: the design rulebook's token table.
 PANE_PADDING_LOGICAL_PX = 12
-# Colours: the Graphite dark theme, copied from the design-tokens branch.
-THEME_FILE = Path(__file__).resolve().parent / "graphite-dark.json"
+# The window around the pane, from the design rulebook's token table: the title bar above, the pane margin around
+# the pane, and the pane's border of one device pixel. The tools panel is off in the gate's configs.
+TITLE_BAR_LOGICAL_PX = 40
+PANE_MARGIN_LOGICAL_PX = 8
+PANE_BORDER_DEVICE_PX = 1
+# Colours: the Graphite dark theme file the window is built with (its default theme).
+THEME_FILE = REPO_ROOT / "assets/themes/graphite-dark.json"
 
 TRUECOLOUR_ROW = ["#ff0000", "#00ff00", "#0000ff", "#123456", "#abcdef", "#808080"]
 ATTRIBUTE_WORDS = [
@@ -105,7 +110,9 @@ def build(scale):
     cell_width = load_cell_width(scale)
     line_height = round_half_up(FONT_SIZE_LOGICAL_PX * LINE_HEIGHT_FACTOR * scale)
     ascender = load_ascender(scale)
-    x0 = y0 = math.floor(PANE_PADDING_LOGICAL_PX * scale)
+    padding = math.floor(PANE_PADDING_LOGICAL_PX * scale)
+    x0 = math.floor(PANE_MARGIN_LOGICAL_PX * scale) + PANE_BORDER_DEVICE_PX + padding
+    y0 = math.floor((TITLE_BAR_LOGICAL_PX + PANE_MARGIN_LOGICAL_PX) * scale) + PANE_BORDER_DEVICE_PX + padding
     cells = []
     for row, items in enumerate(fixture_rows(theme)):
         column = 0

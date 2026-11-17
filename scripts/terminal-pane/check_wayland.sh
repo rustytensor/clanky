@@ -143,9 +143,11 @@ on_sway() {
 launch() {
   mkdir -p "$scratch/app-config"
   # The default config but for the terminal font and size, which the screenshot reader (expected.py's cell geometry,
-  # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. command_input is
-  # left unset, so the window starts as a user's does.
-  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2}' >"$scratch/app-config/config.json"
+  # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. The tools panel is
+  # off because that geometry has no panel beside the pane. command_input is left unset, so the window starts as a
+  # user's does.
+  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "tools_panel": "off"}' \
+    >"$scratch/app-config/config.json"
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME="$scratch/home" WAYLAND_DISPLAY="$2" XDG_RUNTIME_DIR="$1" XDG_CONFIG_HOME="$scratch/xdg/config" \
     XDG_STATE_HOME="$scratch/xdg/state" XDG_DATA_HOME="$scratch/xdg/data" XDG_CACHE_HOME="$scratch/xdg/cache" \
