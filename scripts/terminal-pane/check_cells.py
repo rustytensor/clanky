@@ -284,7 +284,7 @@ def check_placement(shot, cells, font, theme_background, selection=None):
             observed_top = top_edge(
                 shot, xs, span(top - 2, bottom), background, full_scale
             )
-            expected_top = top + font.ascender - font.top_extent("W")
+            expected_top = cell["baseline"] - font.top_extent("W")
             top_error = (
                 math.inf if observed_top is None else abs(observed_top - expected_top)
             )
@@ -379,12 +379,12 @@ def word_measurements(shot, word, font, theme_background, foreground):
     left, top, _, bottom = cell_box(word[0])
     right = cell_box(word[-1])[2]
     xs = span(left, right)
-    baseline = top + font.ascender
+    baseline = word[0]["baseline"]
     height = bottom - top
     below = [
         y
         for y in span(top + (1 - UNDERLINE_BAND_FRACTION) * height, bottom)
-        if y > math.floor(baseline)
+        if y >= math.ceil(baseline)  # rows wholly below the baseline
     ]
     line_rows = {
         y
@@ -408,7 +408,8 @@ def word_measurements(shot, word, font, theme_background, foreground):
         covered >= UNDERCURL_COLUMN_FRACTION * len(xs) and wave >= UNDERCURL_MIN_WAVE_PX
     )
     underline = underline_run and not undercurl
-    letter_rows = [y for y in span(top, math.floor(baseline) + 1) if y not in line_rows]
+    # Rows with any part above the baseline: up to the row holding it, or the row above a whole-pixel baseline.
+    letter_rows = [y for y in span(top, math.ceil(baseline)) if y not in line_rows]
     ink_count = sum(
         1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background)
     )
@@ -441,12 +442,12 @@ def regular_reference(word, font, theme_background, foreground):
     for cell in word:
         position = (
             (cell["left"] - origin_x) * factor,
-            (top + font.ascender - origin_y) * factor,
+            (word[0]["baseline"] - origin_y) * factor,
         )
         draw.text(position, cell["char"], font=big_font, fill=foreground, anchor="ls")
     shot = Shot(big.resize((width, height), Image.BOX), theme_background)
     xs = span(left - origin_x, right - origin_x)
-    letter_rows = list(range(math.floor(top + font.ascender) - origin_y + 1))
+    letter_rows = list(range(math.ceil(word[0]["baseline"]) - origin_y))
     ink = sum(1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background))
     return ink, italic_shift(shot, xs, letter_rows, theme_background)
 

@@ -5,8 +5,9 @@ Usage: python3 scripts/terminal-pane/draw_reference.py EXPECTED.json OUT.png [--
                                             [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 The picture lets check_cells.py be shown to pass on a correct image and to fail on broken ones. Faults: drift,
-background, nounderline, boxgap, halfblock. Glyphs are drawn at their cell's left edge on the baseline at
-top + ascender; block elements are exact rectangles, as a renderer draws them.
+background, nounderline, boxgap, halfblock. Glyphs are drawn at their
+cell's left edge on the cell's baseline from expected.py; block elements are exact rectangles, as a renderer draws
+them.
 """
 
 import argparse
@@ -26,7 +27,6 @@ FONT_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-Italic.ttf"
 FONT_BOLD_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-BoldItalic.ttf"
 THEME_FILE = SCRIPT_DIR / "graphite-dark.json"
 FONT_SIZE_LOGICAL_PX = 16  # the fixture's font size
-ASCENDER_UNITS = 1020  # hhea ascender of JetBrains Mono, in units of 1000 per em
 UNITS_PER_EM = 1000
 DIM_OPACITY = 0.7  # dim text is the foreground at this opacity over the background
 UNDERLINE_BELOW_BASELINE = 1.5  # in logical pixels: centre of the underline stroke
@@ -156,7 +156,6 @@ def main():
     cell_width, line_height = expected["cell_width"], expected["line_height"]
     origin_x, origin_y = expected["origin"]
     size_px = FONT_SIZE_LOGICAL_PX * scale
-    ascender = ASCENDER_UNITS / UNITS_PER_EM * size_px
     width = math.ceil(2 * origin_x + 200 * cell_width)
     height = math.ceil(2 * origin_y + 11 * line_height)
     image = Image.new("RGB", (width, height), background)
@@ -212,7 +211,7 @@ def main():
             continue
         left, top = cell["left"], cell["top"]
         right, bottom = left + cell["width"], top + cell["height"]
-        baseline = top + ascender
+        baseline = cell["baseline"]
         colour = hex_to_rgb(cell["fg"])
         attributes = cell["attrs"]
         if "dim" in attributes:
@@ -269,7 +268,7 @@ def main():
         draw_curl(
             image,
             (left, top, right, top + line_height),
-            top + ascender + UNDERCURL_BELOW_BASELINE * scale,
+            curl[0]["baseline"] + UNDERCURL_BELOW_BASELINE * scale,
             UNDERCURL_AMPLITUDE * scale,
             scale,
             hex_to_rgb(curl[0]["fg"]),
