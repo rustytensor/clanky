@@ -65,8 +65,7 @@ pub struct TabItem {
     /// Vertical tabs: "~/path · ⎇ branch" and the last command.
     pub path: String, pub last_command: String, pub state: String,
 }
-#[derive(Clone, Debug, PartialEq)]
-pub struct TreeRow { pub path: String, pub name: String, pub dir: bool, pub depth: usize, pub open: bool }
+pub use clanky_state::files_tree::TreeRow;
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccessRow { pub id: String, pub label: String, pub allowed: bool }
 /// A long or running command whose command row has scrolled off the top.

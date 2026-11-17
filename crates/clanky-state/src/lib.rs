@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod command_input;
 pub mod config;
 pub mod config_xml;
+pub mod files_tree;
 pub mod cursor_blink;
 pub mod layout_store;
 pub mod look;

@@ -296,7 +296,7 @@ impl App {
         let cwd = (self.local_files && self.panels.visible && tool == Some(clanky::config::Tool::Files)).then(|| self.focused()
             .and_then(|id| self.studio.terminal_info.get(id)).and_then(|info| info["cwd"].as_str()).map(str::to_owned)).flatten();
         let next = match cwd {
-            Some(cwd) => { let rows = tree_rows(std::path::Path::new(&cwd), &self.studio.tree_open); (cwd, rows) }
+            Some(cwd) => { let rows = clanky_state::files_tree::rows(std::path::Path::new(&cwd), &self.studio.tree_open); (cwd, rows) }
             None => (String::new(), Vec::new()),
         };
         if next != self.studio.tree { self.studio.tree = next; true } else { false }
@@ -1356,30 +1356,6 @@ fn stitch(old: &TerminalSnapshot, new: &TerminalSnapshot, cell_h: f32) -> Option
     None
 }
 
-/// The Files tool's rows: folders first, then files, each sorted by name ignoring case;
-/// open folders list their own rows beneath them. Hidden names are left out; at most 400 rows.
-fn tree_rows(root: &std::path::Path, open: &std::collections::BTreeSet<String>) -> Vec<look::TreeRow> {
-    fn walk(dir: &std::path::Path, depth: usize, open: &std::collections::BTreeSet<String>, out: &mut Vec<look::TreeRow>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return; };
-        let mut items: Vec<(bool, String, std::path::PathBuf)> = entries.filter_map(Result::ok).filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') { return None; }
-            let path = entry.path();
-            Some((path.is_dir(), name, path))
-        }).take(2000).collect();
-        items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())).then_with(|| a.1.cmp(&b.1)));
-        for (is_dir, name, path) in items {
-            if out.len() >= 400 { return; }
-            let key = path.to_string_lossy().into_owned();
-            let is_open = is_dir && open.contains(&key);
-            out.push(look::TreeRow { path: key, name, dir: is_dir, depth, open: is_open });
-            if is_open && depth < 8 { walk(&path, depth + 1, open, out); }
-        }
-    }
-    let mut out = Vec::new();
-    walk(root, 0, open, &mut out);
-    out
-}
 /// The branch checked out in the repository holding `dir`, read from .git/HEAD (worktrees too).
 pub(super) fn git_branch(dir: &str) -> Option<String> {
     let mut path = std::path::PathBuf::from(dir);
@@ -1407,6 +1383,6 @@ pub(super) fn local_hhmm(unix_ms: i64) -> String {
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 fn folder_name(cwd: &str) -> String {
-    if home_short(cwd) == "~" { return "~".into(); }
-    std::path::Path::new(cwd).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| cwd.to_owned())
+    let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));
+    clanky_state::files_tree::folder_name(cwd, home.as_deref())
 }
