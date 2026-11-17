@@ -48,8 +48,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "floating"))
 import chrome_pixels as pixels  # noqa: E402
 import expected as expected_values  # noqa: E402
+import expected_floating  # noqa: E402
 from chrome_harness import Fail, RealWindow, until  # noqa: E402
 from simulated_window import SimWindow  # noqa: E402
 
@@ -61,8 +63,13 @@ def arg(name, default=None):
 
 
 FAULT = arg("--fault")
-FAULTS = {"tab-too-tall": "tab-height", "loose-literal": "loose-numbers"}
+FAULTS = {
+    "tab-too-tall": "tab-height",
+    "loose-literal": "loose-numbers",
+    "palette-row-short": "palette-row-height",  # G3: a palette row 2 px short (--floating)
+}
 SIMULATE = "--simulate" in ARGS
+FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
 KEEP = "--keep" in ARGS
 SCALES = [float(v) for v in arg("--scales", "1").split(",")]
 THEME = arg("--theme", "graphite-dark")
@@ -574,6 +581,8 @@ def window_checks(win, e):
 
     guarded("pane-gap", panes)
     guarded("selection-colour", lambda: selection_check(win, e))
+    if FLOATING:
+        floating_checks(win, e)
 
 
 def e_rgb(e, role):
@@ -627,7 +636,226 @@ def selection_check(win, e):
     )
 
 
+# ---------------------------------------------------------------- G3: the floating screens
+
+# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist.
+
+
+def open_completion(win):
+    win.type("ls scripts/gate-m")
+    win.key("Tab")
+
+
+def open_menu(win):
+    x, y = win.menu_point()
+    win.move(x, y)
+    win.x("click", "3")
+
+
+FLOATING_SCREENS = {
+    "palette": dict(
+        open=lambda win: win.key("ctrl+shift+p"),
+        row="palette_row",
+        input="palette_input",
+        footer="palette_footer",
+    ),
+    "agent-picker": dict(
+        open=lambda win: win.key("ctrl+shift+g"),
+        row="agent_picker_row",
+        input="palette_input",
+    ),
+    "completion-list": dict(open=open_completion, row="completion_row"),
+    "context-menu": dict(open=open_menu, row="menu_item"),
+}
+ROW_KINDS = ("palette-row", "menu-item")
+HOVER_TOLERANCE = 1  # grey levels: a hovered row's fill is a flat colour
+
+
+def run_of(a, x, y, grey_want, limit):
+    """The run of pixels around (x, y) in column x whose grey is within the tolerance of grey_want: (top, length)."""
+    top = y
+    while top > 0 and abs(pixels.grey(a, x, top - 1) - grey_want) <= HOVER_TOLERANCE:
+        top -= 1
+    bottom = y
+    while (
+        bottom < limit - 1
+        and abs(pixels.grey(a, x, bottom + 1) - grey_want) <= HOVER_TOLERANCE
+    ):
+        bottom += 1
+    return top, bottom - top + 1
+
+
+def hairline_rows(a, box, x, sep_grey):
+    """The rows in column x inside the box whose grey is the hairline's."""
+    return [
+        y
+        for y in range(box[1] + 2, box[1] + box[3] - 2)
+        if abs(pixels.grey(a, x, y) - sep_grey) <= 2
+    ]
+
+
+def popover_radius(a, box, card_grey, e):
+    """The popover's corner radius, from its top-right corner (nothing else is drawn beside that corner): per row near
+    the top, how far in the card begins, fitted with a circle."""
+    import numpy as np
+
+    radius = e["floating"]["popover_radius"]["device"]
+    right = box[0] + box[2]
+    points = []
+    for dy in range(int(radius) + 2):
+        y = box[1] + dy
+        outside = pixels.grey(a, right + 4, y)
+        middle = (outside + card_grey) / 2
+        x = next(
+            (
+                x
+                for x in range(right + 2, right - int(radius) - 6, -1)
+                if (pixels.grey(a, x, y) - middle) * (card_grey - outside) >= 0
+            ),
+            None,
+        )
+        if x is not None:
+            points.append((dy + 0.5, right - 1 - x))
+    return min(
+        (r / 20 for r in range(10, 20 * 2 * int(radius) + 1)),
+        key=lambda r: sum(
+            (inset - (r - np.sqrt(max(r * r - (r - dy) ** 2, 0)) if dy < r else 0)) ** 2
+            for dy, inset in points
+        ),
+    )
+
+
+def shadow_check(win, e, screen, box, closed):
+    """Greys below the popover's bottom edge, middle column, against the Gaussian model on the closed window's pixels."""
+    import expected_floating
+
+    a = win.shot("shadow")
+    tolerance = e["popover_shadow"]["tolerance_levels"]
+    middle = box[0] + box[2] // 2
+    spec = e["popover_shadow"]
+    worst, count = 0.0, 0
+    for step in range(
+        0,
+        int(spec["offset_y"] * e["scale"] + 3 * spec["sigma_logical"] * e["scale"]),
+        4,
+    ):
+        y = box[1] + box[3] + step
+        if y >= a.shape[0]:
+            break
+        alpha = expected_floating.shadow_alpha(
+            (middle + 0.5, y + 0.5), box, spec, e["scale"]
+        )
+        want = pixels.grey(closed, middle, y) * (1 - alpha)
+        worst = max(worst, abs(pixels.grey(a, middle, y) - want))
+        count += 1
+    record(
+        f"{screen}-shadow",
+        worst <= tolerance,
+        f"within {tolerance} levels at {count} samples",
+        f"worst {worst:.1f} levels",
+    )
+
+
+def floating_screen_checks(win, e, screen, spec):
+    tolerance = e["chrome"]["tab_height"]["tolerance_px"]
+    closed = win.shot("closed")
+    spec["open"](win)
+    shown = until(
+        lambda: (win.screen(screen) or {}).get("controls"),
+        f"{screen} records its controls",
+        5,
+    )
+    box = win.screen(screen)["popover"]["box"]
+    rows = sorted(
+        (c for c in shown if c["kind"] in ROW_KINDS), key=lambda c: c["box"][1]
+    )
+    accent = round(sum(e_rgb(e, "accent")) / 3)
+    card = round(sum(e_rgb(e, "card")) / 3)
+    heights = []
+    for row in rows[:2]:
+        win.move(row["box"][0] + row["box"][2] // 2, row["box"][1] + row["box"][3] // 2)
+        until(
+            lambda: (
+                next(
+                    (c for c in win.screen(screen)["controls"] if c["id"] == row["id"]),
+                    {},
+                ).get("state")
+                == "hover"
+            ),
+            "hover",
+            3,
+        )
+        a = win.shot("row")
+        top, length = run_of(
+            a, row["box"][0] + 3, row["box"][1] + row["box"][3] // 2, accent, a.shape[0]
+        )
+        radius = e["controls"][row["kind"]]["radius"]["device"]
+        length = pixels.fill_height(
+            a, row["box"], accent, radius, None, HOVER_TOLERANCE
+        )
+        heights.append((top, length))
+    want = e["floating"][spec["row"]]["device"]
+    record(
+        f"{screen}-row-height",
+        abs(heights[0][1] - want) <= tolerance,
+        f"{want:g}",
+        heights[0][1],
+    )
+    if len(heights) > 1:
+        record(
+            f"{screen}-row-pitch",
+            abs(heights[1][0] - heights[0][0] - want) <= tolerance,
+            f"{want:g}",
+            heights[1][0] - heights[0][0],
+        )
+    a = win.shot("open")
+    border = expected_values.load_tokens()["themes"][THEME]["border"]
+    over = round(sum(int(border["over"][i : i + 2], 16) for i in (1, 3, 5)) / 3)
+    sep = card + border["alpha"] * (over - card)
+    marks = hairline_rows(a, box, box[0] + 8, sep)
+    if spec.get("input") and marks:
+        height = marks[0] - box[1] + 1
+        record(
+            f"{screen}-input-height",
+            abs(height - e["floating"][spec["input"]]["device"]) <= tolerance,
+            e["floating"][spec["input"]]["device"],
+            height,
+        )
+    if spec.get("footer") and marks:
+        height = box[1] + box[3] - marks[-1]
+        record(
+            f"{screen}-footer-height",
+            abs(height - e["floating"][spec["footer"]]["device"]) <= tolerance,
+            e["floating"][spec["footer"]]["device"],
+            height,
+        )
+    radius = popover_radius(a, box, card, e)
+    want = e["floating"]["popover_radius"]["device"]
+    record(
+        f"{screen}-radius",
+        abs(radius - want) <= tolerance,
+        f"{want:g}",
+        f"{radius:.2f}",
+    )
+    shadow_check(win, e, screen, box, closed)
+    win.key("Escape")
+    win.key("ctrl+u")
+    time.sleep(0.3)
+
+
+def floating_checks(win, e):
+    for screen, spec in FLOATING_SCREENS.items():
+        guarded(
+            f"{screen}-row-height",
+            lambda s=screen, p=spec: floating_screen_checks(win, e, s, p),
+        )
+
+
 def make_window(scale):
+    if SIMULATE and FLOATING:
+        from simulated_floating import SimFloatingWindow
+
+        return SimFloatingWindow(scale, THEME, FAULT)
     if SIMULATE:
         return SimWindow(scale, THEME, FAULT if FAULT in ("tab-too-tall",) else None)
     return RealWindow(scale, WORK, APP, CONFIG, FAULT, KEEP)
@@ -650,7 +878,9 @@ def main():
         WORK.mkdir(mode=0o700, parents=True)
     try:
         for scale in SCALES:
-            e = expected_values.build(scale, THEME)
+            e = (expected_floating.build if FLOATING else expected_values.build)(
+                scale, THEME
+            )
             win = make_window(scale)
             try:
                 window_checks(win, e)

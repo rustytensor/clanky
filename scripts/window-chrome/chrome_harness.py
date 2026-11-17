@@ -144,6 +144,7 @@ class RealWindow:
             LP_NUM_THREADS="8",
             VK_DRIVER_FILES=VULKAN_ICD,
             CLANKY_CONTROL_RECORD=str(self.record_path),
+            CLANKY_FRAME_TRACE=str(self.work / "frames.csv"),
         )
         if self.fault:
             env["CLANKY_CONTROL_FAULT"] = self.fault
@@ -301,6 +302,21 @@ class RealWindow:
 
     def landmarks(self):
         return latest_landmarks(self.records())
+
+    def frame_count(self):
+        """Frames the window has drawn, from its frame trace (one "frame,..." line each)."""
+        trace = self.work / "frames.csv"
+        if not trace.exists():
+            return 0
+        return sum(line.startswith("frame,") for line in trace.read_text().splitlines())
+
+    def first_pane(self):
+        """The id of the first pane, from the owner API. TODO(G2): the shape of list_tabs' answer is a guess."""
+        tabs = self.owner.call(1, "list_tabs")["tabs"]
+        first = tabs[0]
+        return (
+            first.get("tab_id", first.get("id")) if isinstance(first, dict) else first
+        )
 
     def pane_text(self, pane):
         screen = self.owner.call(

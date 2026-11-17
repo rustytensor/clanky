@@ -17,7 +17,21 @@ from chrome_harness import latest_landmarks  # noqa: E402
 import expected as expected_values  # noqa: E402
 
 FIRST_POPOVER_ID = 100
-FAULTS = ("hit-larger", "press-fires", "tab-skip", "border-2px", "tab-too-tall")
+FAULTS = (
+    "hit-larger",
+    "press-fires",
+    "tab-skip",
+    "border-2px",
+    "tab-too-tall",
+    "click-takes-focus",
+    "active-tab-grows",
+)
+FOCUS_ON_CLICK = (
+    "field",
+    "menu-item",
+    "palette-row",
+    "list-row",
+)  # the kinds a pointer click gives the focus
 STATE_ORDER = ("disabled", "pressed", "focus", "hover", "rest")
 
 
@@ -36,6 +50,10 @@ class SimWindow:
             self.selection
         ) = None
         self.keyboard = False
+        self.return_focus = None  # what had the focus when a popover opened
+        self._tab_boxes = {
+            c["id"]: list(c["box"]) for c in self.layout.controls if c["kind"] == "tab"
+        }
         self.typed = ""
         self.pane = ""
         self._records = []
@@ -92,7 +110,7 @@ class SimWindow:
         main["focus"] = (
             self.focus_id
             if self.focus_id and self.focus_id < FIRST_POPOVER_ID
-            else None
+            else (self.return_focus if self.popover else None)
         )
         main["keyboard"] = self.keyboard
         menu = {
@@ -182,7 +200,10 @@ class SimWindow:
             return
         if control and control["enabled"]:
             self.pressed = control["id"]
-            self.focus_id = control["id"]
+            takes_focus = (
+                control["kind"] in FOCUS_ON_CLICK or self.fault == "click-takes-focus"
+            )
+            self.focus_id = control["id"] if takes_focus else None
             self.keyboard = False
             if self.fault == "press-fires":
                 self._activate(control, "release")
@@ -209,11 +230,22 @@ class SimWindow:
             self._activate(control, "release")
             if control["kind"] == "switch":
                 control["checked"] = not control["checked"]
+            if control["kind"] == "tab":
+                self._select_tab(control)
         self.pressed = None
         if self.selection_start is not None:
             low, high = sorted((self.selection_start, self.pointer[0]))
             self.selection = (low, high) if high - low > 2 else None
             self.selection_start = None
+
+    def _select_tab(self, chosen):
+        """Makes one tab the active one. Every tab keeps its box (the planted fault grows the active one by a pixel)."""
+        for tab in (c for c in self.layout.controls if c["kind"] == "tab"):
+            tab["checked"] = tab is chosen
+            tab["box"] = list(self._tab_boxes[tab["id"]])
+            if tab["checked"] and self.fault == "active-tab-grows":
+                x, y, w, h = tab["box"]
+                tab["box"] = [x - 1, y, w + 2, h]
 
     def _open_menu(self):
         box, items = draw.popover_layout(
@@ -235,6 +267,7 @@ class SimWindow:
             "items": entries,
             "opener": [self.pointer[0], self.pointer[1], 0, 0],
         }
+        self.return_focus = self.focus_id
         self.focus_id = None
         self.keyboard = False
 
@@ -271,7 +304,8 @@ class SimWindow:
             self._press_key(name)
         elif name == "Escape" and self.popover:
             self.popover = None
-            self.focus_id = None
+            self.focus_id = self.return_focus
+            self.keyboard = self.focus_id is not None
 
     @staticmethod
     def _group_of(control):
@@ -317,6 +351,9 @@ class SimWindow:
         if not self.popover:
             self.typed += text
             self.pane = self.pane + text
+
+    def first_pane(self):
+        return "1"
 
     def pane_text(self, _pane):
         return self.pane

@@ -73,8 +73,15 @@ FAULTS = {
     "press-fires": "release",
     "tab-skip": "tab-order",
     "border-2px": "border-width",
+    # G3's faults, planted in the floating simulation (--floating).
+    "popover-over-opener": "popover",
+    "esc-loses-focus": "focus-return",
+    "idle-draw": "idle-frames",
+    "click-takes-focus": "click-focus",
+    "active-tab-grows": "tab-stable",
 }
 SIMULATE = "--simulate" in ARGS
+FLOATING = "--floating" in ARGS  # the simulation includes G3's floating screens
 SCALES = [float(v) for v in arg("--scales", "1,1.5").split(",")]
 THEME = arg("--theme", "graphite-dark")
 KEEP = "--keep" in ARGS
@@ -88,6 +95,7 @@ WORK = Path(
     os.environ.get("CLANKY_CONTROLS_WORK", "/srv/devops/build/clanky-controls-gate-run")
 )
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "floating"))
 import expected as expected_values  # noqa: E402
 from chrome_harness import Fail, RealWindow, until  # noqa: E402
 from simulated_window import SimWindow  # noqa: E402
@@ -220,8 +228,64 @@ def close_with_escape(win):
     win.key("Escape")
 
 
+# G3's screens. TODO(G3): every open key and harmless control below is a guess until G3's key bindings exist.
+
+
+def open_by_keys(*keys):
+    def run(win):
+        win.key(*keys)
+
+    return run
+
+
+def open_completion(win):
+    win.type("ls scripts/gate-m")
+    win.key("Tab")
+
+
+FLOATING_SCREENS = {
+    "palette": dict(
+        open=open_by_keys("ctrl+shift+p"),
+        close=close_with_escape,
+        container="card",
+        harmless="New tab",
+        adjacent=False,  # a modal list centred at the top: no opener beside it
+        filter=True,
+        idle=True,
+    ),
+    "agent-picker": dict(
+        open=open_by_keys("ctrl+shift+g"),
+        close=close_with_escape,
+        container="card",
+        harmless="Fake Tool",
+        adjacent=False,
+        filter=True,
+    ),
+    "completion-list": dict(
+        open=open_completion,
+        close=close_with_escape,
+        container="card",
+        harmless="scripts/gate-menu.sh",
+        idle=True,
+    ),
+    "find-bar": dict(
+        open=open_by_keys("ctrl+f"),
+        close=close_with_escape,
+        container="card",
+        harmless="Next",
+        adjacent=False,  # over the pane's top right corner, not beside an opener
+        find=True,
+        stays_open=True,  # firing Next or Previous leaves the bar open
+    ),
+}
+POPOVER_MAX_GAP_LOGICAL_PX = (
+    16  # "next to what opened it" (G3 definition): at most this far from the opener
+)
+
 SCREENS = {
-    "main-window": dict(open=open_main, close=None, container=None, harmless="Files"),
+    "main-window": dict(
+        open=open_main, close=None, container=None, harmless="Files", click_focus=True
+    ),
     # TODO(G2): the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
     "context-menu": dict(
         open=open_context_menu,
@@ -231,6 +295,8 @@ SCREENS = {
         flip=True,
     ),
 }
+if FLOATING:
+    SCREENS.update(FLOATING_SCREENS)
 
 RECORD_FIELDS = {
     "id",
@@ -388,6 +454,13 @@ def inside(box, x, y):
     return box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
 
 
+def rect_distance(a, b):
+    """The distance between two boxes [x, y, w, h]: 0 when they touch or overlap."""
+    dx = max(a[0] - (b[0] + b[2]), b[0] - (a[0] + a[2]), 0)
+    dy = max(a[1] - (b[1] + b[3]), b[1] - (a[1] + a[3]), 0)
+    return math.hypot(dx, dy)
+
+
 def overlaps(a, b):
     return (
         a[0] < b[0] + b[2]
@@ -504,8 +577,7 @@ class Screen:
 
     def reopen(self, **kw):
         self.close()
-        if self.spec["close"] is None:
-            self.clear_focus()
+        self.clear_focus()
         return self.open(**kw)
 
     def container(self, a, ctl):
@@ -634,6 +706,16 @@ class Screen:
                 f"clear of its opener {pop['opener']}",
                 b,
             )
+            if self.spec.get("adjacent", True):
+                gap = rect_distance(b, pop["opener"])
+                limit = POPOVER_MAX_GAP_LOGICAL_PX * self.s
+                self.ok(
+                    "popover",
+                    gap <= limit,
+                    "popover",
+                    f"next to its opener, at most {limit:g} px away",
+                    f"{gap:.1f} px",
+                )
 
     def rest_checks(self):
         self.win.away(self.rest_point())
@@ -1062,13 +1144,14 @@ class Screen:
                 len(new) == 1
                 and new[0]["id"] == h["id"]
                 and new[0]["via"] == "key"
-                and (not pop or not self.is_open())
+                and (not pop or self.spec.get("stays_open") or not self.is_open())
             )
             self.ok(
                 "activate-keys",
                 good,
                 f"{name_of(h)} {key}",
-                "fires once by key" + (", closes" if pop else ""),
+                "fires once by key"
+                + (", closes" if pop and not self.spec.get("stays_open") else ""),
                 f"{[(n['label'], n['via']) for n in new]}, open {self.is_open()}",
             )
         if not self.reopen():
@@ -1171,6 +1254,288 @@ class Screen:
                 got,
             )
 
+    def click_focus_checks(self):
+        """A pointer click on a bar control leaves the focus with the pane: typing afterwards reaches the pane."""
+        if not self.spec.get("click_focus") or not self.reopen():
+            return
+        target = next(
+            (
+                c
+                for c in self.controls()
+                if c["enabled"]
+                and c["kind"] not in ("field", "menu-item")
+                and c["label"] == self.spec["harmless"]
+            ),
+            None,
+        )
+        if target is None:
+            self.ok(
+                "click-focus",
+                False,
+                "a bar control to click",
+                self.spec["harmless"],
+                "none",
+            )
+            return
+        self.win.move(*centre(target["box"]))
+        self.win.x("mousedown", "1")
+        self.win.x("mouseup", "1")
+        time.sleep(0.4)
+        focus = (self.current() or {}).get("focus")
+        self.ok(
+            "click-focus",
+            focus is None,
+            f"a click on {name_of(target)}",
+            "no control has the focus",
+            focus,
+        )
+        mark = f"zq-click-{self.s:g}".replace(".", "-")
+        self.win.type(f"echo {mark}")
+        self.win.key("Return")
+        pane = self.win.first_pane()
+        try:
+            until(lambda: self.win.pane_text(pane).count(mark) >= 2, "", 4)
+            got = True
+        except Fail:
+            got = False
+        self.ok(
+            "click-focus", got, "typing after the click", f"reaches pane {pane}", got
+        )
+
+    def tab_stable_checks(self):
+        """Switching tabs moves only `checked`: every tab keeps the box it had."""
+        if not self.spec.get("click_focus") or not self.reopen():
+            return
+
+        def tab_boxes():
+            tabs = [c for c in self.controls() if c["kind"] == "tab"]
+            return {c["id"]: c["box"] for c in tabs}, {
+                c["id"]: c["checked"] for c in tabs
+            }
+
+        before, active_before = tab_boxes()
+        other = next(
+            (c for c in self.controls() if c["kind"] == "tab" and not c["checked"]),
+            None,
+        )
+        if other is None:
+            self.ok("tab-stable", False, "an inactive tab to switch to", "one", "none")
+            return
+        self.win.move(*centre(other["box"]))
+        self.win.x("mousedown", "1")
+        self.win.x("mouseup", "1")
+        time.sleep(0.5)
+        self.win.away(self.rest_point())
+        time.sleep(0.3)
+        after, active_after = tab_boxes()
+        self.ok(
+            "tab-stable",
+            active_after != active_before,
+            "a click on another tab",
+            "the active tab changes",
+            active_after,
+        )
+        changed = {
+            i: (before[i], after.get(i)) for i in before if after.get(i) != before[i]
+        }
+        self.ok(
+            "tab-stable",
+            not changed,
+            "switching tabs",
+            "every tab keeps its box",
+            changed,
+        )
+
+    def main_focus(self):
+        return (self.win.screen("main-window") or {}).get("focus")
+
+    def focus_return_checks(self):
+        """Esc closes the popover and the focus is back on the control that had it when the popover opened."""
+        if not self.record.get("popover"):
+            return
+        self.close()
+        self.win.key(
+            "ctrl+u"
+        )  # clears any line typed to open the popover, so that Tab moves the focus
+        self.win.away(self.rest_point())
+        self.win.key("Tab")
+        before = self.main_focus()
+        if before is None:
+            self.ok(
+                "focus-return",
+                False,
+                "Esc",
+                "a main-window control focused before opening",
+                "none",
+            )
+            return
+        if not self.open():
+            return
+        self.win.key("Escape")
+        try:
+            until(lambda: not self.is_open(), "", 2)
+        except Fail:
+            pass
+        after = self.main_focus()
+        self.ok(
+            "focus-return",
+            after == before,
+            "Esc",
+            f"the focus back on control {before}",
+            f"control {after}",
+        )
+
+    def tab_inside_checks(self):
+        """While a popover is open Tab moves among its own controls and never to the window behind."""
+        if not self.record.get("popover") or not self.reopen():
+            return
+        ids = {c["id"] for c in self.controls() if c["enabled"]}
+        behind = self.main_focus()
+        for _ in range(len(ids) + 2):
+            self.win.key("Tab")
+            time.sleep(0.15)
+            focus = (self.current() or {}).get("focus")
+            self.ok(
+                "tab-inside",
+                focus in ids and self.main_focus() == behind,
+                "Tab while open",
+                f"focus on one of the popover's controls {sorted(ids)}, the window behind unchanged",
+                f"popover focus {focus}, behind {self.main_focus()}",
+            )
+
+    def filter_checks(self):
+        """Typing narrows the list to the rows whose label contains the text, case folded."""
+        if not self.spec.get("filter") or not self.reopen():
+            return
+        labels = [c["label"] for c in self.controls()]
+        prefix = next(
+            (
+                p
+                for p in (label[:2].lower() for label in labels)
+                if 0 < sum(p in label.lower() for label in labels) < len(labels)
+            ),
+            None,
+        )
+        if prefix is None:
+            self.ok(
+                "filter",
+                False,
+                "a prefix some rows share and others do not",
+                "one",
+                labels,
+            )
+            return
+        self.win.type(prefix)
+        want = [label for label in labels if prefix in label.lower()]
+        try:
+            until(lambda: [c["label"] for c in self.controls()] == want, "", 3)
+        except Fail:
+            pass
+        self.ok(
+            "filter",
+            [c["label"] for c in self.controls()] == want,
+            f"typed {prefix!r}",
+            want,
+            [c["label"] for c in self.controls()],
+        )
+
+    def idle_checks(self):
+        """No frame is drawn while the popover stays open and nothing happens."""
+        if not self.spec.get("idle") or not self.reopen():
+            return
+        time.sleep(1.0)
+        first = self.win.frame_count()
+        time.sleep(2.5)
+        drawn = self.win.frame_count() - first
+        self.ok(
+            "idle-frames",
+            drawn == 0,
+            "popover open, nothing touched for 2.5 s",
+            "0 frames",
+            f"{drawn} frames",
+        )
+
+    def find_checks(self):
+        """The find bar: opens, takes the text, marks the current match, Enter goes on to the next, Esc closes."""
+        if not self.spec.get("find"):
+            return
+        self.close()
+        self.win.type("echo g1 g1 g1")
+        self.win.key("Return")
+        time.sleep(0.5)
+        if not self.open():
+            self.ok(
+                "find-open",
+                False,
+                "Ctrl+F",
+                "the find bar's controls in the record",
+                "no record",
+            )
+            return
+        self.ok(
+            "find-open",
+            any(c["kind"] == "field" for c in self.controls()),
+            "Ctrl+F",
+            "a find field",
+            "none",
+        )
+        self.win.type("g1")
+        try:
+            until(
+                lambda: (self.control_by_kind("field") or {}).get("label") == "g1",
+                "",
+                3,
+            )
+        except Fail:
+            pass
+        field = self.control_by_kind("field") or {}
+        self.ok(
+            "find-type",
+            field.get("label") == "g1",
+            "typed g1",
+            "the field reads g1",
+            field.get("label"),
+        )
+        first = self.match_box()
+        panes = self.win.landmarks().get("pane", [])
+        self.ok(
+            "find-match",
+            bool(first) and any(inside(p, first[0], first[1]) for p in panes),
+            "a match for g1",
+            "a match box inside a pane",
+            first,
+        )
+        self.win.key("Return")
+        time.sleep(0.4)
+        second = self.match_box()
+        self.ok(
+            "find-next",
+            bool(first) and bool(second) and second != first,
+            "Enter",
+            "the next match, a different box",
+            f"{first} then {second}",
+        )
+        self.win.key("Escape")
+        try:
+            until(lambda: not self.is_open(), "", 2)
+        except Fail:
+            pass
+        self.ok(
+            "find-close",
+            not self.is_open() and not self.match_box(),
+            "Esc",
+            "the bar closed and no match marked",
+            f"open {self.is_open()}, match {self.match_box()}",
+        )
+
+    def control_by_kind(self, kind):
+        return next((c for c in self.controls() if c["kind"] == kind), None)
+
+    def match_box(self):
+        found = self.win.landmarks().get("find-match")
+        box = found[0] if found else None
+        return box if box and box[2] > 0 else None
+
     def flip_checks(self):
         if not self.spec.get("flip"):
             return
@@ -1227,6 +1592,13 @@ class Screen:
             self.fire_checks,
             self.escape_checks,
             self.flip_checks,
+            self.focus_return_checks,
+            self.tab_inside_checks,
+            self.filter_checks,
+            self.idle_checks,
+            self.find_checks,
+            self.click_focus_checks,
+            self.tab_stable_checks,
         ]
         if FAULT:  # a planted fault needs only the check aimed at it, and its neighbours for the screen's state
             steps = {
@@ -1234,6 +1606,11 @@ class Screen:
                 "hit-larger": [self.static_checks, self.hover_checks],
                 "press-fires": [self.press_checks, self.fire_checks],
                 "tab-skip": [self.tab_checks],
+                "popover-over-opener": [self.static_checks],
+                "esc-loses-focus": [self.focus_return_checks],
+                "idle-draw": [self.idle_checks],
+                "click-takes-focus": [self.click_focus_checks],
+                "active-tab-grows": [self.tab_stable_checks],
             }[FAULT]
         for step in steps:
             try:
@@ -1258,6 +1635,10 @@ class Screen:
 
 
 def make_window(scale):
+    if SIMULATE and FLOATING:
+        from simulated_floating import SimFloatingWindow
+
+        return SimFloatingWindow(scale, THEME, FAULT)
     if SIMULATE:
         return SimWindow(scale, THEME, FAULT)
     return RealWindow(scale, WORK, APP, CONFIG, FAULT, KEEP)

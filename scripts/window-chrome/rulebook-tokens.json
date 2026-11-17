@@ -112,6 +112,18 @@
     "card_border_opacity": {"value": 0.6, "src": "rulebook:134"}
   },
   "palette": {"width": {"px": 560, "src": "rulebook:22"}},
+  "floating": {
+    "popover_radius": {"px": 10, "src": "rulebook:79"},
+    "popover_border": {"device_px": 1, "src": "rulebook:107,160-161"},
+    "palette_input": {"px": 44, "src": "rulebook:96,131"},
+    "palette_row": {"px": 36, "src": "rulebook:95,131"},
+    "palette_footer": {"px": 32, "text": "text_status", "src": "rulebook:97,131"},
+    "menu_item": {"px": 28, "text": "text_ui", "src": "rulebook:94,132"},
+    "completion_row": {"px": 28, "text": "text_ui", "src": "rulebook:129"},
+    "agent_picker_row": {"px": 36, "text": "text_title", "src": "rulebook:243"},
+    "find_field": {"px": 32, "src": "rulebook:243-244"},
+    "find_icon_button": {"px": 28, "src": "rulebook:243-244"}
+  },
   "controls": {
     "button-small": {"height": {"px": 24, "src": "rulebook:98"}, "radius": {"px": 8, "src": "rulebook:224"}, "text": "text_status", "text_src": "rulebook:66", "icon_px": 14, "icon_src": "rulebook:120"},
     "button-bar": {"height": {"px": 28, "src": "rulebook:98"}, "radius": {"px": 8, "src": "rulebook:78,224"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},

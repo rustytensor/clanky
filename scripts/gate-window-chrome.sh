@@ -2,7 +2,7 @@
 # Window chrome gate (G2): the design token gate and the controls gate, retargeted to clanky-gpui.
 # Prints one "ok:", "CAUGHT:" or "FAIL:" line per step, then PASS or FAIL.
 # --faults needs no clanky-gpui binary and no display: both gates run on a simulated window (scripts/window-chrome/
-#   simulated_window.py) and on the fixtures; the good runs must pass and each of six planted faults must fail the check
+#   simulated_window.py) and on the fixtures; the good runs must pass and each of eight planted faults must fail the check
 #   aimed at it. Without --faults the gate stops with "FAIL: clanky-gpui writes no control record yet" until the window
 #   code writes the record (scripts/window-chrome/RECORD.md); after that it runs both gates on the real window, with
 #   CLANKY_GPUI_BIN=PATH or target/release/clanky-gpui, under the gate lock.
@@ -19,6 +19,8 @@ FAULTS=(
   "gate-controls.py:press-fires:release"
   "gate-controls.py:tab-skip:tab-order"
   "gate-controls.py:border-2px:border-width"
+  "gate-controls.py:click-takes-focus:click-focus"
+  "gate-controls.py:active-tab-grows:tab-stable"
   "gate-design-tokens.py:tab-too-tall:tab-height"
   "gate-design-tokens.py:loose-literal:loose-numbers"
 )
