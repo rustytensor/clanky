@@ -174,7 +174,10 @@ class Window:
                    GSETTINGS_BACKEND='memory', WINIT_UNIX_BACKEND='x11', WINIT_X11_SCALE_FACTOR='1', LP_NUM_THREADS='8',
                    VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json', CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'))
         config = self.w / 'config.xml'
-        config_xml.write(config, dict(restore_layout=False, startup_animation=False, history=False, rails=True, **cfg))
+        # One pane: every check on this window is about one pane, and a second startup pane (new_window_panes,
+        # default 2) would take the keys from the first.
+        config_xml.write(config, dict(dict(restore_layout=False, startup_animation=False, history=False, rails=True,
+                                           new_window_panes=1), **cfg))
         rd, wr = os.pipe()
         x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', SCREEN, '-nolisten', 'tcp'],
                              pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
