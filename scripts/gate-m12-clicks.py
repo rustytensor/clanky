@@ -107,8 +107,12 @@ def stop(p):
 
 
 def record_controls(path):
-    """The main window's controls from the control record's latest main-window screen line."""
-    lines=[json.loads(l) for l in Path(path).read_text().splitlines() if l.strip()] if Path(path).exists() else []
+    """The main window's controls from the control record's latest main-window screen line. The window may be
+    writing its last line as it is read; only that unfinished last line is skipped."""
+    text=Path(path).read_text() if Path(path).exists() else ''
+    raw=text.splitlines()
+    if raw and not text.endswith('\n'):raw=raw[:-1]
+    lines=[json.loads(l) for l in raw if l.strip()]
     screens=[l for l in lines if l.get('record')=='screen' and l.get('screen')=='main-window']
     return screens[-1]['controls'] if screens else []
 
