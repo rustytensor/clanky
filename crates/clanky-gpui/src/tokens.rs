@@ -257,6 +257,12 @@ impl ShadowToken {
     pub fn color(&self) -> Color {
         [0, 0, 0, (self.opacity * 255.0).round() as u8]
     }
+
+    /// The Gaussian's standard deviation, which is what gpui's `blur_radius` takes: a CSS blur radius, as the
+    /// rulebook writes shadows, is twice the standard deviation.
+    pub fn sigma(&self) -> f32 {
+        self.blur / 2.0
+    }
 }
 /// Menus, the palette, the completion list and dialogs.
 pub const SHADOW_POPOVER: ShadowToken = ShadowToken {

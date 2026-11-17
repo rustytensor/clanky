@@ -1,8 +1,8 @@
 //! The command input under each terminal pane (mockup sections 1 and 2, `.input`): a hairline, a row of chips (folder,
 //! git branch, shell, agent access) with the Shell | Agent switch at its right, then the line being written in the
-//! terminal font with bash colours, the caret and grey ghost text from history, and after Tab the completion list
-//! above it. While a command runs, a full-screen program has the keys or the shell sets no marks, the line says where
-//! keys go and the chips dim.
+//! terminal font with bash colours, the caret and grey ghost text from history; after Tab the completion list opens
+//! above it (`completion_list.rs`). While a command runs, a full-screen program has the keys or the shell sets no
+//! marks, the line says where keys go and the chips dim.
 
 use std::{cell::Cell, collections::BTreeMap, ops::Range, path::Path, rc::Rc};
 
@@ -32,8 +32,6 @@ use crate::{
 const INPUT_IDS: u32 = 6000;
 /// The input shows at most this many lines of text; more scroll.
 const MAX_LINES: usize = 8;
-/// Completion rows shown at once.
-const MAX_ITEMS: usize = 8;
 
 /// What a pane's chips show, read from the server once a second.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -113,6 +111,7 @@ impl MainWindow {
             None => self.text_lines(&shown.view, focused && shown.caret, &pane, cx),
         };
         let focus_pane = pane.clone();
+        let measured = super::completion_list::Measured::default();
         let bar = div()
             .relative()
             .flex_none()
@@ -152,14 +151,9 @@ impl MainWindow {
                     )
                     .child(div().flex_1().min_w_0().overflow_hidden().child(line)),
             )
-            .children(
-                shown
-                    .view
-                    .popup
-                    .as_ref()
-                    .filter(|_| shown.aside.is_none())
-                    .map(|popup| self.completion(popup)),
-            );
+            .child(Self::measure_bar(&measured));
+        let listed = shown.view.popup.is_some() && shown.aside.is_none();
+        self.follow_completion_list(id, listed, focused, &measured, window, cx);
         Some(bar.into_any_element())
     }
 
@@ -406,78 +400,6 @@ impl MainWindow {
             Tok::Number => colour(ansi[1]),
             Tok::Comment | Tok::Operator => paint(self.colors.muted_foreground, 1.0),
         }
-    }
-
-    /// The completion list above the input (mockup `.pop`): each candidate and its kind, the highlighted one filled,
-    /// and a footer naming the keys. The keyboard drives it from the input.
-    fn completion(&self, popup: &(Vec<(String, &'static str)>, usize, usize)) -> AnyElement {
-        let (items, selected, _) = popup;
-        let colors = &self.colors;
-        let shown = items.len().min(MAX_ITEMS);
-        let first = selected.saturating_sub(shown.saturating_sub(1));
-        let mut list = div().flex().flex_col().p(px(t::SPACE_4));
-        for (index, (name, kind)) in items.iter().enumerate().skip(first).take(shown) {
-            let mut row = div()
-                .flex()
-                .items_center()
-                .gap(px(t::SPACE_8))
-                .h(px(t::MENU_ITEM_HEIGHT))
-                .px(px(t::SPACE_8))
-                .rounded(px(t::RADIUS_SMALL))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .font_family(self.text.family.clone())
-                        .text_size(px(t::TEXT_UI))
-                        .text_color(paint(colors.foreground, 1.0))
-                        .child(name.clone()),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(px(t::TEXT_STATUS))
-                        .text_color(paint(colors.muted_foreground, 1.0))
-                        .child(*kind),
-                );
-            if index == *selected {
-                row = row.bg(paint(colors.accent, 1.0));
-            }
-            list = list.child(row);
-        }
-        let shadow = t::SHADOW_POPOVER;
-        div()
-            .absolute()
-            .bottom_full()
-            .left(px(t::PANE_PADDING))
-            .w(px(t::PALETTE_WIDTH / 2.0))
-            .flex()
-            .flex_col()
-            .rounded(px(t::RADIUS_LARGE))
-            .border(px(t::BORDER_WIDTH))
-            .border_color(paint(colors.border, 1.0))
-            .bg(paint(colors.card, 1.0))
-            .shadow(vec![gpui::BoxShadow {
-                color: paint(shadow.color(), 1.0).into(),
-                offset: gpui::point(px(0.0), px(shadow.offset_y)),
-                blur_radius: px(shadow.blur),
-                spread_radius: px(0.0),
-                inset: false,
-            }])
-            .font_family(INTERFACE_FONT_FAMILY)
-            .child(list)
-            .child(
-                div()
-                    .px(px(t::SPACE_12))
-                    .py(px(t::SPACE_6))
-                    .border_t(px(t::BORDER_WIDTH))
-                    .border_color(paint(colors.border, 1.0))
-                    .text_size(px(t::TEXT_STATUS))
-                    .text_color(paint(colors.muted_foreground, 1.0))
-                    .child("Tab completes · Enter runs · Esc closes"),
-            )
-            .into_any_element()
     }
 }
 

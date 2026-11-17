@@ -78,6 +78,7 @@ FAULTS = {
     "popover-over-opener": "popover",
     "esc-loses-focus": "focus-return",
     "idle-draw": "idle-frames",
+    "tab-traps-completion": "tab-completes",
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
     "selected-segment-hover": "hover-colour",
@@ -316,12 +317,14 @@ FLOATING_SCREENS = {
         adjacent=False,
         filter=True,
     ),
+    # Tab after `ls scripts/gate-m` is the real key (today's input, kept by clanky-gpui); the files are the harness's.
     "completion-list": dict(
         open=open_completion,
         close=close_with_escape,
         container="card",
         harmless="scripts/gate-menu.sh",
         idle=True,
+        tab_completes=True,  # Tab puts the highlighted row in (q2-input C1a) instead of walking the rows
     ),
     "find-bar": dict(
         open=open_by_keys("ctrl+f"),
@@ -1103,11 +1106,12 @@ class Screen:
                     edge = border_blend(c, want)
                     if side in ("left", "right"):
                         edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (edge - bg)
+                    outside = self.outside_fill(c, ox, oy, bg)
                     self.ok(
                         "whole-pixels",
-                        near(gi, edge) and near(go, bg),
+                        near(gi, edge) and near(go, outside),
                         f"{name_of(c)} {side} edge",
-                        f"{edge:.0f} then {bg}",
+                        f"{edge:.0f} then {outside}",
                         f"{gi} then {go}",
                     )
             # The pointer 1 px inside each edge hovers the control; 1 px outside does not.
@@ -1142,6 +1146,15 @@ class Screen:
                     "hover",
                     (self.control(cid) or {}).get("state"),
                 )
+
+    def outside_fill(self, ctl, x, y, bg):
+        """What lies just outside a control's edge: its container, or the rest fill of a neighbouring row drawn in
+        `accent` because it is the list's selected row (a list's rows touch, 28 px apart)."""
+        for d in self.controls():
+            if d["id"] != ctl["id"] and d.get("checked") and inside(d["box"], x, y):
+                want = expected_fill(d, "rest", bg)
+                return bg if want is None else want
+        return bg
 
     def press_checks(self):
         """Press each enabled control, the harmless one first: the pressed look and size, nothing fired on press,
@@ -1666,7 +1679,11 @@ class Screen:
 
     def tab_inside_checks(self):
         """While a popover is open Tab moves among its own controls and never to the window behind."""
-        if not self.record.get("popover") or not self.reopen():
+        if (
+            not self.record.get("popover")
+            or self.spec.get("tab_completes")
+            or not self.reopen()
+        ):
             return
         ids = {c["id"] for c in self.controls() if c["enabled"]}
         behind = self.main_focus()
@@ -1681,6 +1698,53 @@ class Screen:
                 f"focus on one of the popover's controls {sorted(ids)}, the window behind unchanged",
                 f"popover focus {focus}, behind {self.main_focus()}",
             )
+
+    def tab_complete_checks(self):
+        """A completion list's Tab, with no row holding the keyboard, puts the highlighted row in and closes the list;
+        the window behind keeps its focus, and Enter then runs the completed line in the opener's pane."""
+        if not self.spec.get("tab_completes"):
+            return
+        self.close()
+        self.win.key("ctrl+u")
+        self.clear_focus()
+        if not self.open():
+            return
+        pop = self.current()["popover"]
+        first = next((c for c in self.controls() if c.get("checked")), None)
+        behind = self.main_focus()
+        self.win.key("Tab")
+        try:
+            until(lambda: not self.is_open(), "", 2)
+        except Fail:
+            pass
+        self.ok(
+            "tab-completes",
+            not self.is_open() and self.main_focus() == behind,
+            "Tab with the list open",
+            f"the list closes, the window behind keeps focus {behind}",
+            f"open {self.is_open()}, focus {(self.current() or {}).get('focus')}, behind {self.main_focus()}",
+        )
+        pane = pop.get("opener_pane")
+        if pane is None or first is None or self.is_open():
+            return
+        before = self.win.pane_text(pane).count(first["label"])
+        self.win.key("Return")
+        try:
+            until(
+                lambda: self.win.pane_text(pane).count(first["label"]) >= before + 2,
+                "",
+                4,
+            )
+            ran = True
+        except Fail:
+            ran = False
+        self.ok(
+            "tab-completes",
+            ran,
+            "Enter after Tab",
+            f"runs the line with {first['label']!r} in pane {pane} (the command and its output)",
+            ran,
+        )
 
     def filter_checks(self):
         """Typing narrows the list to the rows whose label contains the text, case folded."""
@@ -2117,6 +2181,7 @@ class Screen:
             self.flip_checks,
             self.focus_return_checks,
             self.tab_inside_checks,
+            self.tab_complete_checks,
             self.filter_checks,
             self.idle_checks,
             self.find_checks,
@@ -2134,6 +2199,7 @@ class Screen:
                 "popover-over-opener": [self.static_checks],
                 "esc-loses-focus": [self.focus_return_checks],
                 "idle-draw": [self.idle_checks],
+                "tab-traps-completion": [self.tab_complete_checks],
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],
                 "selected-segment-hover": [self.hover_checks],

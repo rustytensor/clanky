@@ -104,6 +104,10 @@ class RealWindow:
         private_folder(self.work)
         # The tab is named after the folder the shell starts in: "HIH", capitals with flat tops, for the cap height check.
         (self.work / "home/HIH").mkdir(exist_ok=True)
+        # What the completion list's screen completes: `ls scripts/gate-m` and Tab lists these two, as in q2-input.
+        (self.work / "home/HIH/scripts").mkdir(exist_ok=True)
+        for name in ("gate-menu.sh", "gate-mouse.sh"):
+            (self.work / "home/HIH/scripts" / name).write_text("")
         (self.work / "home/.bashrc").write_text("PS1='$ '\ncd ~/HIH\n")
         self.record_path = self.work / "controls.jsonl"
         self.procs, self.server = [], None

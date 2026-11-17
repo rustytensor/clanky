@@ -31,6 +31,7 @@ use gpui::{
 use serde_json::{Value, json};
 
 mod command_bar;
+mod completion_list;
 mod drag;
 mod floating;
 #[cfg(feature = "test-popover")]

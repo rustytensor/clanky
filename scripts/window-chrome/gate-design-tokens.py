@@ -659,9 +659,8 @@ def selection_check(win, e):
 # How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist.
 
 
-def open_completion(win):
+def type_completion(win):
     win.type("ls scripts/gate-m")
-    win.key("Tab")
 
 
 def open_menu(win):
@@ -683,7 +682,11 @@ FLOATING_SCREENS = {
         row="agent_picker_row",
         input="palette_input",
     ),
-    "completion-list": dict(open=open_completion, row="completion_row"),
+    # Today's Tab completion. The line is typed before the closed frame is taken, so the shadow check compares the
+    # same input line with and without the list over it.
+    "completion-list": dict(
+        prepare=type_completion, open=lambda win: win.key("Tab"), row="completion_row"
+    ),
     "context-menu": dict(open=open_menu, row="menu_item"),
 }
 ROW_KINDS = ("palette-row", "menu-item")
@@ -777,6 +780,9 @@ def shadow_check(win, e, screen, box, closed):
 
 def floating_screen_checks(win, e, screen, spec):
     tolerance = e["chrome"]["tab_height"]["tolerance_px"]
+    if spec.get("prepare"):
+        spec["prepare"](win)
+        time.sleep(0.5)
     closed = win.shot("closed")
     spec["open"](win)
     shown = until(

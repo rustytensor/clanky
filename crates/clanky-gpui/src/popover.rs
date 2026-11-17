@@ -249,6 +249,11 @@ impl Popover {
         self.open.as_ref().map(|open| open.screen)
     }
 
+    /// What opened the open popover.
+    pub fn opener(&self) -> Option<&Opener> {
+        self.open.as_ref().map(|open| &open.opener)
+    }
+
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }
@@ -305,7 +310,7 @@ impl Popover {
             .shadow(vec![gpui::BoxShadow {
                 color: paint(shadow.color(), 1.0).into(),
                 offset: point(px(0.0), px(shadow.offset_y)),
-                blur_radius: px(shadow.blur),
+                blur_radius: px(shadow.sigma()),
                 spread_radius: px(0.0),
                 inset: false,
             }])

@@ -2,9 +2,10 @@
 
 Ctrl+Shift+P opens the palette, Ctrl+Shift+G the agent picker, Ctrl+F the find bar, Tab after `ls scripts/gate-m` typed
 into the pane the completion list, a right click the context menu. Esc closes the open one and gives the focus back to
-what had it. Lists filter as text is typed, arrows move the highlighted row, Enter picks it, Tab stays inside. The
+what had it. Lists filter as text is typed, arrows move the highlighted row, Enter picks it, Tab stays inside, except in
+the completion list, where Tab with no row focused puts the highlighted row in and closes it, as today's input does. The
 planted faults (`fault`) are the four of G3's definition: popover-over-opener, esc-loses-focus, palette-row-short,
-idle-draw; the faults of the chrome simulation still work.
+idle-draw, plus tab-traps-completion (the completion list keeps Tab inside); the faults of the chrome simulation still work.
 """
 
 import json
@@ -29,6 +30,7 @@ FLOATING_FAULTS = (
     "palette-row-short",
     "idle-draw",
     "palette-text-big",
+    "tab-traps-completion",
 )
 POPOVER_SCREENS = (
     "context-menu",
@@ -305,6 +307,14 @@ class SimFloatingWindow(chrome_sim.SimWindow):
             and self.focus_id is None
         ):
             self.find_index += 1
+        elif (
+            name == "Tab"
+            and self.popover
+            and self.popover["screen"] == "completion-list"
+            and self.focus_id is None
+            and self.float_fault != "tab-traps-completion"
+        ):
+            self._close()  # Tab puts the highlighted row in, as today's input does
         elif self.popover and name in ("Tab", "shift+Tab"):
             self._step(self._order(), name == "Tab")
         else:
