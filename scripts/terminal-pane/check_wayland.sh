@@ -199,9 +199,10 @@ wait_screen() {
   done
 }
 
+# One wtype process types the line and presses Return: each process makes its own virtual keyboard, and the first key
+# a new keyboard sends is lost, so a second process for Return left the typed line unrun in 3 of 10 runs.
 type_echo() {
-  on_sway wtype -s 500 'echo g1-ok'
-  on_sway wtype -k Return
+  on_sway wtype -s 500 'echo g1-ok' -k Return
 }
 
 # keep_shot NAME: with CLANKY_WAYLAND_SHOTS set, keeps the last screenshot there as NAME.png.
