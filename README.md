@@ -2,7 +2,12 @@
   <img src="docs/media/robot.webp" width="420" alt="Clanky the robot rolls in, looks around and waves">
 </p>
 
-<h1 align="center">Clanky</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo/clanky-logo-horizontal-on-dark.svg">
+    <img src="assets/brand/logo/clanky-logo-horizontal-on-light.svg" height="48" alt="Clanky">
+  </picture>
+</h1>
 
 <p align="center">
   <b>A calm, fast Linux terminal for working alongside coding agents.</b><br>
@@ -118,5 +123,6 @@ A clanker is a robot. This is where they work.
 
 Clanky is licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 Dependencies keep their own licences, including MPL-2.0 for spellbook.
+The Clanky icon and logo (`assets/icons`, `assets/brand`) are under the same two licences; their wordmark is Inter converted to outlines.
 The bundled Geist, Geist Mono, JetBrains Mono and Inter fonts are under the SIL Open Font License 1.1.
 See [NOTICE](NOTICE) for attributions.

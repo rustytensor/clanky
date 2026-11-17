@@ -40,9 +40,12 @@ strip --strip-unneeded --remove-section=.comment --remove-section=.note $pkg/usr
 install -Dm644 packaging/linux/clanky.desktop $pkg/usr/share/applications/clanky.desktop
 install -Dm644 packaging/linux/io.github.rustytensor.Clanky.metainfo.xml \
     $pkg/usr/share/metainfo/io.github.rustytensor.Clanky.metainfo.xml
-install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg \
-    $pkg/usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
-install -d $pkg/usr/share/man/man1 $pkg/usr/share/doc/clanky $pkg/DEBIAN
+install -d $pkg/usr/share/icons/hicolor
+cp -r assets/icons/hicolor/. $pkg/usr/share/icons/hicolor/
+find $pkg/usr/share/icons/hicolor -type f -exec chmod 0644 {} +
+install -Dm755 packaging/debian/postinst $pkg/DEBIAN/postinst
+install -Dm755 packaging/debian/postrm $pkg/DEBIAN/postrm
+install -d $pkg/usr/share/man/man1 $pkg/usr/share/doc/clanky
 gzip -9n < packaging/linux/clanky.1 > $pkg/usr/share/man/man1/clanky.1.gz
 sh packaging/debian/copyright.sh > $pkg/usr/share/doc/clanky/copyright
 chmod 0644 $pkg/usr/share/man/man1/clanky.1.gz $pkg/usr/share/doc/clanky/copyright

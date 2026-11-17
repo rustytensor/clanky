@@ -43,7 +43,7 @@ check_desktop() {
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 lines = path.read_text().splitlines()
-for expected in ('Exec=clanky', 'Icon=io.github.rustytensor.Clanky', 'Name=Clanky'):
+for expected in ('Exec=clanky', 'Icon=clanky', 'Name=Clanky'):
     key = expected.split('=', 1)[0] + '='
     observed = [line for line in lines if line.startswith(key)]
     if observed != [expected]:
@@ -97,7 +97,17 @@ PY
 cat > "$work/expected-files" <<'EOF'
 /usr/bin/clanky
 /usr/share/applications/clanky.desktop
-/usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+/usr/share/icons/hicolor/128x128/apps/clanky.png
+/usr/share/icons/hicolor/16x16/apps/clanky.png
+/usr/share/icons/hicolor/22x22/apps/clanky.png
+/usr/share/icons/hicolor/24x24/apps/clanky.png
+/usr/share/icons/hicolor/256x256/apps/clanky.png
+/usr/share/icons/hicolor/32x32/apps/clanky.png
+/usr/share/icons/hicolor/48x48/apps/clanky.png
+/usr/share/icons/hicolor/512x512/apps/clanky.png
+/usr/share/icons/hicolor/64x64/apps/clanky.png
+/usr/share/icons/hicolor/scalable/apps/clanky.svg
+/usr/share/icons/hicolor/symbolic/apps/clanky-symbolic.svg
 /usr/share/licenses/clanky
 /usr/share/licenses/clanky/LICENSE-APACHE
 /usr/share/licenses/clanky/LICENSE-Catppuccin

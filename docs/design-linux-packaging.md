@@ -22,7 +22,7 @@ its RPM version and its source-tarball filename against the workspace version.
 
 1. `desktop-file-validate` and `appstreamcli validate --no-net` succeed. Both
    the source desktop file and the desktop file extracted from the RPM contain
-   exactly one each of `Exec=clanky`, `Icon=io.github.rustytensor.Clanky`, and
+   exactly one each of `Exec=clanky`, `Icon=clanky`, and
    `Name=Clanky`. Mismatches print the expected and observed lines.
 2. `scripts/vendor-tarball.sh OUTPUT` produces a vendored source archive;
    `rpmbuild -bb` builds it with offline Cargo, at most eight jobs, under
@@ -37,7 +37,17 @@ its RPM version and its source-tarball filename against the workspace version.
 ```
 /usr/bin/clanky
 /usr/share/applications/clanky.desktop
-/usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+/usr/share/icons/hicolor/128x128/apps/clanky.png
+/usr/share/icons/hicolor/16x16/apps/clanky.png
+/usr/share/icons/hicolor/22x22/apps/clanky.png
+/usr/share/icons/hicolor/24x24/apps/clanky.png
+/usr/share/icons/hicolor/256x256/apps/clanky.png
+/usr/share/icons/hicolor/32x32/apps/clanky.png
+/usr/share/icons/hicolor/48x48/apps/clanky.png
+/usr/share/icons/hicolor/512x512/apps/clanky.png
+/usr/share/icons/hicolor/64x64/apps/clanky.png
+/usr/share/icons/hicolor/scalable/apps/clanky.svg
+/usr/share/icons/hicolor/symbolic/apps/clanky-symbolic.svg
 /usr/share/licenses/clanky
 /usr/share/licenses/clanky/LICENSE-APACHE
 /usr/share/licenses/clanky/LICENSE-MIT

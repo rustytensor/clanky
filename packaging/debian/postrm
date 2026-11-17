@@ -1,0 +1,13 @@
+#!/bin/sh
+# Refreshes the icon cache after the hicolor icons are installed or removed, as debhelper's dh_icons would; a missing
+# gtk-update-icon-cache (no desktop installed) or a cache it cannot write leaves the icons usable, so it never fails
+# the installation.
+set -e
+case "$1" in
+    remove|purge)
+        if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d /usr/share/icons/hicolor ]; then
+            gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+        fi
+        ;;
+esac
+exit 0

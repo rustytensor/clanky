@@ -41,7 +41,9 @@ install -d -m 0755 %{buildroot}%{_prefix} %{buildroot}%{_bindir} \
 install -Dm755 "${CARGO_TARGET_DIR:-target}/release/clanky" %{buildroot}%{_bindir}/clanky
 install -Dm644 packaging/linux/clanky.desktop %{buildroot}%{_datadir}/applications/clanky.desktop
 install -Dm644 packaging/linux/io.github.rustytensor.Clanky.metainfo.xml %{buildroot}%{_metainfodir}/io.github.rustytensor.Clanky.metainfo.xml
-install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+# The icon cache is refreshed by RPM's file trigger of gtk-update-icon-cache, so no scriptlet is needed.
+cp -r assets/icons/hicolor/. %{buildroot}%{_datadir}/icons/hicolor/
+find %{buildroot}%{_datadir}/icons/hicolor -type f -exec chmod 0644 {} +
 install -Dm644 packaging/linux/clanky.1 %{buildroot}%{_mandir}/man1/clanky.1
 # A setgid build directory would otherwise pass its setgid bit to every directory here;
 # only a five-digit mode clears it (GNU chmod keeps it for 0755).
@@ -55,7 +57,8 @@ find %{buildroot} -type d -exec chmod 00755 {} +
 %{_bindir}/clanky
 %{_datadir}/applications/clanky.desktop
 %{_metainfodir}/io.github.rustytensor.Clanky.metainfo.xml
-%{_datadir}/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg
+%{_datadir}/icons/hicolor/*/apps/clanky.*
+%{_datadir}/icons/hicolor/symbolic/apps/clanky-symbolic.svg
 %{_mandir}/man1/clanky.1*
 
 %changelog
