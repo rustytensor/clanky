@@ -9,11 +9,14 @@
 #   CLANKY_GPUI_BIN=PATH or target/release/clanky-gpui, under the gate lock.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=parallel-jobs.sh
+source scripts/parallel-jobs.sh
 
 DIR=scripts/window-chrome
 GATE_LOCK=${CLANKY_GATE_LOCK:-/srv/devops/build/clanky/.gate.lock}
 FIXTURE_SCALES=(1 1.5)
 FIXTURE_THEME=graphite-dark
+GOOD_SCREENS=(main-window main-window-recent main-window-agents) # the good run, one process each
 # gate:fault:check — a planted fault and the check that must fail because of it.
 FAULTS=(
   "gate-controls.py:hit-larger:hit-box"
@@ -33,12 +36,12 @@ trap 'rm -rf -- "${scratch:?}"' EXIT
 ok() { echo "ok: $*"; }
 fail() { echo "FAIL: $*"; failed=1; }
 
-# run_gate GATE ARGS...: runs one gate script in simulation; sets output and status.
-run_gate() {
-  local gate=$1
-  shift
-  status=0
-  output=$(python3 "$DIR/$gate" --simulate --scales "$(IFS=,; echo "${FIXTURE_SCALES[*]}")" --theme "$FIXTURE_THEME" "$@" 2>&1) || status=$?
+# queue_gate NAME GATE ARGS...: starts one gate script in simulation in the background; take_job NAME then sets output
+# and status from it.
+queue_gate() {
+  local name=$1 gate=$2
+  shift 2
+  start_job "$name" python3 "$DIR/$gate" --simulate --scales "${JOB_SCALES:-$(IFS=,; echo "${FIXTURE_SCALES[*]}")}" --theme "$FIXTURE_THEME" "$@"
 }
 
 if [[ ${1:-} == --faults ]]; then
@@ -49,16 +52,29 @@ if [[ ${1:-} == --faults ]]; then
       if cmp -s "$scratch/$file" "$DIR/fixtures/$file"; then ok "fixture $file is what the generator draws"; else fail "fixture $file is stale: run draw_chrome_reference.py"; fi
     done
   done
-  run_gate gate-controls.py
+  JOB_DIR=$scratch
+  good_jobs=()
+  for scale in "${FIXTURE_SCALES[@]}"; do
+    for screen in "${GOOD_SCREENS[@]}"; do
+      good_jobs+=("controls-$scale-$screen")
+      JOB_SCALES=$scale queue_gate "controls-$scale-$screen" gate-controls.py --screens "$screen"
+    done
+  done
+  queue_gate design gate-design-tokens.py --sources "$DIR/fixtures/clean.rs"
+  for index in "${!FAULTS[@]}"; do
+    IFS=: read -r gate fault check <<<"${FAULTS[$index]}"
+    sources=("--sources" "$DIR/fixtures/clean.rs")
+    [[ $fault != loose-literal ]] || sources=() # that fault scans its own fixture
+    queue_gate "fault-$index" "$gate" --fault "$fault" "${sources[@]}"
+  done
+  take_jobs "${good_jobs[@]}"
   if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate passes the simulated window"; else fail "controls gate on the good window: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
-  run_gate gate-design-tokens.py --sources "$DIR/fixtures/clean.rs"
+  take_job design
   if ((status == 0)) && [[ $output == *"PASS: design tokens"* ]]; then ok "design gate passes the simulated window and the clean source fixture"; else fail "design gate on the good window: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
   caught=0
-  for entry in "${FAULTS[@]}"; do
-    IFS=: read -r gate fault check <<<"$entry"
-    sources=("--sources" "$DIR/fixtures/clean.rs")
-    [[ $fault != loose-literal ]] || sources=()   # that fault scans its own fixture
-    run_gate "$gate" --fault "$fault" "${sources[@]}"
+  for index in "${!FAULTS[@]}"; do
+    IFS=: read -r gate fault check <<<"${FAULTS[$index]}"
+    take_job "fault-$index"
     if ((status != 0)) && grep -q "^FAIL: $check " <<<"$output"; then
       echo "CAUGHT: $fault by $check ($gate)"
       caught=$((caught + 1))

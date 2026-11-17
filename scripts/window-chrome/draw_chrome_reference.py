@@ -12,6 +12,7 @@ exists. Nothing here reads the program under test.
 """
 
 import argparse
+import functools
 import json
 import math
 import sys
@@ -122,19 +123,7 @@ class Canvas:
 
     def text(self, left, baseline, text, weight, size_px, colour, alpha=1.0):
         """Text drawn large and reduced, so it carries no hinting; left and baseline are device pixels, fractions allowed."""
-        font = ImageFont.truetype(str(FONTS[weight]), round(size_px * SUPERSAMPLE))
-        advance = font.getlength(text) / SUPERSAMPLE
-        x0, y0 = math.floor(left) - 2, math.floor(baseline - size_px) - 2
-        width, height = math.ceil(advance) + 6, math.ceil(size_px * 1.6) + 4
-        canvas = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
-        ImageDraw.Draw(canvas).text(
-            ((left - x0) * SUPERSAMPLE, (baseline - y0) * SUPERSAMPLE),
-            text,
-            font=font,
-            fill=255,
-            anchor="ls",
-        )
-        mask = np.asarray(canvas.resize((width, height), Image.BOX), dtype=float) / 255
+        x0, y0, mask, advance = text_mask(left, baseline, text, weight, size_px)
         self.composite(x0, y0, mask, colour, alpha)
         return advance
 
@@ -160,7 +149,35 @@ class Canvas:
         )
 
 
-def rounded_mask(width, height, radius):
+@functools.lru_cache(maxsize=None)
+def font_at(weight, size_px):
+    """A font of the given weight at the supersampled size; the same few are asked for thousands of times."""
+    return ImageFont.truetype(str(FONTS[weight]), round(size_px * SUPERSAMPLE))
+
+
+@functools.lru_cache(maxsize=None)
+def text_mask(left, baseline, text, weight, size_px):
+    """(x0, y0, coverage mask, advance) of a text drawn large and reduced; the same text at the same place is
+    drawn many times, once per rendered frame, so the result is kept (the mask is shared and read-only)."""
+    font = font_at(weight, size_px)
+    advance = font.getlength(text) / SUPERSAMPLE
+    x0, y0 = math.floor(left) - 2, math.floor(baseline - size_px) - 2
+    width, height = math.ceil(advance) + 6, math.ceil(size_px * 1.6) + 4
+    canvas = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
+    ImageDraw.Draw(canvas).text(
+        ((left - x0) * SUPERSAMPLE, (baseline - y0) * SUPERSAMPLE),
+        text,
+        font=font,
+        fill=255,
+        anchor="ls",
+    )
+    mask = np.asarray(canvas.resize((width, height), Image.BOX), dtype=float) / 255
+    mask.setflags(write=False)
+    return x0, y0, mask, advance
+
+
+@functools.lru_cache(maxsize=None)
+def _rounded_mask(width, height, radius):
     mask = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
     ImageDraw.Draw(mask).rounded_rectangle(
         (0, 0, width * SUPERSAMPLE - 1, height * SUPERSAMPLE - 1),
@@ -168,6 +185,11 @@ def rounded_mask(width, height, radius):
         fill=255,
     )
     return np.asarray(mask.resize((width, height), Image.BOX), dtype=float) / 255
+
+
+def rounded_mask(width, height, radius):
+    """The coverage of a rounded rectangle; a copy of the kept one, as callers change the mask in place."""
+    return _rounded_mask(width, height, radius).copy()
 
 
 def blend(base, over, alpha):
@@ -185,8 +207,7 @@ def box_of(scale, left, top, width, height):
 
 
 def text_width(label, weight, px):
-    font = ImageFont.truetype(str(FONTS[weight]), round(px * SUPERSAMPLE))
-    return font.getlength(label) / SUPERSAMPLE
+    return font_at(weight, px).getlength(label) / SUPERSAMPLE
 
 
 class Layout:

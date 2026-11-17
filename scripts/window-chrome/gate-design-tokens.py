@@ -73,6 +73,13 @@ FAULTS = {
     "card-padding": "settings-card-padding-x",  # G4: every card's text 2 px too far right (--settings)
 }
 SIMULATE = "--simulate" in ARGS
+if (
+    SIMULATE
+):  # a simulated window answers at once: pauses move a clock, they do not wait
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import virtual_clock
+
+    virtual_clock.install()
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
 SETTINGS = "--settings" in ARGS  # G4: also measure the Settings window
 KEEP = "--keep" in ARGS
