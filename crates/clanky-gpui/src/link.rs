@@ -138,7 +138,11 @@ fn watch(
             revision = gather(lane, revision);
         }
         quiet_since = Instant::now();
+        // The change notice is the whole session's: when this pane's screen is the one already held (the server
+        // answers "unchanged" for its generation), there is nothing to draw.
+        let held = fetch.cached_generation(tab);
         match fetch.snapshot(tab) {
+            Ok(_) if held.is_some() && fetch.cached_generation(tab) == held => {}
             Ok(snapshot) => {
                 if !send(Update::Snapshot(Arc::new(snapshot))) {
                     return;

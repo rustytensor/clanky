@@ -23,9 +23,12 @@ use clanky_state::{
 };
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement, KeyDownEvent,
-    Keystroke, ParentElement, Render, Styled, Subscription, Task, Window, canvas, div, px,
+    Keystroke, MouseButton, MouseDownEvent, ParentElement, Render, Styled, Subscription, Task,
+    Window, canvas, div, px,
 };
 use serde_json::{Value, json};
+
+mod drag;
 
 use crate::{
     control_look::paint,
@@ -37,6 +40,7 @@ use crate::{
     pane::{PaneEvent, PaneSetup, SharedTrace, TerminalPane},
     tokens as t,
 };
+use drag::{Drag, Places};
 
 /// The main window's name in the control record.
 const SCREEN: &str = "main-window";
@@ -55,7 +59,8 @@ struct Status {
     revision: u64,
     /// Each tab's title: the folder of its focused pane, by pane id.
     folders: BTreeMap<String, String>,
-    uptime_seconds: u64,
+    /// The server's uptime as the status line words it, which changes once a minute.
+    uptime: String,
     masking_ready: bool,
     agents: usize,
 }
@@ -88,6 +93,8 @@ pub struct MainWindow {
     notice: Option<String>,
     /// When the frame now being drawn started, while a frame trace is on.
     draw_started: Option<Instant>,
+    drag: Option<Drag>,
+    places: Places,
     _status: Task<()>,
 }
 
@@ -138,6 +145,8 @@ impl MainWindow {
             status: Status::default(),
             notice: None,
             draw_started: None,
+            drag: None,
+            places: Places::default(),
             _status: status,
         };
         this.after_change(window, cx);
@@ -445,7 +454,20 @@ impl MainWindow {
                         this.act(window, cx, move |this, _, _| this.select_tab(index));
                     });
                 });
-            bar = bar.child(self.kit.build(SCREEN, tab, window, cx));
+            // The tab inside a box of its own that starts a drag and measures where the tab is.
+            bar = bar.child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.press_tab(index, event.position, cx);
+                        }),
+                    )
+                    .child(self.kit.build(SCREEN, tab, window, cx))
+                    .child(self.places.tab(index)),
+            );
         }
         let adder = this.clone();
         let new_tab = Control::new(Kind::IconButton, NEW_TAB_ID, "New tab")
@@ -460,13 +482,13 @@ impl MainWindow {
 
     /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, the
     /// pane gap between them.
-    fn panes_area(&self, scale: f32) -> AnyElement {
+    fn panes_area(&self, scale: f32, cx: &mut Context<Self>) -> AnyElement {
         let area = div().flex().flex_1().min_h_0().p(px(t::PANE_MARGIN));
         let Some(group) = self.workspace.groups.get(self.workspace.active) else {
             return area.into_any_element();
         };
         let mut index = 0;
-        area.child(self.layout_element(&group.layout, 1.0, scale, &mut index))
+        area.child(self.layout_element(&group.layout, 1.0, (Vec::new(), &mut index), scale, cx))
             .into_any_element()
     }
 
@@ -474,9 +496,11 @@ impl MainWindow {
         &self,
         layout: &Layout,
         share: f32,
+        place: (Vec<bool>, &mut u32),
         scale: f32,
-        index: &mut u32,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
+        let (path, index) = place;
         let room = div()
             .flex()
             .flex_basis(px(0.0))
@@ -514,9 +538,18 @@ impl MainWindow {
                     Axis::Rows => room.flex_col(),
                 };
                 let ratio = *ratio as f32;
-                room.gap(px(t::PANE_GAP))
-                    .child(self.layout_element(first, ratio, scale, index))
-                    .child(self.layout_element(second, 1.0 - ratio, scale, index))
+                let mut first_path = path.clone();
+                first_path.push(false);
+                let mut second_path = path.clone();
+                second_path.push(true);
+                let first = self.layout_element(first, ratio, (first_path, index), scale, cx);
+                let second =
+                    self.layout_element(second, 1.0 - ratio, (second_path, index), scale, cx);
+                room.relative()
+                    .child(first)
+                    .child(Self::divider(path.clone(), *axis, cx))
+                    .child(second)
+                    .child(self.places.split(path))
                     .into_any_element()
             }
         }
@@ -545,7 +578,7 @@ impl MainWindow {
                     .child(count)
                     .child(if tabs == 1 { "tab" } else { "tabs" }),
             )
-            .child(word(clanky::calm::uptime_label(self.status.uptime_seconds)));
+            .child(word(self.status.uptime.clone()));
         if let Some(notice) = &self.notice {
             left = left.child(
                 div()
@@ -620,6 +653,7 @@ impl Render for MainWindow {
             self.draw_started = Some(Instant::now());
         }
         self.kit.begin_frame();
+        self.places.clear();
         let scale = window.scale_factor();
         let title_bar = self.title_bar(window, cx);
         div()
@@ -631,8 +665,9 @@ impl Render for MainWindow {
             .text_color(paint(self.colors.foreground, 1.0))
             .capture_key_down(cx.listener(Self::shortcut))
             .child(title_bar)
-            .child(self.panes_area(scale))
+            .child(self.panes_area(scale, cx))
             .child(self.status_line(scale))
+            .children(self.drag_listener(cx))
             .child(self.frame_end())
             .child(self.kit.record().flush())
     }
@@ -716,7 +751,7 @@ fn read_status(client: &Client, focuses: &[String]) -> Status {
     Status {
         revision,
         folders,
-        uptime_seconds: look["uptime_ms"].as_u64().unwrap_or(0) / 1000,
+        uptime: clanky::calm::uptime_label(look["uptime_ms"].as_u64().unwrap_or(0) / 1000),
         masking_ready: look["masking_ready"].as_bool().unwrap_or(false),
         agents: look["agents"].as_array().map_or(0, Vec::len),
     }
