@@ -65,8 +65,10 @@ def run(extra):
         reader.write_text("import os,tty,time\ntty.setraw(0)\nos.write(1,b'READY\\r\\n')\nb=os.read(0,1)\nopen('received','wb').write(b)\nos.write(1,b'ECHO:'+b+b'\\r\\n')\nwhile not os.path.exists('release'): time.sleep(.05)\n")
         sock=work/'server.sock'; children=[]; owner=None
         def launch(args, pipe=False):
+            errors=app.window_log(work/f'{Path(str(args[0])).name}-{len(children)}.err')
             p=subprocess.Popen([str(x) for x in args],env=env,cwd=work,stdin=subprocess.PIPE if pipe else subprocess.DEVNULL,
-                               stdout=subprocess.PIPE if pipe else subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                               stdout=subprocess.PIPE if pipe else subprocess.DEVNULL,stderr=errors)
+            errors.close()
             children.append(p);return p
         def call(op,args=None,v=1):
             owner.stdin.write(json.dumps({'v':v,'op':op,'args':args or {}}).encode()+b'\n');owner.stdin.flush()
@@ -106,6 +108,11 @@ def run(extra):
             until(lambda:count()>before,'key frame');time.sleep(2);frames=count()-before
             call('close_tab',{'tab_id':tab})
             return idle,frames
+        except BaseException:
+            # The scratch folder goes when run() returns: show the windows' and server's error output first.
+            for child in reversed(children): stop(child)
+            app.print_window_errors()
+            raise
         finally:
             for child in reversed(children): stop(child)
 

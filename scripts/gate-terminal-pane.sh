@@ -447,6 +447,8 @@ for name in gate-t2-terminal gate-mouse gate-exit gate-c2-schemes gate-m12-idle 
     VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json flock -o "$GATE_LOCK" "${command[@]}" 2>&1); then
     ok "$name: $(tail -n 1 <<<"$output")"
   else
+    # A gate keeps its windows' error output and prints its end as note lines before its FAIL: show them.
+    grep '^note: window error' <<<"$output" || true
     fail "$name: $(tail -n 1 <<<"$output")"
   fi
 done

@@ -50,3 +50,22 @@ def isolated_env(base=None):
 def single_pane():
     """True when the window under test has one pane and no chrome (clanky-gpui in its first milestone)."""
     return override() is not None
+
+
+# Error output of the windows and servers a gate starts, kept in its scratch folder instead of /dev/null, so a window
+# that exits early names its cause.
+WINDOW_LOGS = []
+
+
+def window_log(path):
+    """An open file for a started window's or server's error output; print_window_errors shows its end."""
+    WINDOW_LOGS.append(Path(path))
+    return open(path, 'ab')  # closed by the caller with the process, or by the interpreter at exit
+
+
+def print_window_errors(lines=20):
+    """Prints the last LINES lines of every kept error output that has any, as note lines, before a gate's FAIL."""
+    for path in WINDOW_LOGS:
+        if path.exists() and path.stat().st_size:
+            for line in path.read_text(errors='replace').splitlines()[-lines:]:
+                print(f'note: window error ({path.parent.name}/{path.name}): {line}', flush=True)

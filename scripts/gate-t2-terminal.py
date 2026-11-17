@@ -158,7 +158,15 @@ class Window:
         self.w.mkdir(mode=0o700)
         for d in ('home', 'config', 'data', 'state', 'runtime'):
             (self.w / d).mkdir(mode=0o700)
-        self.procs, self.server = [], None
+        self.procs, self.server, self.errors = [], None, None
+        try:
+            self._start(cfg)
+        except BaseException:
+            # A window that fails to start must not leave its display running.
+            self.close()
+            raise
+
+    def _start(self, cfg):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(('XDG_', 'CLANKY', 'WAYLAND', 'DBUS', 'GNOME', 'GSETTINGS'))}
         env.update(HOME=str(self.w / 'home'), XDG_CONFIG_HOME=str(self.w / 'config'), XDG_DATA_HOME=str(self.w / 'data'),
@@ -176,8 +184,9 @@ class Window:
         os.close(rd)
         self.env = env
         self.sock = self.w / 'window.sock'
+        self.errors = gate_app.window_log(self.w / 'window.err')
         p = subprocess.Popen([str(APP), '--socket', str(self.sock), '--config', str(config)], env=env, cwd=str(self.w),
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=self.errors)
         self.procs.append(p)
         until(lambda: self.sock.exists() or require(p.poll() is None, 'window startup'), 'window socket', 40)
         self.wid = until(lambda: (subprocess.run(['xdotool', 'search', '--pid', str(p.pid)], env=env,
@@ -236,6 +245,8 @@ class Window:
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     p.kill()
+        if self.errors:
+            self.errors.close()
 
 
 def rgb(h):
@@ -394,9 +405,11 @@ def main():
                 win.close()
             print(f'ok: {name}')
     except Fail as e:
+        gate_app.print_window_errors()
         print(f'FAIL: T2 {e}')
         return 1
     except Exception as e:  # a crash still reports FAIL, never PASS
+        gate_app.print_window_errors()
         print(f'FAIL: T2 unexpected {type(e).__name__}: {e}')
         return 1
     if FAULT is None and not ONE_PANE:

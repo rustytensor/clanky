@@ -802,8 +802,10 @@ if __name__ == '__main__':
         require(FAULT in known, f'known fault {FAULT}')
         main()
     except Fail as e:
+        t2.gate_app.print_window_errors()
         print(f'FAIL: C2 {e}')
         sys.exit(1)
     except Exception as e:  # a crash still reports FAIL, never PASS
+        t2.gate_app.print_window_errors()
         print(f'FAIL: C2 unexpected {type(e).__name__}: {e}')
         sys.exit(1)
