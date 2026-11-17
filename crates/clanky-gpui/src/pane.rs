@@ -58,6 +58,8 @@ pub struct TerminalPane {
     reporting_button: Option<(u8, (usize, usize))>,
     /// The cell last reported for motion with no button held (mode 1003).
     motion_cell: Option<(usize, usize)>,
+    /// When the frame now being drawn started, while a frame trace is on.
+    draw_started: Option<Instant>,
     wheel_rest: f32,
     /// Text the input method is composing; it is shown nowhere yet and sent only when committed.
     marked: Option<String>,
@@ -129,6 +131,7 @@ impl TerminalPane {
             clicks: Clicks::default(),
             reporting_button: None,
             motion_cell: None,
+            draw_started: None,
             wheel_rest: 0.0,
             marked: None,
             notice: None,
@@ -138,8 +141,11 @@ impl TerminalPane {
         }
     }
 
-    /// Called once a frame has been painted.
+    /// Called once a frame has been painted: logs the frame and, with a trace, how long its draw took.
     pub fn frame_presented(&mut self) {
+        if let Some(started) = self.draw_started.take() {
+            self.trace.drawn(started.elapsed().as_micros());
+        }
         self.trace.presented();
     }
 
@@ -479,6 +485,10 @@ impl TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // gpui-ce draws a window by rendering its root view first: the draw time runs from here to the grid's paint.
+        if self.trace.enabled() {
+            self.draw_started = Some(Instant::now());
+        }
         let selection = match (&self.selection, &self.snapshot) {
             (Some(selection), Some(snapshot)) => {
                 let top = self.top_line();
