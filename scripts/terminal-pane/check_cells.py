@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
+from gpui_coverage import corrected_mask
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -430,13 +431,14 @@ def word_measurements(shot, word, font, theme_background, foreground):
 
 
 def regular_reference(word, font, theme_background, foreground):
-    """The same letters drawn regular at this size, measured the way the screenshot's word is: ink count and slant."""
+    """The same letters drawn regular at this size, measured the way the screenshot's word is: ink count and slant.
+    Their coverage goes through gpui-ce's text curve, so a regular word in the window and here carry the same ink."""
     left, top = cell_box(word[0])[0], word[0]["top"]
     right, bottom = cell_box(word[-1])[2], cell_box(word[0])[3]
     origin_x, origin_y = math.floor(left) - 2, math.floor(top) - 2
     width, height = math.ceil(right) - origin_x + 4, math.ceil(bottom) - origin_y + 4
     factor = REFERENCE_SUPERSAMPLE
-    big = Image.new("RGB", (width * factor, height * factor), theme_background)
+    big = Image.new("L", (width * factor, height * factor), 0)
     big_font = ImageFont.truetype(str(FONT_REGULAR), font.size * factor)
     draw = ImageDraw.Draw(big)
     for cell in word:
@@ -444,8 +446,14 @@ def regular_reference(word, font, theme_background, foreground):
             (cell["left"] - origin_x) * factor,
             (word[0]["baseline"] - origin_y) * factor,
         )
-        draw.text(position, cell["char"], font=big_font, fill=foreground, anchor="ls")
-    shot = Shot(big.resize((width, height), Image.BOX), theme_background)
+        draw.text(position, cell["char"], font=big_font, fill=255, anchor="ls")
+    picture = Image.new("RGB", (width, height), theme_background)
+    picture.paste(
+        foreground,
+        (0, 0),
+        corrected_mask(big.resize((width, height), Image.BOX), foreground),
+    )
+    shot = Shot(picture, theme_background)
     xs = span(left - origin_x, right - origin_x)
     letter_rows = list(range(math.ceil(word[0]["baseline"]) - origin_y))
     ink = sum(1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background))

@@ -5,9 +5,9 @@ Usage: python3 scripts/terminal-pane/draw_reference.py EXPECTED.json OUT.png [--
                                             [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 The picture lets check_cells.py be shown to pass on a correct image and to fail on broken ones. Faults: drift,
-late (one glyph 1 px right of its cell), background, nounderline, boxgap, halfblock. Glyphs are drawn at their
-cell's left edge on the cell's baseline from expected.py; block elements are exact rectangles, as a renderer draws
-them.
+late (one glyph 1 px right of its cell), background, nounderline, nobold (BOLD in the regular face), boxgap,
+halfblock. Glyphs are drawn at their cell's left edge on the cell's baseline from expected.py; block elements are
+exact rectangles, as a renderer draws them.
 """
 
 import argparse
@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gpui_coverage import corrected_mask
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,7 +45,7 @@ HALF_BLOCKS = {
     "█": (0, 0, 1, 1),
 }
 HALFBLOCK_FAULT_FILL = 0.6
-FAULTS = ("drift", "late", "background", "nounderline", "boxgap", "halfblock")
+FAULTS = ("drift", "late", "background", "nounderline", "nobold", "boxgap", "halfblock")
 CURSOR_COLOUR = (230, 230, 230)
 CURSOR_STRIP_LOGICAL_PX = 2
 
@@ -98,7 +99,8 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
     """Paint one glyph with its pen at x = origin on the given baseline.
 
     It is drawn at eight times the size and reduced, so the glyph sits at the exact fractional position and font
-    hinting does not move it: the picture shows where the glyphs belong, not what a rasteriser makes of them.
+    hinting does not move it: the picture shows where the glyphs belong, not what a rasteriser makes of them. Its
+    coverage goes through gpui-ce's text curve (gpui_coverage.py), so the glyph carries the ink gpui-ce gives it.
     """
     factor = GLYPH_SUPERSAMPLE
     margin = 4
@@ -116,7 +118,11 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
         fill=255,
         anchor="ls",
     )
-    image.paste(colour, (x0, y0), mask.resize((width, height), Image.BOX))
+    image.paste(
+        colour,
+        (x0, y0),
+        corrected_mask(mask.resize((width, height), Image.BOX), colour),
+    )
 
 
 def draw_curl(image, box, centre_y, amplitude, thickness, colour, cell_width):
@@ -239,7 +245,10 @@ def main():
             font_path = (
                 cjk_path
                 if ord(char) >= 0x3000
-                else text_font("bold" in attributes, "italic" in attributes)
+                else text_font(
+                    "bold" in attributes and arguments.fault != "nobold",
+                    "italic" in attributes,
+                )
             )
             pen = left + (cell["width"] - size_px) / 2 if ord(char) >= 0x3000 else left
             if arguments.fault == "drift" and cell["row"] == 0:

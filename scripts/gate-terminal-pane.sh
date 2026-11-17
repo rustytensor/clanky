@@ -27,7 +27,7 @@ SPEED_RUNS=3                # runs of clanky-gpui; the medians are compared with
 SPEED_LIMIT_TIME=1.1        # check 6: cat of 100 MB at most this multiple of today's
 SPEED_LIMIT_KEY_MS=2        # key to screen p50 and p99 at most today's plus this
 SPEED_LIMIT_START=1.2       # start to first frame at most this multiple of today's
-FAULT_PAIRS=(drift:placement late:placement background:colours nounderline:attributes boxgap:wide halfblock:wide)
+FAULT_PAIRS=(drift:placement late:placement background:colours nounderline:attributes nobold:attributes boxgap:wide halfblock:wide)
 # CLANKY_GATE_FAULT=lock-leak plants the fault the gate lock check is aimed at: the windows keep the lock's file
 # descriptor and the screen steps leave their session server running, so the run must fail at the lock check
 # within LOCK_WAIT_SECONDS instead of waiting for ever. keep-server leaves only the server running: the run must go on.
