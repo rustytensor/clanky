@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Terminal pane gate, engine check: the engine crates must not depend on gpui-ce, directly or through anything else.
+# Terminal pane gate, engine check: the engine crates and the window-side state (clanky-state) must not depend on
+# gpui-ce, directly or through anything else.
 # Prints "ok: engine-free <crate count> crates, no gpui" or "FAIL: engine-free <crate> depends on <gpui crate>"; exit 1 on failure.
-# --fault plants the failure: it copies the workspace to a scratch folder, adds gpui-ce to clanky-core, and runs the same check there.
+# --fault [CRATE] plants the failure: it copies the workspace to a scratch folder, adds gpui-ce to CRATE (default
+# clanky-core; the window chrome gate plants it in clanky-state), and runs the same check there.
 # Only dependency resolution runs, no build. The fault needs one git fetch (over ssh, as the copy check does).
 set -euo pipefail
 
-ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api)
+ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api clanky-state)
 # The pin and package name are the copy check's own (scripts/copy-check/Cargo.toml in servorra/gpui-ce, branch clanky).
 GPUI_DEPENDENCY='gpui_ce = { git = "https://git.servorra.com/servorra/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui-ce" }'
 
@@ -43,10 +45,12 @@ check_workspace() {
 workspace_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 if [[ ${1:-} == --fault ]]; then
+  fault_crate=${2:-clanky-core}
+  [[ " ${ENGINE_CRATES[*]} " == *" $fault_crate "* ]] || { echo "FAIL: engine-free --fault: $fault_crate is not a checked crate" >&2; exit 1; }
   scratch=$(mktemp -d /srv/devops/build/engine-free-fault.XXXXXX)
   trap 'rm -rf "$scratch"' EXIT
   tar -C "$workspace_root" --exclude=.git --exclude=target -cf - . | tar -C "$scratch" -xf -
-  sed -i "/^\[dependencies\]/a $GPUI_DEPENDENCY" "$scratch/crates/clanky-core/Cargo.toml"
+  sed -i "/^\[dependencies\]/a $GPUI_DEPENDENCY" "$scratch/crates/$fault_crate/Cargo.toml"
   export CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@git.servorra.com:.insteadOf GIT_CONFIG_VALUE_0=https://git.servorra.com/
   if check_workspace "$scratch" ""; then
     echo "FAIL: engine-free planted fault was not caught" >&2
