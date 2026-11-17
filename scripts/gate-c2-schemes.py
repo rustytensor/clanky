@@ -753,25 +753,27 @@ def pane_colours_story():
     written from the gate's own parse of the collection file, draws background, ansi 0..15, foreground, cursor and
     selection. The Settings picker, preview, import and live reload (P1, P2, F1, K1, M1-M3) need Settings."""
     win = None
-    for term, want, avoid, name in SAMPLES:
-        src = 'Nord Light' if FAULT == 'source' and name == 'Nord' else name
-        s = parse_iterm(ref(f'schemes/{src}.itermcolors'))
-        expected = parse_iterm(ref(f'schemes/{name}.itermcolors'))
-        colours = dict(background=hexs(s['background']), foreground=hexs(s['foreground']),
-                       cursor=hexs(s['cursor'] or s['foreground']), ansi=[hexs(c) for c in s['ansi']])
-        if s['selection']:
-            colours['selection'] = hexs(s['selection'])
-        if win:
-            win.close()
-        win = Win(f'k2-{term}', dict(BASE, terminal_colors=colours))
-        box = swatch(win)
-        screen_check(win, box, expected, f'K2 {name}', select=True)
-        print(f'ok: K2 {name} drawn in the pane')
     try:
+        for term, want, avoid, name in SAMPLES:
+            src = 'Nord Light' if FAULT == 'source' and name == 'Nord' else name
+            s = parse_iterm(ref(f'schemes/{src}.itermcolors'))
+            expected = parse_iterm(ref(f'schemes/{name}.itermcolors'))
+            colours = dict(background=hexs(s['background']), foreground=hexs(s['foreground']),
+                           cursor=hexs(s['cursor'] or s['foreground']), ansi=[hexs(c) for c in s['ansi']])
+            if s['selection']:
+                colours['selection'] = hexs(s['selection'])
+            if win:
+                win.close()
+            win = Win(f'k2-{term}', dict(BASE, terminal_colors=colours))
+            box = swatch(win)
+            screen_check(win, box, expected, f'K2 {name}', select=True)
+            print(f'ok: K2 {name} drawn in the pane')
         q1.idle(win, 'I1 after the last scheme is drawn')
         print('ok: I1 0 idle frames')
     finally:
-        win.close()
+        # A failed check must not leave its window, server and display running.
+        if win:
+            win.close()
 
 
 def main():

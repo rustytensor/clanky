@@ -299,7 +299,8 @@ def colours_and_font(win, ansi, label, check_font, check_independent=None):
     win.type(palette_line())
     time.sleep(2)
     im = win.shot(label)
-    start = find_run(im, ansi[1], range(60, 800))
+    # Today's window has its tab bar above y 60; a one-pane window starts its grid at the top.
+    start = find_run(im, ansi[1], range(0 if ONE_PANE else 60, 800))
     require(start, f'C {label}: red cell colour {ansi[1]} found on screen')
     x0, y0 = start
     W, H = im.size
