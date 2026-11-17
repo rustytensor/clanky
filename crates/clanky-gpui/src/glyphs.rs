@@ -176,9 +176,126 @@ pub fn pieces(character: char, cell: CellBox, light: f32) -> Vec<Piece> {
     out
 }
 
+/// Which line under the text a run carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnderlineKind {
+    Single,
+    Double,
+    Curly,
+}
+
+/// Where a run's underline may go: the device pixel rows below the baseline, down to the cell's bottom.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnderlineSpace {
+    pub left: f32,
+    pub right: f32,
+    /// The baseline, in device pixels; the first row below it is the first row the line may use.
+    pub baseline: f32,
+    pub bottom: f32,
+    /// Line thickness in device pixels.
+    pub thickness: f32,
+    /// Where the wave of a curly underline starts its period, and the period's length: one wave per cell, counted
+    /// from the grid's left edge, so the waves of neighbouring runs join.
+    pub wave_origin: f32,
+    pub wave_period: f32,
+}
+
+/// The rectangles of an underline, kept inside its own row: a line drawn below the cell would be painted over by
+/// the next row's background, and would read as that row's ink.
+pub fn underline(kind: UnderlineKind, space: UnderlineSpace) -> Vec<Piece> {
+    let t = space.thickness;
+    let first = space.baseline.floor() + 1.0;
+    let room = (space.bottom - first).max(t);
+    let line = |top: f32| Piece {
+        left: space.left,
+        top,
+        right: space.right,
+        bottom: top + t,
+        alpha: 1.0,
+    };
+    match kind {
+        UnderlineKind::Single => vec![line(first + ((room - t) / 2.0).floor())],
+        UnderlineKind::Double => vec![line(space.bottom - 3.0 * t), line(space.bottom - t)],
+        UnderlineKind::Curly => curl(space, first, room - t),
+    }
+}
+
+/// A wave one device pixel wide per column, between `first` and `first + amplitude`; columns at the same height
+/// are merged into one rectangle.
+fn curl(space: UnderlineSpace, first: f32, amplitude: f32) -> Vec<Piece> {
+    let mut out: Vec<Piece> = Vec::new();
+    let mut x = space.left;
+    while x < space.right {
+        let phase = (x + 0.5 - space.wave_origin) / space.wave_period.max(1.0);
+        let lift = (amplitude * (1.0 - (phase * std::f32::consts::TAU).cos()) / 2.0).round();
+        let top = first + amplitude - lift;
+        match out.last_mut() {
+            Some(last) if last.top == top && last.right == x => last.right = x + 1.0,
+            _ => out.push(Piece {
+                left: x,
+                top,
+                right: x + 1.0,
+                bottom: top + space.thickness,
+                alpha: 1.0,
+            }),
+        }
+        x += 1.0;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The pane at scale 1.5: a 29 px row whose baseline lies 24.48 px below its top.
+    const SPACE: UnderlineSpace = UnderlineSpace {
+        left: 18.0,
+        right: 76.0,
+        baseline: 187.48,
+        bottom: 192.0,
+        thickness: 2.0,
+        wave_origin: 18.0,
+        wave_period: 14.4,
+    };
+
+    #[test]
+    fn underlines_stay_between_the_baseline_and_the_cell_bottom() {
+        for kind in [UnderlineKind::Single, UnderlineKind::Curly] {
+            for piece in underline(kind, SPACE) {
+                assert!(
+                    piece.top >= 188.0 && piece.bottom <= 192.0,
+                    "{kind:?} {piece:?}"
+                );
+            }
+        }
+        // Four rows below the baseline, a two pixel line: centred, rows 189 and 190.
+        assert_eq!(underline(UnderlineKind::Single, SPACE)[0].top, 189.0);
+    }
+
+    #[test]
+    fn a_curly_underline_covers_every_column_and_waves() {
+        let pieces = underline(UnderlineKind::Curly, SPACE);
+        let columns: f32 = pieces.iter().map(|p| p.right - p.left).sum();
+        assert_eq!(columns, 58.0);
+        let tops: Vec<f32> = pieces.iter().map(|p| p.top).collect();
+        let highest = tops.iter().copied().fold(f32::MAX, f32::min);
+        let lowest = tops.iter().copied().fold(f32::MIN, f32::max);
+        assert_eq!((highest, lowest), (188.0, 190.0));
+        // At scale 1 (a 19 px row, baseline 16.32 below its top) there are two rows: the wave still moves by one.
+        let small = UnderlineSpace {
+            baseline: 28.32,
+            bottom: 31.0,
+            thickness: 1.0,
+            wave_period: 9.6,
+            ..SPACE
+        };
+        let tops: Vec<f32> = underline(UnderlineKind::Curly, small)
+            .iter()
+            .map(|p| p.top)
+            .collect();
+        assert!(tops.contains(&29.0) && tops.contains(&30.0), "{tops:?}");
+    }
 
     const CELL: CellBox = CellBox {
         left: 10.0,
