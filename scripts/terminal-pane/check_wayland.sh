@@ -4,7 +4,7 @@
 #   with no --exec opens a native Wayland window within WINDOW_SECONDS, the prompt row has ink before typing, and after
 #   typing `echo g1-ok` and Enter the text g1-ok shows twice (the typed line and its output).
 # Check 10: the same start with a runtime folder that has the setgid bit either opens a window that takes the same
-#   typing, or exits 1 with one line that names the folder and the fix.
+#   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
 # --faults needs no binary and no sway: it shows the screenshot reader accepting a window drawn as it should look and
 #   rejecting one whose prompt row shows only the cursor (the planted fault: command_input "editor" honoured, which shows a bare cursor).
@@ -247,7 +247,7 @@ check_10() {
   launch "$setgid_runtime" "$wayland_socket"
   if wait_window "$SETTLE_SECONDS"; then
     type_echo
-    if line=$(wait_screen "$TYPE_SECONDS" text 1); then
+    if line=$(wait_screen "$TYPE_SECONDS" text 2 --exactly); then
       ok "wayland (check 10): setgid runtime folder, window opened and took typing: ${line#ok: }"
     else
       fail "wayland (check 10): setgid runtime folder, window opened but typing did not show: ${line#FAIL: }"
