@@ -49,9 +49,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "floating"))
+sys.path.insert(0, str(HERE.parent / "settings"))
 import chrome_pixels as pixels  # noqa: E402
 import expected as expected_values  # noqa: E402
 import expected_floating  # noqa: E402
+import expected_settings  # noqa: E402
 from chrome_harness import Fail, RealWindow, until  # noqa: E402
 from simulated_window import SimWindow  # noqa: E402
 
@@ -68,9 +70,11 @@ FAULTS = {
     "loose-literal": "loose-numbers",
     "palette-row-short": "palette-row-height",  # G3: a palette row 2 px short (--floating)
     "palette-text-big": "palette-row-cap-height",  # G3: palette row text 2 px too large (--floating)
+    "card-padding": "settings-card-padding-x",  # G4: every card's text 2 px too far right (--settings)
 }
 SIMULATE = "--simulate" in ARGS
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
+SETTINGS = "--settings" in ARGS  # G4: also measure the Settings window
 KEEP = "--keep" in ARGS
 SCALES = [float(v) for v in arg("--scales", "1").split(",")]
 THEME = arg("--theme", "graphite-dark")
@@ -554,7 +558,9 @@ def window_checks(win, e):
     guarded("text-meta-cap-height", meta)
 
     def panes():
-        margin, between = pane_gap_margin(e, a, pane, frame, win.landmarks().get("pane", []))
+        margin, between = pane_gap_margin(
+            e, a, pane, frame, win.landmarks().get("pane", [])
+        )
         record(
             "pane-margin",
             margin is not None and abs(margin - chrome["pane_margin"]["device"]) <= tol,
@@ -593,6 +599,8 @@ def window_checks(win, e):
     guarded("selection-colour", lambda: selection_check(win, e))
     if FLOATING:
         floating_checks(win, e)
+    if SETTINGS:
+        guarded("settings", lambda: settings_checks(win, e))
 
 
 def e_rgb(e, role):
@@ -921,7 +929,292 @@ def floating_checks(win, e):
         )
 
 
+# ---------------------------------------------------------------- G4: the Settings window
+
+SETTINGS_PAGE = "Appearance"  # its first group label starts with a flat-topped letter, as the expected offset assumes
+BORDER_LEVEL_TOLERANCE = 3  # colour levels, for the card's border pixel
+
+
+def ink_left(a, box, bg):
+    """The left edge of the ink in box, its first column counted by how much of the next column's ink it holds, so
+    a stem that starts part-way into a pixel is placed between pixels, not on the whole one."""
+    import numpy as np
+
+    x0, y0, x1, y1 = box
+    d = np.abs(a[y0 : y1 + 1, x0 : x1 + 1] - np.array(bg)).max(axis=2).astype(float)
+    profile = d.sum(axis=0)
+    cols = np.where(profile > 0.03 * profile.max())[0]
+    c = int(cols[0])
+    share = (
+        min(1.0, profile[c] / max(1.0, profile[c + 1])) if c + 1 < len(profile) else 1.0
+    )
+    return x0 + c + 1 - share
+
+
+def first_glyph(a, region, bg, text_px):
+    """The box of the first glyph of a line of text: from the ink's left edge, 0.6 em wide, so a "T" is taken
+    whole and the taller letters after it (a "b" is higher than a capital) are left out."""
+    clusters = pixels.ink_clusters(a, region, bg)
+    if not clusters:
+        return None
+    left = int(clusters[0][0])
+    return (left, region[1], left + int(0.6 * text_px) + 1, region[3])
+
+
+def glyph_extent(a, box, bg):
+    """(top edge, height) of a "T" in box, in window rows. The top is the bar's first row, counted by how much of
+    full ink it holds (the bar can be thinner than a pixel and spill over two rows); the bottom is the stem's last
+    row, counted the same way. The two edges are read apart because the bar is wider than the stem, so a row-sum
+    coverage (chrome_pixels.coverage_height) counts a spilled bar row as whole."""
+    import numpy as np
+
+    x0, y0, x1, y1 = box
+    d = np.abs(a[y0:y1, x0:x1] - np.array(bg)).max(axis=2).astype(float)
+    if d.max() < 12:
+        return None
+    cov = d / d.max()
+    stem = int(np.argmax((cov >= 0.5).sum(axis=0)))
+    stem_cols = slice(max(stem - 1, 0), stem + 2)
+    rows = np.where(cov.max(axis=1) > 0.03)[0]
+    top = y0 + int(rows.min()) + 1 - min(1.0, float(cov[rows.min()].max()))
+    stem_rows = np.where(cov[:, stem_cols].max(axis=1) > 0.03)[0]
+    last = int(stem_rows.max())
+    bottom = y0 + last + min(1.0, float(cov[last, stem_cols].max()))
+    return top, bottom - top
+
+
+def card_corner_radius(a, card, inside, body, reach):
+    """The radius of the first card's top-left corner: a circle fitted to the coverage of the card's edge colour
+    over the page, the card's inside counted whole. The border is brighter than the fill, so an area measure would
+    count it twice."""
+    import numpy as np
+
+    mid, y_mid = card[0] + card[2] // 2, card[1] + card[3] // 2
+    left, _ = pixels.walk(a, mid, y_mid, -1, 0, inside)
+    _, top = pixels.walk(a, mid, card[1] + 4, 0, -1, inside)
+    edge = tuple(int(v) for v in a[y_mid, left])
+    k = int(np.argmax([abs(p - q) for p, q in zip(edge, body)]))
+    coverage = np.clip((a[..., k] - body[k]) / (edge[k] - body[k]), 0, 1)
+    coverage = np.where(np.abs(a - np.array(inside)).max(axis=2) <= 2, 1.0, coverage)
+    return pixels.circle_fit_radius(coverage, left, top, y_mid, mid, 3 * reach, reach)
+
+
+def open_settings_appearance(win):
+    """Opens Settings with Ctrl+, and shows the Appearance page by clicking its switcher segment, then moves the
+    pointer away so that no hover colours the measurements."""
+    win.away()
+    win.key("ctrl+comma")
+    until(lambda: (win.screen("settings") or {}).get("controls"), "Settings opens", 5)
+    segment = next(
+        (
+            c
+            for c in win.screen("settings")["controls"]
+            if c["kind"] == "segment"
+            and c["group"] == "settings-pages"
+            and c["label"] == SETTINGS_PAGE
+        ),
+        None,
+    )
+    if segment is None:
+        raise Fail(f"no Settings page {SETTINGS_PAGE} in the record")
+    x, y, w, h = segment["box"]
+    win.move(x + w // 2, y + h // 2)
+    win.x("mousedown", "1")
+    win.x("mouseup", "1")
+    until(
+        lambda: (win.screen("settings") or {}).get("page") == SETTINGS_PAGE,
+        f"the {SETTINGS_PAGE} page is shown",
+        3,
+    )
+    win.away()
+    time.sleep(0.3)
+
+
+def settings_checks(win, e):
+    """The 12 Settings rows of the old design gate, on the Appearance page: geometry from the record's landmarks
+    (the panel's edges and the divider from the pixels), fills, corners, border and text from the screenshot."""
+    import numpy as np
+
+    open_settings_appearance(win)
+    try:
+        a = win.shot("settings")
+        settings = e["settings"]
+        tol = settings["header_height"]["tolerance_px"]
+        header = landmark(win, "settings-header")
+        pill = landmark(win, "settings-tab-pill")
+        card = landmark(win, "settings-card", 0)
+        card_rgb = e_rgb(e, "card")
+
+        # The header: from the panel's top border down to the divider, in a column left of the pill.
+        probe = pill[0] - 6
+        header_row = header[1] + header[3] // 2
+        header_colour = tuple(int(v) for v in a[header_row, probe])
+        _, top = pixels.walk(a, probe, header_row, 0, -1, header_colour)
+        _, divider = pixels.walk(a, probe, header_row, 0, 1, header_colour)
+        height = divider - top + 1
+        want = settings["header_height"]["device"]
+        record(
+            "settings-header-height",
+            abs(height - want) <= tol and abs(header[3] - want) <= tol,
+            f"{want:g}",
+            f"{height} (landmark {header[3]})",
+        )
+
+        # The pill: the height of its fill in the tray colour.
+        want = settings["tab_pill_height"]["device"]
+        pill_height = pixels.fill_height(
+            a,
+            pill,
+            sum(card_rgb) / 3,
+            e["controls"]["button"]["radius"]["device"],
+        )
+        record(
+            "settings-tab-pill-height",
+            abs(pill_height - want) <= tol,
+            f"{want:g}",
+            pill_height,
+        )
+
+        history = next(
+            c
+            for c in win.screen("settings")["controls"]
+            if c["group"] == "settings-pages" and c["label"] == "History"
+        )
+        hx, hy, hw, hh = history["box"]
+        tray = tuple(int(v) for v in a[hy + hh // 2, hx + 1])
+        stem = pixels.first_stem_box(
+            a, (hx + 2, hy + 2, hx + hw - 2, hy + hh - 2), tray
+        )
+        role = e["cap_heights"]["text_tab_switch"]
+        text_check(
+            "settings-tab-cap-height",
+            role["device"],
+            None if stem is None else pixels.ink_height(a, stem, tray),
+            role["tolerance_px"],
+        )
+
+        # The first card's sides, along a row just below its corners' arcs.
+        radius = settings["card_radius"]["device"]
+        side_row = card[1] + int(np.ceil(radius)) + 1
+        inside = tuple(int(v) for v in a[side_row, card[0] + 4])
+        card_left, _ = pixels.walk(a, card[0] + card[2] // 2, side_row, -1, 0, inside)
+        card_right, _ = pixels.walk(a, card[0] + card[2] // 2, side_row, 1, 0, inside)
+        width = card_right - card_left + 1
+        want = settings["column_max"]["device"]
+        record(
+            "settings-column-width",
+            width <= want + settings["column_max"]["tolerance_px"],
+            f"<={want:g}",
+            width,
+        )
+        body = tuple(int(v) for v in a[side_row, card_left - 3])
+        panel_left, _ = pixels.walk(a, card_left - 3, side_row, -1, 0, body)
+        panel_right, _ = pixels.walk(a, card_right + 3, side_row, 1, 0, body)
+        sides = (card_left - panel_left, panel_right - card_right)
+        want = settings["padding_side"]["device"]
+        record(
+            "settings-side-padding",
+            all(abs(v - want) <= tol for v in sides),
+            f"{want:g}",
+            f"{sides[0]} left, {sides[1]} right",
+        )
+
+        lx, ly, lw, lh = landmark(win, "settings-group-label", 0)
+        label = pixels.first_stem_box(a, (lx, ly, lx + 60, ly + lh - 1), body)
+        span = None if label is None else pixels.ink_span(a, label, body)
+        header_bottom = header[1] + header[3]
+        want = e["settings_offsets"]["top_padding"]["device"]
+        record(
+            "settings-top-padding",
+            span is not None and abs(span[0] - header_bottom - want) <= tol,
+            f"{want:.2f}",
+            "no ink" if span is None else f"{span[0] - header_bottom:.2f}",
+        )
+
+        radius_observed = card_corner_radius(
+            a, card, inside, body, int(np.ceil(radius))
+        )
+        record(
+            "settings-card-radius",
+            abs(radius_observed - radius) <= tol,
+            f"{radius:g}",
+            f"{radius_observed:.2f}",
+        )
+
+        y_mid = card[1] + card[3] // 2
+        edge = tuple(int(v) for v in a[y_mid, card[0]])
+        interior = tuple(int(v) for v in a[y_mid, card[0] + 3])
+        share = e["settings_card_border_share"]
+        over = e["settings_card_border_over"]
+        want_edge = tuple(f + share * (o - f) for f, o in zip(interior, over))
+        record(
+            "settings-card-border-alpha",
+            all(abs(p - q) <= BORDER_LEVEL_TOLERANCE for p, q in zip(edge, want_edge)),
+            f"{share:.3f} (rgb {tuple(round(v) for v in want_edge)})",
+            f"rgb {edge} over {interior}",
+        )
+
+        # The title and the description, from their landmarks: the title's ink left and cap top, both cap heights.
+        title = landmark(win, "settings-card-title", 0)
+        description = landmark(win, "settings-card-description", 0)
+
+        def region(box):
+            x, y, w, h = box
+            return (card[0] + 3, y - 1, min(x + w, card[0] + card[2] // 2), y + h)
+
+        title_region = region(title)
+        text_px = e["cap_heights"]["text_title"]["size_px"] * e["scale"]
+        title_glyph = first_glyph(a, title_region, interior, text_px)
+        title_extent = (
+            None if title_glyph is None else glyph_extent(a, title_glyph, interior)
+        )
+        top = None if title_extent is None else title_extent[0]
+        padding_x = ink_left(a, title_region, interior) - card[0]
+        want = e["settings_offsets"]["card_padding_x"]["device"]
+        record(
+            "settings-card-padding-x",
+            abs(padding_x - want) <= tol,
+            f"{want:.2f}",
+            f"{padding_x:.2f}",
+        )
+        want = e["settings_offsets"]["card_padding_y"]["device"]
+        record(
+            "settings-card-padding-y",
+            top is not None and abs(top - card[1] - want) <= tol,
+            f"{want:.2f}",
+            "no ink" if top is None else f"{top - card[1]:.2f}",
+        )
+        description_glyph = first_glyph(
+            a,
+            region(description),
+            interior,
+            e["cap_heights"]["text_desc"]["size_px"] * e["scale"],
+        )
+        description_extent = (
+            None
+            if description_glyph is None
+            else glyph_extent(a, description_glyph, interior)
+        )
+        for check, extent, role in (
+            ("settings-title-cap-height", title_extent, "text_title"),
+            ("settings-description-cap-height", description_extent, "text_desc"),
+        ):
+            text_check(
+                check,
+                e["cap_heights"][role]["device"],
+                None if extent is None else extent[1],
+                e["cap_heights"][role]["tolerance_px"],
+            )
+    finally:
+        win.key("Escape")
+        time.sleep(0.3)
+
+
 def make_window(scale):
+    if SIMULATE and SETTINGS:
+        from simulated_settings import SimSettingsWindow
+
+        return SimSettingsWindow(scale, THEME, FAULT)
     if SIMULATE and FLOATING:
         from simulated_floating import SimFloatingWindow
 
@@ -948,9 +1241,14 @@ def main():
         WORK.mkdir(mode=0o700, parents=True)
     try:
         for scale in SCALES:
-            e = (expected_floating.build if FLOATING else expected_values.build)(
-                scale, THEME
+            builder = (
+                expected_settings.build
+                if SETTINGS
+                else expected_floating.build
+                if FLOATING
+                else expected_values.build
             )
+            e = builder(scale, THEME)
             win = make_window(scale)
             try:
                 window_checks(win, e)

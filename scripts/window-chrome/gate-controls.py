@@ -81,8 +81,13 @@ FAULTS = {
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
     "selected-segment-hover": "hover-colour",
+    # G4's faults, planted in the Settings simulation (--settings). card-padding is the design gate's.
+    "setting-not-written": "config-roundtrip",
+    "switch-hit-larger": "hit-box",
+    "page-control-out-of-tab-order": "tab-order",
 }
 SIMULATE = "--simulate" in ARGS
+SETTINGS = "--settings" in ARGS  # the simulation includes G4's Settings window
 FLOATING = "--floating" in ARGS  # the simulation includes G3's floating screens
 SCALES = [float(v) for v in arg("--scales", "1,1.5").split(",")]
 THEME = arg("--theme", "graphite-dark")
@@ -98,6 +103,7 @@ WORK = Path(
 )
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "floating"))
+sys.path.insert(0, str(HERE.parent / "settings"))
 import expected as expected_values  # noqa: E402
 from chrome_harness import Fail, RealWindow, until  # noqa: E402
 from simulated_window import SimWindow  # noqa: E402
@@ -181,7 +187,7 @@ def use_expected(scale, theme):
     tokens = expected_values.load_tokens()
     KINDS = {}
     for kind, spec in EXPECTED["controls"].items():
-        radius = None if kind == "switch" else spec["radius"]["logical"]
+        radius = None if kind in ("switch", "slider") else spec["radius"]["logical"]
         KINDS[kind] = (
             spec["height"]["logical"],
             radius,
@@ -327,6 +333,66 @@ FLOATING_SCREENS = {
         stays_open=True,  # firing Next or Previous leaves the bar open
     ),
 }
+ROWS_FILE = HERE.parent / "settings/rows.json"
+
+
+def open_settings_page(label):
+    """Opens Settings with Ctrl+, and shows one page through its switcher segment, as a person would.
+    TODO(G4): the shortcut and the switcher's labels are Today's Clanky's until G4's window has its own."""
+
+    def open_it(win):
+        win.away()
+        win.key("ctrl+comma")
+        until(
+            lambda: (win.screen("settings") or {}).get("controls"), "Settings opens", 5
+        )
+        segment = next(
+            (
+                c
+                for c in win.screen("settings")["controls"]
+                if c["kind"] == "segment"
+                and c["group"] == "settings-pages"
+                and c["label"] == label
+            ),
+            None,
+        )
+        if segment is None:
+            raise Fail(f"no Settings page {label} in the record")
+        if not segment["checked"]:
+            win.move(*centre(segment["box"]))
+            win.x("mousedown", "1")
+            win.x("mouseup", "1")
+            until(
+                lambda: (win.screen("settings") or {}).get("page") == label,
+                f"the {label} page is shown",
+                3,
+            )
+        win.away()
+
+    return open_it
+
+
+SETTINGS_PAGES = (
+    "General",
+    "Appearance",
+    "Terminal",
+    "Editor",
+    "Agents",
+    "History",
+    "Keys",
+)
+SETTINGS_SCREENS = {
+    f"settings-{page.lower()}": dict(
+        record="settings",
+        open=open_settings_page(page),
+        close=close_with_escape,
+        container=None,
+        harmless=page,
+        scroll=True,
+        roundtrip=page,
+    )
+    for page in SETTINGS_PAGES
+}
 POPOVER_MAX_GAP_LOGICAL_PX = (
     16  # "next to what opened it" (G3 definition): at most this far from the opener
 )
@@ -358,6 +424,8 @@ SCREENS = {
 }
 if FLOATING:
     SCREENS.update(FLOATING_SCREENS)
+if SETTINGS:
+    SCREENS.update(SETTINGS_SCREENS)
 
 RECORD_FIELDS = {
     "id",
@@ -554,6 +622,19 @@ def overlaps(a, b):
     )
 
 
+def values_match(got, expected, tolerance):
+    """Equal values; numbers may differ by the tolerance (a stored float is not an exact decimal)."""
+    numbers = (int, float)
+    if (
+        isinstance(got, numbers)
+        and isinstance(expected, numbers)
+        and not isinstance(got, bool)
+        and not isinstance(expected, bool)
+    ):
+        return abs(got - expected) <= tolerance
+    return got == expected
+
+
 def centre(box):
     return int(box[0] + box[2] / 2), int(box[1] + box[3] / 2)
 
@@ -574,7 +655,7 @@ def name_of(ctl):
 def border_blend(ctl, fill):
     """The grey the outermost pixel of a control shows: its fill under its border (the border is drawn on the fill)."""
     kind = ctl["kind"]
-    if kind in OUTLINED or kind in ("field", "switch"):
+    if kind in OUTLINED or kind in ("field", "switch", "slider"):
         over, alpha = INPUT_OVER, INPUT_ALPHA
     elif kind == "tab" and ctl.get("checked"):
         over, alpha = FOREGROUND, TAB_RING_ALPHA
@@ -591,6 +672,8 @@ def expected_fill(ctl, state, container):
         return (
             container if alpha is None else round(blend(container, FOREGROUND, alpha))
         )
+    if kind == "slider":
+        return ACCENT  # a track of one look in every state, as the switch
     if kind == "switch":
         return (
             PRIMARY if ctl.get("checked") else ACCENT
@@ -630,11 +713,13 @@ class Screen:
         return self.win.screen(self.record_name)
 
     def controls(self):
+        """The controls in view: a page that scrolls records the others too, with `visible` false."""
         r = self.current()
-        return r["controls"] if r else []
+        return [c for c in r["controls"] if c.get("visible", True)] if r else []
 
     def control(self, cid):
-        return next((c for c in self.controls() if c["id"] == cid), None)
+        r = self.current()
+        return next((c for c in (r["controls"] if r else []) if c["id"] == cid), None)
 
     def is_open(self):
         return bool(self.controls())
@@ -648,8 +733,16 @@ class Screen:
         except Fail:
             return None
         time.sleep(0.3)
-        self.record = self.current()
+        self.record = self.in_view(self.current())
+        self.all_at_open = list(self.current()["controls"])
         return self.record
+
+    @staticmethod
+    def in_view(record):
+        """The record with only the controls in view (the same record when everything is)."""
+        return dict(
+            record, controls=[c for c in record["controls"] if c.get("visible", True)]
+        )
 
     def close(self):
         if self.spec["close"] and self.is_open():
@@ -1111,7 +1204,7 @@ class Screen:
         if not self.reopen():
             return
         self.win.away(self.rest_point())
-        expected = reading_order([c for c in self.controls() if c["enabled"]])
+        expected = reading_order([c for c in self.all_at_open if c["enabled"]])
         visited, last = [], None
         for i in range(len(expected)):
             # The pane has the keyboard: Ctrl+F6 enters the controls at the first, then Tab walks them.
@@ -1142,7 +1235,7 @@ class Screen:
             time.sleep(0.15)
             a = self.win.shot(f"{self.name}-focus-{last}")
             self.focus_look(a, c)
-        names = {c["id"]: c["label"] for c in self.record["controls"]}
+        names = {c["id"]: c["label"] for c in self.all_at_open}
         self.ok(
             "tab-order",
             visited == expected,
@@ -1734,6 +1827,250 @@ class Screen:
         )
         self.close()
 
+    # -- G4: pages that scroll, and the config file ------------------------------------------------------------
+
+    def wheel(self, notches):
+        """Turns the wheel over the Settings body; returns the scroll position it ends at."""
+        panel = self.win.landmarks()["settings-panel"][0]
+        self.win.move(panel[0] + panel[2] // 2, panel[1] + panel[3] * 3 // 4)
+        before = (self.current() or {}).get("scroll", {}).get("top")
+        for _ in range(abs(notches)):
+            self.win.x("click", "5" if notches > 0 else "4")
+        try:
+            until(
+                lambda: (self.current() or {}).get("scroll", {}).get("top") != before,
+                "",
+                1.5,
+            )
+        except Fail:
+            pass
+        return (self.current() or {}).get("scroll", {}).get("top")
+
+    def scroll_checks(self):
+        """A long page: scroll it down notch by notch; what comes into view is checked like the first screenful
+        (record, resting colour, hover), and the last control must come into view."""
+        if not self.spec.get("scroll") or not self.reopen():
+            return
+        total = len(self.all_at_open)
+        seen = {c["id"] for c in self.controls()}
+        for _ in range(40):
+            scroll = (self.current() or {}).get("scroll") or {}
+            if scroll.get("top", 0) >= scroll.get("max", 0):
+                break
+            top = self.wheel(2)
+            self.ok(
+                "scroll",
+                top is not None and top > scroll["top"],
+                "the wheel over the page body",
+                "scrolls it",
+                f"{scroll['top']} then {top}",
+            )
+            fresh = [c for c in self.controls() if c["id"] not in seen]
+            if fresh:
+                seen |= {c["id"] for c in fresh}
+                self.record = self.in_view(self.current())
+                for step in (self.static_checks, self.rest_checks, self.hover_checks):
+                    step()
+        self.ok(
+            "scroll",
+            len(seen) == total,
+            "scrolling to the end of the page",
+            f"all {total} controls came into view",
+            f"{len(seen)} did",
+        )
+        self.wheel(-60)
+
+    def bring_into_view(self, label, kind, group=None):
+        """The control of a row, scrolled into the body (the page back to its top first). Option labels such as
+        "On" repeat from row to row, so a segment is found by its row's group as well."""
+
+        def find():
+            r = self.current() or {}
+            return next(
+                (
+                    c
+                    for c in r.get("controls", [])
+                    if c["label"] == label
+                    and c["kind"] == kind
+                    and (group is None or c["group"] == group)
+                ),
+                None,
+            )
+
+        self.wheel(-60)
+        for _ in range(40):
+            control = find()
+            if control is None or control.get("visible", True):
+                return control
+            self.wheel(2)
+        return find()
+
+    def roundtrip_checks(self):
+        """Every row of the page: change its control through the record, read the config file, compare with the
+        value rows.json expects; then see the window show the stored value, and see an edit of the file reach the
+        window. The values come from rows.json (the answers file's key list), never from the program."""
+        if not self.spec.get("roundtrip"):
+            return
+        import config_model
+
+        rows = [r for r in config_model.ROWS if r["page"] == self.spec["roundtrip"]]
+        if not rows or not self.reopen():
+            return
+        path = getattr(self.win, "config_path", None)
+        if path is None:
+            self.ok(
+                "config-roundtrip",
+                False,
+                "the config file",
+                "the window's config path",
+                "none",
+            )
+            return
+        # Every setting starts from the value rows.json gives; the window takes the file up (live reload).
+        config_model.write_config(path, config_model.initial_config())
+        first = next((r for r in rows if r["control"] == "switch"), None)
+        if first is not None:
+            try:
+                until(
+                    lambda: (
+                        (
+                            self.control(
+                                (
+                                    self.bring_into_view(first["label"], "switch") or {}
+                                ).get("id")
+                            )
+                            or {}
+                        ).get("checked")
+                        == first["initial"]
+                        or None
+                    ),
+                    "",
+                    4,
+                )
+            except Fail:
+                pass
+        for row in rows:
+            self.roundtrip_row(row, path, config_model)
+        self.file_edit_reload(rows, path, config_model)
+
+    def roundtrip_row(self, row, path, config_model):
+        kind = {
+            "switch": "switch",
+            "segments": "segment",
+            "field": "field",
+            "slider": "slider",
+        }[row["control"]]
+        label = row["set"] if kind == "segment" else row["label"]
+        control = self.bring_into_view(
+            label, kind, f"row:{row['key']}" if kind == "segment" else None
+        )
+        if control is None:
+            self.ok(
+                "config-roundtrip",
+                False,
+                row["label"],
+                f"a {kind} control",
+                "not in the record",
+            )
+            return
+        self.win.move(*centre(control["box"]))
+        tolerance = 1e-6
+        if kind == "field":
+            self.win.x("mousedown", "1")
+            self.win.x("mouseup", "1")
+            self.win.key("ctrl+a")
+            self.win.type(str(row["set"]))
+            self.win.key("Return")
+        elif kind == "slider":
+            x, y, w, h = control["box"]
+            # A click lands on a whole device pixel, so the value can be off by half a pixel's worth of the range.
+            tolerance = (control["max"] - control["min"]) / max(w - 1, 1) / 2 + 1e-6
+            share = (row["set"] - control["min"]) / (control["max"] - control["min"])
+            self.win.move(x + round(share * (w - 1)), y + h // 2)
+            self.win.x("mousedown", "1")
+            self.win.x("mouseup", "1")
+        else:
+            self.win.x("mousedown", "1")
+            self.win.x("mouseup", "1")
+        got = None
+        try:
+            until(
+                lambda: (
+                    values_match(
+                        config_model.read_config(path).get(row["key"]),
+                        row["expect"],
+                        tolerance,
+                    )
+                    or None
+                ),
+                "",
+                2.5,
+            )
+        except Fail:
+            pass
+        got = config_model.read_config(path).get(row["key"], "missing")
+        self.ok(
+            "config-roundtrip",
+            values_match(got, row["expect"], tolerance),
+            f"{row['label']} ({row['key']}) set to {row['set']}",
+            f"config holds {row['expect']!r}",
+            f"{got!r}",
+        )
+        shown = self.control(control["id"]) or {}
+        shown_value = {
+            "switch": shown.get("checked"),
+            "segment": shown.get("checked"),
+            "field": shown.get("field_text"),
+            "slider": shown.get("value"),
+        }[kind]
+        want = {
+            "switch": row["expect"],
+            "segment": True,
+            "field": str(row["set"]),
+            "slider": row["expect"],
+        }[kind]
+        self.ok(
+            "config-live",
+            values_match(shown_value, want, tolerance),
+            f"{row['label']} after the change",
+            f"the window shows {want!r}",
+            f"{shown_value!r}",
+        )
+
+    def file_edit_reload(self, rows, path, config_model):
+        """A change to the config file made from outside is seen in the window within a few seconds."""
+        row = next((r for r in rows if r["control"] == "switch"), None)
+        if row is None:
+            return
+        values = config_model.read_config(path)
+        values[row["key"]] = not values[row["key"]]
+        config_model.write_config(path, values)
+        control = (
+            self.control(self.bring_into_view(row["label"], "switch")["id"])
+            if self.bring_into_view(row["label"], "switch")
+            else None
+        )
+        try:
+            until(
+                lambda: (
+                    (self.control(control["id"]) or {}).get("checked")
+                    == values[row["key"]]
+                    or None
+                ),
+                "",
+                4,
+            )
+        except (Fail, TypeError):
+            pass
+        shown = (self.control(control["id"]) or {}).get("checked") if control else None
+        self.ok(
+            "config-live",
+            shown == values[row["key"]],
+            f"{row['label']} after the file was edited",
+            f"the window shows {values[row['key']]!r}",
+            f"{shown!r}",
+        )
+
     def run(self):
         if not self.open():
             self.ok(
@@ -1762,6 +2099,8 @@ class Screen:
             self.find_checks,
             self.click_focus_checks,
             self.tab_stable_checks,
+            self.scroll_checks,
+            self.roundtrip_checks,
         ]
         if FAULT:  # a planted fault needs only the check aimed at it, and its neighbours for the screen's state
             steps = {
@@ -1775,6 +2114,9 @@ class Screen:
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],
                 "selected-segment-hover": [self.hover_checks],
+                "setting-not-written": [self.roundtrip_checks],
+                "switch-hit-larger": [self.static_checks, self.hover_checks],
+                "page-control-out-of-tab-order": [self.tab_checks],
             }[FAULT]
         for step in steps:
             try:
@@ -1799,6 +2141,10 @@ class Screen:
 
 
 def make_window(scale):
+    if SIMULATE and SETTINGS:
+        from simulated_settings import SimSettingsWindow
+
+        return SimSettingsWindow(scale, THEME, FAULT)
     if SIMULATE and FLOATING:
         from simulated_floating import SimFloatingWindow
 

@@ -528,6 +528,8 @@ def draw_control(
     fill = None
     if kind == "switch":
         fill = theme.switch_on_track if control["checked"] else theme.switch_off_track
+    elif kind == "slider":
+        fill = theme.rgb["accent"]  # a track of one look in every state, as the switch
     elif kind == "field":
         fill = None
     elif kind == "segment" and control["checked"]:
@@ -553,7 +555,15 @@ def draw_control(
             theme.tab_ring_alpha * fade,
             outline=hair,
         )
-    elif kind in ("button", "button-small", "button-large", "chip", "field", "switch"):
+    elif kind in (
+        "button",
+        "button-small",
+        "button-large",
+        "chip",
+        "field",
+        "switch",
+        "slider",
+    ):
         canvas.rounded(box, radius, theme.input[0], theme.input[1] * fade, outline=hair)
     ink = theme.rgb["foreground"]
     x, y, w, h = box
@@ -566,6 +576,15 @@ def draw_control(
             knob / 2,
             theme.knob_on if control["checked"] else theme.knob_off,
             fade,
+        )
+        return
+    if kind == "slider":
+        inset = round_half_up(2 * s)
+        knob = h - 2 * inset
+        share = (control["value"] - control["min"]) / (control["max"] - control["min"])
+        kx = x + inset + round(share * (w - 2 * inset - knob))
+        canvas.rounded(
+            [kx, y + inset, knob, knob], knob / 2, theme.rgb["foreground"], fade
         )
         return
     if control["icon"]:

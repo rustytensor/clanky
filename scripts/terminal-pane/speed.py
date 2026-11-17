@@ -15,6 +15,10 @@ With --scene palette the window first gets two tabs and four panes (Ctrl+Shift+D
 memory and idle are measured with the palette open, the key number is the time from a typed letter or a Backspace
 to the palette's changed pixels, and cat runs in a pane behind it.
 
+--scene settings is the same with Settings (Ctrl+comma) in place of the palette. Settings has no text to type into
+on its opening page, so the key number is the time from Tab or Shift+Tab to the moved focus ring: the two presses
+before measuring put the ring on the first two controls, and the measured keys alternate between them.
+
 The pane runs a stand-in shell (SHELL points at a small program in the work folder) that echoes each key back at
 the start of the line and, when told, runs cat on the text file and records how long it took. Drawing is seen
 through the X DAMAGE extension on the root window; a key counts as shown when the pixels where the echo lands
@@ -50,7 +54,22 @@ SCENE_CHORDS = (
     ('Control_L', 'Shift_L', 't'),  # a second tab
     ('Control_L', 'Shift_L', 'd'),  # two panes in it: four in all
 )
-PALETTE_CHORD = ('Control_L', 'Shift_L', 'p')
+# What each scene opens, the two key combinations whose echo is timed (the first is pressed first), the key presses
+# that put the screen in a state where the second one changes pixels, and the name of the opening number.
+SCENES = {
+    'palette': dict(
+        opener=('Control_L', 'Shift_L', 'p'),
+        pair=(('BackSpace',), ('a',)),
+        prepare=(),
+        label='palette first frame',
+    ),
+    'settings': dict(
+        opener=('Control_L', 'comma'),
+        pair=(('Shift_L', 'Tab'), ('Tab',)),
+        prepare=(('Tab',),),
+        label='Settings first frame',
+    ),
+}
 SETTLE_SECONDS = 15
 SCREEN = (1600, 1000)
 
@@ -289,28 +308,32 @@ class Session:
         ids = result.stdout.split()
         return ids[0] if ids else None
 
-    def open_scene(self):
-        """Two tabs and four panes, then the palette. Returns ms from the palette's key press to its first frame."""
+    def open_scene(self, scene):
+        """Two tabs and four panes, then the scene's window. Returns ms from its key press to its first frame."""
         for chord in SCENE_CHORDS:
             self.x.chord(*chord)
             until(lambda: self.x.wait_damage(0.5) is None, 'the layout to settle', SETTLE_SECONDS)
         self.x.count_damage(0.2)
         before = self.x.grab(0, 0, *SCREEN)
-        pressed = self.x.chord(*PALETTE_CHORD)
+        pressed = self.x.chord(*SCENES[scene]['opener'])
         while True:
             seen = self.x.wait_damage(2)
             if seen is None:
-                raise RuntimeError('the palette key drew nothing')
+                raise RuntimeError(f'the {scene} key drew nothing')
             if np.any(self.x.grab(0, 0, *SCREEN) != before):
                 break
-        until(lambda: self.x.wait_damage(0.5) is None, 'the palette to settle', SETTLE_SECONDS)
+        until(lambda: self.x.wait_damage(0.5) is None, f'the {scene} window to settle', SETTLE_SECONDS)
         return (seen - pressed) * 1000
 
-    def latency(self, keys, rng, pair=('b', 'a')):
-        """Echo latency in ms for `keys` key presses, alternating the two keys of `pair` so each changes the pixels."""
+    def latency(self, keys, rng, pair=(('b',), ('a',)), prepare=()):
+        """Echo latency in ms for `keys` key presses, alternating the two key combinations of `pair` so each changes
+        the pixels. The `prepare` presses come first, so the second key of `pair` changes the same pixels every time."""
+        for combination in prepare:
+            self.x.chord(*combination)
+            self.x.count_damage(0.5)
         self.x.count_damage(0.3)
         before = self.x.grab(0, 0, *SCREEN)
-        self.x.key('a')
+        self.x.chord(*pair[1])
         if self.x.wait_damage(2) is None:
             raise RuntimeError('a key press drew nothing')
         time.sleep(0.5)
@@ -324,7 +347,7 @@ class Session:
         for index in range(keys):
             self.x.count_damage(0.03 + rng.random() * 0.05)
             previous = self.x.grab(x0, y0, width, height)
-            pressed = self.x.key(pair[index % 2])
+            pressed = self.x.chord(*pair[index % 2])
             while True:
                 seen = self.x.wait_damage(2)
                 if seen is None:
@@ -383,14 +406,14 @@ def one_run(binary, scale, keys, seed, scene):
         try:
             start_ms = session.start()
             time.sleep(2)
-            popover_ms = session.open_scene() if scene else None
+            popover_ms = session.open_scene(scene) if scene else None
             time.sleep(2 if scene else 0)
             memory = resident_mib(binary)
             idle_from = trace_frames(session.work)
             idle = session.x.count_damage(IDLE_SECONDS)
             idle_trace = trace_frames(session.work) - idle_from
-            pair = ('BackSpace', 'a') if scene else ('b', 'a')
-            samples, box = session.latency(keys, random.Random(seed), pair)
+            timed = SCENES[scene] if scene else dict(pair=(('b',), ('a',)), prepare=())
+            samples, box = session.latency(keys, random.Random(seed), timed['pair'], timed['prepare'])
             cat = session.cat_seconds()
             trace_start = trace_first_frame_ms(session.work, session.launched_unix)
         finally:
@@ -410,7 +433,6 @@ def one_run(binary, scale, keys, seed, scene):
     }
 
 
-POPOVER_NUMBER = ('popover_ms', 'palette first frame', 'ms', 1)
 NUMBERS = [
     ('start_ms', 'start to first frame', 'ms', 1),
     ('memory_mib', 'memory after start', 'MiB', 1),
@@ -428,9 +450,11 @@ def main():
     parser.add_argument('--scale', type=float, default=1.0)
     parser.add_argument('--keys', type=int, default=200)
     parser.add_argument('--out', type=Path)
-    parser.add_argument('--scene', choices=['palette'], help='open two tabs, four panes and the palette first')
+    parser.add_argument(
+        '--scene', choices=sorted(SCENES), help='open two tabs, four panes and the palette or the Settings window first'
+    )
     args = parser.parse_args()
-    numbers = NUMBERS + [POPOVER_NUMBER] if args.scene else NUMBERS
+    numbers = NUMBERS + [('popover_ms', SCENES[args.scene]['label'], 'ms', 1)] if args.scene else NUMBERS
     if not os.access(args.binary, os.X_OK):
         parser.error(f'{args.binary} is not an executable file')
     if args.runs < 1 or args.keys < 2:

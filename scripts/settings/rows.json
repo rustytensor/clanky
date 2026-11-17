@@ -1,0 +1,394 @@
+{
+ "about": "Settings pages and rows from the answers file (2026-11-17-g4-g5-answers.md), config.xml keys as the C1 gate fixes them. initial is the config value before the run, set is what the control is given, expect is the config value after. The Keys page has no control.",
+ "pages": [
+  "General",
+  "Appearance",
+  "Terminal",
+  "Editor",
+  "Agents",
+  "History",
+  "Keys"
+ ],
+ "rows": [
+  {
+   "page": "General",
+   "label": "Post-AI mode",
+   "description": "A plain terminal with tabs and splits. No agents, no AI features.",
+   "key": "post_ai",
+   "control": "switch",
+   "initial": false,
+   "set": true,
+   "expect": true,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "Restore layout",
+   "description": "Reopen the last tabs and splits when Clanky starts.",
+   "key": "restore_layout",
+   "control": "switch",
+   "initial": true,
+   "set": false,
+   "expect": false,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "New windows open with",
+   "description": "Applies to the next new window. A restored layout keeps its own panes.",
+   "key": "new_window_panes",
+   "control": "segments",
+   "initial": 2,
+   "set": "One pane",
+   "expect": 1,
+   "options": [
+    "One pane",
+    "Two panes"
+   ]
+  },
+  {
+   "page": "General",
+   "label": "Robot greeting",
+   "description": "The robot says hello when a window opens.",
+   "key": "startup_animation",
+   "control": "switch",
+   "initial": true,
+   "set": false,
+   "expect": false,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "Animations",
+   "description": "Motion in the window, the robot's greeting included.",
+   "key": "animations",
+   "control": "switch",
+   "initial": true,
+   "set": false,
+   "expect": false,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "Notify after",
+   "description": "A notice when a command runs this long, in seconds.",
+   "key": "notify_after_seconds",
+   "control": "field",
+   "initial": 30,
+   "set": "45",
+   "expect": 45,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "Columns",
+   "description": "Width of a new window in characters. Applies to new windows.",
+   "key": "columns",
+   "control": "field",
+   "initial": 120,
+   "set": "100",
+   "expect": 100,
+   "options": null
+  },
+  {
+   "page": "General",
+   "label": "Rows",
+   "description": "Height of a new window in lines. Applies to new windows.",
+   "key": "rows",
+   "control": "field",
+   "initial": 36,
+   "set": "30",
+   "expect": 30,
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Tab style",
+   "description": "Tabs across the top, or a list down the left with folder, branch and last command.",
+   "key": "tab_style",
+   "control": "segments",
+   "initial": "horizontal",
+   "set": "Vertical",
+   "expect": "vertical",
+   "options": [
+    "Horizontal",
+    "Vertical"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Tools panel",
+   "description": "A panel on the left. Ctrl+Shift+B shows it or puts it away.",
+   "key": "tools_panel",
+   "control": "segments",
+   "initial": true,
+   "set": "Off",
+   "expect": false,
+   "options": [
+    "On",
+    "Off"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Command input",
+   "description": "An editor under each pane, or the shell's own prompt.",
+   "key": "command_input",
+   "control": "segments",
+   "initial": "editor",
+   "set": "Classic",
+   "expect": "classic",
+   "options": [
+    "Editor",
+    "Classic"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Blocks",
+   "description": "Quiet hairlines between commands, or framed blocks.",
+   "key": "block_style",
+   "control": "segments",
+   "initial": "quiet",
+   "set": "Cards",
+   "expect": "cards",
+   "options": [
+    "Quiet",
+    "Cards"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Status line",
+   "description": "Session, server and masking, in one row at the bottom.",
+   "key": "status_line",
+   "control": "segments",
+   "initial": true,
+   "set": "Hide",
+   "expect": false,
+   "options": [
+    "Show",
+    "Hide"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Follow the system",
+   "description": "Use one theme in dark mode and another in light mode.",
+   "key": "theme",
+   "control": "segments",
+   "initial": "dark",
+   "set": "On",
+   "expect": "system",
+   "options": [
+    "On",
+    "Off"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Font size",
+   "description": "Ctrl + and Ctrl - change it for one window.",
+   "key": "font_size",
+   "control": "field",
+   "initial": 14.67,
+   "set": "15",
+   "expect": 15,
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Terminal font",
+   "description": "Used in every terminal pane.",
+   "key": "font_family",
+   "control": "field",
+   "initial": "Geist Mono",
+   "set": "JetBrains Mono",
+   "expect": "JetBrains Mono",
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Interface font",
+   "description": "Used for menus, tabs and Settings.",
+   "key": "ui_font_family",
+   "control": "field",
+   "initial": "Geist",
+   "set": "Inter",
+   "expect": "Inter",
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Cell width",
+   "description": "Wider cells space the letters out, as in Ptyxis.",
+   "key": "cell_width_scale",
+   "control": "field",
+   "initial": 1.0,
+   "set": "1.1",
+   "expect": 1.1,
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Line height",
+   "description": "Taller rows space the lines out, as in Ptyxis.",
+   "key": "cell_height_scale",
+   "control": "field",
+   "initial": 1.25,
+   "set": "1.3",
+   "expect": 1.3,
+   "options": null
+  },
+  {
+   "page": "Appearance",
+   "label": "Opacity",
+   "description": "How much of the desktop shows through.",
+   "key": "opacity",
+   "control": "slider",
+   "initial": 1.0,
+   "set": 0.8,
+   "expect": 0.8,
+   "options": null
+  },
+  {
+   "page": "Terminal",
+   "label": "Cursor blink",
+   "description": "System follows the GNOME setting.",
+   "key": "cursor_blink",
+   "control": "segments",
+   "initial": "system",
+   "set": "Off",
+   "expect": "off",
+   "options": [
+    "System",
+    "On",
+    "Off"
+   ]
+  },
+  {
+   "page": "Terminal",
+   "label": "Blink cycle",
+   "description": "One full blink, shown and hidden, in milliseconds.",
+   "key": "cursor_blink_time_ms",
+   "control": "field",
+   "initial": 1200,
+   "set": "1000",
+   "expect": 1000,
+   "options": null
+  },
+  {
+   "page": "Terminal",
+   "label": "Stop blinking after",
+   "description": "Seconds after the last key press.",
+   "key": "cursor_blink_timeout_s",
+   "control": "field",
+   "initial": 10,
+   "set": "5",
+   "expect": 5,
+   "options": null
+  },
+  {
+   "page": "Terminal",
+   "label": "Clipboard writes",
+   "description": "Programs in the terminal may copy text (OSC 52).",
+   "key": "osc52_write",
+   "control": "switch",
+   "initial": true,
+   "set": false,
+   "expect": false,
+   "options": null
+  },
+  {
+   "page": "Terminal",
+   "label": "Clipboard reads",
+   "description": "Programs in the terminal may read what you copied.",
+   "key": "osc52_read",
+   "control": "switch",
+   "initial": false,
+   "set": true,
+   "expect": true,
+   "options": null
+  },
+  {
+   "page": "Editor",
+   "label": "Dictionary",
+   "description": "The spelling language of the compose editor.",
+   "key": "compose_dictionary",
+   "control": "field",
+   "initial": "en_US",
+   "set": "en_GB",
+   "expect": "en_GB",
+   "options": null
+  },
+  {
+   "page": "Editor",
+   "label": "Dictionary folder",
+   "description": "Where the spelling dictionaries are.",
+   "key": "compose_dictionary_dir",
+   "control": "field",
+   "initial": "/usr/share/hunspell",
+   "set": "/tmp/dictionaries",
+   "expect": "/tmp/dictionaries",
+   "options": null
+  },
+  {
+   "page": "Editor",
+   "label": "Enter after send",
+   "description": "Press Enter in the pane after a draft is sent.",
+   "key": "compose_send_enter",
+   "control": "switch",
+   "initial": false,
+   "set": true,
+   "expect": true,
+   "options": null
+  },
+  {
+   "page": "Agents",
+   "label": "New agent panes",
+   "description": "What an agent started in a new pane may do.",
+   "key": "agent_pane_access",
+   "control": "segments",
+   "initial": true,
+   "set": "Off",
+   "expect": false,
+   "options": [
+    "Read + run",
+    "Off"
+   ]
+  },
+  {
+   "page": "History",
+   "label": "Save history",
+   "description": "Keep commands and their output on this computer.",
+   "key": "history",
+   "control": "switch",
+   "initial": true,
+   "set": false,
+   "expect": false,
+   "options": null
+  },
+  {
+   "page": "History",
+   "label": "Keep for",
+   "description": "Days of saved history. Zero keeps everything.",
+   "key": "history_days",
+   "control": "field",
+   "initial": 90,
+   "set": "30",
+   "expect": 30,
+   "options": null
+  },
+  {
+   "page": "History",
+   "label": "Output per command",
+   "description": "The output saved with each command, in KiB.",
+   "key": "history_output_kib",
+   "control": "field",
+   "initial": 256,
+   "set": "64",
+   "expect": 64,
+   "options": null
+  }
+ ]
+}

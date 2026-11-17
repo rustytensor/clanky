@@ -109,7 +109,19 @@
     "card_padding_x": {"px": 12, "src": "rulebook:134"},
     "card_padding_y": {"px": 10, "src": "rulebook:134"},
     "card_opacity": {"value": 0.6, "src": "rulebook:134"},
-    "card_border_opacity": {"value": 0.6, "src": "rulebook:134"}
+    "card_border_opacity": {"value": 0.6, "src": "rulebook:134"},
+    "panel_width": {"px": 704, "src": "rulebook:245"},
+    "panel_height_min": {"px": 300, "src": "rulebook:245"},
+    "panel_height_max": {"px": 600, "src": "rulebook:245"},
+    "panel_margin": {"px": 12, "src": "rulebook:245"},
+    "header_height": {"px": 44, "src": "rulebook:101,134"},
+    "tab_pill_height": {"px": 28, "src": "rulebook:134"},
+    "card_gap": {"px": 8, "src": "rulebook:245"},
+    "group_gap": {"px": 24, "src": "rulebook:245"},
+    "title_gap": {"px": 2, "src": "rulebook:245"},
+    "control_gap": {"px": 16, "src": "rulebook:245"},
+    "padding_bottom": {"px": 24, "src": "rulebook:245"},
+    "card_radius": {"px": 10, "src": "rulebook:79,134"}
   },
   "palette": {"width": {"px": 560, "src": "rulebook:22"}},
   "floating": {
@@ -135,6 +147,7 @@
     "icon-button-inline": {"height": {"px": 24, "src": "rulebook:Amendments, tab close button (R5 C, 2026-11-17)"}, "radius": {"px": 6, "src": "rulebook:225 (radius_sm)"}, "fill_alpha": {"hover": 0.08, "pressed": 0.14, "src": "rulebook:Amendments, tab close button (R5 C, 2026-11-17)"}, "icon_px": 14, "icon_src": "rulebook:120"},
     "icon-button": {"height": {"px": 28, "src": "rulebook:222"}, "height_in_rows": {"px": 24, "src": "rulebook:222"}, "radius": {"px": 8, "src": "rulebook:224"}, "icon_px": 14, "icon_src": "rulebook:120"},
     "switch": {"height": {"px": 24, "src": "rulebook:222"}, "width": {"px": 40, "src": "rulebook:222"}, "radius_is_half_height": true, "radius_src": "rulebook:225-226", "icon_px": 14, "icon_src": "rulebook:120"},
+    "slider": {"height": {"px": 24, "src": "rulebook:222 (as the switch; G4 definition: Opacity)"}, "radius_is_half_height": true, "radius_src": "rulebook:225-226", "icon_px": 14, "icon_src": "rulebook:120"},
     "menu-item": {"height": {"px": 28, "src": "rulebook:94"}, "radius": {"px": 6, "src": "rulebook:77"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 16, "icon_src": "rulebook:120"},
     "list-row": {"height": {"px": 24, "src": "rulebook:93"}, "radius": {"px": 8, "src": "rulebook:224-225"}, "text": "text_tree", "text_src": "rulebook:62", "icon_px": 16, "icon_src": "rulebook:93,120"},
     "palette-row": {"height": {"px": 36, "src": "rulebook:95"}, "radius": {"px": 8, "src": "rulebook:224-225"}, "text": "text_title", "text_src": "rulebook:63", "icon_px": 16, "icon_src": "rulebook:120"},

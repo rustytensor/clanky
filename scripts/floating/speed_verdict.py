@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Judges a palette speed run (speed.py --scene palette) against today's Clanky's numbers.
+"""Judges a palette or Settings speed run (speed.py --scene palette or settings) against today's Clanky's numbers.
 
 Usage: speed_verdict.py RESULT.json BASELINE.json
 
 Prints one line, then exits 0 when every number is within its limit and 1 otherwise. The limits are those of the
 terminal pane gate (the same ones, so a popover must not make the window slower than the old one) plus one of its own:
-the palette's first frame comes within one refresh of the key press.
+the first frame of the palette, or of the Settings window, comes within one refresh of the key press.
 
   cat 100 MB        at most 1.1 times today's
   key to screen     p50 and p99 at most today's plus 2 ms
-  idle drawing      none in 10 s with the palette open
-  palette frame     at most one refresh (1000 / 60 ms) plus the same 2 ms of slack the key numbers get
+  idle drawing      none in 10 s with the palette or Settings open
+  first frame       at most one refresh (1000 / 60 ms) plus the same 2 ms of slack the key numbers get
 
 Memory is printed and not judged: four panes hold more than the one pane the baseline was measured with.
 """
@@ -41,7 +41,7 @@ def judge(result, baseline):
     missing = [key for key in limits(baseline) if key not in summary]
     if missing:
         return (
-            f"the run has no number for {', '.join(missing)}; was it run with --scene palette?",
+            f"the run has no number for {', '.join(missing)}; was it run with --scene palette or settings?",
             False,
         )
     checks = limits(baseline)

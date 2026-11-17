@@ -150,6 +150,9 @@ class RealWindow:
             env["CLANKY_CONTROL_FAULT"] = self.fault
         config = self.work / "config.json"
         config.write_text(json.dumps(self.config), encoding="utf-8")
+        self.config_path = (
+            config  # the file the window edits: the Settings round trip reads it
+        )
         read_end, write_end = os.pipe()
         xvfb = subprocess.Popen(
             [
@@ -222,7 +225,9 @@ class RealWindow:
         self.x("windowfocus", "--sync", self.wid)
         # A second tab, so the tab-switching checks have an inactive tab; the first stays active.
         self.key("ctrl+shift+t")
-        until(lambda: len(self.owner.call(1, "list_tabs")["tabs"]) >= 2, "second tab", 20)
+        until(
+            lambda: len(self.owner.call(1, "list_tabs")["tabs"]) >= 2, "second tab", 20
+        )
         self.key("ctrl+Tab")
         time.sleep(1)
         self.away()

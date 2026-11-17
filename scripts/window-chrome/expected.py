@@ -26,6 +26,7 @@ FONT_FILES = {
 CAP_GLYPH = "H"
 NO_TEXT_KINDS = (
     "switch",
+    "slider",
     "icon-button",
     "icon-button-inline",
 )  # no label of their own (rulebook:227)
