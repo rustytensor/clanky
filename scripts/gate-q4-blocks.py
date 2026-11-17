@@ -122,6 +122,11 @@ W, H = 1400, 900
 BG, LINE_BG, FAIL_LINE, ERR = (17, 17, 17), (41, 41, 41), (116, 72, 65), (236, 138, 124)
 MAG, CYAN, YEL, GRN = (255, 0, 255), (0, 255, 255), (255, 255, 0), (0, 255, 0)
 CW, CH = 9, 26
+GPUI = t2.gate_app.override() is not None
+if GPUI:
+    # clanky-gpui's cell for the same config (IBM Plex Mono 11 pt, cell_height_scale 1.25), from the font file:
+    # 8.8 x 18 px (its line height is the font size x the scale; today's window scales the font's natural height).
+    CW, CH = t2.gate_app.gpui_cell('IBM Plex Mono', 11, 1.25)
 MID = (236 + W) // 2
 E = '\x1b'
 BASE = dict(q1.BASE, theme='dark', theme_dark='graphite-dark')
@@ -249,7 +254,7 @@ def one_cell(cells, col, label):
     got = cells[col]
     require(len(got) == 1, f'{label}: one {col} cell on screen (observed {got})')
     b = got[0]
-    require(abs(b[2] - b[0] - CW) <= 1 and abs(b[3] - b[1] - CH) <= 1, f'{label}: the cell is 9 x 26 px (observed {b})')
+    require(abs(b[2] - b[0] - CW) <= 1 and abs(b[3] - b[1] - CH) <= 1, f'{label}: the cell is {CW:g} x {CH} px (observed {b})')
     return b
 
 
@@ -273,7 +278,7 @@ def gap(im, prev, nxt, colour, tol, label):
     require(not busy, f'{label}: the 11 px below the output and the 9 px above the meta row are empty (rows with '
                       f'something on them: {busy})')
     require(ink_rows(im, yh + 10, cmd, nxt[0] - 4, W - 4), f'{label}: the meta row between y {yh + 10} and {cmd} has text')
-    require(ink_rows(im, cmd + 2, cmd + CH - 2, nxt[0], nxt[0] + 4 * CW), f'{label}: the command row has text')
+    require(ink_rows(im, cmd + 2, cmd + CH - 2, nxt[0], round(nxt[0] + 4 * CW)), f'{label}: the command row has text')
     return yh, total
 
 
@@ -382,7 +387,7 @@ def geometry(win, start):
 
 
 def col_x(g, col, dx):
-    return g['x1'] + (col - 1) * CW + dx
+    return round(g['x1'] + (col - 1) * CW + dx)
 
 
 def select_story(win, g):
@@ -435,8 +440,9 @@ def alt_story(win, g):
     cells = marker_cells(im, (MAG, CYAN, YEL))
     found = sorted(cells[MAG] + cells[CYAN] + cells[YEL], key=lambda b: b[1])
     tops = [b[1] for b in found]
-    require(len(found) == 3 and abs(tops[1] - tops[0] - 182) <= 1 and abs(tops[2] - tops[0] - 468) <= 1,
-            f'A1 alternate screen: three cells 182 and 468 px apart, a plain grid (observed tops {tops})')
+    require(len(found) == 3 and abs(tops[1] - tops[0] - 7 * CH) <= 1 and abs(tops[2] - tops[0] - 18 * CH) <= 1,
+            f'A1 alternate screen: three cells {7 * CH} and {18 * CH} px apart (7 and 18 rows), a plain grid '
+            f'(observed tops {tops})')
     require(42 <= tops[0] - CH <= 70, f'A1 alternate screen: grid origin y in 42..70 (observed {tops[0] - CH})')
     hits = any_hair(im, 39, tops[2] + CH)
     require(not hits, f'A1 alternate screen: no hairline (rows {hits})')
@@ -591,8 +597,8 @@ def plain_rows(win, label):
     cells = marker_cells(im, (MAG, CYAN, YEL))
     found = sorted(cells[MAG] + cells[CYAN] + cells[YEL], key=lambda b: b[1])
     tops = [b[1] for b in found]
-    require(len(found) == 3 and abs(tops[1] - tops[0] - 52) <= 1 and abs(tops[2] - tops[0] - 104) <= 1,
-            f'{label}: output cells 52 and 104 px apart, the plain grid (observed tops {tops})')
+    require(len(found) == 3 and abs(tops[1] - tops[0] - 2 * CH) <= 1 and abs(tops[2] - tops[0] - 4 * CH) <= 1,
+            f'{label}: output cells {2 * CH} and {4 * CH} px apart (rows 2 and 4), the plain grid (observed tops {tops})')
     require(42 <= tops[0] - CH <= 70, f'{label}: grid origin y in 42..70 (observed {tops[0] - CH})')
 
 

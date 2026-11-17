@@ -47,6 +47,20 @@ def isolated_env(base=None):
     return env
 
 
+def gpui_cell(family, size_pt, height_scale, scale=1.0):
+    """clanky-gpui's terminal cell in device px for a config's font, worked out from the font file (fc-match), never
+    from the binary: the width is the advance of 'm', not rounded (clanky-gpui places columns at its multiples), and
+    the height is the line height round(size x height_scale x scale), the size being points x 4/3 (the config's
+    font_size_pt rule)."""
+    import subprocess
+    from fontTools.ttLib import TTFont
+    path = subprocess.run(['fc-match', '-f', '%{file}', family], capture_output=True, text=True, check=True).stdout
+    font = TTFont(path)
+    size = size_pt * 4 / 3
+    advance = font['hmtx'][font.getBestCmap()[ord('m')]][0] / font['head'].unitsPerEm
+    return advance * size * scale, round(size * height_scale * scale)
+
+
 def single_pane():
     """True when the window under test has one pane and no chrome (clanky-gpui in its first milestone)."""
     return override() is not None
