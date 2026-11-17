@@ -102,7 +102,7 @@ impl MainWindow {
                 .text_color(paint(self.colors.muted_foreground, dim))
                 .child(aside.text())
                 .into_any_element(),
-            None => self.text_lines(&shown.view, focused, &pane, cx),
+            None => self.text_lines(&shown.view, focused && shown.caret, &pane, cx),
         };
         let focus_pane = pane.clone();
         let bar = div()
@@ -266,19 +266,46 @@ impl MainWindow {
         // A click places the caret at the cell under it (Shift extends the selection); the text's box is measured
         // as it is drawn.
         let cell = pane.read(cx).cell_size();
+        // A line longer than the input scrolls sideways so the caret stays in view: every line starts at the same
+        // column, the one that puts the caret in the last visible cell.
+        let columns =
+            pane.read(cx)
+                .width()
+                .zip(cell)
+                .map_or(usize::MAX, |(width, (cell_width, _))| {
+                    let text = width - 2.0 * t::PANE_PADDING - t::SPACE_8 - cell_width;
+                    ((text / cell_width).floor() as usize).max(1)
+                });
+        let left = view.caret.1.saturating_sub(columns - 1);
         let measured: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::default();
-        let (keep, pane) = (Rc::clone(&measured), pane.clone());
+        let keep = Rc::clone(&measured);
+        // The text's line and column under a point, from the box measured as the text was drawn.
+        let place = Rc::new(move |position: gpui::Point<Pixels>| {
+            let (bounds, (width, height)) = (measured.get()?, cell?);
+            let at = position - bounds.origin;
+            let line = first + (f32::from(at.y) / height).max(0.0) as usize;
+            let col = left + (f32::from(at.x) / width).round().max(0.0) as usize;
+            Some((line, col))
+        });
+        let (press_pane, drag_pane) = (pane.clone(), pane.clone());
+        let drag_place = Rc::clone(&place);
         let mut lines = div()
             .relative()
             .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                let (Some(bounds), Some((width, height))) = (measured.get(), cell) else {
-                    return;
-                };
-                let at = event.position - bounds.origin;
-                let line = first + (f32::from(at.y) / height).max(0.0) as usize;
-                let col = (f32::from(at.x) / width).round().max(0.0) as usize;
-                let extend = event.modifiers.shift;
-                pane.update(cx, |pane, cx| pane.input_click(line, col, extend, cx));
+                if let Some((line, col)) = place(event.position) {
+                    let extend = event.modifiers.shift;
+                    press_pane.update(cx, |pane, cx| pane.input_press(line, col, extend, cx));
+                }
+            })
+            // Dragging with the button held selects, as in today's input.
+            .on_mouse_move(move |event, _, cx| {
+                let held = event.pressed_button == Some(MouseButton::Left);
+                match drag_place(event.position) {
+                    Some((line, col)) if held => {
+                        drag_pane.update(cx, |pane, cx| pane.input_drag(line, col, cx));
+                    }
+                    _ => {}
+                }
             })
             .child(
                 canvas(move |bounds, _, _| keep.set(Some(bounds)), |_, (), _, _| {})
@@ -291,9 +318,9 @@ impl MainWindow {
             .text_size(px(self.text.size))
             .whitespace_nowrap();
         for (index, line) in view.lines.iter().enumerate().skip(first).take(MAX_LINES) {
-            let caret = (focused && view.caret.0 == index).then_some(view.caret.1);
+            let caret = (focused && view.caret.0 == index).then_some(view.caret.1 - left);
             let ghost = (index == last_line).then_some(view.ghost.as_str());
-            lines = lines.child(self.text_line(line, caret, ghost));
+            lines = lines.child(self.text_line(line.get(left..).unwrap_or_default(), caret, ghost));
         }
         lines.into_any_element()
     }

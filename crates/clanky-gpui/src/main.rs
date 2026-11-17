@@ -48,6 +48,7 @@ use std::{
 
 use clanky::config::{Config, StartupOverrides};
 use clanky_api::Client;
+use clanky_state::cursor_blink::Blink;
 use gpui::{
     App, AppContext, Bounds, TextRenderingMode, TitlebarOptions, WindowBounds, WindowOptions,
     point, px, size,
@@ -289,6 +290,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         palette: Palette::from_config(&config, &theme),
         text,
         trace: shared_trace(trace),
+        blink: Blink::from_config(&config, clanky_state::platform::gnome_cursor_blink()),
         kit: Kit::new(record, colors.clone(), config.animations),
         colors,
         post_ai: args.overrides.post_ai,

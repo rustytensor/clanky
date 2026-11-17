@@ -18,6 +18,7 @@ use clanky_core::{
     layout::{Axis, Layout, Rect},
 };
 use clanky_state::{
+    cursor_blink::Blink,
     keys::{Action, Chord, Key, Mods, action_for},
     themes::{Colors, Theme},
 };
@@ -79,6 +80,8 @@ pub struct WindowSetup {
     pub palette: Palette,
     pub text: TextSettings,
     pub trace: SharedTrace,
+    /// The cursor's blink, for every pane.
+    pub blink: Blink,
     pub kit: Kit,
     pub colors: Colors,
     pub post_ai: bool,
@@ -97,6 +100,7 @@ pub struct MainWindow {
     palette: Palette,
     text: TextSettings,
     trace: SharedTrace,
+    blink: Blink,
     kit: Kit,
     colors: Colors,
     post_ai: bool,
@@ -161,6 +165,7 @@ impl MainWindow {
             palette: setup.palette,
             text: setup.text,
             trace: setup.trace,
+            blink: setup.blink,
             kit: setup.kit,
             colors: setup.colors,
             post_ai: setup.post_ai,
@@ -235,6 +240,7 @@ impl MainWindow {
             link,
             updates,
             trace: Rc::clone(&self.trace),
+            blink: self.blink,
         };
         let pane = cx.new(|cx| TerminalPane::new(setup, window, cx));
         let subscription =

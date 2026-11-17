@@ -13,12 +13,12 @@ use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
-use clanky_state::themes::Colors;
+use clanky_state::{cursor_blink::Blink, themes::Colors};
 use gpui::{
     App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent,
-    Styled, Task, UTF16Selection, Window, div, point, px, size,
+    Styled, Subscription, Task, UTF16Selection, Window, div, point, px, size,
 };
 use serde_json::Value;
 
@@ -93,6 +93,13 @@ pub struct TerminalPane {
     /// Clanky's opt-in frame log (`CLANKY_FRAME_TRACE`), shared by the window's panes: the pane logs its keys, the
     /// window logs its frames.
     trace: SharedTrace,
+    blink: Blink,
+    /// When the blink last restarted: a key press, or the window gaining or losing focus.
+    blink_start: Instant,
+    /// Wakes the pane when the cursor next appears or disappears; none once the blink rests.
+    blink_task: Option<Task<()>>,
+    window_active: bool,
+    _activation: Subscription,
     _link: Link,
     _updates: Task<()>,
 }
@@ -110,6 +117,8 @@ pub struct PaneSetup {
     pub link: Link,
     pub updates: async_channel::Receiver<Update>,
     pub trace: SharedTrace,
+    /// The cursor's and the input caret's blink, from the config.
+    pub blink: Blink,
 }
 
 /// The window's one frame trace, shared by its panes.
@@ -175,6 +184,16 @@ impl TerminalPane {
             marked: None,
             notice: None,
             trace: setup.trace,
+            blink: setup.blink,
+            blink_start: Instant::now(),
+            blink_task: None,
+            window_active: window.is_window_active(),
+            _activation: cx.observe_window_activation(window, |pane, window, cx| {
+                pane.window_active = window.is_window_active();
+                pane.blink_start = Instant::now();
+                pane.blink_task = None;
+                cx.notify();
+            }),
             _link: setup.link,
             _updates: task,
         }
@@ -198,6 +217,12 @@ impl TerminalPane {
                 metrics.line_height / metrics.scale,
             )
         })
+    }
+
+    /// The pane's width in logical pixels, once it has been laid out.
+    pub fn width(&self) -> Option<f32> {
+        let metrics = self.metrics.get();
+        (metrics.scale > 0.0).then(|| metrics.pane_width / metrics.scale)
     }
 
     /// The exit code of the newest finished block on the screen whose command is `command`.
@@ -271,6 +296,9 @@ impl TerminalPane {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        // A key press restarts the blink, as in VTE.
+        self.blink_start = Instant::now();
+        self.blink_task = None;
         let keystroke = &event.keystroke;
         let m = &keystroke.modifiers;
         if m.control && m.shift && !m.alt {
@@ -362,6 +390,7 @@ impl TerminalPane {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus, cx);
+        self.input_release();
         let (pos, row, col) = self.pos_at(event.position.x, event.position.y);
         let button = match event.button {
             MouseButton::Left => 1,
@@ -585,6 +614,8 @@ impl Render for TerminalPane {
             _ => Vec::new(),
         };
         let drawn = self.blocks_drawn(window, cx);
+        // Asked every frame: it also wakes the pane for the next blink, for the cursor and the input's caret alike.
+        let blink_on = self.caret_on(cx);
         let grid = GridElement {
             pane: cx.entity(),
             snapshot: drawn.snapshot,
@@ -595,7 +626,7 @@ impl Render for TerminalPane {
             focus: self.focus.clone(),
             metrics: self.metrics.clone(),
             // The command input has the caret while it takes keys; the shell's empty prompt shows none.
-            show_cursor: !self.input_takes_keys(),
+            show_cursor: !self.input_takes_keys() && (!self.focus.is_focused(window) || blink_on),
         };
         div()
             .size_full()

@@ -1,7 +1,7 @@
 //! The pane's command input: the model from `clanky-state`, fed with this pane's keys, input-method text and
 //! pastes while it takes keys, and the bytes it asks to send. The main window draws it from [`InputShown`].
 
-use std::{cell::RefCell, collections::BTreeSet, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::BTreeSet, path::PathBuf, rc::Rc, time::Instant};
 
 use clanky_core::{MODE_ALT_SCREEN, MODE_BRACKETED_PASTE};
 use clanky_state::{
@@ -36,6 +36,8 @@ pub struct Input {
     model: PaneInput,
     shared: SharedInput,
     seen: BTreeSet<String>,
+    /// The left button went down in the text and a drag selects.
+    dragging: bool,
 }
 
 impl Input {
@@ -44,6 +46,7 @@ impl Input {
             model: PaneInput::default(),
             shared,
             seen: BTreeSet::new(),
+            dragging: false,
         }
     }
 }
@@ -53,6 +56,8 @@ pub struct InputShown {
     pub view: View,
     /// Why the input steps aside, when it does: keys go to the program.
     pub aside: Option<Aside>,
+    /// The caret shows now (the blink's on phase, or it rests).
+    pub caret: bool,
 }
 
 impl TerminalPane {
@@ -78,7 +83,31 @@ impl TerminalPane {
         Some(InputShown {
             view: input.model.view(&history, highlighter.as_mut()),
             aside: self.input_aside(),
+            caret: !self.window_active || self.blink.visible(self.blink_start.elapsed()),
         })
+    }
+
+    /// Whether the cursor and the input's caret show now, as today's window blinks them: on and off while the window
+    /// has focus, until the blink timeout after the last key; steady without focus. Wakes the pane for the next
+    /// change, so a resting blink draws no frames.
+    pub(super) fn caret_on(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.window_active {
+            return true;
+        }
+        let now = Instant::now();
+        let next = self.blink.next_change(self.blink_start, now);
+        if let (None, Some(at)) = (&self.blink_task, next) {
+            let wait = at.saturating_duration_since(now);
+            self.blink_task = Some(cx.spawn(async move |pane, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = pane.update(cx, |pane, cx| {
+                    pane.blink_task = None;
+                    cx.notify();
+                });
+            }));
+        }
+        self.blink
+            .visible(now.saturating_duration_since(self.blink_start))
     }
 
     /// Commands the pane's finished blocks ran join the shared history.
@@ -159,11 +188,29 @@ impl TerminalPane {
         input.model.complete(&cwd, home.as_deref(), path.as_deref());
     }
 
-    /// A click or drag in the input's text: the caret to that line and column.
-    pub fn input_click(&mut self, line: usize, col: usize, extend: bool, cx: &mut Context<Self>) {
+    /// A press in the input's text: the caret to that line and column (Shift extends the selection), and a drag
+    /// from here selects.
+    pub fn input_press(&mut self, line: usize, col: usize, extend: bool, cx: &mut Context<Self>) {
         if let Some(input) = self.input.as_mut() {
             input.model.click(line, col, extend);
+            input.dragging = true;
             cx.notify();
+        }
+    }
+
+    /// The pointer moved over the input's text with the button held: the selection follows it, when the press began
+    /// in the text.
+    pub fn input_drag(&mut self, line: usize, col: usize, cx: &mut Context<Self>) {
+        if let Some(input) = self.input.as_mut().filter(|input| input.dragging) {
+            input.model.click(line, col, true);
+            cx.notify();
+        }
+    }
+
+    /// A press anywhere else in the pane ends any drag in the input.
+    pub(super) fn input_release(&mut self) {
+        if let Some(input) = self.input.as_mut() {
+            input.dragging = false;
         }
     }
 }
