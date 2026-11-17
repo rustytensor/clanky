@@ -3,7 +3,7 @@
 The app imports `clanky::themes::{Theme, Colors, Appearance, builtin, BUILTINS}`.
 
 - `builtin("stone-dark")` and `builtin("stone-light")` return independent theme values.
-- `BUILTINS` supplies stable picker IDs, names and appearances; `default_id` selects Stone.
+- `BUILTINS` supplies stable picker IDs, names and appearances; `default_id` selects Graphite.
 - `Theme::from_json` rejects missing tokens, unknown fields, malformed colours and invalid gradients.
 - `theme.colors.background` and the other 18 fields are straight `[u8; 4]` values.
 - `theme.ansi` holds 16 straight RGBA colours in ANSI order. Truecolour terminal data is not a theme token.
@@ -32,9 +32,9 @@ all 7 own themes with 0 failing pairs; the 6 approved exemptions remain explicit
 
 Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`, `ink`,
 `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`,
-`ai-bedazzled`, `unicorn-tears`, `unicorn-vomit`. Stone remains the default.
-Paper uses warm parchment colours. Graphite uses shadcn's neutral grey scale;
-secondary text uses neutral 400 dark / 600 light to remain readable on pressed surfaces.
+`ai-bedazzled`, `unicorn-tears`, `unicorn-vomit`. Graphite is the default, dark and light.
+Paper uses warm parchment colours. Graphite uses the neutral greys of the calm design tokens
+(background, card, accent, foreground, muted foreground; borders as black or white at 9 %).
 The three joke themes alone enable gradients and glow. Their descriptions and gradient
 stops are the design's literals; Unicorn Tears uses deep-plum text and pastel surfaces.
 

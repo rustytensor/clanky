@@ -91,6 +91,8 @@ pub struct Theme {
     pub window_gradient: Option<Vec<Color>>,
     pub glow: bool,
     pub description: Option<String>,
+    /// The terminal's selection background. Optional: a theme without one selects with `accent`.
+    pub selection: Option<Color>,
 }
 impl Theme {
     pub fn from_json(source: &str) -> Result<Self, String> {
@@ -107,6 +109,7 @@ impl Theme {
             "window_gradient",
             "glow",
             "description",
+            "selection",
         ];
         if object.keys().any(|key| !allowed.contains(&key.as_str())) {
             return Err("unknown theme field".into());
@@ -156,6 +159,13 @@ impl Theme {
             Some(Value::String(text)) => Some(text.clone()),
             _ => return Err("theme description must be a string".into()),
         };
+        let selection = match object.get("selection") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(text)) => {
+                Some(parse_color(text).map_err(|_| "theme selection must be #rrggbb or #rrggbbaa")?)
+            }
+            _ => return Err("theme selection must be a color".into()),
+        };
         let theme = Self {
             name,
             appearance,
@@ -164,6 +174,7 @@ impl Theme {
             window_gradient,
             glow,
             description,
+            selection,
         };
         theme.validate()?;
         Ok(theme)
@@ -182,6 +193,9 @@ impl Theme {
         });
         if let Some(description) = &self.description {
             value["description"] = json!(description);
+        }
+        if let Some(selection) = self.selection {
+            value["selection"] = json!(format_color(selection));
         }
         let mut source = serde_json::to_string_pretty(&value).map_err(|_| "cannot encode theme")?;
         source.push('\n');
@@ -355,8 +369,8 @@ pub fn builtin(id: &str) -> Result<Theme, String> {
 }
 pub fn default_id(appearance: Appearance) -> &'static str {
     match appearance {
-        Appearance::Dark => "stone-dark",
-        Appearance::Light => "stone-light",
+        Appearance::Dark => "graphite-dark",
+        Appearance::Light => "graphite-light",
     }
 }
 
