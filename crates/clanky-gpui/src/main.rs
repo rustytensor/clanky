@@ -20,9 +20,16 @@
 )]
 
 mod cells;
+#[allow(dead_code)]
+mod control_look;
 mod control_record;
+// The window chrome builds its controls from these.
+#[allow(dead_code)]
+mod controls;
 mod glyphs;
 mod grid_element;
+#[allow(dead_code)]
+mod icons;
 mod keys;
 mod link;
 mod palette;
@@ -55,10 +62,10 @@ use crate::{
 const TITLE: &str = "clanky-gpui";
 const DEFAULT_SIZE: (f32, f32) = (1240.0, 760.0);
 
-/// The bundled terminal fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt and OFL-Geist.txt):
-/// Geist Mono is the window's default `font_family`, so without it a default config draws text in a proportional
-/// fallback font.
-const FONTS: [&[u8]; 7] = [
+/// The bundled fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt, OFL-Geist.txt and OFL-Inter.txt):
+/// the terminal fonts a config may name, and Inter for the interface, so neither falls back to whatever the system
+/// has.
+const FONTS: [&[u8]; 10] = [
     include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/GeistMono-Medium.ttf"),
     include_bytes!("../../../assets/fonts/GeistMono-SemiBold.ttf"),
@@ -66,6 +73,9 @@ const FONTS: [&[u8]; 7] = [
     include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Italic.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-BoldItalic.ttf"),
+    include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/Inter-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"),
 ];
 
 struct Arguments {
