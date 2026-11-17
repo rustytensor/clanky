@@ -257,9 +257,18 @@ impl TerminalPane {
         if bytes.is_empty() {
             return false;
         }
-        // Typing returns the view to the bottom (out of any wheel lift too) and ends a selection, as in VTE.
+        // Typing returns the view to the bottom (out of the history and any wheel lift) and ends a selection, as in
+        // VTE's scroll-on-keystroke.
         let ended_selection = self.selection.take().is_some();
         self.lift = 0.0;
+        let back = self.snapshot.as_ref().map_or(0, |s| s.display_offset);
+        if back > 0
+            && let Err(error) = self
+                .client
+                .scroll(&self.tab, -i32::try_from(back).unwrap_or(i32::MAX))
+        {
+            self.notice = Some(format!("returning to the newest rows: {}", error.message));
+        }
         for chunk in bytes.chunks(64 * 1024) {
             if let Err(error) = self.client.input(&self.tab, chunk) {
                 self.notice = Some(format!("sending input: {}", error.message));

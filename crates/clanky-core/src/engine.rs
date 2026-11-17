@@ -800,6 +800,8 @@ impl Engine {
                     .ok_or_else(|| invalid("invalid scroll delta"))?;
                 let offset = tab.terminal.lock().unwrap().scroll(delta);
                 tab.safe_terminal.lock().unwrap().scroll(delta);
+                // The view moved: windows waiting on change notices fetch it, as after Engine::scroll and reset.
+                self.0.1.window_signal.notify();
                 Ok(json!({"display_offset":offset}))
             }
             "input" => {

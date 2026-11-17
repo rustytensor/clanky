@@ -13,7 +13,7 @@ use clanky_state::{
 };
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Styled, Window, canvas, div, px,
+    ParentElement, Pixels, Styled, Window, canvas, div, px, svg,
 };
 use serde_json::json;
 
@@ -22,6 +22,7 @@ use crate::{
     control_look::{self, Kind as LookKind, State, paint},
     controls::{Control, Group, INTERFACE_FONT_FAMILY, Kind, Switcher},
     grid_element::colour,
+    icons::Icon,
     pane::TerminalPane,
     tokens as t,
 };
@@ -134,13 +135,19 @@ impl MainWindow {
                     .items_start()
                     .gap(px(t::SPACE_8))
                     .child(
+                        // The prompt mark (mockup ❯) as the chevron icon, so it never depends on the terminal
+                        // font having the glyph; in the terminal's blue.
                         div()
                             .flex_none()
-                            .font_family(self.text.family.clone())
-                            .text_size(px(self.text.size))
+                            .flex()
+                            .items_center()
                             .h(px(self.line_height()))
-                            .text_color(paint_rgb(self.palette.ansi[4], dim))
-                            .child("❯"),
+                            .child(
+                                svg()
+                                    .data(Icon::ChevronRight.svg())
+                                    .size(px(t::ICON_SIZE_BAR))
+                                    .text_color(paint_rgb(self.palette.ansi[4], dim)),
+                            ),
                     )
                     .child(div().flex_1().min_w_0().overflow_hidden().child(line)),
             )

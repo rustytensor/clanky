@@ -170,27 +170,29 @@ fn meta_runs(text: &str, color: gpui::Hsla) -> Vec<TextRun> {
 /// Each block's meta text width in logical pixels, words and the gaps between them.
 pub fn meta_widths(shown: &Shown, window: &Window) -> Vec<f32> {
     let system = window.text_system();
+    let width = |text: &str| {
+        let runs = meta_runs(text, gpui::black());
+        f32::from(
+            system
+                .shape_line(SharedString::from(text.to_owned()), px(t::TEXT_META), &runs)
+                .width,
+        )
+    };
     shown
         .blocks
         .iter()
         .map(|block| {
-            let words: f32 = block
+            // Each group's words with their 4 px gaps, and 8 px between groups, as `overlay` lays them out.
+            let groups: f32 = block
                 .meta
                 .iter()
                 .map(|meta| {
-                    let runs = meta_runs(&meta.text, gpui::black());
-                    f32::from(
-                        system
-                            .shape_line(
-                                SharedString::from(meta.text.clone()),
-                                px(t::TEXT_META),
-                                &runs,
-                            )
-                            .width,
-                    )
+                    let parts: Vec<&str> = meta.text.split(' ').collect();
+                    parts.iter().map(|part| width(part)).sum::<f32>()
+                        + t::SPACE_4 * parts.len().saturating_sub(1) as f32
                 })
                 .sum();
-            words + t::SPACE_8 * block.meta.len().saturating_sub(1) as f32
+            groups + t::SPACE_8 * block.meta.len().saturating_sub(1) as f32
         })
         .collect()
 }
@@ -302,7 +304,13 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
                     .iter()
                     .filter(|word| look.spaced.is_none() || word.right == right)
                     .map(|word| {
-                        let text = div().child(word.text.clone());
+                        // The words of one group keep a gap wider than a space at 10 px, so "2.3 s" never reads as
+                        // one word (today's meta row does the same).
+                        let text = div().flex().gap(px(t::SPACE_4)).children(
+                            word.text
+                                .split(' ')
+                                .map(|part| div().child(part.to_owned())),
+                        );
                         if word.failure {
                             text.text_color(paint(colors.err, 1.0))
                         } else {
@@ -313,7 +321,6 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
         };
         let mut meta = div()
             .absolute()
-            .right(px(t::PANE_PADDING))
             .top(logical(top))
             .h(logical(height))
             .flex()
@@ -324,14 +331,17 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
             .whitespace_nowrap()
             .text_color(paint(colors.muted_foreground, 1.0));
         meta = if look.spaced.is_some() {
-            meta.left(logical(pad))
-                .justify_between()
+            // A row of its own across the pane, inside the padding the grid has (the hairlines span it the same way).
+            meta.left_0()
+                .w_full()
+                .px(px(t::PANE_PADDING))
                 .child(words(false))
+                .child(div().flex_1())
                 .child(words(true))
         } else {
-            meta.child(words(true))
+            meta.right(px(t::PANE_PADDING)).child(words(true))
         };
-        if look.landmarks {
+        if look.landmarks && look.record.enabled() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
             meta = meta.child(look.record.landmark("meta-text", index));
         }
