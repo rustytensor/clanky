@@ -656,7 +656,8 @@ def selection_check(win, e):
 
 # ---------------------------------------------------------------- G3: the floating screens
 
-# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist.
+# How each popover opens. The context menu's right-click is the window's own. TODO(G3): the other keys are guesses
+# until G3's key bindings exist.
 
 
 def open_completion(win):

@@ -2,7 +2,7 @@
 //! (xterm's "Mouse Tracking"), wheel handling, word and line selection, and pasting.
 //! Window code supplies cells and pointer positions; nothing here touches the GUI.
 use clanky_core::{
-    MODE_ALTERNATE_SCROLL, MODE_ALT_SCREEN, MODE_MOUSE_DRAG, MODE_MOUSE_MOTION, MODE_MOUSE_REPORT,
+    MODE_ALT_SCREEN, MODE_ALTERNATE_SCROLL, MODE_MOUSE_DRAG, MODE_MOUSE_MOTION, MODE_MOUSE_REPORT,
     MODE_MOUSE_SGR, MODE_MOUSE_UTF8, TerminalSnapshot,
 };
 
@@ -27,7 +27,15 @@ pub fn reports_motion(modes: u32, button_held: bool) -> bool {
 /// One report, as VTE's feed_mouse_event builds it. `button` is 0 for motion with no
 /// button, 1 left, 2 middle, 3 right, 4/5 wheel up/down, 6/7 wheel left/right.
 /// `col` and `row` are 0-based on the pane's screen. None when nothing can be sent.
-pub fn report(modes: u32, button: u8, mods: Mods, col: usize, row: usize, drag: bool, release: bool) -> Option<Vec<u8>> {
+pub fn report(
+    modes: u32,
+    button: u8,
+    mods: Mods,
+    col: usize,
+    row: usize,
+    drag: bool,
+    release: bool,
+) -> Option<Vec<u8>> {
     if !reporting(modes) {
         return None;
     }
@@ -41,7 +49,9 @@ pub fn report(modes: u32, button: u8, mods: Mods, col: usize, row: usize, drag: 
     if release && !sgr {
         cb = 3;
     }
-    cb |= if mods.shift { 4 } else { 0 } | if mods.alt { 8 } else { 0 } | if mods.ctrl { 16 } else { 0 };
+    cb |= if mods.shift { 4 } else { 0 }
+        | if mods.alt { 8 } else { 0 }
+        | if mods.ctrl { 16 } else { 0 };
     if drag {
         cb |= 32;
     }
@@ -163,7 +173,12 @@ pub type Span = (i64, usize, usize);
 
 impl Selection {
     pub fn new(kind: Kind, block: bool, at: Pos) -> Self {
-        Self { kind, block, anchor: at, head: at }
+        Self {
+            kind,
+            block,
+            anchor: at,
+            head: at,
+        }
     }
 
     /// Cells selected, per line, in order. Lines outside the view can only be
@@ -173,7 +188,9 @@ impl Selection {
         if cols == 0 {
             return Vec::new();
         }
-        let (a, b) = if (self.anchor.line, self.anchor.col, self.anchor.right) <= (self.head.line, self.head.col, self.head.right) {
+        let (a, b) = if (self.anchor.line, self.anchor.col, self.anchor.right)
+            <= (self.head.line, self.head.col, self.head.right)
+        {
             (self.anchor, self.head)
         } else {
             (self.head, self.anchor)
@@ -194,11 +211,23 @@ impl Selection {
                 }
                 (s, e)
             }
-            Kind::Word => ((a.line, word_start(snapshot, a)), (b.line, word_end(snapshot, b))),
-            Kind::Line => ((logical_start(snapshot, a.line), 0), (logical_end(snapshot, b.line), cols)),
+            Kind::Word => (
+                (a.line, word_start(snapshot, a)),
+                (b.line, word_end(snapshot, b)),
+            ),
+            Kind::Line => (
+                (logical_start(snapshot, a.line), 0),
+                (logical_end(snapshot, b.line), cols),
+            ),
         };
         (start.0..=end.0)
-            .map(|line| (line, if line == start.0 { start.1 } else { 0 }, if line == end.0 { end.1 } else { cols }))
+            .map(|line| {
+                (
+                    line,
+                    if line == start.0 { start.1 } else { 0 },
+                    if line == end.0 { end.1 } else { cols },
+                )
+            })
             .filter(|(_, s, e)| s < e || self.kind == Kind::Line)
             .collect()
     }
@@ -211,9 +240,16 @@ impl Selection {
         let mut out = String::new();
         for (i, (line, s, e)) in spans.iter().enumerate() {
             let row = line - top_line(snapshot);
-            let cells = (row >= 0 && (row as usize) < snapshot.rows).then(|| &snapshot.cells[row as usize * snapshot.cols..(row as usize + 1) * snapshot.cols]);
-            let text: String = cells.map(|cells| cells[*s..*e].iter().map(|c| c.ch).collect()).unwrap_or_default();
-            let wraps = !self.block && *e == snapshot.cols && row >= 0 && snapshot.wrapped.contains(&(row as usize));
+            let cells = (row >= 0 && (row as usize) < snapshot.rows).then(|| {
+                &snapshot.cells[row as usize * snapshot.cols..(row as usize + 1) * snapshot.cols]
+            });
+            let text: String = cells
+                .map(|cells| cells[*s..*e].iter().map(|c| c.ch).collect())
+                .unwrap_or_default();
+            let wraps = !self.block
+                && *e == snapshot.cols
+                && row >= 0
+                && snapshot.wrapped.contains(&(row as usize));
             if wraps {
                 out.push_str(&text);
             } else {
@@ -233,12 +269,17 @@ fn row_of(snapshot: &TerminalSnapshot, line: i64) -> Option<usize> {
 }
 
 fn cell(snapshot: &TerminalSnapshot, row: usize, col: usize) -> char {
-    snapshot.cells.get(row * snapshot.cols + col).map_or(' ', |c| c.ch)
+    snapshot
+        .cells
+        .get(row * snapshot.cols + col)
+        .map_or(' ', |c| c.ch)
 }
 
 /// Same class as VTE's is_same_class: runs of word characters group; others stand alone.
 fn word_start(snapshot: &TerminalSnapshot, p: Pos) -> usize {
-    let Some(row) = row_of(snapshot, p.line) else { return p.col };
+    let Some(row) = row_of(snapshot, p.line) else {
+        return p.col;
+    };
     let mut col = p.col.min(snapshot.cols - 1);
     if !is_word_char(cell(snapshot, row, col)) {
         return col;
@@ -250,7 +291,9 @@ fn word_start(snapshot: &TerminalSnapshot, p: Pos) -> usize {
 }
 
 fn word_end(snapshot: &TerminalSnapshot, p: Pos) -> usize {
-    let Some(row) = row_of(snapshot, p.line) else { return (p.col + 1).min(snapshot.cols) };
+    let Some(row) = row_of(snapshot, p.line) else {
+        return (p.col + 1).min(snapshot.cols);
+    };
     let mut col = p.col.min(snapshot.cols - 1);
     if !is_word_char(cell(snapshot, row, col)) {
         return col + 1;
@@ -292,7 +335,11 @@ pub struct Clicks {
 impl Clicks {
     pub fn press(&mut self, now: std::time::Instant, line: i64, col: usize) -> u8 {
         let count = match self.last {
-            Some((at, l, c, n)) if now.duration_since(at).as_millis() <= 400 && l == line && c == col => n % 3 + 1,
+            Some((at, l, c, n))
+                if now.duration_since(at).as_millis() <= 400 && l == line && c == col =>
+            {
+                n % 3 + 1
+            }
             _ => 1,
         };
         self.last = Some((now, line, col, count));
@@ -310,9 +357,20 @@ mod tests {
         for line in lines {
             let mut chars: Vec<char> = line.chars().collect();
             chars.resize(cols, ' ');
-            cells.extend(chars.into_iter().map(|ch| Cell { ch, fg: [0; 3], bg: [0; 3], color_source: None, style: 0 }));
+            cells.extend(chars.into_iter().map(|ch| Cell {
+                ch,
+                fg: [0; 3],
+                bg: [0; 3],
+                color_source: None,
+                style: 0,
+            }));
         }
-        TerminalSnapshot { rows: lines.len(), cols, cells, ..Default::default() }
+        TerminalSnapshot {
+            rows: lines.len(),
+            cols,
+            cells,
+            ..Default::default()
+        }
     }
 
     /// xterm ctlseqs, "Normal tracking mode": ESC [ M CbCxCy, each value plus 32,
@@ -320,11 +378,41 @@ mod tests {
     #[test]
     fn report_bytes() {
         let none = Mods::default();
-        assert_eq!(report(MODE_MOUSE_CLICK, 1, none, 9, 4, false, false).unwrap(), b"\x1b[M\x20\x2a\x25");
-        assert_eq!(report(MODE_MOUSE_CLICK, 1, none, 9, 4, false, true).unwrap(), b"\x1b[M\x23\x2a\x25");
+        assert_eq!(
+            report(MODE_MOUSE_CLICK, 1, none, 9, 4, false, false).unwrap(),
+            b"\x1b[M\x20\x2a\x25"
+        );
+        assert_eq!(
+            report(MODE_MOUSE_CLICK, 1, none, 9, 4, false, true).unwrap(),
+            b"\x1b[M\x23\x2a\x25"
+        );
         let ctrl = Mods { ctrl: true, ..none };
-        assert_eq!(report(MODE_MOUSE_CLICK | MODE_MOUSE_SGR, 3, ctrl, 9, 4, false, true).unwrap(), b"\x1b[<18;10;5m");
-        assert_eq!(report(MODE_MOUSE_MOTION | MODE_MOUSE_SGR, 0, none, 12, 6, true, false).unwrap(), b"\x1b[<35;13;7M");
+        assert_eq!(
+            report(
+                MODE_MOUSE_CLICK | MODE_MOUSE_SGR,
+                3,
+                ctrl,
+                9,
+                4,
+                false,
+                true
+            )
+            .unwrap(),
+            b"\x1b[<18;10;5m"
+        );
+        assert_eq!(
+            report(
+                MODE_MOUSE_MOTION | MODE_MOUSE_SGR,
+                0,
+                none,
+                12,
+                6,
+                true,
+                false
+            )
+            .unwrap(),
+            b"\x1b[<35;13;7M"
+        );
     }
 
     /// Expected values from VTE's pastify-test.cc: controls become pictures, HT passes,
@@ -332,20 +420,49 @@ mod tests {
     #[test]
     fn paste_like_vte() {
         assert_eq!(pastify("0", true), b"\x1b[200~0\x1b[201~");
-        assert_eq!(String::from_utf8(pastify("abc\x1b\x1babc", false)).unwrap(), "abc\u{241b}\u{241b}abc");
+        assert_eq!(
+            String::from_utf8(pastify("abc\x1b\x1babc", false)).unwrap(),
+            "abc\u{241b}\u{241b}abc"
+        );
         assert_eq!(pastify("a\tb\nc\r\nd", false), b"a\tb\rc\rd");
-        assert_eq!(String::from_utf8(pastify("x\u{7f}\u{9b}", false)).unwrap(), "x\u{2421}\u{fffd}");
+        assert_eq!(
+            String::from_utf8(pastify("x\u{7f}\u{9b}", false)).unwrap(),
+            "x\u{2421}\u{fffd}"
+        );
     }
 
     /// The gate's line: VTE's word characters keep the path together.
     #[test]
     fn word_and_line_selection() {
         let v = view(&["", "", "alpha beta gamma /srv/devops/x-y.txt"], 40);
-        let at = |col| Pos { line: 2, col, right: false };
+        let at = |col| Pos {
+            line: 2,
+            col,
+            right: false,
+        };
         assert_eq!(Selection::new(Kind::Word, false, at(7)).text(&v), "beta");
-        assert_eq!(Selection::new(Kind::Word, false, at(23)).text(&v), "/srv/devops/x-y.txt");
-        assert_eq!(Selection::new(Kind::Line, false, at(3)).text(&v), "alpha beta gamma /srv/devops/x-y.txt\n");
-        let drag = Selection { kind: Kind::Char, block: false, anchor: Pos { line: 2, col: 0, right: false }, head: Pos { line: 2, col: 9, right: true } };
+        assert_eq!(
+            Selection::new(Kind::Word, false, at(23)).text(&v),
+            "/srv/devops/x-y.txt"
+        );
+        assert_eq!(
+            Selection::new(Kind::Line, false, at(3)).text(&v),
+            "alpha beta gamma /srv/devops/x-y.txt\n"
+        );
+        let drag = Selection {
+            kind: Kind::Char,
+            block: false,
+            anchor: Pos {
+                line: 2,
+                col: 0,
+                right: false,
+            },
+            head: Pos {
+                line: 2,
+                col: 9,
+                right: true,
+            },
+        };
         assert_eq!(drag.text(&v), "alpha beta");
     }
 }

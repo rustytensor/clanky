@@ -42,35 +42,63 @@ pub struct Breath {
 /// block above it, so no hairline and no space under one.
 pub fn gap_above(first: bool, scale: f32) -> f32 {
     let meta = ABOVE + META_H + META_GAP;
-    if first { meta * scale } else { (BELOW + 1.0 + meta) * scale }
+    if first {
+        meta * scale
+    } else {
+        (BELOW + 1.0 + meta) * scale
+    }
 }
 
 /// The rows of a pane drawn with space between its blocks, or None for the plain grid
 /// (no block on screen, or the alternate screen). `clip_h` is the grid's visible height;
 /// rows are lifted so the cursor and the last written row stay in it, less `lift` px the
 /// wheel took back to show the rows above.
-pub fn breathe(blocks: &[BlockCard], snapshot: &TerminalSnapshot, ch: f32, scale: f32, clip_h: f32, lift: f32) -> Option<Breath> {
+pub fn breathe(
+    blocks: &[BlockCard],
+    snapshot: &TerminalSnapshot,
+    ch: f32,
+    scale: f32,
+    clip_h: f32,
+    lift: f32,
+) -> Option<Breath> {
     breathe_spaced(blocks, snapshot, ch, Spacing::mockup(scale), clip_h, lift)
 }
 
 /// The space around a block's meta row, in device pixels: under the block before it, the hairline, over the meta
 /// row, the meta row, and between the meta row and the command.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Spacing { pub below: f32, pub line: f32, pub above: f32, pub meta: f32, pub meta_gap: f32 }
+pub struct Spacing {
+    pub below: f32,
+    pub line: f32,
+    pub above: f32,
+    pub meta: f32,
+    pub meta_gap: f32,
+}
 
 impl Spacing {
     /// The mockup's spacing (.blk and .meta) at `scale`.
     pub fn mockup(scale: f32) -> Self {
-        Self { below: BELOW * scale, line: scale, above: ABOVE * scale, meta: META_H * scale, meta_gap: META_GAP * scale }
+        Self {
+            below: BELOW * scale,
+            line: scale,
+            above: ABOVE * scale,
+            meta: META_H * scale,
+            meta_gap: META_GAP * scale,
+        }
     }
     /// The space a block gets above its command row; the first block on the screen has no block above it.
     pub fn gap_above(&self, first: bool) -> f32 {
         let meta = self.above + self.meta + self.meta_gap;
-        if first { meta } else { self.below + self.line + meta }
+        if first {
+            meta
+        } else {
+            self.below + self.line + meta
+        }
     }
     /// The hairline's top above a block (relative to the grid origin), under the row before it.
     pub fn hairline(&self, breath: &Breath, first_row: usize, ch: f32) -> Option<f32> {
-        (first_row > 0 && first_row < breath.tops.len()).then(|| breath.tops[first_row - 1] + ch + self.below)
+        (first_row > 0 && first_row < breath.tops.len())
+            .then(|| breath.tops[first_row - 1] + ch + self.below)
     }
     /// The meta row's top (relative to the grid origin) above a block's command row.
     pub fn meta_top(&self, breath: &Breath, first_row: usize) -> f32 {
@@ -79,24 +107,49 @@ impl Spacing {
 }
 
 /// [`breathe`] with the given spacing.
-pub fn breathe_spaced(blocks: &[BlockCard], snapshot: &TerminalSnapshot, ch: f32, spacing: Spacing, clip_h: f32, lift: f32) -> Option<Breath> {
+pub fn breathe_spaced(
+    blocks: &[BlockCard],
+    snapshot: &TerminalSnapshot,
+    ch: f32,
+    spacing: Spacing,
+    clip_h: f32,
+    lift: f32,
+) -> Option<Breath> {
     let rows = snapshot.rows;
-    if rows == 0 || snapshot.cols == 0 || snapshot.modes & clanky_core::MODE_ALT_SCREEN != 0 { return None; }
+    if rows == 0 || snapshot.cols == 0 || snapshot.modes & clanky_core::MODE_ALT_SCREEN != 0 {
+        return None;
+    }
     let mut extra = vec![0.0f32; rows];
     let mut any = false;
     for block in blocks.iter().filter(|b| b.first_row < rows) {
         extra[block.first_row] += spacing.gap_above(block.first_row == 0);
         any = true;
     }
-    if !any { return None; }
+    if !any {
+        return None;
+    }
     let mut tops = Vec::with_capacity(rows);
     let mut acc = 0.0;
-    for (row, add) in extra.iter().enumerate() { acc += add; tops.push(row as f32 * ch + acc); }
-    let written = (0..rows).rev().find(|row| snapshot.cells[row * snapshot.cols..(row + 1) * snapshot.cols].iter().any(|c| c.ch != ' ')).unwrap_or(0);
-    let anchor = snapshot.cursor.map_or(written, |(row, _)| row.min(rows - 1).max(written));
+    for (row, add) in extra.iter().enumerate() {
+        acc += add;
+        tops.push(row as f32 * ch + acc);
+    }
+    let written = (0..rows)
+        .rev()
+        .find(|row| {
+            snapshot.cells[row * snapshot.cols..(row + 1) * snapshot.cols]
+                .iter()
+                .any(|c| c.ch != ' ')
+        })
+        .unwrap_or(0);
+    let anchor = snapshot
+        .cursor
+        .map_or(written, |(row, _)| row.min(rows - 1).max(written));
     let shift = (tops[anchor] + ch - clip_h).max(0.0).floor();
     let lifted = (shift - lift.max(0.0)).max(0.0);
-    for top in &mut tops { *top -= lifted; }
+    for top in &mut tops {
+        *top -= lifted;
+    }
     Some(Breath { tops, shift })
 }
 
@@ -105,13 +158,20 @@ impl Breath {
     /// belongs to that block's command row.
     pub fn row_at(&self, y: f32, ch: f32) -> usize {
         let n = self.tops.partition_point(|top| *top <= y);
-        if n == 0 { return 0; }
+        if n == 0 {
+            return 0;
+        }
         let row = n - 1;
-        if y < self.tops[row] + ch { row } else { (row + 1).min(self.tops.len() - 1) }
+        if y < self.tops[row] + ch {
+            row
+        } else {
+            (row + 1).min(self.tops.len() - 1)
+        }
     }
     /// The hairline's y (relative to the grid origin) above a block, 11 px under the row before it.
     pub fn hairline(&self, first_row: usize, ch: f32, scale: f32) -> Option<f32> {
-        (first_row > 0 && first_row < self.tops.len()).then(|| self.tops[first_row - 1] + ch + BELOW * scale)
+        (first_row > 0 && first_row < self.tops.len())
+            .then(|| self.tops[first_row - 1] + ch + BELOW * scale)
     }
     /// The meta row's top (relative to the grid origin) above a block's command row.
     pub fn meta_top(&self, first_row: usize, scale: f32) -> f32 {
@@ -133,22 +193,62 @@ impl Breath {
 /// Only server anchors from this snapshot's generation place cards; never text matching.
 pub fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<BlockCard> {
     let mut cards = Vec::new();
-    if !snapshot.images.is_empty() || snapshot.cols == 0 { return cards; }
-    let Some(top) = view["viewport_line"].as_u64() else { return cards; };
-    let Some(blocks) = view["blocks"].as_array() else { return cards; };
+    if !snapshot.images.is_empty() || snapshot.cols == 0 {
+        return cards;
+    }
+    let Some(top) = view["viewport_line"].as_u64() else {
+        return cards;
+    };
+    let Some(blocks) = view["blocks"].as_array() else {
+        return cards;
+    };
     for block in blocks {
-        let (Some(id), Some(command), Some(line)) = (block["block_id"].as_str(), block["command"].as_str(), block["command_line"].as_u64()) else { continue; };
-        let Some(prompt) = block["prompt_line"].as_u64() else { continue; };
+        let (Some(id), Some(command), Some(line)) = (
+            block["block_id"].as_str(),
+            block["command"].as_str(),
+            block["command_line"].as_u64(),
+        ) else {
+            continue;
+        };
+        let Some(prompt) = block["prompt_line"].as_u64() else {
+            continue;
+        };
         // Server lines (fish, measured): the command is typed on the line before output
         // starts (command_line), and the finish mark sits on the next prompt's line.
         let typed = if line > prompt { line - 1 } else { prompt };
-        let Some(first) = typed.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
+        let Some(first) = typed
+            .checked_sub(top)
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| *n < snapshot.rows)
+        else {
+            continue;
+        };
         let complete = block["complete"] == true;
-        let end = match block["end_line"].as_u64() { Some(end) if complete => end.saturating_sub(1).max(typed), _ => top + snapshot.rows as u64 - 1 };
-        let last = end.saturating_sub(top).min(snapshot.rows.saturating_sub(1) as u64) as usize;
-        if last < first || cards.iter().any(|c: &BlockCard| first <= c.last_row && last >= c.first_row) { continue; }
-        cards.push(BlockCard { id:id.into(), first_row:first, last_row:last, command:command.into(),
-            exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()), duration_ms:block["duration_ms"].as_u64(), running:block["complete"] != true });
+        let end = match block["end_line"].as_u64() {
+            Some(end) if complete => end.saturating_sub(1).max(typed),
+            _ => top + snapshot.rows as u64 - 1,
+        };
+        let last = end
+            .saturating_sub(top)
+            .min(snapshot.rows.saturating_sub(1) as u64) as usize;
+        if last < first
+            || cards
+                .iter()
+                .any(|c: &BlockCard| first <= c.last_row && last >= c.first_row)
+        {
+            continue;
+        }
+        cards.push(BlockCard {
+            id: id.into(),
+            first_row: first,
+            last_row: last,
+            command: command.into(),
+            exit_code: block["exit_code"]
+                .as_i64()
+                .and_then(|n| i32::try_from(n).ok()),
+            duration_ms: block["duration_ms"].as_u64(),
+            running: block["complete"] != true,
+        });
     }
     cards
 }
@@ -158,7 +258,9 @@ pub fn local_hhmm(unix_ms: i64) -> String {
     let secs = (unix_ms / 1000) as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: localtime_r writes only into the tm we own; a null return leaves it zeroed.
-    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() { return String::new(); }
+    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+        return String::new();
+    }
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 
@@ -166,15 +268,26 @@ pub fn local_hhmm(unix_ms: i64) -> String {
 pub fn home_short(cwd: &str, home: Option<&str>) -> String {
     match home.filter(|home| !home.is_empty()) {
         Some(home) if cwd == home => "~".into(),
-        Some(home) if cwd.strip_prefix(home).is_some_and(|rest| rest.starts_with('/')) => format!("~{}", &cwd[home.len()..]),
+        Some(home)
+            if cwd
+                .strip_prefix(home)
+                .is_some_and(|rest| rest.starts_with('/')) =>
+        {
+            format!("~{}", &cwd[home.len()..])
+        }
         _ => cwd.into(),
     }
 }
 
 /// A finished command's duration as the meta row and the sticky line word it.
-pub fn duration_label(ms:u64)->String{
-    if ms<1000{format!("{ms} ms")}else if ms<60_000{format!("{:.1} s",ms as f64/1000.0)}
-    else{format!("{} m {} s",ms/60_000,(ms%60_000)/1000)}
+pub fn duration_label(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else if ms < 60_000 {
+        format!("{:.1} s", ms as f64 / 1000.0)
+    } else {
+        format!("{} m {} s", ms / 60_000, (ms % 60_000) / 1000)
+    }
 }
 
 #[cfg(test)]
@@ -183,8 +296,24 @@ mod tests {
     use serde_json::json;
 
     fn screen(rows: usize, cols: usize, written: &[usize]) -> TerminalSnapshot {
-        let mut snapshot = TerminalSnapshot { rows, cols, cells: vec![clanky_core::Cell { ch: ' ', fg: [0; 3], bg: [0; 3], color_source: None, style: 0 }; rows * cols], ..Default::default() };
-        for row in written { snapshot.cells[row * cols].ch = 'x'; }
+        let mut snapshot = TerminalSnapshot {
+            rows,
+            cols,
+            cells: vec![
+                clanky_core::Cell {
+                    ch: ' ',
+                    fg: [0; 3],
+                    bg: [0; 3],
+                    color_source: None,
+                    style: 0
+                };
+                rows * cols
+            ],
+            ..Default::default()
+        };
+        for row in written {
+            snapshot.cells[row * cols].ch = 'x';
+        }
         snapshot
     }
 
@@ -200,16 +329,49 @@ mod tests {
             {"block_id": "c", "command": "sleep 9", "prompt_line": 14, "command_line": 15, "complete": false}
         ]});
         let cards = matched_blocks(&screen(6, 4, &[]), &view);
-        let rows: Vec<_> = cards.iter().map(|c| (c.id.as_str(), c.first_row, c.last_row, c.exit_code, c.running)).collect();
-        assert_eq!(rows, [("a", 0, 1, Some(0), false), ("b", 2, 3, Some(3), false), ("c", 4, 5, None, true)]);
+        let rows: Vec<_> = cards
+            .iter()
+            .map(|c| {
+                (
+                    c.id.as_str(),
+                    c.first_row,
+                    c.last_row,
+                    c.exit_code,
+                    c.running,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("a", 0, 1, Some(0), false),
+                ("b", 2, 3, Some(3), false),
+                ("c", 4, 5, None, true)
+            ]
+        );
     }
 
     /// The mockup's spacing at scale 1 with 26 px rows: the first block gets 9 + 21 + 2 = 32 px above it, a later
     /// block 11 + 1 + 32 = 44 px more.
     #[test]
     fn space_between_blocks() {
-        let block = |id: &str, first_row, last_row| BlockCard { id: id.into(), first_row, last_row, command: String::new(), exit_code: Some(0), duration_ms: None, running: false };
-        let breath = breathe(&[block("a", 0, 1), block("b", 2, 3)], &screen(4, 4, &[0, 1, 2, 3]), 26.0, 1.0, 1000.0, 0.0);
+        let block = |id: &str, first_row, last_row| BlockCard {
+            id: id.into(),
+            first_row,
+            last_row,
+            command: String::new(),
+            exit_code: Some(0),
+            duration_ms: None,
+            running: false,
+        };
+        let breath = breathe(
+            &[block("a", 0, 1), block("b", 2, 3)],
+            &screen(4, 4, &[0, 1, 2, 3]),
+            26.0,
+            1.0,
+            1000.0,
+            0.0,
+        );
         assert_eq!(breath.map(|b| b.tops), Some(vec![32.0, 58.0, 128.0, 154.0]));
     }
 
@@ -217,9 +379,31 @@ mod tests {
     /// one 12 + 1 + 28 = 41 px more; its hairline sits 12 px under the row before it, its meta row 2 + 18 px over it.
     #[test]
     fn spacing_from_the_rulebook() {
-        let block = |id: &str, first_row, last_row| BlockCard { id: id.into(), first_row, last_row, command: String::new(), exit_code: Some(0), duration_ms: None, running: false };
-        let spacing = Spacing { below: 12.0, line: 1.0, above: 8.0, meta: 18.0, meta_gap: 2.0 };
-        let breath = breathe_spaced(&[block("a", 0, 1), block("b", 2, 3)], &screen(4, 4, &[0, 1, 2, 3]), 19.0, spacing, 1000.0, 0.0).expect("two blocks on the screen");
+        let block = |id: &str, first_row, last_row| BlockCard {
+            id: id.into(),
+            first_row,
+            last_row,
+            command: String::new(),
+            exit_code: Some(0),
+            duration_ms: None,
+            running: false,
+        };
+        let spacing = Spacing {
+            below: 12.0,
+            line: 1.0,
+            above: 8.0,
+            meta: 18.0,
+            meta_gap: 2.0,
+        };
+        let breath = breathe_spaced(
+            &[block("a", 0, 1), block("b", 2, 3)],
+            &screen(4, 4, &[0, 1, 2, 3]),
+            19.0,
+            spacing,
+            1000.0,
+            0.0,
+        )
+        .expect("two blocks on the screen");
         assert_eq!(breath.tops, vec![28.0, 47.0, 107.0, 126.0]);
         assert_eq!(spacing.hairline(&breath, 2, 19.0), Some(78.0));
         assert_eq!(spacing.hairline(&breath, 0, 19.0), None);

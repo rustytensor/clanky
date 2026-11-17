@@ -31,6 +31,7 @@ use gpui::{
 use serde_json::{Value, json};
 
 mod command_bar;
+mod context_menu;
 mod drag;
 mod floating;
 #[cfg(feature = "test-popover")]
@@ -132,6 +133,7 @@ pub struct MainWindow {
     inputs: Option<SharedInput>,
     /// The floating screen open above the panes, if any.
     popover: Popover,
+    pane_menu: context_menu::PaneMenu,
     _status: Task<()>,
 }
 
@@ -203,6 +205,7 @@ impl MainWindow {
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
             popover: Popover::default(),
+            pane_menu: context_menu::PaneMenu::default(),
             _status: status,
         };
         this.after_change(window, cx);
@@ -277,6 +280,7 @@ impl MainWindow {
                 window,
                 move |this, _, event, window, cx| match event {
                     PaneEvent::Finished => this.pane_finished(&tab, window, cx),
+                    PaneEvent::Menu(at) => this.open_pane_menu(&tab, *at, window, cx),
                 },
             );
         Ok((pane, subscription))

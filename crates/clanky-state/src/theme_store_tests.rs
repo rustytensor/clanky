@@ -19,9 +19,14 @@ fn recreated_theme_clears_old_error() {
     let mut store = ThemeStore::open(&root).unwrap();
     assert_eq!(store.issues().len(), 1);
     fs::remove_file(&path).unwrap();
-    store.save_new("repaired", &crate::themes::builtin("stone-dark").unwrap()).unwrap();
+    store
+        .save_new("repaired", &crate::themes::builtin("stone-dark").unwrap())
+        .unwrap();
     assert!(store.issues().is_empty());
-    assert_eq!(store.get("user:repaired").unwrap().colors.background, [20, 18, 16, 255]);
+    assert_eq!(
+        store.get("user:repaired").unwrap().colors.background,
+        [20, 18, 16, 255]
+    );
     assert!(!store.reload().unwrap());
 }
 

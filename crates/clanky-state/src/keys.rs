@@ -144,7 +144,11 @@ const fn bind(mods: Mods, key: Key, action: Action) -> Binding {
 pub const BINDINGS: &[Binding] = &[
     bind(Mods::CTRL_SHIFT, Key::Escape, Action::StopAgents),
     bind(Mods::CTRL, Key::Char(','), Action::ToggleSettings),
-    bind(Mods::CTRL_SHIFT, Key::Char('p'), Action::ToggleCommandPalette),
+    bind(
+        Mods::CTRL_SHIFT,
+        Key::Char('p'),
+        Action::ToggleCommandPalette,
+    ),
     bind(Mods::CTRL_SHIFT, Key::Char('g'), Action::ToggleAgentPicker),
     bind(Mods::CTRL_SHIFT, Key::F(6), Action::CycleCardFocus),
     bind(Mods::CTRL_SHIFT, Key::Char('b'), Action::ToggleToolsPanel),
@@ -233,7 +237,9 @@ mod tests {
     fn no_chord_is_bound_twice() {
         for (index, binding) in BINDINGS.iter().enumerate() {
             assert!(
-                BINDINGS[index + 1..].iter().all(|other| other.chord != binding.chord),
+                BINDINGS[index + 1..]
+                    .iter()
+                    .all(|other| other.chord != binding.chord),
                 "{} is bound twice",
                 binding.chord.label()
             );
@@ -255,7 +261,9 @@ mod tests {
         // Shift matters: Ctrl+T is the program's, not New tab.
         assert_eq!(action_for(Chord::new(Mods::CTRL, Key::Char('t'))), None);
         assert_eq!(action_for(Chord::new(Mods::NONE, Key::Char('a'))), None);
-        let zoom_in: Vec<String> = chords_for(Action::ZoomIn).map(|chord| chord.label()).collect();
+        let zoom_in: Vec<String> = chords_for(Action::ZoomIn)
+            .map(|chord| chord.label())
+            .collect();
         assert_eq!(zoom_in, ["Ctrl+=", "Ctrl++"]);
     }
 }

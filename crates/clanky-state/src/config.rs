@@ -1,8 +1,18 @@
 //! Startup configuration and session-only font sizing.
-use std::{collections::BTreeMap, fs, io::ErrorKind, path::{Path, PathBuf}};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ThemePreference { Dark, Light, #[default] System }
+pub enum ThemePreference {
+    Dark,
+    Light,
+    #[default]
+    System,
+}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -76,29 +86,73 @@ pub struct TerminalColors {
 
 /// Cursor blinking: follow GNOME's setting, or always on or off.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CursorBlink { #[default] System, On, Off }
+pub enum CursorBlink {
+    #[default]
+    System,
+    On,
+    Off,
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum TabStyle { #[default] Horizontal, Vertical }
+pub enum TabStyle {
+    #[default]
+    Horizontal,
+    Vertical,
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CommandInput { #[default] Editor, Classic }
+pub enum CommandInput {
+    #[default]
+    Editor,
+    Classic,
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum BlockStyle { #[default] Quiet, Cards }
+pub enum BlockStyle {
+    #[default]
+    Quiet,
+    Cards,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tool { Files, Recent, Agents }
+pub enum Tool {
+    Files,
+    Recent,
+    Agents,
+}
 /// Every tool with its config id and label, in the order Clanky shows and writes them.
-pub const TOOLS: [(Tool, &str, &str); 3] = [(Tool::Files, "files", "Files"), (Tool::Recent, "recent", "Recent"), (Tool::Agents, "agents", "Agents")];
+pub const TOOLS: [(Tool, &str, &str); 3] = [
+    (Tool::Files, "files", "Files"),
+    (Tool::Recent, "recent", "Recent"),
+    (Tool::Agents, "agents", "Agents"),
+];
 impl Tool {
-    pub fn id(self) -> &'static str { TOOLS.iter().find(|t| t.0 == self).map(|t| t.1).unwrap_or("files") }
-    pub fn label(self) -> &'static str { TOOLS.iter().find(|t| t.0 == self).map(|t| t.2).unwrap_or("Files") }
+    pub fn id(self) -> &'static str {
+        TOOLS
+            .iter()
+            .find(|t| t.0 == self)
+            .map(|t| t.1)
+            .unwrap_or("files")
+    }
+    pub fn label(self) -> &'static str {
+        TOOLS
+            .iter()
+            .find(|t| t.0 == self)
+            .map(|t| t.2)
+            .unwrap_or("Files")
+    }
 }
 
 impl TerminalColors {
     pub fn from_value(value: &serde_json::Value) -> Result<Self, String> {
-        let object = value.as_object().ok_or("terminal_colors must be an object")?;
-        let color = |key: &str, value: &serde_json::Value| -> Result<crate::themes::Color, String> {
-            let text = value.as_str().ok_or_else(|| format!("terminal_colors.{key} must be #rrggbb"))?;
-            crate::themes::parse_color(text).map(|c| [c[0], c[1], c[2], 255]).map_err(|_| format!("terminal_colors.{key} must be #rrggbb"))
-        };
+        let object = value
+            .as_object()
+            .ok_or("terminal_colors must be an object")?;
+        let color =
+            |key: &str, value: &serde_json::Value| -> Result<crate::themes::Color, String> {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| format!("terminal_colors.{key} must be #rrggbb"))?;
+                crate::themes::parse_color(text)
+                    .map(|c| [c[0], c[1], c[2], 255])
+                    .map_err(|_| format!("terminal_colors.{key} must be #rrggbb"))
+            };
         let mut out = Self::default();
         for (key, value) in object {
             match key.as_str() {
@@ -107,9 +161,14 @@ impl TerminalColors {
                 "cursor" => out.cursor = Some(color(key, value)?),
                 "selection" => out.selection = Some(color(key, value)?),
                 "ansi" => {
-                    let list = value.as_array().filter(|l| l.len() == 16).ok_or("terminal_colors.ansi must list 16 colours")?;
+                    let list = value
+                        .as_array()
+                        .filter(|l| l.len() == 16)
+                        .ok_or("terminal_colors.ansi must list 16 colours")?;
                     let mut ansi = [[0; 4]; 16];
-                    for (slot, value) in ansi.iter_mut().zip(list) { *slot = color("ansi", value)?; }
+                    for (slot, value) in ansi.iter_mut().zip(list) {
+                        *slot = color("ansi", value)?;
+                    }
                     out.ansi = Some(ansi);
                 }
                 _ => return Err(format!("unknown terminal_colors field: {key}")),
@@ -125,18 +184,32 @@ pub fn import_ptyxis_palette(text: &str) -> Result<serde_json::Value, String> {
     let mut section = "";
     let mut found = std::collections::BTreeMap::new();
     for line in text.lines().map(str::trim) {
-        if line.starts_with('[') && line.ends_with(']') { section = &line[1..line.len() - 1]; continue; }
-        if section != "Dark" { continue; }
-        if let Some((key, value)) = line.split_once('=') { found.insert(key.trim().to_owned(), value.trim().to_owned()); }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = &line[1..line.len() - 1];
+            continue;
+        }
+        if section != "Dark" {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            found.insert(key.trim().to_owned(), value.trim().to_owned());
+        }
     }
     let hex = |key: &str| -> Result<String, String> {
-        let value = found.get(key).ok_or_else(|| format!("the palette's [Dark] section has no {key}"))?;
-        let color = crate::themes::parse_color(value).map_err(|_| format!("{key}={value} is not #rrggbb"))?;
+        let value = found
+            .get(key)
+            .ok_or_else(|| format!("the palette's [Dark] section has no {key}"))?;
+        let color = crate::themes::parse_color(value)
+            .map_err(|_| format!("{key}={value} is not #rrggbb"))?;
         Ok(format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2]))
     };
-    let ansi = (0..16).map(|i| hex(&format!("Color{i}"))).collect::<Result<Vec<_>, _>>()?;
-    Ok(serde_json::json!({"background": hex("Background")?, "foreground": hex("Foreground")?,
-        "cursor": hex("Cursor").or_else(|_| hex("Foreground"))?, "ansi": ansi}))
+    let ansi = (0..16)
+        .map(|i| hex(&format!("Color{i}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(
+        serde_json::json!({"background": hex("Background")?, "foreground": hex("Foreground")?,
+        "cursor": hex("Cursor").or_else(|_| hex("Foreground"))?, "ansi": ansi}),
+    )
 }
 
 /// One agent tool: a display name and the command typed into the new pane's shell.
@@ -149,13 +222,20 @@ pub struct AgentTool {
 pub fn default_agents() -> Vec<AgentTool> {
     [("Claude Code", "claude"), ("Codex", "codex"), ("Pi", "pi")]
         .into_iter()
-        .map(|(name, command)| AgentTool { name: name.into(), command: command.into() })
+        .map(|(name, command)| AgentTool {
+            name: name.into(),
+            command: command.into(),
+        })
         .collect()
 }
 
 impl Config {
     pub fn history_settings(&self) -> clanky_core::history::Settings {
-        clanky_core::history::Settings { enabled: self.history, days: self.history_days, output_kib: self.history_output_kib }
+        clanky_core::history::Settings {
+            enabled: self.history,
+            days: self.history_days,
+            output_kib: self.history_output_kib,
+        }
     }
 }
 
@@ -219,13 +299,17 @@ pub struct StartupOverrides {
 impl StartupOverrides {
     /// True means the flag was consumed; unknown arguments remain with the caller.
     pub fn parse_flag(&mut self, flag: &str) -> bool {
-        if flag != "--post-ai" { return false; }
+        if flag != "--post-ai" {
+            return false;
+        }
         self.post_ai = true;
         true
     }
     pub fn apply(&self, config: &mut Config) {
         config.post_ai |= self.post_ai;
-        if self.classic_input { config.command_input = CommandInput::Classic; }
+        if self.classic_input {
+            config.command_input = CommandInput::Classic;
+        }
     }
     /// Whether the session server runs its panes in editor mode (no shell prompt) for this config.
     pub fn editor_mode(&self, config: &Config) -> bool {
@@ -235,14 +319,33 @@ impl StartupOverrides {
 
 #[cfg(test)]
 #[test]
-fn calm_window_defaults(){
-    let mut config=Config::window_from_json("{}").unwrap();
-    if std::env::var_os("CLANKY_WINDOW_FONT_FAULT").is_some(){config.font_size=12.0;}
-    assert_eq!((config.font_size,config.font_size_pt,config.opacity,config.cell_height_scale),(11.0*4.0/3.0,11.0,1.0,1.25));
-    assert_eq!((config.font_family.as_str(),config.ui_font_family.as_str()),("Geist Mono","Geist"));
+fn calm_window_defaults() {
+    let mut config = Config::window_from_json("{}").unwrap();
+    if std::env::var_os("CLANKY_WINDOW_FONT_FAULT").is_some() {
+        config.font_size = 12.0;
+    }
+    assert_eq!(
+        (
+            config.font_size,
+            config.font_size_pt,
+            config.opacity,
+            config.cell_height_scale
+        ),
+        (11.0 * 4.0 / 3.0, 11.0, 1.0, 1.25)
+    );
+    assert_eq!(
+        (config.font_family.as_str(), config.ui_font_family.as_str()),
+        ("Geist Mono", "Geist")
+    );
     let old=Config::window_from_json(r#"{"font_size_pt":12,"font_family":"JetBrains Mono","ui_font_family":"Inter","opacity":0.94}"#).unwrap();
-    assert_eq!((old.font_size,old.font_size_pt,old.opacity),(16.0,12.0,0.94));
-    assert_eq!((old.font_family.as_str(),old.ui_font_family.as_str()),("JetBrains Mono","Inter"));
+    assert_eq!(
+        (old.font_size, old.font_size_pt, old.opacity),
+        (16.0, 12.0, 0.94)
+    );
+    assert_eq!(
+        (old.font_family.as_str(), old.ui_font_family.as_str()),
+        ("JetBrains Mono", "Inter")
+    );
 }
 
 impl Config {
@@ -256,7 +359,11 @@ impl Config {
     }
     /// Resolve an M12 theme and apply semantic config overrides to a copy.
     /// Legacy-only colour tokens stay usable by resolved_theme, not this API.
-    pub fn resolved_document(&self, store: &crate::theme_store::ThemeStore, system_light: bool) -> Result<crate::themes::Theme, String> {
+    pub fn resolved_document(
+        &self,
+        store: &crate::theme_store::ThemeStore,
+        system_light: bool,
+    ) -> Result<crate::themes::Theme, String> {
         let mut theme = store.get(self.selected_theme_id(system_light))?;
         let expected = match self.theme {
             ThemePreference::Light => crate::themes::Appearance::Light,
@@ -264,18 +371,27 @@ impl Config {
             ThemePreference::System if system_light => crate::themes::Appearance::Light,
             ThemePreference::System => crate::themes::Appearance::Dark,
         };
-        if theme.appearance != expected { return Err("selected theme has the wrong appearance".into()); }
+        if theme.appearance != expected {
+            return Err("selected theme has the wrong appearance".into());
+        }
         for (token, color) in &self.colors {
-            if crate::themes::COLOR_TOKENS.contains(&token.as_str()) { theme.colors.set(token, *color)?; }
+            if crate::themes::COLOR_TOKENS.contains(&token.as_str()) {
+                theme.colors.set(token, *color)?;
+            }
         }
         Ok(theme)
     }
     pub fn resolved_theme(&self, system_light: bool) -> crate::look::Theme {
         let light = match self.theme {
-            ThemePreference::Light => true, ThemePreference::Dark => false,
+            ThemePreference::Light => true,
+            ThemePreference::Dark => false,
             ThemePreference::System => system_light,
         };
-        let mut theme = if light { crate::look::Theme::light() } else { crate::look::Theme::dark() };
+        let mut theme = if light {
+            crate::look::Theme::light()
+        } else {
+            crate::look::Theme::dark()
+        };
         for (token, color) in &self.colors {
             // from_json has already validated each token.
             let _ = theme.override_color(token, *color);
@@ -284,20 +400,42 @@ impl Config {
     }
     /// Straight alpha byte for scene clear; renderer reports opaque-only surfaces.
     pub fn opacity_alpha(&self) -> u8 {
-        let opacity = if self.opacity.is_finite() { self.opacity.clamp(0.5, 1.0) } else { 0.94 };
+        let opacity = if self.opacity.is_finite() {
+            self.opacity.clamp(0.5, 1.0)
+        } else {
+            0.94
+        };
         (opacity * 255.0).round() as u8
     }
 
     /// Live-window defaults. Legacy fixture constructors keep their original metrics.
     pub fn window_defaults() -> Self {
         // Terminal text 11 pt (14.67 px) with lines 1.25 times the font's natural height, as Ptyxis draws it.
-        Self { font_size:11.0*4.0/3.0, font_size_pt:11.0, cell_height_scale:1.25, font_family:"Geist Mono".into(),ui_font_family:"Geist".into(),opacity:1.0,..Self::default() }
+        Self {
+            font_size: 11.0 * 4.0 / 3.0,
+            font_size_pt: 11.0,
+            cell_height_scale: 1.25,
+            font_family: "Geist Mono".into(),
+            ui_font_family: "Geist".into(),
+            opacity: 1.0,
+            ..Self::default()
+        }
     }
-    pub fn window_from_json(json:&str)->Result<Self,String>{
-        let mut value:serde_json::Value=serde_json::from_str(json).map_err(|error|format!("invalid JSON: {error}"))?;
-        let object=value.as_object_mut().ok_or("config must be a JSON object")?;
-        if !object.contains_key("font_size") && !object.contains_key("font_size_pt"){object.insert("font_size_pt".into(),serde_json::json!(11));}
-        for (key,value) in [("font_family",serde_json::json!("Geist Mono")),("ui_font_family",serde_json::json!("Geist")),("opacity",serde_json::json!(1.0)),("cell_height_scale",serde_json::json!(1.25))]{
+    pub fn window_from_json(json: &str) -> Result<Self, String> {
+        let mut value: serde_json::Value =
+            serde_json::from_str(json).map_err(|error| format!("invalid JSON: {error}"))?;
+        let object = value
+            .as_object_mut()
+            .ok_or("config must be a JSON object")?;
+        if !object.contains_key("font_size") && !object.contains_key("font_size_pt") {
+            object.insert("font_size_pt".into(), serde_json::json!(11));
+        }
+        for (key, value) in [
+            ("font_family", serde_json::json!("Geist Mono")),
+            ("ui_font_family", serde_json::json!("Geist")),
+            ("opacity", serde_json::json!(1.0)),
+            ("cell_height_scale", serde_json::json!(1.25)),
+        ] {
             object.entry(key.to_owned()).or_insert(value);
         }
         Self::from_json(&value.to_string())
@@ -305,9 +443,13 @@ impl Config {
 
     /// The settings in a file's text: XML, or the old JSON format for a path ending in .json.
     pub fn from_file(path: &Path, text: &str) -> Result<Self, String> {
-        if is_json_path(path) { return Self::window_from_json(text); }
+        if is_json_path(path) {
+            return Self::window_from_json(text);
+        }
         let (config, _, soft) = crate::config_xml::load_soft(text)?;
-        if let Some(error) = soft { eprintln!("clanky: config {}: {error}", path.display()); }
+        if let Some(error) = soft {
+            eprintln!("clanky: config {}: {error}", path.display());
+        }
         Ok(config)
     }
     /// Reads the settings. With no explicit path, an old config.json beside a missing config.xml is
@@ -322,7 +464,9 @@ impl Config {
                     return Ok(Self::window_defaults());
                 };
                 default_path = path;
-                if let Err(error) = crate::config_xml::migrate(&default_path) { eprintln!("clanky: {error}"); }
+                if let Err(error) = crate::config_xml::migrate(&default_path) {
+                    eprintln!("clanky: {error}");
+                }
                 &default_path
             }
         };
@@ -330,11 +474,16 @@ impl Config {
             Ok(text) => match Self::from_file(path, &text) {
                 Ok(config) => config,
                 Err(error) => {
-                    eprintln!("clanky: config {}: {error}; using the default settings", path.display());
+                    eprintln!(
+                        "clanky: config {}: {error}; using the default settings",
+                        path.display()
+                    );
                     Self::window_defaults()
                 }
             },
-            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => Self::window_defaults(),
+            Err(error) if explicit.is_none() && error.kind() == ErrorKind::NotFound => {
+                Self::window_defaults()
+            }
             Err(error) => return Err(format!("config {}: {error}", path.display())),
         };
         config.compose_words = path.parent().map(|parent| parent.join("compose-words.txt"));
@@ -358,16 +507,23 @@ impl Config {
                     };
                 }
                 "theme_dark" | "theme_light" => {
-                    let id = value.as_str().ok_or_else(|| format!("{key} must be a theme ID string"))?;
+                    let id = value
+                        .as_str()
+                        .ok_or_else(|| format!("{key} must be a theme ID string"))?;
                     crate::theme_store::validate_id(id)?;
                     if !id.starts_with("user:") {
                         let appearance = crate::themes::builtin(id)?.appearance;
-                        if (key == "theme_light") != (appearance == crate::themes::Appearance::Light) {
+                        if (key == "theme_light")
+                            != (appearance == crate::themes::Appearance::Light)
+                        {
                             return Err(format!("{key} has the wrong appearance"));
                         }
                     }
-                    if key == "theme_dark" { config.theme_dark = id.into(); }
-                    else { config.theme_light = id.into(); }
+                    if key == "theme_dark" {
+                        config.theme_dark = id.into();
+                    } else {
+                        config.theme_light = id.into();
+                    }
                 }
                 "post_ai" => {
                     config.post_ai = value.as_bool().ok_or("post_ai must be a boolean")?;
@@ -375,11 +531,16 @@ impl Config {
                 "colors" => {
                     let colors = value.as_object().ok_or("colors must be an object")?;
                     for (token, value) in colors {
-                        if !crate::look::COLOR_TOKENS.contains(&token.as_str()) && !crate::themes::COLOR_TOKENS.contains(&token.as_str()) {
+                        if !crate::look::COLOR_TOKENS.contains(&token.as_str())
+                            && !crate::themes::COLOR_TOKENS.contains(&token.as_str())
+                        {
                             return Err(format!("unknown color token: {token}"));
                         }
-                        let text = value.as_str().ok_or_else(|| format!("colors.{token} must be #rrggbb or #rrggbbaa"))?;
-                        let color = crate::themes::parse_color(text).map_err(|_| format!("colors.{token} must be #rrggbb or #rrggbbaa"))?;
+                        let text = value.as_str().ok_or_else(|| {
+                            format!("colors.{token} must be #rrggbb or #rrggbbaa")
+                        })?;
+                        let color = crate::themes::parse_color(text)
+                            .map_err(|_| format!("colors.{token} must be #rrggbb or #rrggbbaa"))?;
                         config.colors.insert(token.clone(), color);
                     }
                 }
@@ -410,17 +571,28 @@ impl Config {
                     }
                 }
                 "compose_dictionary" => {
-                    let language = value.as_str().ok_or("compose_dictionary must be a string")?;
-                    if language.is_empty() || language.len() > 64
-                        || !language.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    let language = value
+                        .as_str()
+                        .ok_or("compose_dictionary must be a string")?;
+                    if language.is_empty()
+                        || language.len() > 64
+                        || !language
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
                     {
                         return Err("compose_dictionary must be a safe locale name (letters, digits, _ or -)".into());
                     }
                     config.compose_dictionary = language.into();
                 }
                 "compose_dictionary_dir" => {
-                    let dir = PathBuf::from(value.as_str().ok_or("compose_dictionary_dir must be a string")?);
-                    if !dir.is_absolute() { return Err("compose_dictionary_dir must be absolute".into()); }
+                    let dir = PathBuf::from(
+                        value
+                            .as_str()
+                            .ok_or("compose_dictionary_dir must be a string")?,
+                    );
+                    if !dir.is_absolute() {
+                        return Err("compose_dictionary_dir must be absolute".into());
+                    }
                     config.compose_dictionary_dir = dir;
                 }
                 "osc52_write" => {
@@ -430,13 +602,18 @@ impl Config {
                     config.osc52_read = value.as_bool().ok_or("osc52_read must be a boolean")?;
                 }
                 "compose_send_enter" => {
-                    config.compose_send_enter = value.as_bool().ok_or("compose_send_enter must be a boolean")?;
+                    config.compose_send_enter = value
+                        .as_bool()
+                        .ok_or("compose_send_enter must be a boolean")?;
                 }
                 "notify_after_seconds" => {
-                    config.notify_after_seconds = value.as_u64().ok_or("notify_after_seconds must be a nonnegative integer")?;
+                    config.notify_after_seconds = value
+                        .as_u64()
+                        .ok_or("notify_after_seconds must be a nonnegative integer")?;
                 }
                 "restore_layout" => {
-                    config.restore_layout = value.as_bool().ok_or("restore_layout must be a boolean")?;
+                    config.restore_layout =
+                        value.as_bool().ok_or("restore_layout must be a boolean")?;
                 }
                 "opacity" => {
                     let opacity = value.as_f64().ok_or("opacity must be a number")?;
@@ -446,11 +623,18 @@ impl Config {
                     config.opacity = opacity as f32;
                 }
                 "startup_animation" => {
-                    config.startup_animation = value.as_bool().ok_or("startup_animation must be boolean")?;
+                    config.startup_animation =
+                        value.as_bool().ok_or("startup_animation must be boolean")?;
                 }
                 "animations" | "rails" => {
-                    let enabled = value.as_bool().ok_or_else(|| format!("{key} must be a boolean"))?;
-                    if key == "animations" { config.animations = enabled; } else { legacy_rails = Some(enabled); }
+                    let enabled = value
+                        .as_bool()
+                        .ok_or_else(|| format!("{key} must be a boolean"))?;
+                    if key == "animations" {
+                        config.animations = enabled;
+                    } else {
+                        legacy_rails = Some(enabled);
+                    }
                 }
                 "tab_style" => {
                     config.tab_style = match value.as_str() {
@@ -467,15 +651,26 @@ impl Config {
                     };
                 }
                 "tools" => {
-                    let list = value.as_array().ok_or("tools must be a list of \"files\", \"recent\" and \"agents\"")?;
+                    let list = value
+                        .as_array()
+                        .ok_or("tools must be a list of \"files\", \"recent\" and \"agents\"")?;
                     let mut chosen = Vec::new();
                     for item in list {
-                        let tool = item.as_str().and_then(|id| TOOLS.iter().find(|t| t.1 == id)).map(|t| t.0)
+                        let tool = item
+                            .as_str()
+                            .and_then(|id| TOOLS.iter().find(|t| t.1 == id))
+                            .map(|t| t.0)
                             .ok_or("tools may hold only \"files\", \"recent\" and \"agents\"")?;
-                        if chosen.contains(&tool) { return Err("tools must not name a tool twice".into()); }
+                        if chosen.contains(&tool) {
+                            return Err("tools must not name a tool twice".into());
+                        }
                         chosen.push(tool);
                     }
-                    config.tools = TOOLS.iter().map(|t| t.0).filter(|t| chosen.contains(t)).collect();
+                    config.tools = TOOLS
+                        .iter()
+                        .map(|t| t.0)
+                        .filter(|t| chosen.contains(t))
+                        .collect();
                 }
                 "command_input" => {
                     config.command_input = match value.as_str() {
@@ -499,40 +694,80 @@ impl Config {
                     };
                 }
                 "font_family" | "ui_font_family" => {
-                    let family = value.as_str().ok_or_else(|| format!("{key} must be a string"))?;
-                    if family.trim().is_empty() || family.len() > 256 || family.chars().any(char::is_control) {
-                        return Err(format!("{key} must be a nonempty font family of at most 256 bytes without controls"));
+                    let family = value
+                        .as_str()
+                        .ok_or_else(|| format!("{key} must be a string"))?;
+                    if family.trim().is_empty()
+                        || family.len() > 256
+                        || family.chars().any(char::is_control)
+                    {
+                        return Err(format!(
+                            "{key} must be a nonempty font family of at most 256 bytes without controls"
+                        ));
                     }
-                    if key == "font_family" { config.font_family = family.into(); } else { config.ui_font_family = family.into(); }
+                    if key == "font_family" {
+                        config.font_family = family.into();
+                    } else {
+                        config.ui_font_family = family.into();
+                    }
                 }
                 "history" => {
                     config.history = value.as_bool().ok_or("history must be a boolean")?;
                 }
                 "history_days" => {
-                    config.history_days = value.as_u64().filter(|n| *n <= 3650)
-                        .ok_or("history_days must be an integer between 0 and 3650")? as u32;
+                    config.history_days = value
+                        .as_u64()
+                        .filter(|n| *n <= 3650)
+                        .ok_or("history_days must be an integer between 0 and 3650")?
+                        as u32;
                 }
                 "history_output_kib" => {
-                    config.history_output_kib = value.as_u64().filter(|n| (1..=65536).contains(n))
-                        .ok_or("history_output_kib must be an integer between 1 and 65536")? as u32;
+                    config.history_output_kib = value
+                        .as_u64()
+                        .filter(|n| (1..=65536).contains(n))
+                        .ok_or(
+                        "history_output_kib must be an integer between 1 and 65536",
+                    )? as u32;
                 }
                 "agents" => {
-                    let list = value.as_array().ok_or("agents must be a list of {\"name\", \"command\"} objects")?;
-                    if list.len() > 32 { return Err("agents holds at most 32 tools".into()); }
+                    let list = value
+                        .as_array()
+                        .ok_or("agents must be a list of {\"name\", \"command\"} objects")?;
+                    if list.len() > 32 {
+                        return Err("agents holds at most 32 tools".into());
+                    }
                     let mut agents = Vec::new();
                     for item in list {
-                        let entry = item.as_object().filter(|o| o.len() == 2 && o.contains_key("name") && o.contains_key("command"))
-                            .ok_or("each agents entry must have exactly \"name\" and \"command\"")?;
-                        let text = |field: &str| entry[field].as_str().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 256 && !t.chars().any(char::is_control))
-                            .map(str::to_owned).ok_or_else(|| format!("agents {field} must be a nonempty string of at most 256 bytes without controls"));
-                        agents.push(AgentTool { name: text("name")?, command: text("command")? });
+                        let entry = item
+                            .as_object()
+                            .filter(|o| {
+                                o.len() == 2 && o.contains_key("name") && o.contains_key("command")
+                            })
+                            .ok_or(
+                                "each agents entry must have exactly \"name\" and \"command\"",
+                            )?;
+                        let text = |field: &str| {
+                            entry[field].as_str().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 256 && !t.chars().any(char::is_control))
+                            .map(str::to_owned).ok_or_else(|| format!("agents {field} must be a nonempty string of at most 256 bytes without controls"))
+                        };
+                        agents.push(AgentTool {
+                            name: text("name")?,
+                            command: text("command")?,
+                        });
                     }
                     config.agents = agents;
                 }
                 "cell_width_scale" | "cell_height_scale" => {
-                    let scale = value.as_f64().filter(|v| v.is_finite() && (1.0..=2.0).contains(v))
-                        .ok_or_else(|| format!("{key} must be a number from 1.0 to 2.0"))? as f32;
-                    if key == "cell_width_scale" { config.cell_width_scale = scale; } else { config.cell_height_scale = scale; }
+                    let scale = value
+                        .as_f64()
+                        .filter(|v| v.is_finite() && (1.0..=2.0).contains(v))
+                        .ok_or_else(|| format!("{key} must be a number from 1.0 to 2.0"))?
+                        as f32;
+                    if key == "cell_width_scale" {
+                        config.cell_width_scale = scale;
+                    } else {
+                        config.cell_height_scale = scale;
+                    }
                 }
                 "terminal_colors" => config.terminal_colors = TerminalColors::from_value(value)?,
                 "cursor_blink" => {
@@ -540,16 +775,24 @@ impl Config {
                         Some("system") => CursorBlink::System,
                         Some("on") => CursorBlink::On,
                         Some("off") => CursorBlink::Off,
-                        _ => return Err("cursor_blink must be \"system\", \"on\" or \"off\"".into()),
+                        _ => {
+                            return Err("cursor_blink must be \"system\", \"on\" or \"off\"".into());
+                        }
                     };
                 }
                 "cursor_blink_time_ms" => {
-                    config.cursor_blink_time_ms = value.as_u64().filter(|n| (100..=10_000).contains(n))
-                        .ok_or("cursor_blink_time_ms must be an integer from 100 to 10000")? as u32;
+                    config.cursor_blink_time_ms = value
+                        .as_u64()
+                        .filter(|n| (100..=10_000).contains(n))
+                        .ok_or("cursor_blink_time_ms must be an integer from 100 to 10000")?
+                        as u32;
                 }
                 "cursor_blink_timeout_s" => {
-                    config.cursor_blink_timeout_s = value.as_u64().filter(|n| (1..=2_147_483).contains(n))
-                        .ok_or("cursor_blink_timeout_s must be a positive integer")? as u32;
+                    config.cursor_blink_timeout_s = value
+                        .as_u64()
+                        .filter(|n| (1..=2_147_483).contains(n))
+                        .ok_or("cursor_blink_timeout_s must be a positive integer")?
+                        as u32;
                 }
                 "agent_pane_access" => {
                     config.agent_pane_access = match value.as_str() {
@@ -559,17 +802,27 @@ impl Config {
                     };
                 }
                 "new_window_panes" => {
-                    config.new_window_panes = value.as_u64().filter(|n| (1..=2).contains(n))
-                        .ok_or("new_window_panes must be 1 or 2")? as u8;
+                    config.new_window_panes = value
+                        .as_u64()
+                        .filter(|n| (1..=2).contains(n))
+                        .ok_or("new_window_panes must be 1 or 2")?
+                        as u8;
                 }
                 _ => return Err(format!("unknown config field: {key}")),
             }
         }
         // The old rails key reads into tools_panel; tools_panel wins when both are present.
-        if !object.contains_key("tools_panel") { if let Some(rails) = legacy_rails { config.tools_panel = rails; } }
+        if !object.contains_key("tools_panel") {
+            if let Some(rails) = legacy_rails {
+                config.tools_panel = rails;
+            }
+        }
         // The new logical-pixel key wins independent of JSON key order.
-        if object.contains_key("font_size") { config.font_size_pt = config.font_size * 0.75; }
-        else { config.font_size = config.font_size_pt * 4.0 / 3.0; }
+        if object.contains_key("font_size") {
+            config.font_size_pt = config.font_size * 0.75;
+        } else {
+            config.font_size = config.font_size_pt * 4.0 / 3.0;
+        }
         // Match the core's per-axis and total-cell limits.
         if config.columns * config.rows > 250_000 {
             return Err("terminal dimensions exceed 250000 cells".into());
@@ -579,7 +832,10 @@ impl Config {
 }
 
 /// A settings path in the old JSON format (an explicit `--config x.json`); config.xml otherwise.
-pub fn is_json_path(path: &Path) -> bool { path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) }
+pub fn is_json_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Metrics {
