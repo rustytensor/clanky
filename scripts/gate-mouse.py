@@ -3,6 +3,7 @@
 the same way as it does in Ptyxis and other high-quality terminals, including with Midnight Commander").
 
 Usage: gate-mouse.py [--fault encoding|shift|wheel|select|mc]
+With CLANKY_BIN the same checks run against that window (every check here is about one pane).
 A fault changes the run's input on purpose; the gate must then FAIL.
 
 Runs in a real Clanky window on a private Xvfb display (the T2 gate's harness), IBM Plex Mono 11 pt at 1.25,

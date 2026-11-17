@@ -4,6 +4,7 @@ default palettes of popular terminals and the popular themes) plus import of oth
 feel and good looks are more important than having a million features").
 
 Usage: gate-c2-schemes.py [--fault dots|escape|follow|source|idle|import|bad]
+With CLANKY_BIN (a one-pane window) only the grid colours run: see pane_colours_story.
 A fault changes the run's input on purpose; a correct build must then FAIL.
 
 Harness: the Q2 gate's window (scripts/gate-q2-input.py Win, itself the Q1 and T2 harness: free_display from :100 up),
@@ -747,6 +748,32 @@ def sources_story():
     print(f'ok: S1 SOURCES.md ({len(rows)} schemes)')
 
 
+def pane_colours_story():
+    """K2's drawing half, for a one-pane window (CLANKY_BIN): a window started with each sample's terminal_colors,
+    written from the gate's own parse of the collection file, draws background, ansi 0..15, foreground, cursor and
+    selection. The Settings picker, preview, import and live reload (P1, P2, F1, K1, M1-M3) need Settings."""
+    win = None
+    for term, want, avoid, name in SAMPLES:
+        src = 'Nord Light' if FAULT == 'source' and name == 'Nord' else name
+        s = parse_iterm(ref(f'schemes/{src}.itermcolors'))
+        expected = parse_iterm(ref(f'schemes/{name}.itermcolors'))
+        colours = dict(background=hexs(s['background']), foreground=hexs(s['foreground']),
+                       cursor=hexs(s['cursor'] or s['foreground']), ansi=[hexs(c) for c in s['ansi']])
+        if s['selection']:
+            colours['selection'] = hexs(s['selection'])
+        if win:
+            win.close()
+        win = Win(f'k2-{term}', dict(BASE, terminal_colors=colours))
+        box = swatch(win)
+        screen_check(win, box, expected, f'K2 {name}', select=True)
+        print(f'ok: K2 {name} drawn in the pane')
+    try:
+        q1.idle(win, 'I1 after the last scheme is drawn')
+        print('ok: I1 0 idle frames')
+    finally:
+        win.close()
+
+
 def main():
     for tool in ('Xvfb', 'xdotool', 'xclip', 'ffmpeg', 'tesseract', 'git'):
         require(shutil.which(tool), f'tool {tool} installed')
@@ -755,6 +782,11 @@ def main():
     if ROOT.exists():
         shutil.rmtree(ROOT)
     ROOT.mkdir(parents=True)
+    if t2.ONE_PANE:
+        print('note: one-pane window: K2 drawing only; left out W0-F0 (theme default), P1, P2, F1, K1, M1-M3, I2, S1')
+        pane_colours_story()
+        print('PASS: C2 terminal colours in the pane')
+        return
     main_story()
     if FAULT is None:
         sources_story()

@@ -32,7 +32,8 @@ use std::{borrow::Cow, path::PathBuf, process::ExitCode};
 use clanky::config::{Config, StartupOverrides};
 use clanky_api::Client;
 use gpui::{
-    App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
+    App, AppContext, Bounds, TextRenderingMode, TitlebarOptions, WindowBounds, WindowOptions,
+    point, px, size,
 };
 use serde_json::{Value, json};
 
@@ -113,7 +114,8 @@ fn parse_arguments() -> Result<Arguments, String> {
     Ok(args)
 }
 
-/// Opens the pane's tab: the server's default shell, or `bash -c CMD` for --exec.
+/// The pane's tab: with --exec a new tab running `bash -c CMD`; otherwise the server's first tab when it already
+/// has one (as today's window shows the session it joins), or a new tab running the server's default shell.
 fn open_tab(
     client: &Client,
     exec: Option<&str>,
@@ -121,7 +123,13 @@ fn open_tab(
     cols: usize,
 ) -> Result<String, String> {
     let Some(command) = exec else {
-        return clanky::window_tools::new_terminal(client, None, rows, cols);
+        let existing = client
+            .tab_ids()
+            .map_err(|e| format!("listing the session's tabs: {}", e.message))?;
+        return match existing.into_iter().next() {
+            Some(tab) => Ok(tab),
+            None => clanky::window_tools::new_terminal(client, None, rows, cols),
+        };
     };
     let defaults = client
         .exchange(3, "shell_defaults", &json!({}))
@@ -165,6 +173,8 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         args.config.as_deref(),
         args.overrides,
     )?;
+    // Grayscale anti-aliasing, as today's window draws text: sub-pixel colour fringes would tint every glyph edge.
+    cx.set_text_rendering_mode(TextRenderingMode::Grayscale);
     cx.text_system()
         .add_fonts(FONTS.iter().map(|bytes| Cow::Borrowed(*bytes)).collect())
         .map_err(|e| format!("loading the bundled fonts: {e}"))?;
@@ -186,6 +196,8 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     let tab = open_tab(&client, args.exec.as_deref(), rows, cols)?;
     // A pane started with --exec stays open after its command ends; a shell's pane closes the window, as today.
     let (link, updates) = Link::start(&client, tab.clone(), args.exec.is_none())?;
+    let trace = clanky::frame_trace::FrameTrace::from_env()
+        .map_err(|e| format!("opening CLANKY_FRAME_TRACE: {e}"))?;
     let setup = PaneSetup {
         client,
         tab,
@@ -194,6 +206,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         size_sent: (rows, cols),
         link,
         updates,
+        trace,
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

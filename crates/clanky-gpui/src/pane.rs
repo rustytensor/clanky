@@ -42,6 +42,8 @@ pub struct TerminalPane {
     /// Text the input method is composing; it is shown nowhere yet and sent only when committed.
     marked: Option<String>,
     notice: Option<String>,
+    /// Clanky's opt-in frame log (`CLANKY_FRAME_TRACE`): frames drawn and keys, for the gates that count them.
+    trace: clanky::frame_trace::FrameTrace,
     _link: Link,
     _updates: Task<()>,
 }
@@ -54,6 +56,7 @@ pub struct PaneSetup {
     pub size_sent: (usize, usize),
     pub link: Link,
     pub updates: async_channel::Receiver<Update>,
+    pub trace: clanky::frame_trace::FrameTrace,
 }
 
 impl TerminalPane {
@@ -66,7 +69,21 @@ impl TerminalPane {
                     match update {
                         Update::Snapshot(snapshot) => pane.snapshot = Some(snapshot),
                         Update::Lost(message) => pane.notice = Some(message),
-                        Update::Finished => cx.quit(),
+                        Update::Finished => {
+                            // Closing the last tab is what lets the session server exit after its last terminal,
+                            // as it does behind today's window.
+                            if let Err(error) = pane.client.request(
+                                "close_tab",
+                                &serde_json::json!({"tab_id": pane.tab}),
+                                true,
+                            ) {
+                                eprintln!(
+                                    "clanky-gpui: closing the finished pane: {}",
+                                    error.message
+                                );
+                            }
+                            cx.quit();
+                        }
                     }
                     cx.notify();
                 });
@@ -93,9 +110,15 @@ impl TerminalPane {
             wheel_rest: 0.0,
             marked: None,
             notice: None,
+            trace: setup.trace,
             _link: setup.link,
             _updates: task,
         }
+    }
+
+    /// Called once a frame has been painted.
+    pub fn frame_presented(&mut self) {
+        self.trace.presented();
     }
 
     /// Called while laying out: tells the server the grid's size when it changed.
@@ -158,6 +181,7 @@ impl TerminalPane {
             }
         }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
+            self.trace.key_event();
             self.send(&bytes);
             cx.stop_propagation();
             cx.notify();
@@ -480,6 +504,7 @@ impl EntityInputHandler for TerminalPane {
     ) {
         // Committed text from the input method (or a plain key): the program reads it as typed.
         self.marked = None;
+        self.trace.key_event();
         self.send(text.as_bytes());
         cx.notify();
     }

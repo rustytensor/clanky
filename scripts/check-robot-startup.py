@@ -200,9 +200,24 @@ def main(work, bins):
                 (target / ('robot-startup-' + trace.name)).write_bytes(trace.read_bytes())
 
 
+def one_pane_main(work, bins):
+    """With CLANKY_BIN (a one-pane window without the robot), only the pane part runs: see one_pane_window.py."""
+    spec = _config_xml_util.spec_from_file_location('one_pane_window', Path(__file__).with_name('one_pane_window.py'))
+    pane = _config_xml_util.module_from_spec(spec)
+    spec.loader.exec_module(pane)
+    try:
+        summary = pane.check(work, bins, pixels=False)
+    except pane.Failure as error:
+        raise Failure(str(error)) from error
+    print(f'PASS: one-pane window: {summary} (left out: the startup robot, its timing and the New tab click)')
+
+
 if __name__ == '__main__':
     try:
-        main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+        if os.environ.get('CLANKY_BIN'):
+            one_pane_main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+        else:
+            main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
     except Failure as error:
         print('FAIL: robot startup ' + str(error), file=sys.stderr)
         sys.exit(1)

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Private-display real-window idle and one-key echo frame check.
 
+With CLANKY_BIN (a one-pane window such as clanky-gpui) only the tools-panel-off run applies.
+
 The reader program writes the key it reads to a file named 'received' in the pane's folder. With the tools panel
 on (the default) the Files tool lists that folder and re-reads it on the 1 s poll, so it shows 'received' and
 redraws exactly once (Q1 gate F1: a file created from outside appears in the tree). So the key costs its echo
@@ -15,6 +17,9 @@ import importlib.util as _config_xml_util
 _config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml', Path(__file__).with_name('clanky_config_xml.py'))
 config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
 _config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
+_app_spec = _config_xml_util.spec_from_file_location('clanky_gate_app', Path(__file__).with_name('clanky_gate_app.py'))
+app = _config_xml_util.module_from_spec(_app_spec)
+_app_spec.loader.exec_module(app)  # which window binary to drive (CLANKY_BIN) and the isolated environment
 import select
 import subprocess
 import sys
@@ -49,12 +54,11 @@ def run(extra):
     bins = target / 'debug'
     with tempfile.TemporaryDirectory(prefix='m12-idle-', dir=target) as tmp:
         work = Path(tmp)
-        env = {k:v for k,v in os.environ.items() if not any(x in k.upper() for x in ('KEY','TOKEN','SECRET','PASSWORD','PASSWD'))}
-        for key in ('WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS'): env.pop(key, None)
-        for directory in ('home','config','state','runtime'): (work / directory).mkdir(mode=0o700)
+        env = app.isolated_env()
+        for directory in ('home','config','state','runtime','data','cache'): (work / directory).mkdir(mode=0o700)
         trace = work / 'frames.csv'
         env.update(HOME=str(work/'home'), XDG_CONFIG_HOME=str(work/'config'), XDG_STATE_HOME=str(work/'state'),
-                   XDG_RUNTIME_DIR=str(work/'runtime'), SHELL='/bin/sh', WINIT_UNIX_BACKEND='x11', CLANKY_FRAME_TRACE=str(trace))
+                   XDG_RUNTIME_DIR=str(work/'runtime'), XDG_DATA_HOME=str(work/'data'), XDG_CACHE_HOME=str(work/'cache'), SHELL='/bin/sh', WINIT_UNIX_BACKEND='x11', CLANKY_FRAME_TRACE=str(trace))
         config=work/'config.xml'
         config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'cursor_blink':'off',**extra})
         reader=work/'reader.py'
@@ -75,12 +79,12 @@ def run(extra):
             p=subprocess.run(['xdotool',*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
             require(p.returncode==0,'private X11 input');return p.stdout.decode().strip()
         try:
-            server=launch([bins/'clanky','--server','--socket',sock]);until(lambda:sock.exists() or (server.poll() is not None and require(False,'server startup')),'server startup')
-            owner=launch([bins/'clanky-agent-gate','owner',sock],True)
+            server=launch(app.server_argv(bins,sock));until(lambda:sock.exists() or (server.poll() is not None and require(False,'server startup')),'server startup')
+            owner=launch([app.agent_gate(bins),'owner',sock],True)
             tab=call('open_tab',{'rows':24,'cols':80,'allow_agent':False})['tab_id']
             call('run',{'tab_id':tab,'argv':[sys.executable,str(reader)],'cwd':str(work)})
             until(lambda:'READY' in ''.join(call('screen',{'tab_id':tab},4)['lines']),'shell ready')
-            window=launch([bins/'clanky','--socket',sock,'--config',config])
+            window=launch([app.window_binary(bins),'--socket',sock,'--config',config])
             until(lambda:count()>0 or (window.poll() is not None and require(False,'window startup')),'first frame')
             def window_id():
                 require(window.poll() is None, 'window remained alive')
@@ -109,6 +113,11 @@ def run(extra):
 def main():
     idle,frames=run({'tools_panel':'off'})
     require(1<=frames<=2,f'tools panel off: echo frames in 2 s: expected 1..2, observed {frames}')
+    if app.single_pane():
+        # One pane and no tools panel: the Files-tool half of this gate has nothing to look at.
+        print(f'PASS: one-pane window idle {idle} frames / 2 s; key echo {frames} frame(s) '
+              '(left out: the Files tool run, no tools panel in a one-pane window)')
+        return
     idle_on,frames_on=run({})
     require(idle_on==0,f'idle frames with the Files tool: expected 0, observed {idle_on}')
     require(2<=frames_on<=3,f'Files tool shown: echo + one Files frame in 2 s: expected 2..3, observed {frames_on}')

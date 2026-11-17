@@ -13,6 +13,7 @@ closes a pane, its tab when it was the last pane, and the window and server afte
   X2 a new tab (Ctrl+Shift+T), then `kill -9 $$` in its only pane (a shell killed by a signal): within 3 s its
      tab_id is gone and the window keeps running with the first tab's remaining pane.
   X3 `exit` in the last pane: within 5 s the window process exits with status 0 and the window's server exits.
+With CLANKY_BIN (a one-pane window such as clanky-gpui) only X3 runs: X1 and X2 need two panes and a new tab.
 """
 import importlib.util, os, sys, time
 from pathlib import Path
@@ -50,6 +51,18 @@ def alive(pid):
         return False
 
 
+def last_pane(win, window):
+    """X3: `exit` in the last pane closes the window (status 0) and its server."""
+    server = win.server
+    if FAULT == 'survivor':
+        win.type('sh\n')
+        time.sleep(.5)
+    win.type('exit\n')
+    until(lambda: window.poll() is not None, 'X3 the window closes after the last pane exits', 5)
+    require(window.returncode == 0, f'X3 the window exits with status 0: {window.returncode}')
+    until(lambda: not alive(server), 'X3 the window\'s server exits', 5)
+
+
 def main():
     import shutil
     if ROOT.exists():
@@ -58,6 +71,11 @@ def main():
     win = Window('exit', cursor_blink='off')
     try:
         window = win.procs[1]
+        if t2.ONE_PANE:
+            require(len(tabs(win)) == 1, f'setup: the one-pane window starts with one pane: {tabs(win)}')
+            print('note: one-pane window: left out X1 and X2 (they need two panes and a new tab)')
+            last_pane(win, window)
+            return
         first = tabs(win)
         require(len(first) == 2, f'setup: the window starts with two panes: {first}')
         gone = focused(win)
@@ -75,14 +93,7 @@ def main():
         win.type('kill -9 $$\n')
         until(lambda: new not in tabs(win), f'X2 the killed shell\'s pane {new} closes', 3)
         require(tabs(win) == [survivor] and window.poll() is None, f'X2 the first tab and the window stay: {tabs(win)}')
-        server = win.server
-        if FAULT == 'survivor':
-            win.type('sh\n')
-            time.sleep(.5)
-        win.type('exit\n')
-        until(lambda: window.poll() is not None, 'X3 the window closes after the last pane exits', 5)
-        require(window.returncode == 0, f'X3 the window exits with status 0: {window.returncode}')
-        until(lambda: not alive(server), 'X3 the window\'s server exits', 5)
+        last_pane(win, window)
     finally:
         win.close()
     print('PASS: exit')

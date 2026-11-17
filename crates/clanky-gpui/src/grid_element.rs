@@ -52,8 +52,10 @@ impl Metrics {
         )
     }
 
+    /// The first device pixel of a column: the first pixel whose centre lies inside the cell, so neighbouring
+    /// cells share their edge and a cell covers exactly the pixels it would cover on paper.
     fn x(&self, col: usize) -> f32 {
-        (self.origin_x + col as f32 * self.cell_width).floor()
+        (self.origin_x + col as f32 * self.cell_width - 0.5).ceil()
     }
 
     fn y(&self, row: usize) -> f32 {
@@ -270,6 +272,7 @@ impl Element for GridElement {
             self.paint_run(run, m, window, cx);
         }
         self.paint_cursor(m, window, cx);
+        self.pane.update(cx, |pane, _| pane.frame_presented());
     }
 }
 
@@ -400,6 +403,8 @@ impl GridElement {
         let focused = self.focus.is_focused(window);
         let colour_cursor = colour(self.palette.cursor);
         let stroke = m.scale.round().max(1.0);
+        // Bar and underline cursors: 1.5 logical pixels, at least one device pixel (2 px at scales 1 and 1.5).
+        let strip = (1.5 * m.scale).round().max(1.0);
         let rect = |l: f32, t: f32, r: f32, b: f32| {
             Bounds::new(
                 point(m.logical(l), m.logical(t)),
@@ -408,16 +413,11 @@ impl GridElement {
         };
         match snapshot.cursor_shape {
             CURSOR_BAR => window.paint_quad(filled(
-                rect(cell.left, cell.top, cell.left + 2.0 * stroke, cell.bottom),
+                rect(cell.left, cell.top, cell.left + strip, cell.bottom),
                 colour_cursor,
             )),
             CURSOR_UNDERLINE => window.paint_quad(filled(
-                rect(
-                    cell.left,
-                    cell.bottom - 2.0 * stroke,
-                    cell.right,
-                    cell.bottom,
-                ),
+                rect(cell.left, cell.bottom - strip, cell.right, cell.bottom),
                 colour_cursor,
             )),
             _ if !focused => {

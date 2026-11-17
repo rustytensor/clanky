@@ -4,8 +4,7 @@
 # reference images with five planted faults at both scales, and the engine check with its planted fault, and passes
 # only if each fault is caught by the check aimed at it.
 # CLANKY_GPUI_BIN=PATH skips the build and uses that binary (for trying the script against a stand-in).
-# CLANKY_TODAY_BIN=PATH (or --today-bin PATH) names today's clanky for the speed comparison; without it the gate
-# builds it from the c-int worktree.
+# The speed step compares clanky-gpui with today's clanky's numbers in scripts/terminal-pane/baseline.json.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,7 +16,6 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=url.git@git.servorra.com:.insteadOf GIT_CONFIG_VALUE_0=https://git.servorra.com/
 
 CHECK_DIR=scripts/terminal-pane
-TODAY_WORKTREE=/srv/devops/build/clanky-c-int
 BUILD_LOCK=${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}
 GATE_LOCK=${CLANKY_GATE_LOCK:-/srv/devops/build/clanky/.gate.lock}
 SCALES=(1 1.5)
@@ -25,17 +23,12 @@ WINDOW_SIZE=2000x900        # logical pixels, the launch contract's --size
 DISPLAY_SIZE=3200x1400x24   # fits the larger window at scale 1.5 (3000x1350)
 WAIT_SECONDS=20             # the window and row 10's ink must appear within this long
 FIXTURE_COMMAND="clear; bash $PWD/$CHECK_DIR/fixture.sh"
-SPEED_RUNS=3                # alternating runs of each binary
+SPEED_RUNS=3                # runs of clanky-gpui; the medians are compared with the baseline's
 SPEED_LIMIT_TIME=1.1        # check 6: cat of 100 MB at most this multiple of today's
 SPEED_LIMIT_KEY_MS=2        # key to screen p50 and p99 at most today's plus this
 SPEED_LIMIT_START=1.2       # start to first frame at most this multiple of today's
 FAULT_PAIRS=(drift:placement background:colours nounderline:attributes boxgap:wide halfblock:wide)
 
-today_binary=${CLANKY_TODAY_BIN:-}
-if [[ ${1:-} == --today-bin ]]; then
-  today_binary=${2:?--today-bin needs a path}
-  shift 2
-fi
 
 scratch=$(mktemp -d /srv/devops/build/terminal-pane-gate.XXXXXX)
 # Nothing this gate starts may reach the user's desktop session: every display goes to a private Xvfb.
@@ -66,7 +59,8 @@ stop_server() {
   local entry pid
   for entry in /proc/[0-9]*; do
     pid=${entry#/proc/}
-    if tr '\0' ' ' <"$entry/cmdline" 2>/dev/null | grep -qF -- "--server --socket $server_socket "; then
+    # A process may end while the list is read; its missing cmdline is not an error.
+    if { tr '\0' ' ' <"$entry/cmdline"; } 2>/dev/null | grep -qF -- "--server --socket $server_socket "; then
       kill "$pid" 2>/dev/null || true
     fi
   done
@@ -150,6 +144,8 @@ free_display() {
   echo "$number"
 }
 
+# start_display: starts a private Xvfb and sets display_number. Not run in $(...): the Xvfb's process ID must reach
+# pids in this shell, or the cleanup cannot stop it.
 start_display() {
   local number waited=0
   number=$(free_display)
@@ -163,7 +159,7 @@ start_display() {
       return 1
     fi
   done
-  echo "$number"
+  display_number=$number
 }
 
 # The config's terminal colours come from the Graphite dark theme file, in the format Clanky's `terminal_colors` reads.
@@ -271,7 +267,7 @@ screen_checks() {
   python3 "$CHECK_DIR/expected.py" --scale "$scale" >"$scratch/expected-$scale.json"
   rm -rf "${scratch:?}/home"
   write_config
-  display_number=$(start_display) || { fail "display for scale $scale"; return; }
+  start_display || { fail "display for scale $scale"; return; }
 
   if ! launch "$scale" "$FIXTURE_COMMAND"; then
     fail "window clanky-gpui did not appear within ${WAIT_SECONDS}s at scale $scale"
@@ -331,34 +327,15 @@ PY
 if [[ $(cat "$scratch/screen-failed" 2>/dev/null || echo 1) != 0 ]]; then failed=1; fi
 
 # ----------------------------------------------------------------------------------------------- step 5
-# Today's clanky and clanky-gpui alternate, SPEED_RUNS runs each, so drift on the machine hits both; medians are compared.
-if [[ -z $today_binary ]]; then
-  if [[ -d $TODAY_WORKTREE ]] && flock "$BUILD_LOCK" env CARGO_TARGET_DIR="$TODAY_WORKTREE/target" \
-    cargo build -q --release --offline --locked -j 8 --manifest-path "$TODAY_WORKTREE/Cargo.toml" -p clanky --bin clanky; then
-    today_binary=$TODAY_WORKTREE/target/release/clanky
-  fi
-fi
-if [[ -f $CHECK_DIR/speed.sh && -x ${today_binary:-/nonexistent} ]]; then
-  speed_failed=0
-  for run in $(seq "$SPEED_RUNS"); do
-    for name in today gpui; do
-      if [[ $name == today ]]; then run_binary=$today_binary; else run_binary=$binary; fi
-      bash "$CHECK_DIR/speed.sh" "$run_binary" --runs 1 --out "$scratch/speed-$name-$run.json" >"$scratch/speed.log" 2>&1 ||
-        { fail "speed harness failed for $name run $run: $(tail -n 1 "$scratch/speed.log")"; speed_failed=1; }
-    done
-  done
-  if ((speed_failed == 0)); then
-    if verdict=$(python3 - "$scratch" "$SPEED_RUNS" "$SPEED_LIMIT_TIME" "$SPEED_LIMIT_KEY_MS" "$SPEED_LIMIT_START" <<'PY'
-import json, statistics, sys
-folder, runs = sys.argv[1], int(sys.argv[2])
+# clanky-gpui's six numbers (speed.sh, SPEED_RUNS runs) against today's clanky's, measured once with the same harness
+# and kept in baseline.json (Marc, 2026-11-17: no more runs of the old binary).
+if [[ -f $CHECK_DIR/speed.sh && -f $CHECK_DIR/baseline.json ]]; then
+  if bash "$CHECK_DIR/speed.sh" "$binary" --runs "$SPEED_RUNS" --out "$scratch/speed-gpui.json" >"$scratch/speed.log" 2>&1; then
+    if verdict=$(python3 - "$scratch/speed-gpui.json" "$CHECK_DIR/baseline.json" "$SPEED_LIMIT_TIME" "$SPEED_LIMIT_KEY_MS" "$SPEED_LIMIT_START" <<'PY'
+import json, sys
+now = json.load(open(sys.argv[1]))["summary"]
+then = json.load(open(sys.argv[2]))["numbers"]
 time_limit, key_limit, start_limit = (float(value) for value in sys.argv[3:6])
-
-
-def median(name, key):
-    values = [json.load(open(f"{folder}/speed-{name}-{run}.json"))["summary"][key]["median"] for run in range(1, runs + 1)]
-    return statistics.median(values)
-
-
 limits = {
     "cat_s": lambda n, t: n <= time_limit * t,
     "key_p50_ms": lambda n, t: n <= t + key_limit,
@@ -367,9 +344,10 @@ limits = {
     "start_ms": lambda n, t: n <= start_limit * t,
     "memory_mib": lambda n, t: n <= t,
 }
-rows = {key: (median("gpui", key), median("today", key)) for key in limits}
-bad = [f"{key} {now:.2f} against today's {then:.2f}" for key, (now, then) in rows.items() if not limits[key](now, then)]
-print("; ".join(bad) if bad else "six numbers within the limits (medians of " + str(runs) + " alternating runs)")
+rows = {key: (now[key]["median"], then[key]["median"]) for key in limits}
+text = ", ".join(f"{key} {n:.2f} (baseline {t:.2f})" for key, (n, t) in rows.items())
+bad = [key for key, (n, t) in rows.items() if not limits[key](n, t)]
+print(("over the limit: " + " ".join(bad) + "; " if bad else "six numbers within the limits: ") + text)
 sys.exit(1 if bad else 0)
 PY
     ); then
@@ -377,20 +355,34 @@ PY
     else
       fail "speed: $verdict"
     fi
+  else
+    fail "speed harness failed: $(tail -n 1 "$scratch/speed.log")"
   fi
 else
-  fail "speed harness or today's clanky missing"
+  fail "speed harness or baseline.json missing"
 fi
 
 # ----------------------------------------------------------------------------------------------- step 6
+# The owner test client the old gates drive the session with, built once.
+if flock "$BUILD_LOCK" cargo build -q --offline -j 8 -p clanky --bin clanky-agent-gate; then
+  export CLANKY_AGENT_GATE=$CARGO_TARGET_DIR/debug/clanky-agent-gate
+else
+  fail "build clanky-agent-gate"
+fi
 for name in gate-t2-terminal gate-mouse gate-exit gate-c2-schemes gate-m12-idle check-robot-startup check-robot-window; do
   files=(scripts/"$name".*)
   if ! grep -q CLANKY_BIN "${files[@]}" 2>/dev/null; then
     fail "$name not retargeted"
     continue
   fi
-  if [[ -f scripts/$name.sh ]]; then command=(bash "scripts/$name.sh"); else command=(python3 "scripts/$name.py"); fi
-  if output=$(CLANKY_BIN=$binary flock "$GATE_LOCK" "${command[@]}" 2>&1); then
+  # No display of the user's: each gate gets a private Xvfb (its wrapper's or its harness's, else xvfb-run here).
+  if [[ -f scripts/$name.sh ]]; then
+    command=(bash "scripts/$name.sh")
+  else
+    command=(xvfb-run -a -n 100 -s '-screen 0 1600x1000x24 -nolisten tcp' python3 "scripts/$name.py")
+  fi
+  if output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS CLANKY_BIN="$binary" \
+    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json flock "$GATE_LOCK" "${command[@]}" 2>&1); then
     ok "$name: $(tail -n 1 <<<"$output")"
   else
     fail "$name: $(tail -n 1 <<<"$output")"
