@@ -50,7 +50,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import chrome_pixels as pixels  # noqa: E402
 import expected as expected_values  # noqa: E402
-from chrome_harness import Fail, RealWindow  # noqa: E402
+from chrome_harness import Fail, RealWindow, until  # noqa: E402
 from simulated_window import SimWindow  # noqa: E402
 
 ARGS = sys.argv[1:]
@@ -392,7 +392,21 @@ def pane_gap_margin(e, a, pane, frame):
     return margin, x - gap_start
 
 
+def run_first_command(win):
+    """One command in the first pane, so that a finished block (and its meta row) is on screen before the checks."""
+    win.type("echo done")
+    win.key("Return")
+    until(
+        lambda: win.landmarks().get("meta-text"),
+        "the meta-text landmark after one command",
+        15,
+    )
+    win.away()
+    time.sleep(0.5)
+
+
 def window_checks(win, e):
+    run_first_command(win)
     a = win.shot("main")
     frame = tuple(int(v) for v in a[2, a.shape[1] // 2])
     tol = edge_tolerance(e)

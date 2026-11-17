@@ -15,7 +15,8 @@
       "pressed": {"hex": "#343434", "src": "rulebook:217"},
       "ring": {"hex": "#737373", "src": "rulebook:217"},
       "primary": {"hex": "#f7f7f7", "src": "rulebook:218"},
-      "primary_pressed": {"hex": "#e8e8e8", "src": "rulebook:218"}
+      "primary_pressed": {"hex": "#e8e8e8", "src": "rulebook:218"},
+      "primary_foreground": {"hex": "#141414", "src": "rulebook:218"}
     },
     "graphite-light": {
       "background": {"hex": "#ffffff", "src": "rulebook:41"},
@@ -31,7 +32,8 @@
       "pressed": {"hex": "#dadada", "src": "rulebook:217"},
       "ring": {"hex": "#a3a3a3", "src": "rulebook:217"},
       "primary": {"hex": "#111111", "src": "rulebook:218"},
-      "primary_pressed": {"hex": "#2a2a2a", "src": "rulebook:218"}
+      "primary_pressed": {"hex": "#2a2a2a", "src": "rulebook:218"},
+      "primary_foreground": {"hex": "#ffffff", "src": "rulebook:218"}
     }
   },
   "selection_contrast": {
@@ -167,7 +169,5 @@
       "own_colour": false, "src": "rulebook:240-241"
     }
   },
-  "gaps": [
-    "primary_foreground: named by the switch look (rulebook:233-234) with no value"
-  ]
+  "gaps": []
 }

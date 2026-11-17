@@ -105,6 +105,7 @@ def theme_colours(theme):
         "ring",
         "primary",
         "primary_pressed",
+        "primary_foreground",
     ):
         colours[role] = {"hex": theme[role]["hex"], "src": theme[role]["src"]}
     background = hex_to_rgb(theme["background"]["hex"])

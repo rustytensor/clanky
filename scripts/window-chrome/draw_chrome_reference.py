@@ -59,8 +59,7 @@ class Theme:
         self.switch_on_track = self.rgb[looks["on_track"]["role"]]
         self.switch_off_track = self.rgb[looks["off_track"]["role"]]
         self.knob_off = self.rgb[looks["off_knob"]["role"]]
-        # primary_foreground has no rulebook value; the track's opposite stands in so the knob can be seen.
-        self.knob_on = self.rgb["background"]
+        self.knob_on = self.rgb[looks["on_knob"]["role"]]
         active_tab = expected_values.load_tokens()["active_tab"]
         self.tab_fill_alpha = active_tab["fill_foreground_alpha"]["value"]
         self.tab_ring_alpha = active_tab["inner_ring_foreground_alpha"]["value"]
