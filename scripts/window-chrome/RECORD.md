@@ -51,8 +51,8 @@ for a right-click on a pane.
 - Landmark: `{"record":"landmark","name":NAME,"index":N,"box":[x,y,w,h]}`, written when it changes (`index` is 0 unless a name repeats), for the parts the design
   gate measures that are not controls. Names: `title-bar` (the whole bar), `status-line` (the whole line, its top line
   included), `pane` (one line per pane, `index` counting from 0 in reading order, the pane's outer box), `status-count` (the box of the single digit that counts
-  tabs in the status line, on its own text element), `meta-text` (the block meta row's text, optional: absent when no
-  block is on screen), `pane-text` (the first row of a pane's text, for the selection drag).
+  tabs in the status line, on its own text element), `meta-text` (the block meta row's text; the gate's meta cap-height check needs a finished block on screen and fails when
+  the landmark is absent), `pane-text` (the first row of a pane's text, for the selection drag).
 - Frame: `{"record":"frame","n":N}` is allowed and ignored.
 
 ## Checked by the gates

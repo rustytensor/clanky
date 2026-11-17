@@ -102,7 +102,9 @@ class RealWindow:
         for name in ("home", "config", "data", "state", "runtime", "cache"):
             private_folder(self.work / name)
         private_folder(self.work)
-        (self.work / "home/.bashrc").write_text("PS1='$ '\n")
+        # The tab is named after the folder the shell starts in: "HIH", capitals with flat tops, for the cap height check.
+        (self.work / "home/HIH").mkdir(exist_ok=True)
+        (self.work / "home/.bashrc").write_text("PS1='$ '\ncd ~/HIH\n")
         self.record_path = self.work / "controls.jsonl"
         self.procs, self.server = [], None
         try:
