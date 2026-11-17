@@ -1,0 +1,1314 @@
+#!/usr/bin/env python3
+"""Controls gate: every control of clanky-gpui's main window and pane menu is drawn and works without a flaw, as the design
+rulebook's section "Controls: drawn and working without a flaw" and its 2026-11-17 amendments ask.
+
+Usage: gate-controls.py [--screens NAME,NAME...] [--scales 1,1.5] [--theme graphite-dark] [--app PATH]
+                        [--simulate] [--fault NAME] [--keep]
+Prints "FAIL: <check> <screen> @<scale> <control>: expected ..., observed ..." for each failure and one
+"ok: <check> <screen> @<scale> ... (n checked)" line per passed check and screen, then "PASS: controls" when nothing
+failed. Exit status 0 only on PASS.
+
+Retargeted from the calm window's gate (design-tokens branch). What the gate reads, and how:
+  - the control record the app writes (RECORD.md; env CLANKY_CONTROL_RECORD): which controls exist, where, of what kind
+    and in what state, in device pixels;
+  - screenshots of a private Xvfb, pointer and keys through xdotool (chrome_harness.RealWindow, which keeps G1's
+    isolation rules);
+  - every expected value from expected.py (rulebook-tokens.json and the Inter font files), at the scale being run; none
+    from the program under test.
+--simulate runs the same gate on simulated_window.SimWindow (no app, no display), with --fault NAME planting one
+of the faults below in it; the gate must then FAIL the check named for the fault.
+
+Checks, for each screen and scale (the check's name is the first word after FAIL):
+  record        every control has every field of RECORD.md and a kind of the rulebook.
+  whole-pixels  every box in the record is whole device pixels, and under the pointer the fill's four edges are sharp.
+  height        the record's box height per kind, and the pressed fill's height on screen, +-1 device px.
+  radius        the pressed fill's top-left corner: the area it leaves out of its corner square is r^2 (1 - pi/4).
+  border-width  under keyboard focus, at the middle of the left edge: the border is one device pixel in ring, the pixel
+                inside it is the focus fill, outside it the 2 px ring (round(2 x scale) device px) at 25 %.
+  text-centring the label's baseline, fitted to the label's own ink rows against the Inter file at 100 x size, sits
+                where the cap height's middle falls on the box's middle, +-0.5 device px.
+  icon-centring the icon's ink is centred in the box +-0.5 device px, and its box is 16 or 14 px x the scale.
+  rest-colour, hover-colour, pressed-colour, focus-colour  the fill per state (a field and a switch keep their look).
+  disabled      a disabled control takes no hover fill and its label's ink is at most halfway to the foreground.
+  hit-box       the record's hit box is its drawn box and at least 24 x 24 logical px; the pointer 1 device px inside
+                each edge hovers the control and 1 device px outside it does not.
+  release       pressing a control fires nothing; moving out before the release fires nothing and leaves the screen
+                open; releasing inside fires the control exactly once, by "release".
+  tab-order     from no focus, Tab visits every enabled control once in reading order and Shift+Tab walks back.
+  arrows        in a group Down from no focus reaches the first enabled control, Down the second, Up the first again;
+                in a horizontal group the same with Right and Left.
+  activate-keys Enter, and separately Space, fire the focused control exactly once, by "key".
+  switch-space  Space flips a focused switch's checked value.
+  escape        Esc closes a popover; the focus goes back to its opener (typed text reaches the pane it opened on).
+  popover       a popover lies fully inside the window and does not cover what opened it, also by the corner.
+Firing a control runs its action, so release and activate-keys fire only the screen's harmless control (SCREENS below).
+
+Planted faults (--simulate --fault NAME; each must fail the check named):
+  hit-larger  every hit box 4 px larger than the drawn box      -> hit-box
+  press-fires a control fires on press, not on release           -> release
+  tab-skip    the third control in reading order skips Tab       -> tab-order
+  border-2px  the focus border drawn two device pixels wide      -> border-width
+"""
+
+import math
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+ARGS = sys.argv[1:]
+
+
+def arg(name, default=None):
+    return ARGS[ARGS.index(name) + 1] if name in ARGS else default
+
+
+FAULT = arg("--fault")
+FAULTS = {
+    "hit-larger": "hit-box",
+    "press-fires": "release",
+    "tab-skip": "tab-order",
+    "border-2px": "border-width",
+}
+SIMULATE = "--simulate" in ARGS
+SCALES = [float(v) for v in arg("--scales", "1,1.5").split(",")]
+THEME = arg("--theme", "graphite-dark")
+KEEP = "--keep" in ARGS
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+FONTS = REPO / "assets/fonts"
+APP = Path(
+    arg("--app", os.environ.get("CLANKY_GPUI_BIN", REPO / "target/release/clanky-gpui"))
+)
+WORK = Path(
+    os.environ.get("CLANKY_CONTROLS_WORK", "/srv/devops/build/clanky-controls-gate-run")
+)
+sys.path.insert(0, str(HERE))
+import expected as expected_values  # noqa: E402
+from chrome_harness import Fail, RealWindow, until  # noqa: E402
+from simulated_window import SimWindow  # noqa: E402
+import chrome_pixels  # noqa: E402
+from chrome_pixels import blend, grey, interior_mode  # noqa: E402
+from chrome_pixels import corner_area_radius as corner_radius  # noqa: E402
+
+# Window size, and the config every run starts from: no restored layout, no history, no animation, the dark theme.
+LOGICAL_W, LOGICAL_H = 1200, 800
+CONFIG = dict(
+    restore_layout=False,
+    startup_animation=False,
+    history=False,
+    animations=False,
+    cursor_blink="off",
+    theme="dark",
+)
+
+# ---------------------------------------------------------------- expected values, from expected.py at the run's scale
+
+GHOST = {
+    "menu-item",
+    "list-row",
+    "palette-row",
+    "tab",
+    "icon-button",
+    "button-bar",
+    "segment",
+}
+OUTLINED = {"button-small", "button", "button-large", "chip"}
+ROWS = {"menu-item", "list-row", "palette-row"}
+KINDS = {}
+CARD = ACCENT = PRESSED = RING = FOREGROUND = PRIMARY = PRIMARY_PRESSED = 0
+RING_ALPHA = DISABLED_ALPHA = TAB_ACTIVE_FILL = TAB_RING_ALPHA = INPUT_OVER = (
+    INPUT_ALPHA
+) = 0.0
+COLOUR_TOL = EDGE_TOL = CENTRE_TOL = MIN_HIT = 0
+INTER_UPM = INTER_CAP = 0
+EXPECTED = {}
+
+
+def grey_of(expected, role):
+    """The grey level of a theme role (the Graphite colours are neutral greys)."""
+    r, g, b = (int(expected["colours"][role]["hex"][i : i + 2], 16) for i in (1, 3, 5))
+    return round((r + g + b) / 3)
+
+
+def use_expected(scale, theme):
+    """Loads expected.py's values for this scale and theme into the module's names, before each window."""
+    global \
+        KINDS, \
+        CARD, \
+        ACCENT, \
+        PRESSED, \
+        RING, \
+        FOREGROUND, \
+        PRIMARY, \
+        PRIMARY_PRESSED, \
+        RING_ALPHA, \
+        DISABLED_ALPHA
+    global \
+        TAB_RING_ALPHA, \
+        INPUT_OVER, \
+        INPUT_ALPHA, \
+        TAB_ACTIVE_FILL, \
+        COLOUR_TOL, \
+        EDGE_TOL, \
+        CENTRE_TOL, \
+        MIN_HIT, \
+        INTER_UPM, \
+        INTER_CAP, \
+        EXPECTED
+    EXPECTED = expected_values.build(scale, theme)
+    tokens = expected_values.load_tokens()
+    KINDS = {}
+    for kind, spec in EXPECTED["controls"].items():
+        radius = None if kind == "switch" else spec["radius"]["logical"]
+        KINDS[kind] = (
+            spec["height"]["logical"],
+            radius,
+            spec.get("text_px"),
+            spec.get("text_weight"),
+            spec["icon"]["logical"],
+        )
+    CARD, ACCENT, PRESSED, RING = (
+        grey_of(EXPECTED, r) for r in ("card", "accent", "pressed", "ring")
+    )
+    FOREGROUND, PRIMARY, PRIMARY_PRESSED = (
+        grey_of(EXPECTED, r) for r in ("foreground", "primary", "primary_pressed")
+    )
+    RING_ALPHA = EXPECTED["states"]["focus"]["ring_alpha"]
+    DISABLED_ALPHA = EXPECTED["states"]["disabled"]["opacity"]
+    TAB_ACTIVE_FILL = tokens["active_tab"]["fill_foreground_alpha"]["value"]
+    TAB_RING_ALPHA = tokens["active_tab"]["inner_ring_foreground_alpha"]["value"]
+    INPUT_OVER = round(
+        sum(int(EXPECTED["colours"]["input"]["over"][i : i + 2], 16) for i in (1, 3, 5))
+        / 3
+    )
+    INPUT_ALPHA = EXPECTED["colours"]["input"]["alpha"]
+    COLOUR_TOL = EXPECTED["colour_tolerance_levels"]["value"]
+    EDGE_TOL = EXPECTED["chrome"]["tab_height"]["tolerance_px"]
+    CENTRE_TOL = EXPECTED["controls"]["button"]["centring_tolerance_px"]
+    MIN_HIT = tokens["geometry_rules"]["hit_box_min_px"]["value"]
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(FONTS / "Inter-Regular.ttf"))
+    glyph = font["glyf"][font.getBestCmap()[ord("H")]]
+    glyph.recalcBounds(font["glyf"])
+    INTER_UPM, INTER_CAP = font["head"].unitsPerEm, glyph.yMax
+
+
+# The screens, how to open and close each, the colour of what holds its controls (None: the pixel just outside each
+# control, as drawn), and the one control the gate may fire (its label), chosen because its action changes nothing
+# the rest of the run depends on. A screen that names none fails activate-keys and release until it names one.
+# TODO(G2): the harmless control of the main window is a guess until G2's tools panel exists.
+
+
+def open_main(win):
+    win.away()
+
+
+def open_context_menu(win, at=None):
+    x, y = at or win.menu_point()
+    win.x("mousemove", "--window", win.wid, str(int(x)), str(int(y)))
+    time.sleep(0.2)
+    win.x("click", "3")
+
+
+def close_with_escape(win):
+    win.key("Escape")
+
+
+SCREENS = {
+    "main-window": dict(open=open_main, close=None, container=None, harmless="Files"),
+    # TODO(G2): the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
+    "context-menu": dict(
+        open=open_context_menu,
+        close=close_with_escape,
+        container="card",
+        harmless="Select all",
+        flip=True,
+    ),
+}
+
+RECORD_FIELDS = {
+    "id",
+    "kind",
+    "label",
+    "box",
+    "hit",
+    "state",
+    "enabled",
+    "tab",
+    "group",
+    "axis",
+    "checked",
+    "primary",
+    "label_box",
+    "icon",
+}
+
+# ---------------------------------------------------------------- results
+
+FAILED, PASSED = [], {}
+
+
+def check(name, screen, scale, ok, what, expected, observed):
+    key = (name, screen, scale)
+    if ok:
+        PASSED[key] = PASSED.get(key, 0) + 1
+    else:
+        line = f"FAIL: {name} {screen} @{scale:g} {what}: expected {expected}, observed {observed}"
+        FAILED.append(line)
+        print(line, flush=True)
+    return ok
+
+
+# ---------------------------------------------------------------- pixels
+
+
+def fill_height(a, box, fill, radius, edge=None):
+    return chrome_pixels.fill_height(a, box, fill, radius, edge, COLOUR_TOL)
+
+
+def near(value, expected, tol=None):
+    return abs(value - expected) <= (COLOUR_TOL if tol is None else tol)
+
+
+def fill_sample(a, ctl, inset):
+    """The control's fill colour: the commonest grey inside its border; for a switch, a point of the track clear of
+    the knob (the knob sits at the end the value names)."""
+    if ctl["kind"] != "switch":
+        return interior_mode(a, ctl["box"], inset)
+    x, y, w, h = ctl["box"]
+    track_x = x + h // 2 if ctl.get("checked") else x + w - h // 2
+    return grey(a, track_x, y + h // 2)
+
+
+def hair(scale):
+    """A border is one device pixel at every scale (rulebook, Amendments)."""
+    return EXPECTED["chrome"]["hairline_device_px"]["device"]
+
+
+def ring_width(scale):
+    return EXPECTED["chrome"]["focus_ring_width"]["device_rounded"]
+
+
+def radius_px(kind, box, scale):
+    r = KINDS[kind][1]
+    return box[3] / 2 if r is None else r * scale
+
+
+_REFERENCE = {}
+
+
+def reference_rows(label, px, weight):
+    """The label rendered from the Inter file at 100 x px: ink per fine row, the baseline's fine row and fine rows
+    per pixel."""
+    key = (label, px, weight)
+    if key not in _REFERENCE:
+        size = int(round(px * 100))
+        name = {400: "Regular", 500: "Medium", 600: "SemiBold"}[weight]
+        font = ImageFont.truetype(str(FONTS / f"Inter-{name}.ttf"), size)
+        left, top, right, bottom = font.getbbox(label, anchor="ls")
+        im = Image.new("L", (right - left + 20, bottom - top + 20))
+        base = 10 - top
+        ImageDraw.Draw(im).text(
+            (10 - left, base), label, font=font, fill=255, anchor="ls"
+        )
+        rows = np.asarray(im).astype(float).sum(axis=1)
+        _REFERENCE[key] = (rows, base, size / px)
+    return _REFERENCE[key]
+
+
+def baseline_offset(a, ctl, scale, background):
+    """Measured baseline minus the baseline of a label whose cap height is centred in the box, in device px."""
+    kind = ctl["kind"]
+    px, weight = KINDS[kind][2] * scale, KINDS[kind][3]
+    if kind == "tab" and ctl.get("checked"):
+        weight = 500
+    x, y, w, h = ctl["box"]
+    lx, _, lw, _ = ctl["label_box"]
+    y0, y1 = int(y), int(y + h)
+    x0, x1 = (
+        max(int(math.floor(lx)) - 1, int(x)),
+        min(int(math.ceil(lx + lw)) + 1, int(x + w)),
+    )
+    ink = np.abs(a[y0:y1, x0:x1].mean(axis=2) - background)
+    ink[ink < 2] = 0
+    measured = ink.sum(axis=1)
+    if measured.sum() <= 0:
+        return None
+    measured = measured / measured.sum()
+    rows, base, fine = reference_rows(ctl["label"], px, weight)
+    cum = np.concatenate([[0.0], np.cumsum(rows)])
+
+    def predicted(b):
+        edges = (np.arange(y0, y1 + 1) - b) * fine + base
+        p = np.diff(np.interp(edges, np.arange(len(cum)), cum))
+        return p / p.sum() if p.sum() > 0 else p
+
+    expected = y + h / 2 + INTER_CAP / INTER_UPM * px / 2
+    candidates = np.arange(expected - 3, expected + 3, 0.01)
+    errors = [((predicted(b) - measured) ** 2).sum() for b in candidates]
+    return float(candidates[int(np.argmin(errors))] - expected)
+
+
+def icon_centre_offset(a, ctl, background):
+    """(across, down): the icon ink's middle minus the box's middle, in device px, from the ink's extent with the
+    partly covered edge rows and columns counted by their coverage."""
+    ix, iy, iw, ih = ctl["icon"]
+    x0, y0, x1, y1 = (
+        int(ix) - 1,
+        int(iy) - 1,
+        int(math.ceil(ix + iw)) + 1,
+        int(math.ceil(iy + ih)) + 1,
+    )
+    ink = np.abs(a[y0:y1, x0:x1].mean(axis=2) - background)
+    if ink.max() <= 0:
+        return None
+    ink = ink / ink.max()
+
+    def extent(profile, origin):
+        idx = np.where(profile > 0.02)[0]
+        first, last = idx[0], idx[-1]
+        return origin + first + 1 - profile[first], origin + last + profile[last]
+
+    top, bottom = extent(ink.max(axis=1), y0)
+    left, right = extent(ink.max(axis=0), x0)
+    bx, by, bw, bh = ctl["box"]
+    return (left + right) / 2 - (bx + bw / 2), (top + bottom) / 2 - (by + bh / 2)
+
+
+# ---------------------------------------------------------------- the checks
+
+
+def inside(box, x, y):
+    return box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
+
+
+def overlaps(a, b):
+    return (
+        a[0] < b[0] + b[2]
+        and b[0] < a[0] + a[2]
+        and a[1] < b[1] + b[3]
+        and b[1] < a[1] + a[3]
+    )
+
+
+def centre(box):
+    return int(box[0] + box[2] / 2), int(box[1] + box[3] / 2)
+
+
+def reading_order(controls):
+    return [
+        c["id"]
+        for c in sorted(
+            controls, key=lambda c: (round(c["box"][1]), round(c["box"][0]))
+        )
+    ]
+
+
+def name_of(ctl):
+    return f'{ctl["kind"]} "{ctl["label"]}"'
+
+
+def border_blend(ctl, fill):
+    """The grey the outermost pixel of a control shows: its fill under its border (the border is drawn on the fill)."""
+    kind = ctl["kind"]
+    if kind in OUTLINED or kind in ("field", "switch"):
+        over, alpha = INPUT_OVER, INPUT_ALPHA
+    elif kind == "tab" and ctl.get("checked"):
+        over, alpha = FOREGROUND, TAB_RING_ALPHA
+    else:
+        return fill
+    return blend(fill, over, alpha)
+
+
+def expected_fill(ctl, state, container):
+    kind = ctl["kind"]
+    if kind == "switch":
+        return (
+            PRIMARY if ctl.get("checked") else ACCENT
+        )  # one look in every state (rulebook, Amendments)
+    if ctl.get("primary"):
+        return {
+            "rest": PRIMARY,
+            "hover": PRIMARY_PRESSED,
+            "pressed": PRIMARY_PRESSED,
+            "focus": PRIMARY,
+        }[state]
+    rest = container
+    if kind == "tab" and ctl.get("checked"):
+        rest = round(blend(container, FOREGROUND, TAB_ACTIVE_FILL))
+    elif kind == "segment" and ctl.get("checked"):
+        return None  # the selected segment's own fill is the switcher's, not a state's
+    if state == "rest" or not ctl["enabled"] or kind == "field":
+        return rest
+    if state == "hover":
+        return ACCENT
+    if state == "pressed":
+        return PRESSED
+    return ACCENT if kind in ROWS else rest
+
+
+class Screen:
+    def __init__(self, win, name, spec):
+        self.win, self.name, self.spec, self.s = win, name, spec, win.scale
+        self.record = None
+
+    def ok(self, check_name, ok, what, expected, observed):
+        return check(check_name, self.name, self.s, ok, what, expected, observed)
+
+    def current(self):
+        return self.win.screen(self.name)
+
+    def controls(self):
+        r = self.current()
+        return r["controls"] if r else []
+
+    def control(self, cid):
+        return next((c for c in self.controls() if c["id"] == cid), None)
+
+    def is_open(self):
+        return bool(self.controls())
+
+    def open(self, **kw):
+        if self.spec["close"] and self.is_open():
+            return self.current()
+        self.spec["open"](self.win, **kw)
+        try:
+            until(self.is_open, f"{self.name} opens and records its controls", 5)
+        except Fail:
+            return None
+        time.sleep(0.3)
+        self.record = self.current()
+        return self.record
+
+    def close(self):
+        if self.spec["close"] and self.is_open():
+            self.spec["close"](self.win)
+            try:
+                until(lambda: not self.is_open(), f"{self.name} closes", 3)
+            except Fail:
+                pass
+
+    def clear_focus(self):
+        """Click on empty ground so that no control has the focus: a screen that never closes keeps its focus."""
+        x, y = self.rest_point()
+        self.win.move(x, y)
+        self.win.x("mousedown", "1")
+        self.win.x("mouseup", "1")
+        time.sleep(0.3)
+
+    def reopen(self, **kw):
+        self.close()
+        if self.spec["close"] is None:
+            self.clear_focus()
+        return self.open(**kw)
+
+    def container(self, a, ctl):
+        if self.spec["container"] == "card":
+            return CARD
+        x, y, w, h = ctl["box"]
+        return grey(a, x - ring_width(self.s) - 2, y + h / 2)
+
+    def rest_point(self):
+        """A pointer position over no control and inside no popover: the popover's opener when there is one."""
+        r = self.current()
+        if r and r.get("popover"):
+            ox, oy, ow, oh = r["popover"]["opener"]
+            if not any(inside(c["hit"], ox, oy) for c in r["controls"]) and not inside(
+                r["popover"]["box"], ox, oy
+            ):
+                return int(ox), int(oy)
+        for fy in (0.5, 0.95, 0.2, 0.8):
+            for fx in (0.95, 0.6, 0.3):
+                x, y = int(fx * self.win.pw), int(fy * self.win.ph)
+                if not any(inside(c["hit"], x, y) for c in self.controls()) and not (
+                    r and r.get("popover") and inside(r["popover"]["box"], x, y)
+                ):
+                    return x, y
+        return 2, 2
+
+    def outside_point(self, ctl):
+        """A point 2 device px outside the control and outside every control, inside the popover if any."""
+        x, y, w, h = ctl["box"]
+        cx, cy = centre(ctl["box"])
+        pop = (self.current() or {}).get("popover")
+        for px_, py_ in (
+            (x - 2, cy),
+            (x + w + 1, cy),
+            (cx, y - 2),
+            (cx, y + h + 1),
+            (x - 2 - ring_width(self.s), cy),
+        ):
+            if any(
+                inside(c["box"], px_, py_) or inside(c["hit"], px_, py_)
+                for c in self.controls()
+            ):
+                continue
+            if pop and not inside(pop["box"], px_, py_):
+                continue
+            return px_, py_
+        return self.rest_point()
+
+    def wait_state(self, cid, state, timeout=3.0):
+        try:
+            return until(
+                lambda: (self.control(cid) or {}).get("state") == state, "", timeout
+            )
+        except Fail:
+            return False
+
+    # Each check below reads the record taken when the screen opened.
+    def static_checks(self):
+        r = self.record
+        for c in r["controls"]:
+            missing = sorted(RECORD_FIELDS - set(c))
+            if not self.ok(
+                "record",
+                not missing and c.get("kind") in KINDS,
+                name_of(c) if "kind" in c else "control",
+                "every field of RECORD.md and a rulebook kind",
+                f"missing {missing}, kind {c.get('kind')}",
+            ):
+                continue
+            self.ok(
+                "whole-pixels",
+                all(abs(v - round(v)) < 0.01 for v in c["box"]),
+                name_of(c) + " box",
+                "whole device pixels",
+                c["box"],
+            )
+            if c["kind"] not in KINDS:
+                self.ok(
+                    "height", False, name_of(c), "a kind of the rulebook", c["kind"]
+                )
+                continue
+            want = KINDS[c["kind"]][0] * self.s
+            self.ok(
+                "height",
+                abs(c["box"][3] - want) <= EDGE_TOL,
+                name_of(c) + " recorded height",
+                f"{want:g}",
+                f"{c['box'][3]:g}",
+            )
+            same = all(abs(a - b) < 0.01 for a, b in zip(c["box"], c["hit"]))
+            self.ok(
+                "hit-box",
+                same,
+                name_of(c) + " recorded hit box",
+                f"the drawn box {c['box']}",
+                c["hit"],
+            )
+            small = min(c["hit"][2], c["hit"][3])
+            self.ok(
+                "hit-box",
+                small >= MIN_HIT * self.s - 0.01,
+                name_of(c) + " hit box size",
+                f"at least {MIN_HIT * self.s:g} px each way",
+                f"{c['hit'][2]:g} x {c['hit'][3]:g}",
+            )
+        pop = r.get("popover")
+        if pop:
+            b = pop["box"]
+            on = (
+                b[0] >= 0
+                and b[1] >= 0
+                and b[0] + b[2] <= self.win.pw
+                and b[1] + b[3] <= self.win.ph
+            )
+            self.ok(
+                "popover",
+                on,
+                "popover",
+                f"inside the window 0,0 {self.win.pw}x{self.win.ph}",
+                b,
+            )
+            self.ok(
+                "popover",
+                not overlaps(b, pop["opener"]),
+                "popover",
+                f"clear of its opener {pop['opener']}",
+                b,
+            )
+
+    def rest_checks(self):
+        self.win.away(self.rest_point())
+        time.sleep(0.3)
+        a = self.win.shot(f"{self.name}-rest")
+        for c in self.controls():
+            if c["kind"] not in KINDS:
+                continue
+            bg = self.container(a, c)
+            want = expected_fill(c, "rest", bg)
+            if want is not None:
+                got = fill_sample(a, c, hair(self.s) + 1)
+                self.ok(
+                    "rest-colour",
+                    got is not None and near(got, want),
+                    name_of(c),
+                    want,
+                    got,
+                )
+            fill = want if want is not None else bg
+            if c.get("label_box") and c["label"] and KINDS[c["kind"]][2]:
+                off = baseline_offset(a, c, self.s, fill)
+                self.ok(
+                    "text-centring",
+                    off is not None and abs(off) <= CENTRE_TOL,
+                    name_of(c),
+                    f"baseline within {CENTRE_TOL} px of the centred one",
+                    "no ink" if off is None else f"{off:+.2f} px",
+                )
+            if c.get("icon"):
+                size = KINDS[c["kind"]][4] * self.s
+                self.ok(
+                    "icon-centring",
+                    abs(c["icon"][2] - size) <= 0.5 and abs(c["icon"][3] - size) <= 0.5,
+                    name_of(c) + " icon box",
+                    f"{size:g} px square",
+                    c["icon"][2:],
+                )
+                off = icon_centre_offset(a, c, fill)
+                across = c["kind"] == "icon-button"
+                good = (
+                    off is not None
+                    and abs(off[1]) <= CENTRE_TOL
+                    and (not across or abs(off[0]) <= CENTRE_TOL)
+                )
+                self.ok(
+                    "icon-centring",
+                    good,
+                    name_of(c),
+                    f"within {CENTRE_TOL} px of the middle",
+                    "no ink" if off is None else f"{off[0]:+.2f}, {off[1]:+.2f} px",
+                )
+            if not c["enabled"] and c.get("label_box"):
+                x, y, w, h = c["box"]
+                lx, _, lw, _ = c["label_box"]
+                region = a[int(y) : int(y + h), int(lx) : int(lx + lw)].mean(axis=2)
+                peak = int(region.max()) if region.size else 0
+                limit = round(blend(bg, FOREGROUND, DISABLED_ALPHA))
+                self.ok(
+                    "disabled",
+                    peak <= limit + COLOUR_TOL and peak >= bg + 20,
+                    name_of(c) + " label ink",
+                    f"brightest at most {limit} (+{COLOUR_TOL}) and drawn",
+                    peak,
+                )
+
+    def hover_checks(self):
+        for c in self.record["controls"]:
+            if c["kind"] not in KINDS or not self.is_open():
+                self.open()
+            cid = c["id"]
+            cx, cy = centre(c["box"])
+            self.win.move(cx, cy)
+            if c["enabled"]:
+                if not self.ok(
+                    "hit-box",
+                    self.wait_state(cid, "hover"),
+                    name_of(c) + " under the pointer",
+                    "hover",
+                    (self.control(cid) or {}).get("state"),
+                ):
+                    continue
+            else:
+                time.sleep(0.3)
+                hovered = [d["label"] for d in self.controls() if d["state"] == "hover"]
+                self.ok(
+                    "disabled",
+                    not hovered
+                    and (self.control(cid) or {}).get("state") == "disabled",
+                    name_of(c) + " under the pointer",
+                    "stays disabled, nothing hovered",
+                    f"{(self.control(cid) or {}).get('state')}, hovered {hovered}",
+                )
+            time.sleep(0.15)
+            a = self.win.shot(f"{self.name}-hover-{cid}")
+            bg = self.container(a, c)
+            want = expected_fill(c, "hover", bg)
+            if want is not None:
+                got = fill_sample(a, c, hair(self.s) + 1)
+                self.ok(
+                    "hover-colour" if c["enabled"] else "disabled",
+                    got is not None and near(got, want),
+                    name_of(c),
+                    want,
+                    got,
+                )
+            if not c["enabled"]:
+                continue
+            if want is not None and want != bg:
+                x, y, w, h = (int(round(v)) for v in c["box"])
+                rad = int(math.ceil(radius_px(c["kind"], c["box"], self.s)))
+                ex = x + rad + 1
+                pairs = (
+                    ((x, cy), (x - 1, cy), "left"),
+                    ((x + w - 1, cy), (x + w, cy), "right"),
+                    ((ex, y), (ex, y - 1), "top"),
+                    ((ex, y + h - 1), (ex, y + h), "bottom"),
+                )
+                for (ix, iy), (ox, oy), side in pairs:
+                    gi, go = grey(a, ix, iy), grey(a, ox, oy)
+                    edge = border_blend(c, want)
+                    self.ok(
+                        "whole-pixels",
+                        near(gi, edge) and near(go, bg),
+                        f"{name_of(c)} {side} edge",
+                        f"{edge:.0f} then {bg}",
+                        f"{gi} then {go}",
+                    )
+            # The pointer 1 px inside each edge hovers the control; 1 px outside does not.
+            x, y, w, h = c["box"]
+            ex = int(x + radius_px(c["kind"], c["box"], self.s) + 1)
+            probes = (
+                ((x, cy), (x - 1, cy)),
+                ((x + w - 1, cy), (x + w, cy)),
+                ((ex, y), (ex, y - 1)),
+                ((ex, y + h - 1), (ex, y + h)),
+            )
+            for (ix, iy), (ox, oy) in probes:
+                if not any(
+                    d["id"] != cid and inside(d["box"], ox, oy) for d in self.controls()
+                ):
+                    self.win.move(ox, oy)
+                    time.sleep(0.25)
+                    st = (self.control(cid) or {}).get("state")
+                    self.ok(
+                        "hit-box",
+                        st != "hover",
+                        f"{name_of(c)} pointer at {ox},{oy}, 1 px outside",
+                        "not hovered",
+                        st,
+                    )
+                self.win.move(ix, iy)
+                st = self.wait_state(cid, "hover", 1.5)
+                self.ok(
+                    "hit-box",
+                    bool(st),
+                    f"{name_of(c)} pointer at {ix},{iy}, 1 px inside",
+                    "hover",
+                    (self.control(cid) or {}).get("state"),
+                )
+
+    def press_checks(self):
+        """Press each enabled control, the harmless one first: the pressed look and size, nothing fired on press,
+        then a move out and a release outside, which fires nothing."""
+        enabled = [
+            c for c in self.record["controls"] if c["enabled"] and c["kind"] in KINDS
+        ]
+        enabled.sort(key=lambda c: c["label"] != self.spec["harmless"])
+        for c in enabled:
+            if not self.is_open():
+                self.open()
+            cid = c["id"]
+            self.win.move(*centre(c["box"]))
+            self.wait_state(cid, "hover", 1.5)
+            fired = len(self.win.activations(self.name))
+            self.win.x("mousedown", "1")
+            pressed = self.wait_state(cid, "pressed", 2)
+            self.ok(
+                "pressed-colour",
+                pressed,
+                name_of(c) + " state on press",
+                "pressed",
+                (self.control(cid) or {}).get("state")
+                if self.is_open()
+                else "screen closed",
+            )
+            time.sleep(0.15)
+            a = self.win.shot(f"{self.name}-pressed-{cid}")
+            on_press = len(self.win.activations(self.name)) - fired
+            ok = self.ok(
+                "release",
+                on_press == 0,
+                name_of(c) + " on press",
+                "fires nothing",
+                f"fired {on_press}",
+            )
+            if pressed:
+                bg = self.container(a, c)
+                want = expected_fill(c, "pressed", bg)
+                if want is not None:
+                    got = fill_sample(a, c, hair(self.s) + 1)
+                    self.ok(
+                        "pressed-colour",
+                        got is not None and near(got, want),
+                        name_of(c),
+                        want,
+                        got,
+                    )
+                if want is not None and want != bg:
+                    rad = radius_px(c["kind"], c["box"], self.s)
+                    hh = fill_height(a, c["box"], want, rad, border_blend(c, want))
+                    self.ok(
+                        "height",
+                        abs(hh - KINDS[c["kind"]][0] * self.s) <= EDGE_TOL,
+                        name_of(c) + " drawn",
+                        f"{KINDS[c['kind']][0] * self.s:g} px",
+                        f"{hh} px",
+                    )
+                    r = corner_radius(a, c["box"], want, bg, rad)
+                    self.ok(
+                        "radius",
+                        abs(r - rad) <= EDGE_TOL,
+                        name_of(c),
+                        f"{rad:g} px",
+                        f"{r:.2f} px",
+                    )
+            self.win.move(*self.outside_point(c))
+            time.sleep(0.2)
+            self.win.x("mouseup", "1")
+            time.sleep(0.4)
+            after = len(self.win.activations(self.name)) - fired
+            self.ok(
+                "release",
+                after == 0 and self.is_open(),
+                name_of(c) + " released outside",
+                "fires nothing, screen stays open",
+                f"fired {after}, open {self.is_open()}",
+            )
+            if not ok or after:
+                break  # a control that fires on its own would run every action of the screen
+
+    def tab_checks(self):
+        if not self.reopen():
+            return
+        self.win.away(self.rest_point())
+        expected = reading_order([c for c in self.controls() if c["enabled"]])
+        visited, last = [], None
+        for i in range(len(expected)):
+            self.win.key("Tab")
+            try:
+                until(
+                    lambda: (self.current() or {}).get("focus") not in (None, last),
+                    "",
+                    2,
+                )
+            except Fail:
+                pass
+            r = self.current() or {}
+            last = r.get("focus")
+            visited.append(last)
+            c = self.control(last)
+            if c is None:
+                continue
+            self.ok(
+                "focus-colour",
+                r.get("keyboard") is True and c["state"] == "focus",
+                name_of(c) + " after Tab",
+                "state focus, from the keyboard",
+                f"{c['state']}, keyboard {r.get('keyboard')}",
+            )
+            if c["kind"] not in KINDS:
+                continue
+            time.sleep(0.15)
+            a = self.win.shot(f"{self.name}-focus-{last}")
+            self.focus_look(a, c)
+        names = {c["id"]: c["label"] for c in self.record["controls"]}
+        self.ok(
+            "tab-order",
+            visited == expected,
+            "Tab from no focus",
+            [names.get(i) for i in expected],
+            [names.get(i) for i in visited],
+        )
+        back = []
+        for i in range(len(expected) - 1):
+            self.win.key("shift+Tab")
+            prev = back[-1] if back else last
+            try:
+                until(lambda: (self.current() or {}).get("focus") != prev, "", 2)
+            except Fail:
+                pass
+            back.append((self.current() or {}).get("focus"))
+        want_back = list(reversed(expected))[1:]
+        self.ok(
+            "tab-order",
+            back == want_back,
+            "Shift+Tab back",
+            [names.get(i) for i in want_back],
+            [names.get(i) for i in back],
+        )
+
+    def focus_look(self, a, c):
+        bg = self.container(a, c)
+        want = expected_fill(c, "focus", bg)
+        if want is not None:
+            got = fill_sample(a, c, hair(self.s) + 2)
+            self.ok(
+                "focus-colour",
+                got is not None and near(got, want),
+                name_of(c),
+                want,
+                got,
+            )
+        x, y, w, h = c["box"]
+        cy = int(y + h / 2)
+        line = [
+            grey(a, x + i, cy) for i in range(-ring_width(self.s) - 1, hair(self.s) + 1)
+        ]
+        ring_px = line[1 : 1 + ring_width(self.s)]
+        border_px = line[1 + ring_width(self.s) : 1 + ring_width(self.s) + hair(self.s)]
+        inner = line[-1]
+        ring_want = blend(bg, RING, RING_ALPHA)
+        inner_want = want if want is not None else bg
+        good = (
+            all(near(v, ring_want) for v in ring_px)
+            and all(near(v, RING) for v in border_px)
+            and near(inner, inner_want)
+        )
+        self.ok(
+            "border-width",
+            good,
+            name_of(c) + f" left edge, row {cy}",
+            f"ring {ring_want:.1f} x {ring_width(self.s)}, border {RING} x {hair(self.s)}, then {inner_want}",
+            f"{ring_px} {border_px} {inner}",
+        )
+
+    def arrow_checks(self):
+        groups = {}
+        for c in self.record["controls"]:
+            if c.get("group") and c["enabled"]:
+                groups.setdefault((c["group"], c.get("axis")), []).append(c)
+        for (group, axis), members in groups.items():
+            if len(members) < 2 or not self.reopen():
+                continue
+            self.win.away(self.rest_point())
+            order = reading_order(members)
+            fwd, back = ("Down", "Up") if axis != "horizontal" else ("Right", "Left")
+            seen = []
+            for k in (fwd, fwd, back):
+                before = (self.current() or {}).get("focus")
+                self.win.key(k)
+                try:
+                    until(lambda: (self.current() or {}).get("focus") != before, "", 2)
+                except Fail:
+                    pass
+                seen.append((self.current() or {}).get("focus"))
+            want = [order[0], order[1], order[0]]
+            names = {c["id"]: c["label"] for c in members}
+            self.ok(
+                "arrows",
+                seen == want,
+                f"group {group}: {fwd}, {fwd}, {back}",
+                [names.get(i) for i in want],
+                [names.get(i) for i in seen],
+            )
+
+    def harmless(self):
+        return next(
+            (
+                c
+                for c in self.record["controls"]
+                if c["label"] == self.spec["harmless"] and c["enabled"]
+            ),
+            None,
+        )
+
+    def focus_on(self, cid):
+        for _ in range(len(self.controls()) + 1):
+            if (self.current() or {}).get("focus") == cid:
+                return True
+            before = (self.current() or {}).get("focus")
+            self.win.key("Tab")
+            try:
+                until(lambda: (self.current() or {}).get("focus") != before, "", 2)
+            except Fail:
+                pass
+        return (self.current() or {}).get("focus") == cid
+
+    def fire_checks(self):
+        h = self.harmless()
+        if h is None:
+            self.ok(
+                "activate-keys",
+                False,
+                "harmless control",
+                "one named for this screen and enabled",
+                self.spec["harmless"],
+            )
+            self.ok(
+                "release",
+                False,
+                "harmless control",
+                "one named for this screen and enabled",
+                self.spec["harmless"],
+            )
+            return
+        pop = bool(self.record.get("popover"))
+        for key in ("Return", "space"):
+            if not self.reopen():
+                return
+            self.win.away(self.rest_point())
+            if not self.focus_on(h["id"]):
+                self.ok(
+                    "activate-keys",
+                    False,
+                    f"{name_of(h)} {key}",
+                    "reached by Tab",
+                    "never focused",
+                )
+                continue
+            fired = len(self.win.activations(self.name))
+            self.win.key(key)
+            time.sleep(0.6)
+            new = self.win.activations(self.name)[fired:]
+            good = (
+                len(new) == 1
+                and new[0]["id"] == h["id"]
+                and new[0]["via"] == "key"
+                and (not pop or not self.is_open())
+            )
+            self.ok(
+                "activate-keys",
+                good,
+                f"{name_of(h)} {key}",
+                "fires once by key" + (", closes" if pop else ""),
+                f"{[(n['label'], n['via']) for n in new]}, open {self.is_open()}",
+            )
+        if not self.reopen():
+            return
+        cx, cy = centre(h["box"])
+        self.win.move(cx, cy)
+        self.wait_state(h["id"], "hover", 1.5)
+        fired = len(self.win.activations(self.name))
+        self.win.x("mousedown", "1")
+        time.sleep(0.4)
+        on_press = len(self.win.activations(self.name)) - fired
+        self.win.x("mouseup", "1")
+        time.sleep(0.6)
+        new = self.win.activations(self.name)[fired:]
+        good = (
+            on_press == 0
+            and len(new) == 1
+            and new[0]["id"] == h["id"]
+            and new[0]["via"] == "release"
+        )
+        self.ok(
+            "release",
+            good,
+            f"{name_of(h)} pressed and released inside",
+            "nothing on press, once on release",
+            f"{on_press} on press, then {[(n['label'], n['via']) for n in new]}",
+        )
+
+    def switch_checks(self):
+        for c in [
+            c for c in self.record["controls"] if c["kind"] == "switch" and c["enabled"]
+        ]:
+            if not self.reopen():
+                return
+            self.win.away(self.rest_point())
+            if not self.focus_on(c["id"]):
+                self.ok(
+                    "switch-space", False, name_of(c), "reached by Tab", "never focused"
+                )
+                continue
+            before = (self.control(c["id"]) or {}).get("checked")
+            self.win.key("space")
+            time.sleep(0.5)
+            after = (self.control(c["id"]) or {}).get("checked")
+            self.ok(
+                "switch-space",
+                before is not None and after == (not before),
+                name_of(c),
+                f"{before} flipped",
+                after,
+            )
+
+    def escape_checks(self):
+        if not self.record.get("popover") or not self.reopen():
+            return
+        pop = self.current()["popover"]
+        self.win.key("Escape")
+        try:
+            until(lambda: not self.is_open(), "", 2)
+        except Fail:
+            pass
+        self.ok(
+            "escape",
+            not self.is_open(),
+            "Esc",
+            "closes the popover",
+            f"open {self.is_open()}",
+        )
+        if pop.get("opener_id") is not None:
+            owners = [
+                r
+                for r in (self.win.screen(s) for s in SCREENS)
+                if r and r.get("focus") == pop["opener_id"]
+            ]
+            self.ok(
+                "escape",
+                bool(owners) and owners[0].get("keyboard"),
+                "focus after Esc",
+                f"the opener {pop['opener_id']}",
+                [(r["screen"], r.get("focus")) for r in owners],
+            )
+        elif pop.get("opener_pane"):
+            mark = f"zq-focus-{self.s:g}".replace(".", "-")
+            self.win.type(f"echo {mark}")
+            self.win.key("Return")
+            try:
+                until(
+                    lambda: self.win.pane_text(pop["opener_pane"]).count(mark) >= 2,
+                    "",
+                    4,
+                )
+                got = True
+            except Fail:
+                got = False
+            self.ok(
+                "escape",
+                got,
+                "typing after Esc",
+                f"reaches pane {pop['opener_pane']}",
+                got,
+            )
+
+    def flip_checks(self):
+        if not self.spec.get("flip"):
+            return
+        self.close()
+        # In the lower pane's output, above its command bar: the menu has no room right of it or below it.
+        at = (self.win.pw - int(30 * self.s), int(0.8 * self.win.ph))
+        r = self.open(at=at)
+        if not r or not r.get("popover"):
+            self.ok(
+                "popover", False, f"opened at {at}", "a popover", r and r.get("popover")
+            )
+            return
+        b, opener = r["popover"]["box"], r["popover"]["opener"]
+        on = (
+            b[0] >= 0
+            and b[1] >= 0
+            and b[0] + b[2] <= self.win.pw
+            and b[1] + b[3] <= self.win.ph
+        )
+        self.ok(
+            "popover",
+            on,
+            f"opened by the bottom-right corner at {at}",
+            f"inside the window 0,0 {self.win.pw}x{self.win.ph}",
+            b,
+        )
+        self.ok(
+            "popover",
+            not overlaps(b, opener),
+            f"opened by the bottom-right corner at {at}",
+            f"clear of its opener {opener}",
+            b,
+        )
+        self.close()
+
+    def run(self):
+        if not self.open():
+            self.ok(
+                "recorded",
+                False,
+                "controls",
+                "drawn by the control set and in its record",
+                "no record",
+            )
+            return
+        steps = [
+            self.static_checks,
+            self.rest_checks,
+            self.hover_checks,
+            self.press_checks,
+            self.tab_checks,
+            self.arrow_checks,
+            self.switch_checks,
+            self.fire_checks,
+            self.escape_checks,
+            self.flip_checks,
+        ]
+        if FAULT:  # a planted fault needs only the check aimed at it, and its neighbours for the screen's state
+            steps = {
+                "border-2px": [self.tab_checks],
+                "hit-larger": [self.static_checks, self.hover_checks],
+                "press-fires": [self.press_checks, self.fire_checks],
+                "tab-skip": [self.tab_checks],
+            }[FAULT]
+        for step in steps:
+            try:
+                step()
+            except Fail as e:
+                self.ok(
+                    step.__name__.replace("_checks", ""),
+                    False,
+                    "setup",
+                    "the screen answers",
+                    str(e),
+                )
+            if self.spec["close"] is None:
+                continue
+            if (
+                step not in (self.static_checks, self.rest_checks)
+                and not self.is_open()
+                and step != self.flip_checks
+            ):
+                self.open()
+        self.close()
+
+
+def make_window(scale):
+    if SIMULATE:
+        return SimWindow(scale, THEME, FAULT)
+    return RealWindow(scale, WORK, APP, CONFIG, FAULT, KEEP)
+
+
+def main():
+    if FAULT and FAULT not in FAULTS:
+        print(f"FAIL: setup unknown fault {FAULT}")
+        FAILED.append("setup")
+        return
+    names = arg("--screens", ",".join(SCREENS)).split(",")
+    unknown = [n for n in names if n not in SCREENS]
+    if unknown:
+        print(f"FAIL: setup unknown screens {unknown}")
+        FAILED.append("setup")
+        return
+    if not SIMULATE:
+        for tool in ("Xvfb", "xdotool", "ffmpeg"):
+            if not shutil.which(tool):
+                FAILED.append(f"FAIL: setup {tool} missing")
+                print(FAILED[-1])
+                return
+        if WORK.exists():
+            shutil.rmtree(WORK)
+        WORK.mkdir(mode=0o700, parents=True)
+    try:
+        for s in SCALES:
+            use_expected(s, THEME)
+            win = make_window(s)
+            try:
+                for name in names:
+                    Screen(win, name, SCREENS[name]).run()
+            finally:
+                win.close()
+    finally:
+        if not SIMULATE and not KEEP:
+            shutil.rmtree(WORK, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:  # a crash still reports FAIL, never PASS
+        FAILED.append(f"FAIL: gate crashed {type(e).__name__}: {e}")
+        print(FAILED[-1])
+    for (name, screen, scale), n in sorted(PASSED.items()):
+        if not any(
+            line.startswith(f"FAIL: {name} {screen} @{scale:g} ") for line in FAILED
+        ):
+            print(f"ok: {name} {screen} @{scale:g} ({n} checked)")
+    if not FAILED and PASSED:
+        print("PASS: controls")
+        sys.exit(0)
+    sys.exit(1)

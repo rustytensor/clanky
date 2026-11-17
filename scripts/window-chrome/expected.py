@@ -129,6 +129,11 @@ def theme_colours(theme):
         "rule": "card with ring at the focus ring's alpha",
         "src": theme["ring"]["src"],
     }
+    colours["input"] = {
+        "over": theme["input"]["over"],
+        "alpha": theme["input"]["alpha"],
+        "src": theme["input"]["src"],
+    }
     colours["frame"] = {
         "hex": rgb_to_hex(
             blend(card, foreground, theme["frame"]["mix_card_toward_foreground"])
@@ -274,6 +279,20 @@ def control_values(tokens, scale):
     return result, omitted
 
 
+def resolve_looks(looks, theme):
+    """The looks with every colour role named replaced by that role's hex in this theme, where the rulebook gives one."""
+    roles = {role: entry["hex"] for role, entry in theme.items() if "hex" in entry}
+
+    def resolve(value):
+        if isinstance(value, dict):
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, str) and value in roles:
+            return {"role": value, "hex": roles[value]}
+        return value
+
+    return resolve(looks)
+
+
 def build(scale, theme_name):
     tokens = load_tokens()
     theme = tokens["themes"][theme_name]
@@ -287,6 +306,7 @@ def build(scale, theme_name):
         "colours": theme_colours(theme),
         "selection_contrast": selection_contrast(theme, tokens),
         "states": tokens["states"],
+        "looks": resolve_looks(tokens["looks"], theme),
         "colour_tolerance_levels": tokens["tolerance"]["colour_levels"],
         "omitted": omitted + [f"{gap}" for gap in tokens["gaps"]],
     }

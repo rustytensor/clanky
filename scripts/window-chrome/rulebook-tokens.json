@@ -79,14 +79,14 @@
     "padding": {"px": 12, "src": "rulebook:103"},
     "radius": {"px": 14, "src": "rulebook:80"},
     "border_alpha": {"value": 0.09, "src": "rulebook:46"},
-    "border_width": {"device_px": 1, "src": "rulebook:107,160-161"},
+    "border_width": {"device_px": 1, "src": "rulebook:107,160-161,242-243"},
     "side_column_width": {"px": 236, "src": "rulebook:103"}
   },
   "active_tab": {
     "fill_foreground_alpha": {"value": 0.07, "src": "rulebook:92"},
     "inner_ring_foreground_alpha": {"value": 0.05, "src": "rulebook:92"}
   },
-  "hairline": {"device_px": 1, "every_scale": true, "src": "rulebook:160-161"},
+  "hairline": {"device_px": 1, "every_scale": true, "src": "rulebook:160-161,242-243"},
   "icons": {"row_px": 16, "bar_px": 14, "stroke_px": 1.75, "src": "rulebook:119-120"},
   "shadows": {
     "popover": {"offset_y": 12, "blur": 32, "black_alpha": 0.35, "use": "menus, palette, completion list, dialogs", "src": "rulebook:107-108"},
@@ -145,10 +145,29 @@
     "centring_px": {"value": 0.5, "src": "rulebook:162; gate-controls.py:142 CENTRE_TOL"},
     "colour_levels": {"value": 3, "src": "gate-design-tokens.py:107 COLOUR_TOL; gate-controls.py:142 COLOUR_TOL (the rulebook gives none)"}
   },
+  "looks": {
+    "field": {"fill": "none", "border": "input", "changes_on_hover_or_press": false, "src": "rulebook:232"},
+    "switch": {
+      "on_track": "primary", "on_knob": "primary_foreground", "off_track": "accent", "off_knob": "muted_foreground",
+      "border": "input", "changes_on_hover_or_press": false, "one_look_everywhere": true, "src": "rulebook:233-235"
+    },
+    "tab": {
+      "inactive_fill": "none", "inactive_border": "none", "label": "foreground", "label_weight": 400,
+      "label_size": "text_ui", "hover_fill": "accent", "hover_ease_ms": 160, "pressed_fill": "pressed",
+      "pressed_at_once": true, "src": "rulebook:236-237"
+    },
+    "surfaces": {
+      "frame_surfaces": ["title bar", "status line", "tools panel", "backdrop behind panes"],
+      "status_top_line": {"device_px": 1, "colour": "border"},
+      "status_text": {"colour": "muted_foreground", "size": "text_status"},
+      "src": "rulebook:238-239"
+    },
+    "disabled": {
+      "opacity": 0.5, "scope": ["fill", "border", "label", "icon", "knob"], "fill": "rest only",
+      "own_colour": false, "src": "rulebook:240-241"
+    }
+  },
   "gaps": [
-    "look of field and switch on hover and press (rulebook:230)",
-    "tab hover colour and the inactive tab's look (rulebook:230)",
-    "title bar and status line colours (rulebook:230)",
-    "the colour a disabled control fades toward, and its label ink (rulebook:230-231)"
+    "primary_foreground: named by the switch look (rulebook:233-234) with no value"
   ]
 }
