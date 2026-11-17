@@ -10,11 +10,12 @@
 //! Device pixels are logical pixels times the scale, rounded half toward zero edge by edge, as painting rounds them
 //! (`Window::snap_bounds`, `window.rs`, with `round_to_device_pixel` in `util.rs`).
 //!
-//! The rule for the control builders: the measuring child must be the control's interactive element. Attach the
-//! control's click, hover and press handlers to the hitbox that [`ControlRecord::wrap`] inserts (or give the control's
-//! own element the same bounds and handlers), so the hit box written to the record is the one that takes the clicks.
-//! A control whose handlers sit on some other element makes `hit` a copy of `box` again, and the gates' check that the
-//! hit box is the drawn box proves nothing.
+//! The rule for the control builders: the control's interactive element (the one that carries its click, hover and
+//! press handlers) must be the element [`ControlRecord::wrap`] wraps and must fill the wrapper, with no margin or
+//! padding of the wrapper's own, so the measuring child's hitbox covers exactly what takes the clicks. gpui does not
+//! let this module read another element's hitbox, so `hit` can only be as true as that: handlers on some other,
+//! smaller or larger element would make `hit` a copy of `box` in effect. The gates' pointer probes one device pixel
+//! inside and outside each edge are the check that the real control answers where the record says.
 // The control builders call into this module; until they do, nothing in the binary uses it.
 #![allow(dead_code)]
 

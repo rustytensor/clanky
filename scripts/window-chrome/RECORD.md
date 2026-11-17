@@ -11,11 +11,12 @@ converts bounds, never copied from `box`.
 
 ## The rule for the window code
 
-`hit` is only worth recording if it is the box that takes the clicks. The measuring child over a control must be the
-control's interactive element: the control's click, hover and press handlers attach to the hitbox that child inserts,
-not to some other element laid over or under it. If they sit elsewhere, `hit` is a copy of `box` in effect, and the
-gates' hit-box check (and the pointer probes one pixel inside and outside each edge) test nothing about the real
-control.
+`hit` is only worth recording if it is the box that takes the clicks. The control's interactive element (the one with
+its click, hover and press handlers) is the element the measuring child lies over, and it fills the wrapper: no margin
+or padding around it inside the wrapper. gpui does not let one element read another's hitbox, so the record's `hit` is
+the measuring child's own hitbox over the same bounds; handlers on some other, larger or smaller element would make it
+a copy of `box` in effect. The gates' pointer probes one device pixel inside and outside each edge test the real
+control and are the check on this rule.
 
 ## Screen line
 
