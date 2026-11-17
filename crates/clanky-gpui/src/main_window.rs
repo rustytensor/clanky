@@ -132,8 +132,9 @@ pub struct MainWindow {
 impl MainWindow {
     pub fn new(setup: WindowSetup, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let status = cx.spawn_in(window, async move |this, cx| {
+            // The first look runs at once, so the status line, chips and tools are filled in with the window's
+            // startup frames rather than a second later, when the window would otherwise be idle.
             loop {
-                cx.background_executor().timer(STATUS_INTERVAL).await;
                 let Ok((client, ids, query, inputs)) = this.update_in(cx, |this, window, cx| {
                     let focused = this.focused_pane(window, cx);
                     let inputs: Vec<String> = if this.inputs.is_some() {
@@ -167,6 +168,7 @@ impl MainWindow {
                 if applied.is_err() {
                     break;
                 }
+                cx.background_executor().timer(STATUS_INTERVAL).await;
             }
         });
         let mut this = Self {
