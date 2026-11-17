@@ -28,16 +28,26 @@ FONT_SIZE_LOGICAL_PX = 16  # the fixture's font size, the same as in expected.py
 INK_THRESHOLD = 24  # a pixel is ink when it differs from the cell background by more than this on any channel
 PLACEMENT_TOLERANCE_PX = 0.5  # glyph left, right and top edges may differ from the font's own metrics by this much
 PLACEMENT_WINDOW_PX = 1  # the cell box is widened by this much on each side when looking for a glyph's left edge
-BACKGROUND_TOLERANCE = 0  # background colours must be exact: the renderer draws them as flat fills
+BACKGROUND_TOLERANCE = (
+    0  # background colours must be exact: the renderer draws them as flat fills
+)
 CORE_TOLERANCE = 3  # glyph core colours may differ by this much: anti-aliasing and colour management round
-BOX_SHRINK_PX = 2  # colour medians are taken this far inside the cell box, away from blended edges
+BOX_SHRINK_PX = (
+    2  # colour medians are taken this far inside the cell box, away from blended edges
+)
 CORE_PIXEL_COUNT = 12  # the glyph core is the median of this many pixels closest to the expected colour
 LINE_RUN_FRACTION = 0.8  # an underline or strikethrough is a horizontal ink run covering this share of the word
-UNDERLINE_BAND_FRACTION = 0.25  # underlines are looked for in the bottom quarter of the cell
+UNDERLINE_BAND_FRACTION = (
+    0.25  # underlines are looked for in the bottom quarter of the cell
+)
 STRIKE_BAND = (0.3, 0.7)  # strikethroughs are looked for in the middle 40 % of the cell
-UNDERCURL_COLUMN_FRACTION = 0.9  # a wavy underline has ink in nearly every column of the word
+UNDERCURL_COLUMN_FRACTION = (
+    0.9  # a wavy underline has ink in nearly every column of the word
+)
 UNDERCURL_MIN_WAVE_PX = 0.6  # and its ink centre moves up and down by at least this much along the word (the cell has little room below the baseline)
-BOLD_MIN_RATIO = 1.15  # bold letters carry at least this many times the ink of regular letters
+BOLD_MIN_RATIO = (
+    1.15  # bold letters carry at least this many times the ink of regular letters
+)
 BOLD_ABSENT_MAX_RATIO = 1.08  # a word that is not bold stays below this
 ITALIC_MIN_SHIFT_PX = 1.0  # an italic word leans right: its top ink centre moves this much more than the same upright word's
 REFERENCE_SUPERSAMPLE = 8  # the upright reference is drawn at this multiple and reduced, so it carries no hinting
@@ -45,13 +55,22 @@ DIM_MAX_LUMINANCE_RATIO = 0.75  # dim text is at least 25 % darker than the fore
 MIN_INK_PIXELS = 3  # a wide character's cell half counts as inked from this many pixels
 HALF_BLOCK_TOLERANCE_PX = 1  # half blocks fill their half to within one pixel
 BLOCK_COVERAGE_MIN = 0.7  # a block cursor inks this share of its cell (the glyph inside may match the background)
-CURSOR_STRIP_ROW_FRACTION = 0.9  # a bar or underline cursor is ink along this share of the cell's length
+CURSOR_STRIP_ROW_FRACTION = (
+    0.9  # a bar or underline cursor is ink along this share of the cell's length
+)
 CURSOR_STRIP_MIN_PX, CURSOR_STRIP_MAX_PX = 1, 3  # and is this many pixels thick
 CURSOR_BLOCK_TOLERANCE_PX = 1
 SELECTION_TOLERANCE = 3  # selection colour medians may differ by this much
 
 BOX_EDGES = {  # which cell edges the line strokes of each box character must reach: left, right, top, bottom
-    "┌": "rb", "┐": "lb", "└": "rt", "┘": "lt", "─": "lr", "│": "tb", "┬": "lrb", "┴": "lrt",
+    "┌": "rb",
+    "┐": "lb",
+    "└": "rt",
+    "┘": "lt",
+    "─": "lr",
+    "│": "tb",
+    "┬": "lrb",
+    "┴": "lrt",
 }
 ATTRIBUTE_WORDS = ("bold", "dim", "italic", "underline", "undercurl", "strikethrough")
 
@@ -95,7 +114,10 @@ def dominant_colour(colours):
 
 
 def median_colour(colours):
-    return tuple(sorted(colour[channel] for colour in colours)[len(colours) // 2] for channel in range(3))
+    return tuple(
+        sorted(colour[channel] for colour in colours)[len(colours) // 2]
+        for channel in range(3)
+    )
 
 
 def colour_distance(first, second):
@@ -108,12 +130,20 @@ def luminance(colour):
 
 def core_colour(shot, xs, ys, expected):
     """Median of the pixels closest to the expected colour: the glyph core, free of anti-aliased edges."""
-    pixels = sorted((shot.get(x, y) for x in xs for y in ys), key=lambda p: colour_distance(p, expected))
+    pixels = sorted(
+        (shot.get(x, y) for x in xs for y in ys),
+        key=lambda p: colour_distance(p, expected),
+    )
     return median_colour(pixels[:CORE_PIXEL_COUNT])
 
 
 def cell_box(cell):
-    return cell["left"], cell["top"], cell["left"] + cell["width"], cell["top"] + cell["height"]
+    return (
+        cell["left"],
+        cell["top"],
+        cell["left"] + cell["width"],
+        cell["top"] + cell["height"],
+    )
 
 
 def cell_background(cell, theme_background):
@@ -177,34 +207,59 @@ def check_placement(shot, cells, font, theme_background):
         full_scale = max(colour_distance(hex_to_rgb(cell["fg"]), theme_background), 1)
         expected = left + font.left_bearing(cell["char"])
         # The pixels holding the previous glyph's own right edge are not this glyph's ink.
-        window = [x for x in span(left - PLACEMENT_WINDOW_PX, right + PLACEMENT_WINDOW_PX) if x > math.floor(previous_ink_end)]
+        window = [
+            x
+            for x in span(left - PLACEMENT_WINDOW_PX, right + PLACEMENT_WINDOW_PX)
+            if x > math.floor(previous_ink_end)
+        ]
         previous_ink_end = left + font.right_extent(cell["char"])
-        measured = left_edge(shot, window, span(top, bottom), theme_background, full_scale)
+        measured = left_edge(
+            shot, window, span(top, bottom), theme_background, full_scale
+        )
         # The right edge is measured too, so that a different glyph standing where this one belongs is not taken for it.
         next_start = (
-            row_cells[index + 1]["left"] + font.left_bearing(row_cells[index + 1]["char"]) if index + 1 < len(row_cells) else 1e9
+            row_cells[index + 1]["left"]
+            + font.left_bearing(row_cells[index + 1]["char"])
+            if index + 1 < len(row_cells)
+            else 1e9
         )
-        right_window = [x for x in span(left, right + PLACEMENT_WINDOW_PX) if x < math.floor(next_start)]
-        measured_right = right_edge(shot, right_window, span(top, bottom), theme_background, full_scale)
+        right_window = [
+            x
+            for x in span(left, right + PLACEMENT_WINDOW_PX)
+            if x < math.floor(next_start)
+        ]
+        measured_right = right_edge(
+            shot, right_window, span(top, bottom), theme_background, full_scale
+        )
         if measured is None or measured_right is None:
             missing.append(cell["col"])
             error = math.inf
         else:
-            error = max(abs(measured - expected), abs(measured_right - (left + font.right_extent(cell["char"]))))
+            error = max(
+                abs(measured - expected),
+                abs(measured_right - (left + font.right_extent(cell["char"]))),
+            )
         if cell["col"] == 199:
             column_199 = "no ink" if math.isinf(error) else f"{error:.2f} px"
         if error > worst_error:
             worst_error, worst_column = error, cell["col"]
         if cell["char"] == "W":
             xs = span(left + font.left_bearing("W"), left + font.right_extent("W"))
-            observed_top = top_edge(shot, xs, span(top - 2, bottom), theme_background, full_scale)
+            observed_top = top_edge(
+                shot, xs, span(top - 2, bottom), theme_background, full_scale
+            )
             expected_top = top + font.ascender - font.top_extent("W")
-            top_error = math.inf if observed_top is None else abs(observed_top - expected_top)
+            top_error = (
+                math.inf if observed_top is None else abs(observed_top - expected_top)
+            )
             top_worst = max(top_worst, top_error)
     worst_text = "no ink" if math.isinf(worst_error) else f"{worst_error:.2f} px"
     detail = f"worst edge error {worst_text} at column {worst_column}; column 199 {column_199}; W top error {top_worst:.2f} px"
     if worst_error > PLACEMENT_TOLERANCE_PX or top_worst > PLACEMENT_TOLERANCE_PX:
-        return False, f"expected within {PLACEMENT_TOLERANCE_PX} px observed {detail} ({len(missing)} cells without ink)"
+        return (
+            False,
+            f"expected within {PLACEMENT_TOLERANCE_PX} px observed {detail} ({len(missing)} cells without ink)",
+        )
     return True, detail
 
 
@@ -215,28 +270,52 @@ def check_colours(shot, cells, theme_background):
         left, top, right, bottom = cell_box(cell)
         row, expected_fg = cell["row"], cell["fg"] and hex_to_rgb(cell["fg"])
         if row in (1, 3, 4):
-            inner = (span(left + BOX_SHRINK_PX, right - BOX_SHRINK_PX), span(top + BOX_SHRINK_PX, bottom - BOX_SHRINK_PX))
-            observed = dominant_colour([shot.get(x, y) for x in inner[0] for y in inner[1]])
+            inner = (
+                span(left + BOX_SHRINK_PX, right - BOX_SHRINK_PX),
+                span(top + BOX_SHRINK_PX, bottom - BOX_SHRINK_PX),
+            )
+            observed = dominant_colour(
+                [shot.get(x, y) for x in inner[0] for y in inner[1]]
+            )
             expected = hex_to_rgb(cell["bg"])
             checked += 1
             if colour_distance(observed, expected) > BACKGROUND_TOLERANCE:
-                failures.append(f"row {row} col {cell['col']} background expected {cell['bg']} observed #{bytes(observed).hex()}")
+                failures.append(
+                    f"row {row} col {cell['col']} background expected {cell['bg']} observed #{bytes(observed).hex()}"
+                )
         if row == 2:
-            observed = core_colour(shot, span(left, right), span(top, bottom), expected_fg)
+            observed = core_colour(
+                shot, span(left, right), span(top, bottom), expected_fg
+            )
             checked += 1
             if colour_distance(observed, expected_fg) > CORE_TOLERANCE:
-                failures.append(f"row {row} col {cell['col']} core expected {cell['fg']} observed #{bytes(observed).hex()}")
+                failures.append(
+                    f"row {row} col {cell['col']} core expected {cell['fg']} observed #{bytes(observed).hex()}"
+                )
     # Thin strokes at fractional positions may never cover one pixel completely, so the inverse word's core is
     # measured over the whole word rather than letter by letter.
     word = [cell for cell in cells if cell["row"] == 4]
     expected_core = hex_to_rgb(word[0]["fg"])
-    observed = core_colour(shot, span(word[0]["left"], cell_box(word[-1])[2]), span(word[0]["top"], cell_box(word[0])[3]), expected_core)
+    observed = core_colour(
+        shot,
+        span(word[0]["left"], cell_box(word[-1])[2]),
+        span(word[0]["top"], cell_box(word[0])[3]),
+        expected_core,
+    )
     checked += 1
     if colour_distance(observed, expected_core) > CORE_TOLERANCE:
-        failures.append(f"row 4 core expected {word[0]['fg']} observed #{bytes(observed).hex()}")
+        failures.append(
+            f"row 4 core expected {word[0]['fg']} observed #{bytes(observed).hex()}"
+        )
     if failures:
-        return False, f"{failures[0]} ({len(failures)} of {checked} colour measurements off)"
-    return True, f"{checked} colour measurements: backgrounds exact, cores within {CORE_TOLERANCE}"
+        return (
+            False,
+            f"{failures[0]} ({len(failures)} of {checked} colour measurements off)",
+        )
+    return (
+        True,
+        f"{checked} colour measurements: backgrounds exact, cores within {CORE_TOLERANCE}",
+    )
 
 
 def words_of(cells):
@@ -266,12 +345,21 @@ def word_measurements(shot, word, font, theme_background, foreground):
     xs = span(left, right)
     baseline = top + font.ascender
     height = bottom - top
-    below = [y for y in span(top + (1 - UNDERLINE_BAND_FRACTION) * height, bottom) if y > math.floor(baseline)]
+    below = [
+        y
+        for y in span(top + (1 - UNDERLINE_BAND_FRACTION) * height, bottom)
+        if y > math.floor(baseline)
+    ]
     line_rows = {
-        y for y in span(top, bottom) if ink_runs(shot, xs, y, theme_background) >= LINE_RUN_FRACTION * len(xs)
+        y
+        for y in span(top, bottom)
+        if ink_runs(shot, xs, y, theme_background) >= LINE_RUN_FRACTION * len(xs)
     }
     underline_run = any(y in line_rows for y in below)
-    strike = any(y in line_rows for y in span(top + STRIKE_BAND[0] * height, top + STRIKE_BAND[1] * height))
+    strike = any(
+        y in line_rows
+        for y in span(top + STRIKE_BAND[0] * height, top + STRIKE_BAND[1] * height)
+    )
     centres, covered = [], 0
     for x in xs:
         weights = [(y, shot.difference(x, y, theme_background)) for y in below]
@@ -280,15 +368,27 @@ def word_measurements(shot, word, font, theme_background, foreground):
             covered += 1
             centres.append(sum(y * w for y, w in weights) / sum(w for _, w in weights))
     wave = max(centres) - min(centres) if centres else 0.0
-    undercurl = covered >= UNDERCURL_COLUMN_FRACTION * len(xs) and wave >= UNDERCURL_MIN_WAVE_PX
+    undercurl = (
+        covered >= UNDERCURL_COLUMN_FRACTION * len(xs) and wave >= UNDERCURL_MIN_WAVE_PX
+    )
     underline = underline_run and not undercurl
     letter_rows = [y for y in span(top, math.floor(baseline) + 1) if y not in line_rows]
-    ink_count = sum(1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background))
+    ink_count = sum(
+        1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background)
+    )
     return {
         "shift": italic_shift(shot, xs, letter_rows, theme_background),
-        "xs": xs, "letter_rows": letter_rows, "underline": underline, "undercurl": undercurl, "strikethrough": strike,
-        "ink": ink_count, "core": core_colour(shot, xs, span(top, bottom), foreground), "left": left, "top": top,
-        "baseline": baseline, "wave": wave,
+        "xs": xs,
+        "letter_rows": letter_rows,
+        "underline": underline,
+        "undercurl": undercurl,
+        "strikethrough": strike,
+        "ink": ink_count,
+        "core": core_colour(shot, xs, span(top, bottom), foreground),
+        "left": left,
+        "top": top,
+        "baseline": baseline,
+        "wave": wave,
     }
 
 
@@ -303,24 +403,31 @@ def regular_reference(word, font, theme_background, foreground):
     big_font = ImageFont.truetype(str(FONT_REGULAR), font.size * factor)
     draw = ImageDraw.Draw(big)
     for cell in word:
-        position = ((cell["left"] - origin_x) * factor, (top + font.ascender - origin_y) * factor)
+        position = (
+            (cell["left"] - origin_x) * factor,
+            (top + font.ascender - origin_y) * factor,
+        )
         draw.text(position, cell["char"], font=big_font, fill=foreground, anchor="ls")
     shot = Shot(big.resize((width, height), Image.BOX), theme_background)
     xs = span(left - origin_x, right - origin_x)
-    letter_rows = list(range(0, math.floor(top + font.ascender) - origin_y + 1))
+    letter_rows = list(range(math.floor(top + font.ascender) - origin_y + 1))
     ink = sum(1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background))
     return ink, italic_shift(shot, xs, letter_rows, theme_background)
 
 
 def italic_shift(shot, xs, letter_rows, theme_background):
     """Horizontal ink centre of the top quarter of the word's ink rows minus that of the bottom quarter."""
-    rows = [y for y in letter_rows if any(shot.is_ink(x, y, theme_background) for x in xs)]
+    rows = [
+        y for y in letter_rows if any(shot.is_ink(x, y, theme_background) for x in xs)
+    ]
     if len(rows) < 4:
         return 0.0
     quarter = max(len(rows) // 4, 1)
 
     def centre(selected):
-        weights = [(x, shot.difference(x, y, theme_background)) for y in selected for x in xs]
+        weights = [
+            (x, shot.difference(x, y, theme_background)) for y in selected for x in xs
+        ]
         weights = [(x, w) for x, w in weights if w > INK_THRESHOLD]
         return sum(x * w for x, w in weights) / sum(w for _, w in weights)
 
@@ -334,7 +441,9 @@ def check_attributes(shot, cells, font, scale, theme_background):
         name = "".join(c["char"] for c in word)
         expected = set(word[0]["attrs"])
         measured = word_measurements(shot, word, font, theme_background, foreground)
-        regular_ink, regular_shift = regular_reference(word, font, theme_background, foreground)
+        regular_ink, regular_shift = regular_reference(
+            word, font, theme_background, foreground
+        )
         ratio = measured["ink"] / max(regular_ink, 1)
         shift = measured["shift"] - regular_shift
         found = {
@@ -343,7 +452,8 @@ def check_attributes(shot, cells, font, scale, theme_background):
             "strikethrough": measured["strikethrough"],
             "bold": ratio >= BOLD_MIN_RATIO,
             "italic": shift >= ITALIC_MIN_SHIFT_PX,
-            "dim": luminance(measured["core"]) <= DIM_MAX_LUMINANCE_RATIO * luminance(foreground),
+            "dim": luminance(measured["core"])
+            <= DIM_MAX_LUMINANCE_RATIO * luminance(foreground),
         }
         if "bold" not in expected and ratio > BOLD_ABSENT_MAX_RATIO:
             found["bold"] = True
@@ -351,8 +461,12 @@ def check_attributes(shot, cells, font, scale, theme_background):
             if found[attribute] != (attribute in expected):
                 observed = "present" if found[attribute] else "absent"
                 wanted = "present" if attribute in expected else "absent"
-                problems.append(f"{attribute} on {name} expected {wanted} observed {observed}")
-        summary.append(f"{name}: bold x{ratio:.2f} slant {shift:.2f} wave {measured['wave']:.2f}")
+                problems.append(
+                    f"{attribute} on {name} expected {wanted} observed {observed}"
+                )
+        summary.append(
+            f"{name}: bold x{ratio:.2f} slant {shift:.2f} wave {measured['wave']:.2f}"
+        )
     if problems:
         return False, f"{problems[0]} ({len(problems)} attribute mismatches)"
     return True, "; ".join(summary)
@@ -370,35 +484,58 @@ def check_wide(shot, cells, theme_background):
         if cell["row"] == 6:
             middle = (left + right) / 2
             for half, bounds in (("left", (left, middle)), ("right", (middle, right))):
-                if len(ink_pixels(shot, span(*bounds), ys, theme_background)) < MIN_INK_PIXELS:
+                if (
+                    len(ink_pixels(shot, span(*bounds), ys, theme_background))
+                    < MIN_INK_PIXELS
+                ):
                     problems.append(f"wide {cell['char']} {half} cell has no ink")
         elif cell["row"] in (7, 8, 9) and cell["char"] in BOX_EDGES:
             edge_pixels = {
-                "l": (xs[0:1], ys), "r": (xs[-1:], ys), "t": (xs, ys[0:1]), "b": (xs, ys[-1:]),
+                "l": (xs[0:1], ys),
+                "r": (xs[-1:], ys),
+                "t": (xs, ys[0:1]),
+                "b": (xs, ys[-1:]),
             }
             for edge in BOX_EDGES[cell["char"]]:
                 if not ink_pixels(shot, *edge_pixels[edge], theme_background):
-                    problems.append(f"box {cell['char']} row {cell['row']} col {cell['col']} line misses the {edge} edge")
+                    problems.append(
+                        f"box {cell['char']} row {cell['row']} col {cell['col']} line misses the {edge} edge"
+                    )
         elif cell["row"] == 10:
             problems.extend(check_block(shot, cell, xs, ys, theme_background))
-    shades = {c["char"]: shade_strength(shot, c, theme_background) for c in cells if c["row"] == 10 and c["char"] in "░▒▓"}
+    shades = {
+        c["char"]: shade_strength(shot, c, theme_background)
+        for c in cells
+        if c["row"] == 10 and c["char"] in "░▒▓"
+    }
     if not shades["░"] < shades["▒"] < shades["▓"]:
         problems.append(f"shades ░ ▒ ▓ not ordered light to dark: {shades}")
     if problems:
         return False, f"{problems[0]} ({len(problems)} problems)"
-    return True, "wide characters inked, box lines reach cell edges, block elements fill their share"
+    return (
+        True,
+        "wide characters inked, box lines reach cell edges, block elements fill their share",
+    )
 
 
 def shade_strength(shot, cell, theme_background):
     left, top, right, bottom = cell_box(cell)
-    values = sorted(shot.difference(x, y, theme_background) for x in span(left, right) for y in span(top, bottom))
+    values = sorted(
+        shot.difference(x, y, theme_background)
+        for x in span(left, right)
+        for y in span(top, bottom)
+    )
     return values[len(values) // 2]
 
 
 def check_block(shot, cell, xs, ys, background):
     char, ink = cell["char"], ink_pixels(shot, xs, ys, background)
     if char == "█":
-        return [] if len(ink) == len(xs) * len(ys) else [f"█ fills {len(ink)} of {len(xs) * len(ys)} pixels"]
+        return (
+            []
+            if len(ink) == len(xs) * len(ys)
+            else [f"█ fills {len(ink)} of {len(xs) * len(ys)} pixels"]
+        )
     # A neighbour's anti-aliased edge blends into the border pixels of a cell, so half blocks are measured one pixel in.
     inner_xs, inner_ys = xs[1:-1], ys[1:-1]
     columns = {x for x, _ in ink_pixels(shot, xs, inner_ys, background)}
@@ -407,11 +544,23 @@ def check_block(shot, cell, xs, ys, background):
     if char in "▀▄":
         count_ok = abs(len(rows) - half_rows) <= HALF_BLOCK_TOLERANCE_PX
         anchored = (ys[0] in rows) if char == "▀" else (ys[-1] in rows)
-        return [] if count_ok and anchored and len({x for x, _ in ink} & set(inner_xs)) >= len(inner_xs) else [f"{char} fills {len(rows)} rows, expected {half_rows:.1f}"]
+        return (
+            []
+            if count_ok
+            and anchored
+            and len({x for x, _ in ink} & set(inner_xs)) >= len(inner_xs)
+            else [f"{char} fills {len(rows)} rows, expected {half_rows:.1f}"]
+        )
     if char in "▌▐":
         count_ok = abs(len(columns) - half_columns) <= HALF_BLOCK_TOLERANCE_PX
         anchored = (xs[0] in columns) if char == "▌" else (xs[-1] in columns)
-        return [] if count_ok and anchored and len({y for _, y in ink} & set(inner_ys)) >= len(inner_ys) else [f"{char} fills {len(columns)} columns, expected {half_columns:.1f}"]
+        return (
+            []
+            if count_ok
+            and anchored
+            and len({y for _, y in ink} & set(inner_ys)) >= len(inner_ys)
+            else [f"{char} fills {len(columns)} columns, expected {half_columns:.1f}"]
+        )
     return []
 
 
@@ -442,7 +591,10 @@ def cursor_result(shot, cell, shape, theme_background):
         if share < CURSOR_STRIP_ROW_FRACTION:
             break
         thickness += 1
-    return CURSOR_STRIP_MIN_PX <= thickness <= CURSOR_STRIP_MAX_PX, f"underline is {thickness} px high"
+    return (
+        CURSOR_STRIP_MIN_PX <= thickness <= CURSOR_STRIP_MAX_PX,
+        f"underline is {thickness} px high",
+    )
 
 
 def check_selection(shot, cells, argument, geometry):
@@ -453,10 +605,16 @@ def check_selection(shot, cells, argument, geometry):
         left = geometry["origin"][0] + column * geometry["cell_width"]
         top = geometry["origin"][1] + int(row) * geometry["line_height"]
         right, bottom = left + geometry["cell_width"], top + geometry["line_height"]
-        inner = [shot.get(x, y) for x in span(left + BOX_SHRINK_PX, right - BOX_SHRINK_PX) for y in span(top + BOX_SHRINK_PX, bottom - BOX_SHRINK_PX)]
+        inner = [
+            shot.get(x, y)
+            for x in span(left + BOX_SHRINK_PX, right - BOX_SHRINK_PX)
+            for y in span(top + BOX_SHRINK_PX, bottom - BOX_SHRINK_PX)
+        ]
         near = colour_distance(dominant_colour(inner), wanted) <= SELECTION_TOLERANCE
         if near != (int(first) <= column <= int(last)):
-            problems.append(f"column {column} {'has' if near else 'lacks'} the selection colour")
+            problems.append(
+                f"column {column} {'has' if near else 'lacks'} the selection colour"
+            )
     if problems:
         return False, f"{problems[0]} ({len(problems)} columns wrong)"
     return True, f"columns {first} to {last} selected, neighbours not"
@@ -466,7 +624,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("screenshot", type=Path)
     parser.add_argument("expected", type=Path)
-    parser.add_argument("--cursor", help="ROW,COL,SHAPE with SHAPE block, bar or underline")
+    parser.add_argument(
+        "--cursor", help="ROW,COL,SHAPE with SHAPE block, bar or underline"
+    )
     parser.add_argument("--selection", help="ROW,COL_FROM,COL_TO,#rrggbb")
     arguments = parser.parse_args()
     expected = json.loads(arguments.expected.read_text(encoding="utf-8"))
@@ -486,11 +646,16 @@ def main():
         geometry_cell = {
             "left": expected["origin"][0] + int(column) * expected["cell_width"],
             "top": expected["origin"][1] + int(row) * expected["line_height"],
-            "width": expected["cell_width"], "height": expected["line_height"],
+            "width": expected["cell_width"],
+            "height": expected["line_height"],
         }
-        results.append(("cursor", *cursor_result(shot, geometry_cell, shape, theme_background)))
+        results.append(
+            ("cursor", *cursor_result(shot, geometry_cell, shape, theme_background))
+        )
     if arguments.selection:
-        results.append(("selection", *check_selection(shot, cells, arguments.selection, expected)))
+        results.append(
+            ("selection", *check_selection(shot, cells, arguments.selection, expected))
+        )
     failed = False
     for name, passed, detail in results:
         print(f"ok: {name} {detail}" if passed else f"FAIL: {name} {detail}")

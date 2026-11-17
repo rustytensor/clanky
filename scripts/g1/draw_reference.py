@@ -36,7 +36,13 @@ STRIKE_ABOVE_BASELINE = 4.8  # logical pixels: about the middle of the x-height
 CURL_SUPERSAMPLE = 4
 GLYPH_SUPERSAMPLE = 8
 SHADE_OPACITY = {"░": 0.25, "▒": 0.5, "▓": 0.75}
-HALF_BLOCKS = {"▀": (0, 0, 1, 0.5), "▄": (0, 0.5, 1, 1), "▌": (0, 0, 0.5, 1), "▐": (0.5, 0, 1, 1), "█": (0, 0, 1, 1)}
+HALF_BLOCKS = {
+    "▀": (0, 0, 1, 0.5),
+    "▄": (0, 0.5, 1, 1),
+    "▌": (0, 0, 0.5, 1),
+    "▐": (0.5, 0, 1, 1),
+    "█": (0, 0, 1, 1),
+}
 HALFBLOCK_FAULT_FILL = 0.6
 FAULTS = ("drift", "background", "nounderline", "boxgap", "halfblock")
 CURSOR_COLOUR = (230, 230, 230)
@@ -46,16 +52,27 @@ CURSOR_STRIP_LOGICAL_PX = 2
 def find_cjk_font():
     """The system's Japanese monospace font, as the renderer under test would find it through fontconfig."""
     result = subprocess.run(
-        ["fc-match", "-f", "%{file}", ":lang=ja:spacing=mono"], capture_output=True, text=True, check=False, timeout=20
+        ["fc-match", "-f", "%{file}", ":lang=ja:spacing=mono"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
     )
     path = result.stdout.strip()
     if result.returncode != 0 or not path or not Path(path).exists():
-        sys.exit("draw_reference.py: no Japanese font found with fc-match; install a CJK monospace font")
+        sys.exit(
+            "draw_reference.py: no Japanese font found with fc-match; install a CJK monospace font"
+        )
     return path
 
 
 def text_font(bold, italic):
-    return {(False, False): FONT_REGULAR, (True, False): FONT_BOLD, (False, True): FONT_ITALIC, (True, True): FONT_BOLD_ITALIC}[bold, italic]
+    return {
+        (False, False): FONT_REGULAR,
+        (True, False): FONT_BOLD,
+        (False, True): FONT_ITALIC,
+        (True, True): FONT_BOLD_ITALIC,
+    }[bold, italic]
 
 
 def hex_to_rgb(text):
@@ -86,10 +103,19 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
     factor = GLYPH_SUPERSAMPLE
     margin = 4
     x0, y0 = math.floor(origin) - margin, math.floor(baseline - size_px * 1.2) - margin
-    width, height = math.ceil(size_px * 2.2) + 2 * margin, math.ceil(size_px * 1.8) + 2 * margin
+    width, height = (
+        math.ceil(size_px * 2.2) + 2 * margin,
+        math.ceil(size_px * 1.8) + 2 * margin,
+    )
     mask = Image.new("L", (width * factor, height * factor), 0)
     font = ImageFont.truetype(str(font_path), size_px * factor)
-    ImageDraw.Draw(mask).text(((origin - x0) * factor, (baseline - y0) * factor), char, font=font, fill=255, anchor="ls")
+    ImageDraw.Draw(mask).text(
+        ((origin - x0) * factor, (baseline - y0) * factor),
+        char,
+        font=font,
+        fill=255,
+        anchor="ls",
+    )
     image.paste(colour, (x0, y0), mask.resize((width, height), Image.BOX))
 
 
@@ -117,7 +143,9 @@ def main():
     parser.add_argument("expected", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--fault", choices=FAULTS)
-    parser.add_argument("--cursor", help="ROW,COL,SHAPE with SHAPE block, bar or underline")
+    parser.add_argument(
+        "--cursor", help="ROW,COL,SHAPE with SHAPE block, bar or underline"
+    )
     parser.add_argument("--selection", help="ROW,COL_FROM,COL_TO,#rrggbb")
     arguments = parser.parse_args()
 
@@ -145,13 +173,37 @@ def main():
     for cell in cells:
         if cell["bg"]:
             colour = hex_to_rgb(cell["bg"])
-            if arguments.fault == "background" and cell["row"] == 1 and cell["col"] == 5:
+            if (
+                arguments.fault == "background"
+                and cell["row"] == 1
+                and cell["col"] == 5
+            ):
                 colour = (colour[0] + (1 if colour[0] < 255 else -1),) + colour[1:]
-            fill_rect(pixels, image.size, (cell["left"], cell["top"], cell["left"] + cell["width"], cell["top"] + cell["height"]), colour)
+            fill_rect(
+                pixels,
+                image.size,
+                (
+                    cell["left"],
+                    cell["top"],
+                    cell["left"] + cell["width"],
+                    cell["top"] + cell["height"],
+                ),
+                colour,
+            )
     if selection:
         row, first, last, colour = selection
         top = origin_y + row * line_height
-        fill_rect(pixels, image.size, (origin_x + first * cell_width, top, origin_x + (last + 1) * cell_width, top + line_height), colour)
+        fill_rect(
+            pixels,
+            image.size,
+            (
+                origin_x + first * cell_width,
+                top,
+                origin_x + (last + 1) * cell_width,
+                top + line_height,
+            ),
+            colour,
+        )
 
     # Glyphs and text decorations.
     for cell in cells:
@@ -169,46 +221,88 @@ def main():
             fractions = list(HALF_BLOCKS[char])
             if arguments.fault == "halfblock" and char == "▀":
                 fractions[3] = HALFBLOCK_FAULT_FILL
-            box = (left + fractions[0] * cell["width"], top + fractions[1] * cell["height"],
-                   left + fractions[2] * cell["width"], top + fractions[3] * cell["height"])
+            box = (
+                left + fractions[0] * cell["width"],
+                top + fractions[1] * cell["height"],
+                left + fractions[2] * cell["width"],
+                top + fractions[3] * cell["height"],
+            )
             fill_rect(pixels, image.size, box, colour)
         elif char in SHADE_OPACITY:
-            fill_rect(pixels, image.size, (left, top, right, bottom), colour, SHADE_OPACITY[char])
+            fill_rect(
+                pixels,
+                image.size,
+                (left, top, right, bottom),
+                colour,
+                SHADE_OPACITY[char],
+            )
         else:
-            font_path = cjk_path if ord(char) >= 0x3000 else text_font("bold" in attributes, "italic" in attributes)
+            font_path = (
+                cjk_path
+                if ord(char) >= 0x3000
+                else text_font("bold" in attributes, "italic" in attributes)
+            )
             pen = left + (cell["width"] - size_px) / 2 if ord(char) >= 0x3000 else left
             if arguments.fault == "drift" and cell["row"] == 0:
                 pen = origin_x + cell["col"] * round(cell_width)
             draw_glyph(image, char, font_path, pen, baseline, colour, size_px)
         if "underline" in attributes and arguments.fault != "nounderline":
             centre = baseline + UNDERLINE_BELOW_BASELINE * scale
-            fill_rect(pixels, image.size, (left, centre - scale / 2, right, centre + scale / 2), colour)
+            fill_rect(
+                pixels,
+                image.size,
+                (left, centre - scale / 2, right, centre + scale / 2),
+                colour,
+            )
         if "strikethrough" in attributes:
             centre = baseline - STRIKE_ABOVE_BASELINE * scale
-            fill_rect(pixels, image.size, (left, centre - scale / 2, right, centre + scale / 2), colour)
+            fill_rect(
+                pixels,
+                image.size,
+                (left, centre - scale / 2, right, centre + scale / 2),
+                colour,
+            )
     curl = [c for c in cells if "undercurl" in c["attrs"]]
     if curl:
         left, right = curl[0]["left"], curl[-1]["left"] + curl[-1]["width"]
         top = curl[0]["top"]
-        draw_curl(image, (left, top, right, top + line_height), top + ascender + UNDERCURL_BELOW_BASELINE * scale,
-                  UNDERCURL_AMPLITUDE * scale, scale, hex_to_rgb(curl[0]["fg"]), cell_width)
+        draw_curl(
+            image,
+            (left, top, right, top + line_height),
+            top + ascender + UNDERCURL_BELOW_BASELINE * scale,
+            UNDERCURL_AMPLITUDE * scale,
+            scale,
+            hex_to_rgb(curl[0]["fg"]),
+            cell_width,
+        )
 
     # The box characters' last pixel column is blanked by the boxgap fault.
     if arguments.fault == "boxgap":
         for cell in cells:
             if cell["row"] in (7, 8, 9) and cell["char"] != " ":
                 last_column = math.ceil(cell["left"] + cell["width"] - 0.5) - 1
-                for y in range(math.ceil(cell["top"] - 0.5), math.ceil(cell["top"] + cell["height"] - 0.5)):
+                for y in range(
+                    math.ceil(cell["top"] - 0.5),
+                    math.ceil(cell["top"] + cell["height"] - 0.5),
+                ):
                     pixels[last_column, y] = background
 
     if arguments.cursor:
         row, column, shape = arguments.cursor.split(",")
-        left, top = origin_x + int(column) * cell_width, origin_y + int(row) * line_height
+        left, top = (
+            origin_x + int(column) * cell_width,
+            origin_y + int(row) * line_height,
+        )
         strip = CURSOR_STRIP_LOGICAL_PX * scale
         boxes = {
             "block": (left, top, left + cell_width, top + line_height),
             "bar": (left, top, left + strip, top + line_height),
-            "underline": (left, top + line_height - strip, left + cell_width, top + line_height),
+            "underline": (
+                left,
+                top + line_height - strip,
+                left + cell_width,
+                top + line_height,
+            ),
         }
         fill_rect(pixels, image.size, boxes[shape], CURSOR_COLOUR)
     image.save(arguments.output)

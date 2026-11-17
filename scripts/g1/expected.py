@@ -58,9 +58,17 @@ def fixture_rows(theme):
     background = theme["colors"]["background"]
     ansi = theme["ansi"]
     rows = [[(ch, 1, foreground, None, []) for ch in "miW." * 50]]
-    rows.append([(" ", 1, foreground, ansi[n], []) for n in range(16) for _ in range(2)])
+    rows.append(
+        [(" ", 1, foreground, ansi[n], []) for n in range(16) for _ in range(2)]
+    )
     rows.append([("█", 1, ansi[n], None, []) for n in range(16) for _ in range(2)])
-    rows.append([(" ", 1, foreground, colour, []) for colour in TRUECOLOUR_ROW for _ in range(2)])
+    rows.append(
+        [
+            (" ", 1, foreground, colour, [])
+            for colour in TRUECOLOUR_ROW
+            for _ in range(2)
+        ]
+    )
     rows.append([(ch, 1, background, foreground, []) for ch in "INVERSE"])
     words = []
     for index, (word, attribute) in enumerate(ATTRIBUTE_WORDS):
@@ -111,7 +119,12 @@ def build(scale):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--scale", type=float, required=True, help="device pixels per logical pixel, such as 1 or 1.5")
+    parser.add_argument(
+        "--scale",
+        type=float,
+        required=True,
+        help="device pixels per logical pixel, such as 1 or 1.5",
+    )
     arguments = parser.parse_args()
     if arguments.scale <= 0:
         sys.exit("expected.py: --scale must be greater than zero")

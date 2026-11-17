@@ -12,7 +12,7 @@ GPUI_DEPENDENCY='gpui_ce = { git = "https://git.servorra.com/servorra/gpui-ce", 
 export CARGO_HOME=/srv/devops/cache/clanky-cargo
 
 check_workspace() {
-  local workspace=$1 offline=$2 seen=() crate line name
+  local workspace=$1 offline=$2 crate line name
   local gpui_found=0
   local all_names
   all_names=$(mktemp)
