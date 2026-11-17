@@ -666,13 +666,15 @@ class Screen:
         return grey(a, x - ring_width(self.s) - 2, y + h / 2)
 
     def tray_colour(self, a, ctl):
-        """The switcher tray's colour, read off another unselected segment (a segment's own surroundings are covered by
-        its focus ring), which shows the tray at rest."""
+        """The switcher tray's colour, read off another unselected segment of the same switcher (a segment's own
+        surroundings are covered by its focus ring), which shows the tray at rest. A window can hold switchers on
+        different grounds (the tools panel's footer, a pane's command bar), so only its own group's tray counts."""
         other = next(
             (
                 c
                 for c in self.controls()
                 if c["kind"] == "segment"
+                and c.get("group") == ctl.get("group")
                 and c["id"] != ctl["id"]
                 and not c.get("checked")
                 and c["enabled"]
