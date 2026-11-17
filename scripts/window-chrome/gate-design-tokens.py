@@ -195,6 +195,8 @@ def scan(texts):
                 if literal(m.group(2)):
                     found.add((clean.count("\n", 0, m.start()) + 1, kind))
         for m in NUMBERED.finditer(clean):
+            if not literal(m.group(2).replace("_", ".")):
+                continue  # .min_w_0(): a literal 0 is not a design value
             found.add(
                 (clean.count("\n", 0, m.start()) + 1, kind_of_numbered(m.group(1)))
             )
@@ -384,13 +386,17 @@ def edge_tolerance(e):
     return e["chrome"]["tab_height"]["tolerance_px"]
 
 
-def pane_gap_margin(e, a, pane, frame):
-    """The pane gap and the window margin, from the pixels along the pane's middle row."""
+def pane_gap_margin(e, a, pane, frame, panes):
+    """The pane gap and the window margin, from the pixels along the pane's middle row. The margin is read on the right
+    of the rightmost pane, where the window's edge follows it: on the left the tools panel, in the same frame colour,
+    may lie between a pane and the edge."""
     y_mid = pane[1] + pane[3] // 2
-    left = pane[0]
-    while left > 0 and pixels.cdist(a[y_mid, left - 1], frame) <= 2:
-        left -= 1
-    margin = pane[0] - left
+    last = max(panes, key=lambda box: box[0] + box[2]) if panes else pane
+    right = last[0] + last[2]
+    edge = right
+    while edge < a.shape[1] and pixels.cdist(a[y_mid, edge], frame) <= 2:
+        edge += 1
+    margin = edge - right if edge == a.shape[1] else None
     x = pane[0] + pane[2] // 2
     while pixels.cdist(a[y_mid, x], frame) > 2 and x < a.shape[1] - 1:
         x += 1
@@ -545,10 +551,10 @@ def window_checks(win, e):
     guarded("text-meta-cap-height", meta)
 
     def panes():
-        margin, between = pane_gap_margin(e, a, pane, frame)
+        margin, between = pane_gap_margin(e, a, pane, frame, win.landmarks().get("pane", []))
         record(
             "pane-margin",
-            abs(margin - chrome["pane_margin"]["device"]) <= tol,
+            margin is not None and abs(margin - chrome["pane_margin"]["device"]) <= tol,
             chrome["pane_margin"]["device"],
             margin,
         )

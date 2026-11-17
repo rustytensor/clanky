@@ -135,13 +135,20 @@ def walk(a, x, y, dx, dy, colour, tol=3, limit=2000):
     return x, y
 
 
-def corner_area_radius(a, box, fill, base, expected):
+def corner_area_radius(a, box, fill, base, expected, edge=None, tolerance=3):
     """The radius of a filled rounded rectangle's top-left corner, from the area it leaves out of a square at the
-    corner: a circle's corner leaves r^2 (1 - pi/4)."""
+    corner: a circle's corner leaves r^2 (1 - pi/4). With `edge` (the grey of the control's border over its fill),
+    the corner's outermost pixels are the border's, so their coverage is read against the border's grey; pixels of
+    the fill (within `tolerance`) or anything at least as far from the ground as the border (a knob) count whole."""
     x, y = int(box[0]), int(box[1])
     n = int(math.ceil(expected)) + 3
     sq = a[y : y + n, x : x + n].mean(axis=2)
-    frac = np.clip((sq - base) / (fill - base), 0, 1)
+    if edge is None or abs(edge - fill) <= tolerance:
+        frac = np.clip((sq - base) / (fill - base), 0, 1)
+    else:
+        frac = np.clip((sq - base) / (edge - base), 0, 1)
+        whole = (np.abs(sq - fill) <= tolerance) | ((sq - base) / (edge - base) >= 1)
+        frac[whole] = 1
     return math.sqrt(max(0.0, (1 - frac).sum()) / (1 - math.pi / 4))
 
 

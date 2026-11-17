@@ -309,10 +309,23 @@ class SimWindow:
         self.keyboard = True
 
     def _key(self, name):
-        if name in ("Tab", "shift+Tab"):
-            self._step(self._order(), name == "Tab")
+        # The rulebook's focus rule: the pane holds the keyboard until Ctrl+F6 moves it to the first control; Tab and
+        # Shift+Tab then walk the controls and wrap, arrows move within a group, and Escape gives the keyboard back.
+        order = self._order()
+        on_control = self.focus_id in order
+        if name == "ctrl+F6":
+            if order:
+                self.focus_id = order[0]
+                self.keyboard = True
+        elif name in ("Tab", "shift+Tab"):
+            if on_control or self.popover:
+                self._step(order, name == "Tab")
         elif name in ("Down", "Up", "Left", "Right"):
-            self._arrow(name)
+            if on_control or self.popover:
+                self._arrow(name)
+        elif name == "Escape" and not self.popover and on_control:
+            self.focus_id = None
+            self.keyboard = False
         elif name in ("Return", "space"):
             self._press_key(name)
         elif name == "Escape" and self.popover:

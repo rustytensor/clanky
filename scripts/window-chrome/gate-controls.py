@@ -34,9 +34,10 @@ Checks, for each screen and scale (the check's name is the first word after FAIL
                 each edge hovers the control and 1 device px outside it does not.
   release       pressing a control fires nothing; moving out before the release fires nothing and leaves the screen
                 open; releasing inside fires the control exactly once, by "release".
-  tab-order     from no focus, Tab visits every enabled control once in reading order and Shift+Tab walks back.
-  arrows        in a group Down from no focus reaches the first enabled control, Down the second, Up the first again;
-                in a horizontal group the same with Right and Left.
+  tab-order     from the pane (no control focused), Ctrl+F6 reaches the first enabled control and Tab visits every
+                other once in reading order; Shift+Tab walks back (the rulebook's focus rule, 2026-11-17).
+  arrows        in a group, from its first control (reached as tab-order does), Down reaches the second and Up the
+                first again; in a horizontal group the same with Right and Left. Arrows in a pane are the program's.
   activate-keys Enter, and separately Space, fire the focused control exactly once, by "key".
   switch-space  Space flips a focused switch's checked value.
   escape        Esc closes a popover; the focus goes back to its opener (typed text reaches the pane it opened on).
@@ -500,6 +501,13 @@ def icon_centre_offset(a, ctl, background):
 # ---------------------------------------------------------------- the checks
 
 
+def contains(outer, inner):
+    """True when box `inner` lies wholly within box `outer`."""
+    ox, oy, ow, oh = outer
+    ix, iy, iw, ih = inner
+    return ox <= ix and oy <= iy and ix + iw <= ox + ow and iy + ih <= oy + oh
+
+
 def inside(box, x, y):
     return box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
 
@@ -620,12 +628,16 @@ class Screen:
                 pass
 
     def clear_focus(self):
-        """Click on empty ground so that no control has the focus: a screen that never closes keeps its focus."""
+        """No control has the focus: a click on empty chrome ground (which leaves the pane its keyboard), then Escape
+        if a control still has it, which gives the keyboard back to the pane."""
         x, y = self.rest_point()
         self.win.move(x, y)
         self.win.x("mousedown", "1")
         self.win.x("mouseup", "1")
         time.sleep(0.3)
+        if (self.current() or {}).get("focus") is not None:
+            self.win.key("Escape")
+            time.sleep(0.3)
 
     def reopen(self, **kw):
         self.close()
@@ -668,11 +680,15 @@ class Screen:
                 r["popover"]["box"], ox, oy
             ):
                 return int(ox), int(oy)
-        for fy in (0.5, 0.95, 0.2, 0.8):
+        # Chrome ground, never a pane: a click there leaves the pane its keyboard, a click in a pane gives it.
+        panes = (self.win.landmarks() or {}).get("pane") or []
+        for fy in (0.5, 0.95, 0.2, 0.8, 0.985, 0.02):
             for fx in (0.95, 0.6, 0.3):
                 x, y = int(fx * self.win.pw), int(fy * self.win.ph)
-                if not any(inside(c["hit"], x, y) for c in self.controls()) and not (
-                    r and r.get("popover") and inside(r["popover"]["box"], x, y)
+                if (
+                    not any(inside(c["hit"], x, y) for c in self.controls())
+                    and not any(inside(box, x, y) for box in panes)
+                    and not (r and r.get("popover") and inside(r["popover"]["box"], x, y))
                 ):
                     return x, y
         return 2, 2
@@ -698,6 +714,16 @@ class Screen:
                 continue
             return px_, py_
         return self.rest_point()
+
+    def height_of(self, c):
+        """A control's height in device px: its kind's, or for an icon button inside another control (a tab's close,
+        a row's action) the rulebook's in-row height."""
+        in_rows = EXPECTED["controls"][c["kind"]].get("height_in_rows")
+        if in_rows and any(
+            o is not c and contains(o["box"], c["box"]) for o in self.record["controls"]
+        ):
+            return in_rows["logical"] * self.s
+        return KINDS[c["kind"]][0] * self.s
 
     def wait_state(self, cid, state, timeout=3.0):
         try:
@@ -732,7 +758,7 @@ class Screen:
                     "height", False, name_of(c), "a kind of the rulebook", c["kind"]
                 )
                 continue
-            want = KINDS[c["kind"]][0] * self.s
+            want = self.height_of(c)
             self.ok(
                 "height",
                 abs(c["box"][3] - want) <= EDGE_TOL,
@@ -1002,12 +1028,12 @@ class Screen:
                     hh = fill_height(a, c["box"], want, rad, border_blend(c, want))
                     self.ok(
                         "height",
-                        abs(hh - KINDS[c["kind"]][0] * self.s) <= EDGE_TOL,
+                        abs(hh - self.height_of(c)) <= EDGE_TOL,
                         name_of(c) + " drawn",
-                        f"{KINDS[c['kind']][0] * self.s:g} px",
+                        f"{self.height_of(c):g} px",
                         f"{hh} px",
                     )
-                    r = corner_radius(a, c["box"], want, bg, rad)
+                    r = corner_radius(a, c["box"], want, bg, rad, border_blend(c, want))
                     self.ok(
                         "radius",
                         abs(r - rad) <= EDGE_TOL,
@@ -1037,7 +1063,8 @@ class Screen:
         expected = reading_order([c for c in self.controls() if c["enabled"]])
         visited, last = [], None
         for i in range(len(expected)):
-            self.win.key("Tab")
+            # The pane has the keyboard: Ctrl+F6 enters the controls at the first, then Tab walks them.
+            self.win.key("ctrl+F6" if i == 0 else "Tab")
             try:
                 until(
                     lambda: (self.current() or {}).get("focus") not in (None, last),
@@ -1068,7 +1095,7 @@ class Screen:
         self.ok(
             "tab-order",
             visited == expected,
-            "Tab from no focus",
+            "Ctrl+F6 from the pane, then Tab",
             [names.get(i) for i in expected],
             [names.get(i) for i in visited],
         )
@@ -1112,6 +1139,10 @@ class Screen:
         inner = line[-1]
         ring_want = blend(bg, RING, RING_ALPHA)
         inner_want = want if want is not None else bg
+        if c["kind"] == "segment" and c.get("checked"):
+            # A selected segment keeps its own fill, the theme's background, in every state (rulebook amendment
+            # of 2026-11-17: hover's accent is for unselected segments only).
+            inner_want = grey_of(EXPECTED, "background")
         good = (
             all(near(v, ring_want) for v in ring_px)
             and all(near(v, RING) for v in border_px)
@@ -1179,7 +1210,7 @@ class Screen:
             if (self.current() or {}).get("focus") == cid:
                 return True
             before = (self.current() or {}).get("focus")
-            self.win.key("Tab")
+            self.win.key("Tab" if before is not None else "ctrl+F6")
             try:
                 until(lambda: (self.current() or {}).get("focus") != before, "", 2)
             except Fail:
@@ -1438,9 +1469,10 @@ class Screen:
         self.close()
         self.win.key(
             "ctrl+u"
-        )  # clears any line typed to open the popover, so that Tab moves the focus
+        )  # clears any line typed to open the popover
         self.win.away(self.rest_point())
-        self.win.key("Tab")
+        # The pane has the keyboard: Ctrl+F6 gives it to the first control.
+        self.win.key("ctrl+F6")
         before = self.main_focus()
         if before is None:
             self.ok(

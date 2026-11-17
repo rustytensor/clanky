@@ -220,6 +220,11 @@ class RealWindow:
         until(lambda: self.owner.call(1, "list_tabs")["tabs"], "first pane", 20)
         time.sleep(2)
         self.x("windowfocus", "--sync", self.wid)
+        # A second tab, so the tab-switching checks have an inactive tab; the first stays active.
+        self.key("ctrl+shift+t")
+        until(lambda: len(self.owner.call(1, "list_tabs")["tabs"]) >= 2, "second tab", 20)
+        self.key("ctrl+Tab")
+        time.sleep(1)
         self.away()
 
     def menu_point(self):
