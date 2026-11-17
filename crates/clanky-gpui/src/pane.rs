@@ -22,6 +22,10 @@ use gpui::{
 };
 use serde_json::Value;
 
+mod command;
+
+pub use command::SharedInput;
+
 use crate::{
     blocks_view::{self, Look},
     control_record::ControlRecord,
@@ -62,6 +66,8 @@ pub struct TerminalPane {
     home: Option<String>,
     /// Wakes the pane on the next whole second while a running time counts.
     tick: Option<Task<()>>,
+    /// The command input under the grid; None with the classic input (the shell's own prompt).
+    input: Option<command::Input>,
     text: TextSettings,
     /// The text size in points, changed by Ctrl+wheel and Ctrl+= / Ctrl+- / Ctrl+0, as today's window.
     zoom: Zoom,
@@ -93,6 +99,8 @@ pub struct PaneSetup {
     pub palette: Palette,
     pub colors: Colors,
     pub record: ControlRecord,
+    /// Set when the pane shows a command input.
+    pub input: Option<SharedInput>,
     pub text: TextSettings,
     pub size_sent: (usize, usize),
     pub link: Link,
@@ -122,6 +130,7 @@ impl TerminalPane {
                         Update::Snapshot(snapshot, blocks) => {
                             pane.snapshot = Some(snapshot);
                             pane.blocks = blocks;
+                            pane.learn_commands();
                         }
                         Update::Lost(message) => pane.notice = Some(message),
                         Update::Finished => cx.emit(PaneEvent::Finished),
@@ -145,6 +154,7 @@ impl TerminalPane {
             home: clanky_core::platform::home_dir()
                 .and_then(|home| home.to_str().map(str::to_owned)),
             tick: None,
+            input: setup.input.map(command::Input::new),
             zoom: Zoom::new(setup.text.size * POINTS_PER_PIXEL),
             text: setup.text,
             focus,
@@ -243,7 +253,12 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn paste(&mut self, text: &str) {
+    /// A paste goes into the command input while it takes keys, else to the program.
+    fn paste(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.input_takes_keys() {
+            self.input_text(text, cx);
+            return;
+        }
         let bracketed = self.modes().0 & MODE_BRACKETED_PASTE != 0;
         self.send(&mouse::pastify(text, bracketed));
     }
@@ -262,7 +277,7 @@ impl TerminalPane {
                 }
                 "v" => {
                     if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        self.paste(&text);
+                        self.paste(&text, cx);
                     }
                     cx.stop_propagation();
                     cx.notify();
@@ -283,6 +298,10 @@ impl TerminalPane {
                 cx.stop_propagation();
                 return;
             }
+        }
+        if self.input_takes_keys() {
+            self.input_key(keystroke, cx);
+            return;
         }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
             self.trace.borrow_mut().key_event();
@@ -367,7 +386,7 @@ impl TerminalPane {
             }
             2 => {
                 if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
-                    self.paste(&text);
+                    self.paste(&text, cx);
                 }
             }
             _ => {}
@@ -610,6 +629,8 @@ impl Render for TerminalPane {
             selection,
             focus: self.focus.clone(),
             metrics: self.metrics.clone(),
+            // The command input has the caret while it takes keys; the shell's empty prompt shows none.
+            show_cursor: !self.input_takes_keys(),
         };
         div()
             .size_full()
@@ -684,8 +705,13 @@ impl EntityInputHandler for TerminalPane {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Committed text from the input method (or a plain key): the program reads it as typed.
+        // Committed text from the input method (or a plain key): the command input takes it while it takes keys,
+        // else the program reads it as typed.
         let had_marked = self.marked.take().is_some();
+        if self.input_takes_keys() {
+            self.input_text(text, cx);
+            return;
+        }
         self.trace.borrow_mut().key_event();
         if self.send(text.as_bytes()) || had_marked {
             cx.notify();

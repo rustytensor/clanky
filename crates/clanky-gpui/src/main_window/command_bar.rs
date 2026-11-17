@@ -1,0 +1,449 @@
+//! The command input under each terminal pane (mockup sections 1 and 2, `.input`): a hairline, a row of chips (folder,
+//! git branch, shell, agent access) with the Shell | Agent switch at its right, then the line being written in the
+//! terminal font with bash colours, the caret and grey ghost text from history, and after Tab the completion list
+//! above it. While a command runs, a full-screen program has the keys or the shell sets no marks, the line says where
+//! keys go and the chips dim.
+
+use std::{cell::Cell, collections::BTreeMap, path::Path, rc::Rc};
+
+use clanky_api::Client;
+use clanky_state::{
+    command_input::Tok,
+    pane_input::{self, View},
+};
+use gpui::{
+    AnyElement, App, Bounds, Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Styled, Window, canvas, div, px,
+};
+use serde_json::json;
+
+use super::{MainWindow, SCREEN};
+use crate::{
+    control_look::{self, Kind as LookKind, State, paint},
+    controls::{Control, Group, INTERFACE_FONT_FAMILY, Kind, Switcher},
+    grid_element::colour,
+    pane::TerminalPane,
+    tokens as t,
+};
+
+/// Control ids of the inputs: each pane's input takes ten from here, by the pane's place in the window.
+const INPUT_IDS: u32 = 6000;
+/// The input shows at most this many lines of text; more scroll.
+const MAX_LINES: usize = 8;
+/// Completion rows shown at once.
+const MAX_ITEMS: usize = 8;
+
+/// What a pane's chips show, read from the server once a second.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Chips {
+    folder: String,
+    branch: Option<String>,
+    shell: String,
+    access: bool,
+}
+
+/// Each pane's chips: its shell's folder and git branch, the shell's name and the pane's agent access.
+pub(super) fn read_chips(client: &Client, ids: &[String]) -> BTreeMap<String, Chips> {
+    let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));
+    ids.iter()
+        .map(|id| {
+            let info = client
+                .exchange(3, "terminal_info", &json!({"tab_id": id}))
+                .unwrap_or_default();
+            let cwd = info["cwd"].as_str().unwrap_or_default();
+            let chips = Chips {
+                folder: if cwd.is_empty() {
+                    String::new()
+                } else {
+                    clanky_state::blocks::home_short(cwd, home.as_deref())
+                },
+                branch: (!cwd.is_empty())
+                    .then(|| pane_input::git_branch(Path::new(cwd)))
+                    .flatten(),
+                shell: info["exe"]
+                    .as_str()
+                    .and_then(|exe| Path::new(exe).file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                access: client.agent_permission(id).unwrap_or(false),
+            };
+            (id.clone(), chips)
+        })
+        .collect()
+}
+
+impl MainWindow {
+    /// The command input under pane `id`, the `place`-th pane of the window; None for a pane without one.
+    pub(super) fn command_bar(
+        &self,
+        id: &str,
+        place: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let pane = self.panes.get(id)?.0.clone();
+        let (shown, focused) = {
+            let read = pane.read(cx);
+            (read.input_shown()?, read.focus_handle().is_focused(window))
+        };
+        let chips = self.status.chips.get(id).cloned().unwrap_or_default();
+        let dim = if shown.aside.is_some() {
+            t::DISABLED_OPACITY
+        } else {
+            1.0
+        };
+        let line = match shown.aside {
+            Some(aside) => div()
+                .h(px(self.line_height()))
+                .flex()
+                .items_center()
+                .font_family(INTERFACE_FONT_FAMILY)
+                .text_size(px(t::TEXT_UI))
+                .text_color(paint(self.colors.muted_foreground, dim))
+                .child(aside.text())
+                .into_any_element(),
+            None => self.text_lines(&shown.view, focused, &pane, cx),
+        };
+        let focus_pane = pane.clone();
+        let bar = div()
+            .relative()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(t::SPACE_8))
+            .px(px(t::PANE_PADDING))
+            .pt(px(t::SPACE_8))
+            .pb(px(t::PANE_PADDING))
+            .border_t(px(t::hairline(window.scale_factor())))
+            .border_color(paint(self.colors.border, 1.0))
+            // A click in the input gives the pane the keyboard.
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                let handle = focus_pane.read(cx).focus_handle().clone();
+                window.focus(&handle, cx);
+            })
+            .child(self.chips_row(id, place, &chips, &shown.view, dim, window, cx))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(t::SPACE_8))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(self.text.family.clone())
+                            .text_size(px(self.text.size))
+                            .h(px(self.line_height()))
+                            .text_color(paint_rgb(self.palette.ansi[4], dim))
+                            .child("❯"),
+                    )
+                    .child(div().flex_1().min_w_0().overflow_hidden().child(line)),
+            )
+            .children(
+                shown
+                    .view
+                    .popup
+                    .as_ref()
+                    .filter(|_| shown.aside.is_none())
+                    .map(|popup| self.completion(popup)),
+            );
+        Some(bar.into_any_element())
+    }
+
+    /// One terminal row's height in logical pixels, as the grid draws it.
+    fn line_height(&self) -> f32 {
+        self.text.size * self.text.line_height
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn chips_row(
+        &self,
+        id: &str,
+        place: u32,
+        chips: &Chips,
+        view: &View,
+        dim: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let base = INPUT_IDS + place * 10;
+        let mut row = div()
+            .flex()
+            .items_center()
+            .gap(px(t::SPACE_6))
+            .h(px(t::CHIP_HEIGHT))
+            .font_family(INTERFACE_FONT_FAMILY)
+            .text_size(px(t::TEXT_UI));
+        let mut labels: Vec<String> = Vec::new();
+        if !chips.folder.is_empty() {
+            labels.push(chips.folder.clone());
+        }
+        if let Some(branch) = &chips.branch {
+            labels.push(format!("⎇ {branch}"));
+        }
+        if !chips.shell.is_empty() {
+            labels.push(chips.shell.clone());
+        }
+        for label in labels {
+            row = row.child(self.chip(dim).child(label));
+        }
+        if !self.post_ai {
+            let this = cx.entity();
+            let (pane, allowed) = (id.to_owned(), chips.access);
+            let switch = Control::new(Kind::Switch, base, "Agent access")
+                .checked(allowed)
+                .on_click(move |_, cx| {
+                    let pane = pane.clone();
+                    this.update(cx, |this, cx| this.set_access(&pane, !allowed, cx));
+                });
+            row = row.child(
+                self.chip(dim)
+                    .gap(px(t::SPACE_8))
+                    .child("Agent access")
+                    .child(self.kit.build(SCREEN, switch, window, cx)),
+            );
+        }
+        if let Some(notice) = &view.notice {
+            row = row.child(
+                div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_size(px(t::TEXT_STATUS))
+                    .text_color(paint(self.colors.err, 1.0))
+                    .child(notice.clone()),
+            );
+        }
+        row = row.child(div().flex_1());
+        if !self.post_ai {
+            // Shell | Agent: Agent opens the agent picker, which comes with the floating screens; until then the
+            // switch shows the pane is a shell.
+            let segments = [(base + 1, "Shell"), (base + 2, "Agent")];
+            let switcher = Switcher {
+                group: Group::horizontal("command-mode"),
+                segments: &segments,
+                selected: 0,
+                choose: Rc::new(|_, _, _: &mut App| {}),
+            };
+            row = row.child(self.kit.segmented(SCREEN, &switcher, window, cx));
+        }
+        row.into_any_element()
+    }
+
+    /// A chip that shows a fact (folder, branch, shell): the chip's rest look, never a control.
+    fn chip(&self, dim: f32) -> gpui::Div {
+        let colors = &self.colors;
+        let mut chip = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .h(px(LookKind::Chip.height()))
+            .px(px(t::SPACE_8))
+            .rounded(px(LookKind::Chip.radius()))
+            .whitespace_nowrap()
+            .text_color(paint(colors.muted_foreground, dim))
+            .border(px(t::BORDER_WIDTH))
+            .border_color(gpui::transparent_black());
+        if let Some(edge) = control_look::border(LookKind::Chip, State::Rest, None, colors) {
+            chip = chip.border_color(paint(edge, dim));
+        }
+        if let Some(fill) = control_look::fill(LookKind::Chip, State::Rest, false, None, colors) {
+            chip = chip.bg(paint(fill, dim));
+        }
+        chip
+    }
+
+    /// The text's lines in the terminal font, coloured by bash role, with the selection, the caret (in the focused
+    /// pane) and the ghost text after the last line.
+    fn text_lines(
+        &self,
+        view: &View,
+        focused: bool,
+        pane: &Entity<TerminalPane>,
+        cx: &App,
+    ) -> AnyElement {
+        let first = view.caret.0.saturating_sub(MAX_LINES - 1);
+        let last_line = view.lines.len().saturating_sub(1);
+        // A click places the caret at the cell under it (Shift extends the selection); the text's box is measured
+        // as it is drawn.
+        let cell = pane.read(cx).cell_size();
+        let measured: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::default();
+        let (keep, pane) = (Rc::clone(&measured), pane.clone());
+        let mut lines = div()
+            .relative()
+            .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+                let (Some(bounds), Some((width, height))) = (measured.get(), cell) else {
+                    return;
+                };
+                let at = event.position - bounds.origin;
+                let line = first + (f32::from(at.y) / height).max(0.0) as usize;
+                let col = (f32::from(at.x) / width).round().max(0.0) as usize;
+                let extend = event.modifiers.shift;
+                pane.update(cx, |pane, cx| pane.input_click(line, col, extend, cx));
+            })
+            .child(
+                canvas(move |bounds, _, _| keep.set(Some(bounds)), |_, (), _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
+            .flex()
+            .flex_col()
+            .font_family(self.text.family.clone())
+            .text_size(px(self.text.size))
+            .whitespace_nowrap();
+        for (index, line) in view.lines.iter().enumerate().skip(first).take(MAX_LINES) {
+            let caret = (focused && view.caret.0 == index).then_some(view.caret.1);
+            let ghost = (index == last_line).then_some(view.ghost.as_str());
+            lines = lines.child(self.text_line(line, caret, ghost));
+        }
+        lines.into_any_element()
+    }
+
+    fn text_line(
+        &self,
+        line: &[(char, Tok, bool)],
+        caret: Option<usize>,
+        ghost: Option<&str>,
+    ) -> AnyElement {
+        let mut row = div().flex().h(px(self.line_height())).items_center();
+        let mut run = String::new();
+        let mut run_look: Option<(Hsla, Option<Hsla>)> = None;
+        let span = |text: String, (fg, bg): (Hsla, Option<Hsla>)| {
+            let piece = div().text_color(fg).child(text);
+            match bg {
+                Some(bg) => piece.bg(bg),
+                None => piece,
+            }
+        };
+        for (col, (ch, tok, selected)) in line.iter().enumerate() {
+            let shown = if ch.is_control() { ' ' } else { *ch };
+            let look = if caret == Some(col) {
+                (
+                    colour(self.palette.background),
+                    Some(colour(self.palette.foreground)),
+                )
+            } else {
+                (
+                    self.token_colour(*tok),
+                    selected.then(|| colour(self.palette.selection)),
+                )
+            };
+            if run_look != Some(look) && !run.is_empty() {
+                row = row.child(span(std::mem::take(&mut run), run_look.unwrap_or(look)));
+            }
+            run_look = Some(look);
+            run.push(shown);
+        }
+        if let Some(look) = run_look.filter(|_| !run.is_empty()) {
+            row = row.child(span(run, look));
+        }
+        if caret.is_some_and(|col| col >= line.len()) {
+            row = row.child(span(
+                " ".to_owned(),
+                (
+                    colour(self.palette.background),
+                    Some(colour(self.palette.foreground)),
+                ),
+            ));
+        }
+        if let Some(ghost) = ghost.filter(|g| !g.is_empty()) {
+            row = row.child(
+                div()
+                    .text_color(paint(self.colors.muted_foreground, 1.0))
+                    .child(ghost.to_owned()),
+            );
+        }
+        row.into_any_element()
+    }
+
+    fn token_colour(&self, tok: Tok) -> Hsla {
+        let ansi = &self.palette.ansi;
+        match tok {
+            Tok::Plain => colour(self.palette.foreground),
+            Tok::Function => colour(ansi[4]),
+            Tok::Str => colour(ansi[2]),
+            Tok::Property => colour(ansi[6]),
+            Tok::Constant | Tok::Keyword => colour(ansi[5]),
+            Tok::Number => colour(ansi[1]),
+            Tok::Comment | Tok::Operator => paint(self.colors.muted_foreground, 1.0),
+        }
+    }
+
+    /// The completion list above the input (mockup `.pop`): each candidate and its kind, the highlighted one filled,
+    /// and a footer naming the keys. The keyboard drives it from the input.
+    fn completion(&self, popup: &(Vec<(String, &'static str)>, usize, usize)) -> AnyElement {
+        let (items, selected, _) = popup;
+        let colors = &self.colors;
+        let shown = items.len().min(MAX_ITEMS);
+        let first = selected.saturating_sub(shown.saturating_sub(1));
+        let mut list = div().flex().flex_col().p(px(t::SPACE_4));
+        for (index, (name, kind)) in items.iter().enumerate().skip(first).take(shown) {
+            let mut row = div()
+                .flex()
+                .items_center()
+                .gap(px(t::SPACE_8))
+                .h(px(t::MENU_ITEM_HEIGHT))
+                .px(px(t::SPACE_8))
+                .rounded(px(t::RADIUS_SMALL))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .font_family(self.text.family.clone())
+                        .text_size(px(t::TEXT_UI))
+                        .text_color(paint(colors.foreground, 1.0))
+                        .child(name.clone()),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(t::TEXT_STATUS))
+                        .text_color(paint(colors.muted_foreground, 1.0))
+                        .child(*kind),
+                );
+            if index == *selected {
+                row = row.bg(paint(colors.accent, 1.0));
+            }
+            list = list.child(row);
+        }
+        let shadow = t::SHADOW_POPOVER;
+        div()
+            .absolute()
+            .bottom_full()
+            .left(px(t::PANE_PADDING))
+            .w(px(t::PALETTE_WIDTH / 2.0))
+            .flex()
+            .flex_col()
+            .rounded(px(t::RADIUS_LARGE))
+            .border(px(t::BORDER_WIDTH))
+            .border_color(paint(colors.border, 1.0))
+            .bg(paint(colors.card, 1.0))
+            .shadow(vec![gpui::BoxShadow {
+                color: paint(shadow.color(), 1.0).into(),
+                offset: gpui::point(px(0.0), px(shadow.offset_y)),
+                blur_radius: px(shadow.blur),
+                spread_radius: px(0.0),
+                inset: false,
+            }])
+            .font_family(INTERFACE_FONT_FAMILY)
+            .child(list)
+            .child(
+                div()
+                    .px(px(t::SPACE_12))
+                    .py(px(t::SPACE_6))
+                    .border_t(px(t::BORDER_WIDTH))
+                    .border_color(paint(colors.border, 1.0))
+                    .text_size(px(t::TEXT_STATUS))
+                    .text_color(paint(colors.muted_foreground, 1.0))
+                    .child("Tab completes · Enter runs · Esc closes"),
+            )
+            .into_any_element()
+    }
+}
+
+/// A terminal colour at `alpha` opacity.
+fn paint_rgb(rgb: [u8; 3], alpha: f32) -> Hsla {
+    let mut colour = colour(rgb);
+    colour.alpha *= alpha;
+    colour
+}

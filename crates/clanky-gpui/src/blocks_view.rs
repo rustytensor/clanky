@@ -233,9 +233,9 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
     for (index, block) in shown.blocks.iter().enumerate() {
         if block.row > 0 {
             let line = if block.failed {
-                paint(colors.err, 0.5)
+                paint(colors.err, t::BLOCK_DIVIDER_FAILED)
             } else {
-                paint(colors.foreground, 0.08)
+                paint(colors.foreground, t::BLOCK_DIVIDER)
             };
             layer = layer.child(
                 div()

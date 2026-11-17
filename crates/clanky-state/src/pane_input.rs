@@ -117,6 +117,32 @@ pub fn learn(history: &mut History, seen: &mut std::collections::BTreeSet<String
     }
 }
 
+/// The git branch of the repository holding `dir` (a short commit for a detached head), read from its `HEAD` file,
+/// for the input's branch chip. A worktree's `.git` file points to its own folder.
+pub fn git_branch(dir: &Path) -> Option<String> {
+    for folder in dir.ancestors().take(64) {
+        let git = folder.join(".git");
+        let head = if git.is_dir() {
+            std::fs::read_to_string(git.join("HEAD")).ok()
+        } else if git.is_file() {
+            std::fs::read_to_string(&git)
+                .ok()
+                .and_then(|text| text.trim().strip_prefix("gitdir:").map(|d| folder.join(d.trim())))
+                .and_then(|linked| std::fs::read_to_string(linked.join("HEAD")).ok())
+        } else {
+            None
+        };
+        if let Some(head) = head {
+            let head = head.trim();
+            return Some(match head.strip_prefix("ref: refs/heads/") {
+                Some(branch) => branch.to_owned(),
+                None => head.chars().take(7).collect(),
+            });
+        }
+    }
+    None
+}
+
 impl PaneInput {
     pub fn sent_seq(&self) -> u64 {
         self.sent_seq
@@ -507,6 +533,19 @@ mod tests {
             press(&mut input, Mods::CTRL, Key::Char('d'), &history),
             Step::Shell(b"\x04")
         );
+    }
+
+    #[test]
+    fn the_branch_comes_from_the_nearest_head() {
+        let root = std::env::temp_dir().join(format!("clanky-branch-test-{}", std::process::id()));
+        let inner = root.join("repo/src/deep");
+        std::fs::create_dir_all(&inner).expect("a scratch folder in the temp dir");
+        std::fs::create_dir_all(root.join("repo/.git")).expect("a scratch folder in the temp dir");
+        std::fs::write(root.join("repo/.git/HEAD"), "ref: refs/heads/gpui-g2\n").expect("writing a scratch file");
+        assert_eq!(git_branch(&inner).as_deref(), Some("gpui-g2"));
+        std::fs::write(root.join("repo/.git/HEAD"), "9983a68f00d1\n").expect("writing a scratch file");
+        assert_eq!(git_branch(&inner).as_deref(), Some("9983a68"));
+        std::fs::remove_dir_all(&root).expect("removing the scratch folder");
     }
 
     #[test]

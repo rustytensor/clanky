@@ -99,6 +99,8 @@ pub struct GridElement {
     pub selection: Vec<(usize, usize, usize)>,
     pub focus: FocusHandle,
     pub metrics: Rc<Shared<Metrics>>,
+    /// False while another place (the command input) has the caret.
+    pub show_cursor: bool,
 }
 
 struct SnapshotCell<'a> {
@@ -276,7 +278,9 @@ impl Element for GridElement {
         for run in &layout.runs {
             self.paint_run(run, m, window, cx);
         }
-        self.paint_cursor(m, window, cx);
+        if self.show_cursor {
+            self.paint_cursor(m, window, cx);
+        }
     }
 }
 

@@ -270,7 +270,7 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn set_access(&mut self, id: &str, allowed: bool, cx: &mut Context<Self>) {
+    pub(super) fn set_access(&mut self, id: &str, allowed: bool, cx: &mut Context<Self>) {
         self.notice = self
             .client
             .set_agent_permission(id, allowed)

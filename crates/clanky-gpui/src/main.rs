@@ -105,15 +105,6 @@ fn parse_size(text: &str) -> Result<(f32, f32), String> {
     Ok((number(w)? as f32, number(h)? as f32))
 }
 
-/// Classic input for every pane, whatever the config says: this window draws no command input yet, and in editor
-/// mode the session server hides the shell's prompt for the command input to replace it, which leaves a blank pane.
-fn startup_overrides() -> StartupOverrides {
-    StartupOverrides {
-        classic_input: true,
-        ..StartupOverrides::default()
-    }
-}
-
 fn parse_arguments() -> Result<Arguments, String> {
     let mut args = Arguments {
         server: false,
@@ -121,7 +112,7 @@ fn parse_arguments() -> Result<Arguments, String> {
         config: None,
         size: DEFAULT_SIZE,
         exec: None,
-        overrides: startup_overrides(),
+        overrides: StartupOverrides::default(),
     };
     let mut items = std::env::args().skip(1);
     while let Some(item) = items.next() {
@@ -306,6 +297,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         tools_open: config.tools_panel,
         tools: config.tools.clone(),
         agent_programs: config.agents.clone(),
+        command_input: args.overrides.editor_mode(&config),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -364,7 +356,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clanky::config::CommandInput;
 
     #[test]
     fn the_terminal_text_defaults_to_the_rulebooks_font() {
@@ -384,16 +375,5 @@ mod tests {
             (all.family.as_ref(), all.size, all.line_height),
             ("IBM Plex Mono", 16.0, 1.3)
         );
-    }
-
-    #[test]
-    fn panes_show_the_shell_prompt_whatever_the_config_says() {
-        let config = Config::default();
-        assert_eq!(config.command_input, CommandInput::Editor);
-        assert!(StartupOverrides::default().editor_mode(&config));
-        assert!(!startup_overrides().editor_mode(&config));
-        let mut applied = config.clone();
-        startup_overrides().apply(&mut applied);
-        assert_eq!(applied.command_input, CommandInput::Classic);
     }
 }

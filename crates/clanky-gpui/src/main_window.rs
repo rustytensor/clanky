@@ -28,6 +28,7 @@ use gpui::{
 };
 use serde_json::{Value, json};
 
+mod command_bar;
 mod drag;
 mod tools;
 
@@ -38,9 +39,10 @@ use crate::{
     icons::Icon,
     link::Link,
     palette::Palette,
-    pane::{PaneEvent, PaneSetup, SharedTrace, TerminalPane},
+    pane::{PaneEvent, PaneSetup, SharedInput, SharedTrace, TerminalPane},
     tokens as t,
 };
+use command_bar::{Chips, read_chips};
 use drag::{Drag, Places};
 use tools::{Tools, ToolsData, ToolsQuery, read_tools};
 
@@ -68,6 +70,8 @@ struct Status {
     agents: usize,
     /// What the tools panel shows.
     tools: ToolsData,
+    /// Each pane's command input chips.
+    chips: BTreeMap<String, Chips>,
 }
 
 pub struct WindowSetup {
@@ -84,6 +88,8 @@ pub struct WindowSetup {
     pub tools_open: bool,
     pub tools: Vec<clanky::config::Tool>,
     pub agent_programs: Vec<clanky::config::AgentTool>,
+    /// Each terminal pane shows a command input (the config's editor mode); off, panes show the shell's prompt.
+    pub command_input: bool,
 }
 
 pub struct MainWindow {
@@ -105,6 +111,8 @@ pub struct MainWindow {
     drag: Option<Drag>,
     places: Places,
     tools: Tools,
+    /// What the panes' command inputs share; None with the classic input.
+    inputs: Option<SharedInput>,
     _status: Task<()>,
 }
 
@@ -113,19 +121,25 @@ impl MainWindow {
         let status = cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(STATUS_INTERVAL).await;
-                let Ok((client, ids, query)) = this.update_in(cx, |this, window, cx| {
+                let Ok((client, ids, query, inputs)) = this.update_in(cx, |this, window, cx| {
                     let focused = this.focused_pane(window, cx);
+                    let inputs: Vec<String> = if this.inputs.is_some() {
+                        this.panes.keys().cloned().collect()
+                    } else {
+                        Vec::new()
+                    };
                     (
                         this.client.clone(),
                         this.tab_focuses(),
                         this.tools_query(focused),
+                        inputs,
                     )
                 }) else {
                     break;
                 };
                 let status = cx
                     .background_executor()
-                    .spawn(async move { read_status(&client, &ids, &query) })
+                    .spawn(async move { read_status(&client, &ids, &inputs, &query) })
                     .await;
                 let applied = this.update_in(cx, |this, window, cx| {
                     let moved = status.revision != this.workspace.revision;
@@ -163,6 +177,7 @@ impl MainWindow {
             drag: None,
             places: Places::default(),
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
+            inputs: setup.command_input.then(SharedInput::new),
             _status: status,
         };
         this.after_change(window, cx);
@@ -214,6 +229,7 @@ impl MainWindow {
             palette: self.palette.clone(),
             colors: self.colors.clone(),
             record: self.kit.record().clone(),
+            input: self.inputs.clone(),
             text: self.text.clone(),
             size_sent: (0, 0),
             link,
@@ -538,7 +554,7 @@ impl MainWindow {
 
     /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, the
     /// pane gap between them.
-    fn panes_area(&self, scale: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn panes_area(&self, scale: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let area = div()
             .flex()
             .flex_1()
@@ -549,8 +565,15 @@ impl MainWindow {
             return area.into_any_element();
         };
         let mut index = 0;
-        area.child(self.layout_element(&group.layout, 1.0, (Vec::new(), &mut index), scale, cx))
-            .into_any_element()
+        area.child(self.layout_element(
+            &group.layout,
+            1.0,
+            (Vec::new(), &mut index),
+            scale,
+            window,
+            cx,
+        ))
+        .into_any_element()
     }
 
     fn layout_element(
@@ -559,6 +582,7 @@ impl MainWindow {
         share: f32,
         place: (Vec<bool>, &mut u32),
         scale: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (path, index) = place;
@@ -582,7 +606,15 @@ impl MainWindow {
                             .border(px(t::hairline(scale)))
                             .border_color(paint(self.colors.border, 1.0))
                             .bg(crate::grid_element::colour(self.palette.background))
-                            .children(self.panes.get(id).map(|pane| pane.0.clone())),
+                            .flex_col()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .children(self.panes.get(id).map(|pane| pane.0.clone())),
+                            )
+                            .children(self.command_bar(id, *index, window, cx)),
                     )
                     .child(self.kit.record().landmark("pane", *index));
                 *index += 1;
@@ -603,9 +635,16 @@ impl MainWindow {
                 first_path.push(false);
                 let mut second_path = path.clone();
                 second_path.push(true);
-                let first = self.layout_element(first, ratio, (first_path, index), scale, cx);
-                let second =
-                    self.layout_element(second, 1.0 - ratio, (second_path, index), scale, cx);
+                let first =
+                    self.layout_element(first, ratio, (first_path, index), scale, window, cx);
+                let second = self.layout_element(
+                    second,
+                    1.0 - ratio,
+                    (second_path, index),
+                    scale,
+                    window,
+                    cx,
+                );
                 room.relative()
                     .child(first)
                     .child(Self::divider(path.clone(), *axis, cx))
@@ -732,7 +771,7 @@ impl Render for MainWindow {
                     .flex_1()
                     .min_h_0()
                     .children(self.tools_panel(window, cx))
-                    .child(self.panes_area(scale, cx)),
+                    .child(self.panes_area(scale, window, cx)),
             )
             .child(self.status_line(scale))
             .children(self.drag_listener(cx))
@@ -795,7 +834,12 @@ pub fn interface_theme(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Result
 
 /// One look at the server for the status line and the tab titles. A failed request leaves its part empty: the
 /// window keeps working, and the status line says only what it knows.
-fn read_status(client: &Client, focuses: &[String], query: &ToolsQuery) -> Status {
+fn read_status(
+    client: &Client,
+    focuses: &[String],
+    inputs: &[String],
+    query: &ToolsQuery,
+) -> Status {
     let look = client
         .exchange(3, "look_state", &json!({}))
         .unwrap_or(Value::Null);
@@ -813,6 +857,7 @@ fn read_status(client: &Client, focuses: &[String], query: &ToolsQuery) -> Statu
         masking_ready: look["masking_ready"].as_bool().unwrap_or(false),
         agents: look["agents"].as_array().map_or(0, Vec::len),
         tools: read_tools(client, &look, query),
+        chips: read_chips(client, inputs),
     }
 }
 
