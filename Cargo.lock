@@ -2361,7 +2361,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2436,7 +2436,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_apple"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "block",
@@ -2462,7 +2462,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_collections"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "gpui_ce_util",
  "indexmap",
@@ -2472,7 +2472,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_derive_refineable"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2482,7 +2482,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_linux"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2531,7 +2531,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_macos"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2583,7 +2583,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_macros"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -2594,7 +2594,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_media"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -2608,7 +2608,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_parley"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "fontique",
@@ -2622,7 +2622,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_platform"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "console_error_panic_hook",
  "gpui-ce",
@@ -2636,7 +2636,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_refineable"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "gpui_ce_derive_refineable",
 ]
@@ -2644,7 +2644,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_render"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "gpui-ce",
@@ -2661,7 +2661,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_scheduler"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "async-task",
  "backtrace",
@@ -2676,7 +2676,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_shared_string"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "schemars",
  "serde",
@@ -2686,7 +2686,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_sum_tree"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "heapless",
  "log",
@@ -2697,7 +2697,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_util"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "log",
@@ -2707,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_web"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2732,7 +2732,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_wgpu"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.0",
@@ -2764,7 +2764,7 @@ dependencies = [
 [[package]]
 name = "gpui_ce_windows"
 version = "0.4.0"
-source = "git+https://git.servorra.com/servorra/gpui-ce?rev=f388375d03e63d75811fa1cca3a563203b920d98#f388375d03e63d75811fa1cca3a563203b920d98"
+source = "git+https://git.servorra.com/servorra/gpui-ce?rev=2c9b682a7a2d629892afe8bb0e155d393ad395ad#2c9b682a7a2d629892afe8bb0e155d393ad395ad"
 dependencies = [
  "accesskit",
  "accesskit_windows",
