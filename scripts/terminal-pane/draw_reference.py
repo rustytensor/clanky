@@ -5,7 +5,7 @@ Usage: python3 scripts/terminal-pane/draw_reference.py EXPECTED.json OUT.png [--
                                             [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 The picture lets check_cells.py be shown to pass on a correct image and to fail on broken ones. Faults: drift,
-background, nounderline, boxgap, halfblock. Glyphs are drawn at their
+late (one glyph 1 px right of its cell), background, nounderline, boxgap, halfblock. Glyphs are drawn at their
 cell's left edge on the cell's baseline from expected.py; block elements are exact rectangles, as a renderer draws
 them.
 """
@@ -44,7 +44,7 @@ HALF_BLOCKS = {
     "█": (0, 0, 1, 1),
 }
 HALFBLOCK_FAULT_FILL = 0.6
-FAULTS = ("drift", "background", "nounderline", "boxgap", "halfblock")
+FAULTS = ("drift", "late", "background", "nounderline", "boxgap", "halfblock")
 CURSOR_COLOUR = (230, 230, 230)
 CURSOR_STRIP_LOGICAL_PX = 2
 
@@ -244,6 +244,8 @@ def main():
             pen = left + (cell["width"] - size_px) / 2 if ord(char) >= 0x3000 else left
             if arguments.fault == "drift" and cell["row"] == 0:
                 pen = origin_x + cell["col"] * round(cell_width)
+            if arguments.fault == "late" and cell["row"] == 0 and cell["col"] == 42:
+                pen += 1
             draw_glyph(image, char, font_path, pen, baseline, colour, size_px)
         if "underline" in attributes and arguments.fault != "nounderline":
             centre = baseline + UNDERLINE_BELOW_BASELINE * scale

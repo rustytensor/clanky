@@ -262,7 +262,7 @@ def check_placement(shot, cells, font, theme_background, selection=None):
         right_window = [
             x
             for x in span(left, right + PLACEMENT_WINDOW_PX)
-            if x < math.floor(next_start)
+            if x < math.floor(next_start - PLACEMENT_TOLERANCE_PX)
         ]
         measured_right = right_edge(
             shot, right_window, span(top, bottom), background, full_scale
