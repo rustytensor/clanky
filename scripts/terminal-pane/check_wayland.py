@@ -12,6 +12,10 @@ Usage:
   python3 check_wayland.py draw-default OUT.png [--stage input|typed|output] [--fault typed-not-sent]
                                                           the default window as it should look at each stage
   python3 check_wayland.py window                          reads `swaymsg -t get_tree` JSON on stdin, prints "X Y W H SHELL"
+  python3 check_wayland.py app-id                          reads `swaymsg -t get_tree` JSON on stdin: the window's app_id is "clanky"
+  python3 check_wayland.py wm-class                        reads `xprop WM_CLASS` output on stdin: the class is "clanky"
+  python3 check_wayland.py draw-tree OUT.json [--fault app-id-unset]    a sway tree with one window, or one without an app_id
+  python3 check_wayland.py draw-xprop OUT.txt [--fault app-id-unset]    xprop's answer for the window, or "not found"
 
 The default window (command input, two panes, tools panel) is read by its own layout, from the rulebook and not from
 the program: the focused pane is the lower one, its command bar's hairline lies 75 px above the pane's inside bottom
@@ -26,6 +30,7 @@ therefore finds the word wherever the shell's prompt puts it. Output is "ok: ...
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -426,6 +431,7 @@ def command_draw(arguments):
     return 0
 
 
+APP_ID = "clanky"  # the window's application id: the desktop file's StartupWMClass and the icon name
 DEFAULT_WINDOW_SIZE = (1280, 720)
 PANE_LEFT, PANE_RIGHT = (
     245,
@@ -498,6 +504,62 @@ class Image_shot:
         self.width, self.height = image.size
 
 
+def command_app_id(_arguments):
+    window = find_window(json.load(sys.stdin))
+    if window is None:
+        print("FAIL: wayland sway shows no window to read an app_id from")
+        return 1
+    app_id = window.get("app_id")
+    if app_id != APP_ID:
+        print(f"FAIL: wayland the window's app_id is {app_id!r}, {APP_ID!r} expected")
+        return 1
+    print(f"ok: wayland the window's app_id is {APP_ID!r}")
+    return 0
+
+
+def command_wm_class(_arguments):
+    text = sys.stdin.read().strip()
+    match = re.fullmatch(r'WM_CLASS\(STRING\) = "([^"]*)", "([^"]*)"', text)
+    if not match:
+        print(f"FAIL: x11 WM_CLASS is not set on the window (xprop said {text!r})")
+        return 1
+    if match.groups() != (APP_ID, APP_ID):
+        print(
+            f"FAIL: x11 WM_CLASS is {match.groups()!r}, ({APP_ID!r}, {APP_ID!r}) expected"
+        )
+        return 1
+    print(f"ok: x11 WM_CLASS is {APP_ID!r}")
+    return 0
+
+
+def command_draw_tree(arguments):
+    window = {
+        "type": "con",
+        "pid": 4242,
+        "shell": "xdg_shell",
+        "rect": {"x": 0, "y": 0, "width": 1280, "height": 720},
+        "nodes": [],
+    }
+    if arguments.fault != "app-id-unset":
+        window["app_id"] = APP_ID
+    else:
+        window["app_id"] = None
+    arguments.out.write_text(
+        json.dumps({"nodes": [window], "floating_nodes": []}), encoding="utf-8"
+    )
+    return 0
+
+
+def command_draw_xprop(arguments):
+    text = (
+        "WM_CLASS:  not found."
+        if arguments.fault == "app-id-unset"
+        else f'WM_CLASS(STRING) = "{APP_ID}", "{APP_ID}"'
+    )
+    arguments.out.write_text(text + "\n", encoding="utf-8")
+    return 0
+
+
 def find_window(node):
     """The first window in sway's tree: a leaf with a pid and a shell."""
     if (
@@ -549,6 +611,12 @@ def main():
     )
     default.add_argument("--fault", choices=["typed-not-sent"])
     commands.add_parser("window")
+    commands.add_parser("app-id")
+    commands.add_parser("wm-class")
+    for name in ("draw-tree", "draw-xprop"):
+        drawing = commands.add_parser(name)
+        drawing.add_argument("out", type=Path)
+        drawing.add_argument("--fault", choices=["app-id-unset"])
     arguments = parser.parse_args()
     handlers = {
         "prompt": command_prompt,
@@ -558,6 +626,10 @@ def main():
         "typed": command_typed,
         "output": command_output,
         "draw-default": command_draw_default,
+        "app-id": command_app_id,
+        "wm-class": command_wm_class,
+        "draw-tree": command_draw_tree,
+        "draw-xprop": command_draw_xprop,
         "window": command_window,
     }
     sys.exit(handlers[arguments.command](arguments))

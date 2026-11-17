@@ -64,6 +64,9 @@ use crate::{
 };
 
 const TITLE: &str = "clanky-gpui";
+/// The window's application id: xdg_toplevel app_id on Wayland, WM_CLASS on X11. It matches the desktop file's
+/// StartupWMClass and the icon name, so a panel or taskbar finds the entry and the icon for the window.
+const APP_ID: &str = "clanky";
 const DEFAULT_SIZE: (f32, f32) = (1240.0, 760.0);
 
 /// The bundled fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt, OFL-Geist.txt and OFL-Inter.txt):
@@ -319,6 +322,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
             title: Some(TITLE.into()),
             ..TitlebarOptions::default()
         }),
+        app_id: Some(APP_ID.into()),
         ..WindowOptions::default()
     };
     cx.open_window(options, |window, cx| {

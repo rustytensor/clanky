@@ -6,6 +6,8 @@
 # Check 9, defaults: the same with the config a user has (the command input and two panes): ink in the input line before
 #   typing, the typed line in it, and after Enter g1-ok twice in the focused pane (its block's command row and the
 #   output). Check 9 above is the classic one-pane run.
+# Check 9 also reads the window's app_id from sway's tree: "clanky". Check 11: the same window on a private Xvfb, no
+#   Wayland: xprop's WM_CLASS is "clanky", "clanky".
 # Check 10: the same start with a runtime folder that has the setgid bit either opens a window that takes the same
 #   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
@@ -16,6 +18,8 @@
 # Tools: sway, swaymsg, wtype (types through the virtual keyboard protocol), grim (screenshots), python3 with Pillow.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# shellcheck source=../private-display.sh
+source scripts/private-display.sh
 
 CHECK_DIR=scripts/terminal-pane
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}
@@ -100,11 +104,31 @@ if [[ ${1:-} == --faults ]]; then
   else
     echo "CAUGHT: typed text never reaching the shell (the default window's output check): $output"
   fi
+  python3 "$CHECK_DIR/check_wayland.py" draw-tree "$scratch/tree-good.json"
+  python3 "$CHECK_DIR/check_wayland.py" draw-tree "$scratch/tree-fault.json" --fault app-id-unset
+  python3 "$CHECK_DIR/check_wayland.py" draw-xprop "$scratch/xprop-good.txt"
+  python3 "$CHECK_DIR/check_wayland.py" draw-xprop "$scratch/xprop-fault.txt" --fault app-id-unset
+  if python3 "$CHECK_DIR/check_wayland.py" app-id <"$scratch/tree-good.json" >/dev/null \
+    && python3 "$CHECK_DIR/check_wayland.py" wm-class <"$scratch/xprop-good.txt" >/dev/null; then
+    ok "reader accepts a window whose app id is clanky on Wayland and on X11"
+  else
+    fail "reader rejects a window with app id clanky"
+  fi
+  for platform in "app-id tree" "wm-class xprop"; do
+    read -r reader file <<<"$platform"
+    input="$scratch/$file-fault"
+    [[ $file == tree ]] && input+=.json || input+=.txt
+    if output=$(python3 "$CHECK_DIR/check_wayland.py" "$reader" <"$input"); then
+      fail "planted fault (app id unset) was not caught by the $reader reader"
+    else
+      echo "CAUGHT: app id unset ($reader): $output"
+    fi
+  done
   if ((failed)); then
-    echo "FAIL: wayland checks catch 0 of 2 planted faults"
+    echo "FAIL: wayland checks catch 0 of 4 planted faults"
     exit 1
   fi
-  echo "PASS: wayland checks catch all 2 planted faults"
+  echo "PASS: wayland checks catch all 4 planted faults"
   exit 0
 fi
 
@@ -272,6 +296,7 @@ check_9() {
   else
     fail "wayland (check 9): window opened after ${window_seconds}s, at most ${WINDOW_SECONDS}s expected"
   fi
+  if line=$(swaymsg -t get_tree | python3 "$CHECK_DIR/check_wayland.py" app-id); then ok "${line#ok: }"; else fail "${line#FAIL: }"; fi
   if line=$(wait_screen "$SETTLE_SECONDS" prompt); then ok "${line#ok: }"; else fail "${line#FAIL: }"; fi
   keep_shot "check-9-start"
   type_echo
@@ -305,6 +330,24 @@ check_9_default() {
   stop_server "$sway_runtime"
 }
 
+# ----------------------------------------------------------------------------------------------- check 11
+# The window's class on X11, as a panel or a window rule on an X11 session reads it: a private Xvfb, no Wayland, and
+# xprop's WM_CLASS for the window is "clanky", "clanky".
+check_11() {
+  local output status=0 line
+  fresh_state
+  mkdir -p "$scratch/app-config"
+  echo "$default_config" >"$scratch/app-config/config.json"
+  output=$(run_on_private_display 1280x720x24 bash "$CHECK_DIR/check_x11_class.sh" "$binary" "$sway_runtime" \
+    "$scratch/home" "$scratch/xdg" "$scratch/app-config/config.json") || status=$?
+  stop_server "$sway_runtime"
+  if line=$(python3 "$CHECK_DIR/check_wayland.py" wm-class <<<"$output"); then
+    ok "${line#ok: } (status $status)"
+  else
+    fail "${line#FAIL: } (status $status)"
+  fi
+}
+
 # ----------------------------------------------------------------------------------------------- check 10
 check_10() {
   local line status message
@@ -335,6 +378,7 @@ check_10() {
 
 check_9
 check_9_default
+check_11
 check_10
 if ((failed)); then
   echo "FAIL: wayland start"
