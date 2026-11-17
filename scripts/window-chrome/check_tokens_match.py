@@ -126,10 +126,39 @@ def rulebook_pairs(book):
                 name,
             )
         )
+    controls = book["controls"]
+    pairs += [
+        (
+            "field height",
+            controls["field"]["height"]["px"],
+            controls["field"]["height"]["src"],
+            "FIELD_HEIGHT",
+        ),
+        (
+            "switch height",
+            controls["switch"]["height"]["px"],
+            controls["switch"]["height"]["src"],
+            "SWITCH_CONTROL_HEIGHT",
+        ),
+        (
+            "switch width",
+            controls["switch"]["width"]["px"],
+            controls["switch"]["width"]["src"],
+            "SWITCH_CONTROL_WIDTH",
+        ),
+        (
+            "segment height",
+            controls["segment"]["height"]["px"],
+            controls["segment"]["height"]["src"],
+            "SEGMENT_HEIGHT",
+        ),
+    ]
     pane = book["pane"]
     pairs += [
         ("pane gap", pane["gap"]["px"], pane["gap"]["src"], "PANE_GAP"),
         ("pane padding", pane["padding"]["px"], pane["padding"]["src"], "PANE_PADDING"),
+        # The token module has one constant for the gap between panes and the window's edge too.
+        ("pane margin", pane["margin"]["px"], pane["margin"]["src"], "PANE_GAP"),
         (
             "side column width",
             pane["side_column_width"]["px"],
@@ -394,6 +423,10 @@ def compare_themes(book, branch):
             "foreground",
             "muted_foreground",
             "err",
+            "pressed",
+            "ring",
+            "primary",
+            "primary_pressed",
         ):
             if theme[role].lower() != expected[role]["hex"]:
                 lines.append(
@@ -410,10 +443,6 @@ def compare_themes(book, branch):
         if "selection" not in theme:
             lines.append(
                 f"ONLY IN RULEBOOK: {name} selection {expected['selection']['hex']} ({expected['selection']['src']}), theme file has no selection role"
-            )
-        for role in ("pressed", "ring", "primary", "primary_pressed"):
-            lines.append(
-                f"RULEBOOK SILENT: {name} {role}: theme file has {theme[role]}"
             )
     return lines
 

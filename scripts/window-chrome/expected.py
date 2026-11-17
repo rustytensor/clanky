@@ -24,6 +24,7 @@ FONT_FILES = {
     600: REPO_ROOT / "assets/fonts/Inter-SemiBold.ttf",
 }
 CAP_GLYPH = "H"
+NO_TEXT_KINDS = ("switch", "icon-button")  # no label of their own (rulebook:227)
 
 
 def load_tokens():
@@ -86,6 +87,10 @@ def measure(logical, scale, tolerance, src):
     }
 
 
+def tokens_focus_alpha():
+    return load_tokens()["states"]["focus"]["ring_alpha"]
+
+
 def theme_colours(theme):
     colours = {}
     for role in (
@@ -96,6 +101,10 @@ def theme_colours(theme):
         "muted_foreground",
         "err",
         "selection",
+        "pressed",
+        "ring",
+        "primary",
+        "primary_pressed",
     ):
         colours[role] = {"hex": theme[role]["hex"], "src": theme[role]["src"]}
     background = hex_to_rgb(theme["background"]["hex"])
@@ -108,6 +117,17 @@ def theme_colours(theme):
         ),
         "rule": f"background with {border['over']} at {border['alpha']:.0%}",
         "src": border["src"],
+    }
+    colours["focus_ring_over_card"] = {
+        "hex": rgb_to_hex(
+            blend(
+                card,
+                hex_to_rgb(theme["ring"]["hex"]),
+                tokens_focus_alpha(),
+            )
+        ),
+        "rule": "card with ring at the focus ring's alpha",
+        "src": theme["ring"]["src"],
     }
     colours["frame"] = {
         "hex": rgb_to_hex(
@@ -185,6 +205,9 @@ def chrome_values(tokens, scale):
         "pane_padding": measure(
             pane["padding"]["px"], scale, edge, pane["padding"]["src"]
         ),
+        "pane_margin": measure(
+            pane["margin"]["px"], scale, edge, pane["margin"]["src"]
+        ),
     }
     colour_tolerance = tokens["tolerance"]["colour_levels"]
     values["pane_border_alpha"] = {
@@ -219,9 +242,18 @@ def control_values(tokens, scale):
             )
         else:
             omitted.append(f"{kind}: height")
+        for extra in ("height_in_rows", "width"):
+            if extra in control:
+                entry[extra] = measure(
+                    control[extra]["px"], scale, edge, control[extra]["src"]
+                )
         if "radius" in control:
             entry["radius"] = measure(
                 control["radius"]["px"], scale, edge, control["radius"]["src"]
+            )
+        elif control.get("radius_is_half_height"):
+            entry["radius"] = measure(
+                control["height"]["px"] / 2, scale, edge, control["radius_src"]
             )
         else:
             omitted.append(f"{kind}: radius")
@@ -231,7 +263,7 @@ def control_values(tokens, scale):
             entry["text_px"] = text["px"]
             entry["text_weight"] = text["weight"]
             entry["text_src"] = control["text_src"]
-        else:
+        elif kind not in NO_TEXT_KINDS:
             omitted.append(f"{kind}: text size")
         entry["icon"] = measure(
             control["icon_px"], scale, centring, control["icon_src"]
