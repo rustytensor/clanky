@@ -7,7 +7,8 @@
 #   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
 # --faults needs no binary and no sway: it shows the screenshot reader accepting a window drawn as it should look and
-#   rejecting one whose prompt row shows only the cursor (the planted fault: command_input "editor" honoured, which shows a bare cursor).
+#   rejecting one whose prompt row shows only the cursor (the planted fault: a prompt row with no prompt drawn, as the
+#   editor input would show).
 # CLANKY_GPUI_BIN=PATH names the binary (default target/release/clanky-gpui under CARGO_TARGET_DIR).
 # Tools: sway, swaymsg, wtype (types through the virtual keyboard protocol), grim (screenshots), python3 with Pillow.
 set -euo pipefail
@@ -75,9 +76,9 @@ if [[ ${1:-} == --faults ]]; then
     fail "reader rejects a window drawn as it should look"
   fi
   if output=$(python3 "$CHECK_DIR/check_wayland.py" prompt "$scratch/fault.png"); then
-    fail "planted fault (command_input editor honoured, bare cursor) was not caught"
+    fail "planted fault (a prompt row with only the cursor) was not caught"
   else
-    echo "CAUGHT: command_input editor honoured (check 9 prompt row): $output"
+    echo "CAUGHT: a prompt row with only the cursor (check 9 prompt row): $output"
   fi
   if ((failed)); then
     echo "FAIL: wayland checks catch 0 of 1 planted faults"
@@ -144,9 +145,10 @@ launch() {
   mkdir -p "$scratch/app-config"
   # The default config but for the terminal font and size, which the screenshot reader (expected.py's cell geometry,
   # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. The tools panel is
-  # off because that geometry has no panel beside the pane. command_input is left unset, so the window starts as a
-  # user's does.
-  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "tools_panel": "off"}' \
+  # off and the window opens one pane because that geometry is one pane with no panel beside it. The input is the
+  # classic one, where the shell draws its prompt row: these checks prove the native Wayland window and its typing,
+  # and the command input that is the default since G2 has its own gate (q2-input).
+  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "tools_panel": "off", "new_window_panes": 1, "command_input": "classic"}' \
     >"$scratch/app-config/config.json"
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME="$scratch/home" WAYLAND_DISPLAY="$2" XDG_RUNTIME_DIR="$1" XDG_CONFIG_HOME="$scratch/xdg/config" \
