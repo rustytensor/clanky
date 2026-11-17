@@ -212,6 +212,9 @@ impl Default for Config {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StartupOverrides {
     pub post_ai: bool,
+    /// Every pane shows the shell's own prompt whatever `command_input` says, for a window that draws no command
+    /// input of its own; with editor mode its panes would show no prompt at all.
+    pub classic_input: bool,
 }
 impl StartupOverrides {
     /// True means the flag was consumed; unknown arguments remain with the caller.
@@ -222,6 +225,11 @@ impl StartupOverrides {
     }
     pub fn apply(&self, config: &mut Config) {
         config.post_ai |= self.post_ai;
+        if self.classic_input { config.command_input = CommandInput::Classic; }
+    }
+    /// Whether the session server runs its panes in editor mode (no shell prompt) for this config.
+    pub fn editor_mode(&self, config: &Config) -> bool {
+        !self.classic_input && config.command_input == CommandInput::Editor
     }
 }
 

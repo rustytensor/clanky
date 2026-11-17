@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
+from gpui_coverage import corrected_mask
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -90,6 +91,9 @@ class Shot:
         return self.background
 
     def difference(self, x, y, reference):
+        """Largest channel difference from REFERENCE: a colour, or a function giving the colour at (x, y)."""
+        if callable(reference):
+            reference = reference(x, y)
         return max(abs(a - b) for a, b in zip(self.get(x, y), reference))
 
     def is_ink(self, x, y, reference):
@@ -196,15 +200,50 @@ def top_edge(shot, xs, ys, background, full_scale):
     return None
 
 
-def check_placement(shot, cells, font, theme_background):
+def parse_selection(argument):
+    """ROW,COL_FROM,COL_TO,#rrggbb as (row, first, last, colour), or None."""
+    if not argument:
+        return None
+    row, first, last, colour_text = argument.split(",")
+    return int(row), int(first), int(last), hex_to_rgb(colour_text)
+
+
+def selected(cell, selection):
+    if not selection:
+        return False
+    row, first, last, _ = selection
+    return cell["row"] == row and first <= cell["col"] <= last
+
+
+def ground_at(cells, theme_background, selection):
+    """The colour ink is measured against at each pixel: the selection colour on the selected cells' pixels (a pixel
+    belongs to a cell when its centre lies inside it), the theme background everywhere else."""
+    chosen = [cell for cell in cells if selected(cell, selection)]
+    if not chosen:
+        return theme_background
+    left, top = math.ceil(chosen[0]["left"] - 0.5), math.ceil(chosen[0]["top"] - 0.5)
+    last = chosen[-1]
+    right = math.ceil(last["left"] + last["width"] - 0.5)
+    bottom = math.ceil(last["top"] + last["height"] - 0.5)
+    colour = selection[3]
+    return (
+        lambda x, y: colour
+        if left <= x < right and top <= y < bottom
+        else theme_background
+    )
+
+
+def check_placement(shot, cells, font, theme_background, selection=None):
     worst_error, worst_column = 0.0, None
     missing, column_199 = [], None
     top_worst = 0.0
     row_cells = [cell for cell in cells if cell["row"] == 0]
     previous_ink_end = -1000.0
+    background = ground_at(row_cells, theme_background, selection)
     for index, cell in enumerate(row_cells):
         left, top, right, bottom = cell_box(cell)
-        full_scale = max(colour_distance(hex_to_rgb(cell["fg"]), theme_background), 1)
+        under = selection[3] if selected(cell, selection) else theme_background
+        full_scale = max(colour_distance(hex_to_rgb(cell["fg"]), under), 1)
         expected = left + font.left_bearing(cell["char"])
         # The pixels holding the previous glyph's own right edge are not this glyph's ink.
         window = [
@@ -213,9 +252,7 @@ def check_placement(shot, cells, font, theme_background):
             if x > math.floor(previous_ink_end)
         ]
         previous_ink_end = left + font.right_extent(cell["char"])
-        measured = left_edge(
-            shot, window, span(top, bottom), theme_background, full_scale
-        )
+        measured = left_edge(shot, window, span(top, bottom), background, full_scale)
         # The right edge is measured too, so that a different glyph standing where this one belongs is not taken for it.
         next_start = (
             row_cells[index + 1]["left"]
@@ -226,10 +263,10 @@ def check_placement(shot, cells, font, theme_background):
         right_window = [
             x
             for x in span(left, right + PLACEMENT_WINDOW_PX)
-            if x < math.floor(next_start)
+            if x < math.floor(next_start - PLACEMENT_TOLERANCE_PX)
         ]
         measured_right = right_edge(
-            shot, right_window, span(top, bottom), theme_background, full_scale
+            shot, right_window, span(top, bottom), background, full_scale
         )
         if measured is None or measured_right is None:
             missing.append(cell["col"])
@@ -246,9 +283,9 @@ def check_placement(shot, cells, font, theme_background):
         if cell["char"] == "W":
             xs = span(left + font.left_bearing("W"), left + font.right_extent("W"))
             observed_top = top_edge(
-                shot, xs, span(top - 2, bottom), theme_background, full_scale
+                shot, xs, span(top - 2, bottom), background, full_scale
             )
-            expected_top = top + font.ascender - font.top_extent("W")
+            expected_top = cell["baseline"] - font.top_extent("W")
             top_error = (
                 math.inf if observed_top is None else abs(observed_top - expected_top)
             )
@@ -343,12 +380,12 @@ def word_measurements(shot, word, font, theme_background, foreground):
     left, top, _, bottom = cell_box(word[0])
     right = cell_box(word[-1])[2]
     xs = span(left, right)
-    baseline = top + font.ascender
+    baseline = word[0]["baseline"]
     height = bottom - top
     below = [
         y
         for y in span(top + (1 - UNDERLINE_BAND_FRACTION) * height, bottom)
-        if y > math.floor(baseline)
+        if y >= math.ceil(baseline)  # rows wholly below the baseline
     ]
     line_rows = {
         y
@@ -372,7 +409,8 @@ def word_measurements(shot, word, font, theme_background, foreground):
         covered >= UNDERCURL_COLUMN_FRACTION * len(xs) and wave >= UNDERCURL_MIN_WAVE_PX
     )
     underline = underline_run and not undercurl
-    letter_rows = [y for y in span(top, math.floor(baseline) + 1) if y not in line_rows]
+    # Rows with any part above the baseline: up to the row holding it, or the row above a whole-pixel baseline.
+    letter_rows = [y for y in span(top, math.ceil(baseline)) if y not in line_rows]
     ink_count = sum(
         1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background)
     )
@@ -393,24 +431,31 @@ def word_measurements(shot, word, font, theme_background, foreground):
 
 
 def regular_reference(word, font, theme_background, foreground):
-    """The same letters drawn regular at this size, measured the way the screenshot's word is: ink count and slant."""
+    """The same letters drawn regular at this size, measured the way the screenshot's word is: ink count and slant.
+    Their coverage goes through gpui-ce's text curve, so a regular word in the window and here carry the same ink."""
     left, top = cell_box(word[0])[0], word[0]["top"]
     right, bottom = cell_box(word[-1])[2], cell_box(word[0])[3]
     origin_x, origin_y = math.floor(left) - 2, math.floor(top) - 2
     width, height = math.ceil(right) - origin_x + 4, math.ceil(bottom) - origin_y + 4
     factor = REFERENCE_SUPERSAMPLE
-    big = Image.new("RGB", (width * factor, height * factor), theme_background)
+    big = Image.new("L", (width * factor, height * factor), 0)
     big_font = ImageFont.truetype(str(FONT_REGULAR), font.size * factor)
     draw = ImageDraw.Draw(big)
     for cell in word:
         position = (
             (cell["left"] - origin_x) * factor,
-            (top + font.ascender - origin_y) * factor,
+            (word[0]["baseline"] - origin_y) * factor,
         )
-        draw.text(position, cell["char"], font=big_font, fill=foreground, anchor="ls")
-    shot = Shot(big.resize((width, height), Image.BOX), theme_background)
+        draw.text(position, cell["char"], font=big_font, fill=255, anchor="ls")
+    picture = Image.new("RGB", (width, height), theme_background)
+    picture.paste(
+        foreground,
+        (0, 0),
+        corrected_mask(big.resize((width, height), Image.BOX), foreground),
+    )
+    shot = Shot(picture, theme_background)
     xs = span(left - origin_x, right - origin_x)
-    letter_rows = list(range(math.floor(top + font.ascender) - origin_y + 1))
+    letter_rows = list(range(math.ceil(word[0]["baseline"]) - origin_y))
     ink = sum(1 for x in xs for y in letter_rows if shot.is_ink(x, y, theme_background))
     return ink, italic_shift(shot, xs, letter_rows, theme_background)
 
@@ -636,7 +681,16 @@ def main():
     cells, scale = expected["cells"], expected["scale"]
     font = Font(scale)
     results = [
-        ("placement", *check_placement(shot, cells, font, theme_background)),
+        (
+            "placement",
+            *check_placement(
+                shot,
+                cells,
+                font,
+                theme_background,
+                parse_selection(arguments.selection),
+            ),
+        ),
         ("colours", *check_colours(shot, cells, theme_background)),
         ("attributes", *check_attributes(shot, cells, font, scale, theme_background)),
         ("wide", *check_wide(shot, cells, theme_background)),

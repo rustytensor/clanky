@@ -52,6 +52,24 @@ def round_half_up(value):
     return math.floor(value + 0.5)
 
 
+def round_half_toward_zero(value):
+    return math.copysign(math.ceil(abs(value) - 0.5), value)
+
+
+def load_ascender(scale):
+    """The hhea ascender in device pixels, not rounded."""
+    font = TTFont(FONT_FILE)
+    return font["hhea"].ascent / font["head"].unitsPerEm * FONT_SIZE_LOGICAL_PX * scale
+
+
+def baseline_of(top, ascender):
+    """A row's baseline on its whole device pixel. gpui-ce has one vertical sub-pixel variant
+    (SUBPIXEL_VARIANTS_Y = 1, crates/gpui/src/text_system/mod.rs:43), so quantize_glyph_origin
+    (crates/gpui/src/window.rs:82-93) puts every glyph origin on a whole pixel with round_half_toward_zero
+    (crates/gpui/src/util.rs:142); rows already start on whole pixels by the grid's design."""
+    return round_half_toward_zero(top + ascender)
+
+
 def fixture_rows(theme):
     """Each row is a list of (text, width in cells, fg, bg, attrs); a text of one cell per character unless wide."""
     foreground = theme["colors"]["foreground"]
@@ -86,6 +104,7 @@ def build(scale):
     theme = json.loads(THEME_FILE.read_text(encoding="utf-8"))
     cell_width = load_cell_width(scale)
     line_height = round_half_up(FONT_SIZE_LOGICAL_PX * LINE_HEIGHT_FACTOR * scale)
+    ascender = load_ascender(scale)
     x0 = y0 = math.floor(PANE_PADDING_LOGICAL_PX * scale)
     cells = []
     for row, items in enumerate(fixture_rows(theme)):
@@ -100,6 +119,7 @@ def build(scale):
                         "char": char,
                         "left": x0 + column * cell_width,
                         "top": y0 + row * line_height,
+                        "baseline": baseline_of(y0 + row * line_height, ascender),
                         "width": width * cell_width,
                         "height": line_height,
                         "fg": fg,

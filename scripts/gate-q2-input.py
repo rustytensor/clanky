@@ -218,7 +218,7 @@ class Win(q1.Win):
         self.sock = self.w / 'window.sock'
         self.err = self.w / 'window.err'
         p = subprocess.Popen([str(APP), '--socket', str(self.sock), '--config', str(self.config)], env=env,
-                             cwd=str(self.home), stdout=subprocess.DEVNULL, stderr=self.err.open('wb'))
+                             cwd=str(self.home), stdout=subprocess.DEVNULL, stderr=t2.gate_app.window_log(self.err))
         self.procs.append(p)
         self.p = p
         try:

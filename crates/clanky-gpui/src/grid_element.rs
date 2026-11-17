@@ -11,8 +11,8 @@ use clanky_core::{
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, FocusHandle, Font, FontStyle,
     FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad,
-    Pixels, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, UnderlineStyle, Window,
-    point, px, relative, rgb_to_hsla, rgba, size,
+    Pixels, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, Window, point, px,
+    relative, rgb_to_hsla, rgba, size,
 };
 
 use crate::{
@@ -33,6 +33,9 @@ pub struct Metrics {
     pub origin_y: f32,
     pub cell_width: f32,
     pub line_height: f32,
+    /// The regular font's ascent: every row's baseline lies this far below the row's top, to the nearest
+    /// device pixel, where gpui-ce's own line layout puts it.
+    pub ascent: f32,
     pub rows: usize,
     pub cols: usize,
 }
@@ -290,6 +293,7 @@ impl GridElement {
         let line_height = (self.text.size * self.text.line_height * scale)
             .round()
             .max(1.0);
+        let ascent = f32::from(window.text_system().ascent(font_id, px(self.text.size))) * scale;
         let pad = (PANE_PADDING * scale).floor();
         let origin_x = (f32::from(bounds.origin.x) * scale).floor() + pad;
         let origin_y = (f32::from(bounds.origin.y) * scale).floor() + pad;
@@ -303,6 +307,7 @@ impl GridElement {
             origin_y,
             cell_width,
             line_height,
+            ascent,
             rows,
             cols,
         }
@@ -327,28 +332,15 @@ impl GridElement {
 
     fn paint_run(&self, run: &cells::TextRun, m: Metrics, window: &mut Window, cx: &mut App) {
         let style = run.style;
-        let thickness = m.logical(m.scale.round().max(1.0));
-        let underline = match style.underline {
-            Underline::None => None,
-            Underline::Single | Underline::Double => Some(UnderlineStyle {
-                thickness,
-                color: None,
-                wavy: false,
-            }),
-            Underline::Curly => Some(UnderlineStyle {
-                thickness,
-                color: None,
-                wavy: true,
-            }),
-        };
+        let thickness = m.scale.round().max(1.0);
         let text_run = TextRun {
             len: run.text.len(),
             font: self.font(style.bold, style.italic),
             color: colour(run.colour),
             background_color: None,
-            underline,
+            underline: None,
             strikethrough: style.strikeout.then_some(StrikethroughStyle {
-                thickness,
+                thickness: m.logical(thickness),
                 color: None,
             }),
             letter_spacing: None,
@@ -360,9 +352,10 @@ impl GridElement {
         );
         // Text starts at the cell's exact edge (not snapped): glyphs are drawn at sub-pixel positions, and the
         // gate places each glyph at column x cell width.
+        let row_top = m.y(run.row);
         let origin = point(
             m.logical(m.origin_x + run.column as f32 * m.cell_width),
-            m.logical(m.y(run.row)),
+            m.logical(row_top),
         );
         // A paint error (a glyph the rasteriser refused) leaves that run blank; the next frame tries again.
         let _ = line.paint(
@@ -373,19 +366,34 @@ impl GridElement {
             window,
             cx,
         );
-        if style.underline == Underline::Double {
-            let gap = m.scale.round().max(1.0) * 2.0;
-            let bottom = m.y(run.row) + m.line_height - gap;
-            let b = CellBox {
-                left: m.x(run.column),
-                top: bottom,
-                right: m.x(run.column + run.text.chars().count()),
-                bottom: bottom + gap / 2.0,
-            };
+        let kind = match style.underline {
+            Underline::None => return,
+            Underline::Single => glyphs::UnderlineKind::Single,
+            Underline::Double => glyphs::UnderlineKind::Double,
+            Underline::Curly => glyphs::UnderlineKind::Curly,
+        };
+        let space = glyphs::UnderlineSpace {
+            left: m.x(run.column),
+            right: m.x(run.column
+                + run
+                    .text
+                    .chars()
+                    .map(|c| if cells::is_wide(c) { 2 } else { 1 })
+                    .sum::<usize>()),
+            baseline: row_top + m.ascent,
+            bottom: m.y(run.row + 1),
+            thickness,
+            wave_origin: m.origin_x,
+            wave_period: m.cell_width,
+        };
+        for piece in glyphs::underline(kind, space) {
             window.paint_quad(filled(
                 Bounds::new(
-                    point(m.logical(b.left), m.logical(b.top)),
-                    size(m.logical(b.right - b.left), m.logical(b.bottom - b.top)),
+                    point(m.logical(piece.left), m.logical(piece.top)),
+                    size(
+                        m.logical(piece.right - piece.left),
+                        m.logical(piece.bottom - piece.top),
+                    ),
                 ),
                 colour(run.colour),
             ));

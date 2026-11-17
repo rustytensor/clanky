@@ -14,6 +14,11 @@ pub fn bytes_for(keystroke: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
     state.set(ModifiersState::CONTROL, modifiers.control);
     let key = match named(&keystroke.key) {
         Some(named) => Key::Named(named),
+        // A keysym that is itself a control character (Linefeed is U+000A) reaches gpui-ce as its Ctrl letter with
+        // no text, unlike a real letter key, which always carries its text: send the control character.
+        None if keystroke.key_char.is_none() && !modifiers.control && !modifiers.alt => {
+            return control_letter(&keystroke.key).map(|byte| vec![byte]);
+        }
         // Text keys go through the input method unless Ctrl or Alt turns them into a control sequence.
         None if !modifiers.control && !modifiers.alt => return None,
         None => Key::Character(keystroke.key.as_str().into()),
@@ -21,6 +26,14 @@ pub fn bytes_for(keystroke: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
     let text = keystroke.key_char.as_deref();
     let bytes = clanky::input::key_bytes(&key, text, state, false, app_cursor);
     (!bytes.is_empty()).then_some(bytes)
+}
+
+/// The control character a lone lower-case letter stands for (j is U+000A).
+fn control_letter(key: &str) -> Option<u8> {
+    match key.as_bytes() {
+        [letter @ b'a'..=b'z'] => Some(letter - b'a' + 1),
+        _ => None,
+    }
 }
 
 fn named(key: &str) -> Option<NamedKey> {
@@ -102,8 +115,33 @@ mod tests {
     }
 
     #[test]
+    fn a_linefeed_keysym_sends_a_line_feed() {
+        // How gpui-ce reports the X11 Linefeed keysym (what xdotool types for a newline): its Ctrl letter, no text.
+        let linefeed = Keystroke {
+            key: "j".into(),
+            key_char: None,
+            ..Keystroke::default()
+        };
+        assert_eq!(bytes_for(&linefeed, false).as_deref(), Some(&b"\n"[..]));
+        // A real J key carries its text and is left to the input method.
+        let letter = Keystroke {
+            key_char: Some("j".into()),
+            ..linefeed
+        };
+        assert_eq!(bytes_for(&letter, false), None);
+    }
+
+    /// A letter key as gpui-ce's X11 and Wayland keyboards deliver it: with the text it types.
+    fn typed(text: &str, typed: &str) -> Keystroke {
+        Keystroke {
+            key_char: Some(typed.into()),
+            ..stroke(text)
+        }
+    }
+
+    #[test]
     fn plain_text_is_left_to_the_input_method() {
-        assert_eq!(bytes_for(&stroke("a"), false), None);
-        assert_eq!(bytes_for(&stroke("shift-a"), false), None);
+        assert_eq!(bytes_for(&typed("a", "a"), false), None);
+        assert_eq!(bytes_for(&typed("shift-a", "A"), false), None);
     }
 }

@@ -337,5 +337,6 @@ if __name__ == '__main__':
     try:
         main()
     except Fail as e:
+        t2.gate_app.print_window_errors()
         print(f'FAIL: {e}')
         sys.exit(1)

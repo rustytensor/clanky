@@ -12,6 +12,7 @@ mkdir -p "$CARGO_TARGET_DIR/look" || exit 1
 work=$(mktemp -d "$CARGO_TARGET_DIR/look/m12.XXXXXXXX") || exit 1
 trap 'rm -rf -- "$work"' EXIT
 failed=0
+source scripts/private-display.sh
 run_step() {
     local name=$1; shift
     if "$@"; then echo "PASS: $name"; else local rc=$?; echo "FAIL: $name (exit $rc)" >&2; failed=1; fi
@@ -21,9 +22,9 @@ if ! flock "$CLANKY_BUILD_LOCK" cargo build --offline --locked -p clanky \
     echo 'FAIL: M12 build' >&2; exit 1
 fi
 run_step 'idle scheduler' "$CARGO_TARGET_DIR/debug/clanky-look-gate" --idle-only
-run_step 'real window idle and key echo' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-idle.py
-run_step 'real pointer and Settings checks' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-clicks.py
-run_step 'real block hover and copy API' xvfb-run -a -n 100 -s '-screen 0 1400x900x24 -nolisten tcp' python3 scripts/gate-m12-copy.py
+run_step 'real window idle and key echo' run_on_private_display 1400x900x24 python3 scripts/gate-m12-idle.py
+run_step 'real pointer and Settings checks' run_on_private_display 1400x900x24 python3 scripts/gate-m12-clicks.py
+run_step 'real block hover and copy API' run_on_private_display 1400x900x24 python3 scripts/gate-m12-copy.py
 if [[ ${CLANKY_GATE_FAULT:-} == click ]]; then
     run_step 'additional Settings clicks' env CLANKY_GATE_BINARIES_READY=1 scripts/check-settings-clicks.sh
 else

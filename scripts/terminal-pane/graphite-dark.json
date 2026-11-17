@@ -9,6 +9,7 @@
     "foreground": "#f7f7f7",
     "muted_foreground": "#a3a3a3",
     "accent": "#2a2a2a",
+    "selection": "#393939",
     "pressed": "#343434",
     "border": "#ffffff17",
     "input": "#ffffff21",

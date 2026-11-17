@@ -4,7 +4,7 @@
 #   with no --exec opens a native Wayland window within WINDOW_SECONDS, the prompt row has ink before typing, and after
 #   typing `echo g1-ok` and Enter the text g1-ok shows twice (the typed line and its output).
 # Check 10: the same start with a runtime folder that has the setgid bit either opens a window that takes the same
-#   typing, or exits 1 with one line that names the folder and the fix.
+#   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
 # --faults needs no binary and no sway: it shows the screenshot reader accepting a window drawn as it should look and
 #   rejecting one whose prompt row shows only the cursor (the planted fault: command_input "editor" honoured, which shows a bare cursor).
@@ -142,7 +142,10 @@ on_sway() {
 # XDG_RUNTIME_DIR=RUNTIME and WAYLAND_DISPLAY=SOCKET_NAME; sets app_pid and app_start (seconds).
 launch() {
   mkdir -p "$scratch/app-config"
-  echo '{}' >"$scratch/app-config/config.json"
+  # The default config but for the terminal font and size, which the screenshot reader (expected.py's cell geometry,
+  # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. command_input is
+  # left unset, so the window starts as a user's does.
+  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2}' >"$scratch/app-config/config.json"
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME="$scratch/home" WAYLAND_DISPLAY="$2" XDG_RUNTIME_DIR="$1" XDG_CONFIG_HOME="$scratch/xdg/config" \
     XDG_STATE_HOME="$scratch/xdg/state" XDG_DATA_HOME="$scratch/xdg/data" XDG_CACHE_HOME="$scratch/xdg/cache" \
@@ -196,9 +199,10 @@ wait_screen() {
   done
 }
 
+# One wtype process types the line and presses Return: each process makes its own virtual keyboard, and the first key
+# a new keyboard sends is lost, so a second process for Return left the typed line unrun in 3 of 10 runs.
 type_echo() {
-  on_sway wtype -s 500 'echo g1-ok'
-  on_sway wtype -k Return
+  on_sway wtype -s 500 'echo g1-ok' -k Return
 }
 
 # keep_shot NAME: with CLANKY_WAYLAND_SHOTS set, keeps the last screenshot there as NAME.png.
@@ -244,7 +248,7 @@ check_10() {
   launch "$setgid_runtime" "$wayland_socket"
   if wait_window "$SETTLE_SECONDS"; then
     type_echo
-    if line=$(wait_screen "$TYPE_SECONDS" text 1); then
+    if line=$(wait_screen "$TYPE_SECONDS" text 2 --exactly); then
       ok "wayland (check 10): setgid runtime folder, window opened and took typing: ${line#ok: }"
     else
       fail "wayland (check 10): setgid runtime folder, window opened but typing did not show: ${line#FAIL: }"

@@ -27,7 +27,12 @@ SPEED_RUNS=3                # runs of clanky-gpui; the medians are compared with
 SPEED_LIMIT_TIME=1.1        # check 6: cat of 100 MB at most this multiple of today's
 SPEED_LIMIT_KEY_MS=2        # key to screen p50 and p99 at most today's plus this
 SPEED_LIMIT_START=1.2       # start to first frame at most this multiple of today's
-FAULT_PAIRS=(drift:placement background:colours nounderline:attributes boxgap:wide halfblock:wide)
+FAULT_PAIRS=(drift:placement late:placement background:colours nounderline:attributes nobold:attributes boxgap:wide halfblock:wide)
+# CLANKY_GATE_FAULT=lock-leak plants the fault the gate lock check is aimed at: the windows keep the lock's file
+# descriptor and the screen steps leave their session server running, so the run must fail at the lock check
+# within LOCK_WAIT_SECONDS instead of waiting for ever. keep-server leaves only the server running: the run must go on.
+GATE_FAULT=${CLANKY_GATE_FAULT:-}
+LOCK_WAIT_SECONDS=10
 
 
 scratch=$(mktemp -d /srv/devops/build/terminal-pane-gate.XXXXXX)
@@ -79,7 +84,9 @@ fail() { echo "FAIL: $*"; failed=1; }
 # ----------------------------------------------------------------------------------------------- --faults
 if [[ ${1:-} == --faults ]]; then
   caught=0
-  expected_count=$((${#FAULT_PAIRS[@]} * ${#SCALES[@]} + 1))
+  expected_count=$(((${#FAULT_PAIRS[@]} + 1) * ${#SCALES[@]} + 1))
+  selection=0,10,30,$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["colors"]["selection"])' \
+    "$CHECK_DIR/graphite-dark.json")
   for scale in "${SCALES[@]}"; do
     python3 "$CHECK_DIR/expected.py" --scale "$scale" >"$scratch/expected-$scale.json"
     python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/reference.png"
@@ -104,6 +111,24 @@ if [[ ${1:-} == --faults ]]; then
         fi
       fi
     done
+    # Selected text is measured against the selection colour: the reference with a selection passes, and a
+    # selection drawn one cell short is caught by the selection check.
+    python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/selected.png" --selection "$selection"
+    if python3 "$CHECK_DIR/check_cells.py" "$scratch/selected.png" "$scratch/expected-$scale.json" \
+      --selection "$selection" >/dev/null; then
+      ok "reference image with a selection at scale $scale passes every check"
+    else
+      fail "reference image with a selection at scale $scale does not pass"
+    fi
+    python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/fault.png" \
+      --selection "${selection/,30,/,29,}"
+    if output=$(python3 "$CHECK_DIR/check_cells.py" "$scratch/fault.png" "$scratch/expected-$scale.json" \
+      --selection "$selection") || ! grep -q '^FAIL: selection ' <<<"$output"; then
+      fail "planted fault selection one cell short at scale $scale was not caught by the selection check"
+    else
+      echo "CAUGHT: selection one cell short at scale $scale (check selection)"
+      caught=$((caught + 1))
+    fi
   done
   if output=$(bash "$CHECK_DIR/check_engine_free.sh" --fault 2>&1) && [[ $output == *"FAIL: engine-free clanky-core depends on gpui"* ]]; then
     echo "CAUGHT: gpui-ce in clanky-core (check engine-free)"
@@ -149,7 +174,7 @@ free_display() {
 start_display() {
   local number waited=0
   number=$(free_display)
-  Xvfb ":$number" -screen 0 "$DISPLAY_SIZE" -nolisten tcp >"$scratch/xvfb-$number.log" 2>&1 &
+  Xvfb ":$number" -screen 0 "$DISPLAY_SIZE" -nolisten tcp >"$scratch/xvfb-$number.log" 2>&1 9>&- &
   pids+=($!)
   until [[ -S /tmp/.X11-unix/X$number ]]; do
     sleep 0.2
@@ -163,7 +188,7 @@ start_display() {
 }
 
 # The config's terminal colours come from the Graphite dark theme file, in the format Clanky's `terminal_colors` reads.
-# The theme has no cursor or selection role: the cursor takes the foreground and the selection the accent colour.
+# The theme has no cursor role, so the cursor takes the foreground; the selection is the theme's own selection role.
 write_config() {
   mkdir -p "$scratch/home"
   python3 - "$CHECK_DIR/graphite-dark.json" "$scratch/home/config.json" <<'PY'
@@ -175,7 +200,7 @@ config = {
     "restore_layout": False, "startup_animation": False, "history": False, "animations": False, "cursor_blink": "off",
     "terminal_colors": {
         "background": theme["background"], "foreground": theme["foreground"], "cursor": theme["foreground"],
-        "selection": theme["accent"], "ansi": colors["ansi"],
+        "selection": theme["selection"], "ansi": colors["ansi"],
     },
 }
 json.dump(config, open(sys.argv[2], "w"))
@@ -186,14 +211,25 @@ PY
 launch() {
   local scale=$1 command=$2 waited=0 folder
   for folder in runtime config state data cache; do mkdir -p "$scratch/xdg/$folder"; done
+  # Folders under /srv/devops inherit the setgid bit, and chmod 700 keeps it on a directory: the session server
+  # wants its runtime folder exactly 0700, so the bit is cleared first and the result checked.
+  chmod g-s "$scratch/xdg" "$scratch/xdg"/*
   chmod 700 "$scratch/xdg" "$scratch/xdg"/*
+  if [[ $(stat -c %a "$scratch/xdg/runtime") != 700 ]]; then
+    echo "note: isolation: runtime folder $scratch/xdg/runtime is $(stat -c %a "$scratch/xdg/runtime"), not 700"
+    return 1
+  fi
+  # The screen steps hold the gate lock on descriptor 9. The window, and the session server it starts, must not
+  # inherit it: the server outlives the window, and would hold the lock after the step ends.
+  local lock_descriptor=9
+  [[ $GATE_FAULT == lock-leak ]] && lock_descriptor=1000
   # Without WAYLAND_DISPLAY gone, gpui-ce opens the window on the user's own Wayland desktop instead of Xvfb.
   env -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME=$scratch/home DISPLAY=:$display_number GPUI_X11_SCALE_FACTOR=$scale \
     XDG_RUNTIME_DIR=$scratch/xdg/runtime XDG_CONFIG_HOME=$scratch/xdg/config XDG_STATE_HOME=$scratch/xdg/state \
     XDG_DATA_HOME=$scratch/xdg/data XDG_CACHE_HOME=$scratch/xdg/cache \
     "$binary" --config "$scratch/home/config.json" --size "$WINDOW_SIZE" --exec "$command" --socket "$server_socket" \
-    >"$scratch/app.log" 2>&1 &
+    >"$scratch/app.log" 2>&1 {lock_descriptor}>&- &
   app_pid=$!
   pids+=("$app_pid")
   window_id=
@@ -282,7 +318,6 @@ screen_checks() {
 
   # Selection: drag from the left quarter of row 0 column 10 to the right quarter of column 30 (device pixels).
   selection_colour=$(selection_colour)
-  echo "note: theme has no selection role, using accent $selection_colour as terminal_colors.selection"
   read -r sx sy ex < <(python3 - "$scratch/expected-$scale.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -320,11 +355,38 @@ PY
   trap kill_started EXIT   # a subshell does not keep the parent's trap: stop its Xvfb and window here
   for scale in "${SCALES[@]}"; do
     screen_checks "$scale"
+    # Each scale's windows share one session server; it is stopped here so no step leaves one behind.
+    [[ -n $GATE_FAULT ]] || stop_server
   done
   # The subshell cannot set the parent's flag: tell the parent through a file.
   echo "$failed" >"$scratch/screen-failed"
 ) 9>"$GATE_LOCK"
 if [[ $(cat "$scratch/screen-failed" 2>/dev/null || echo 1) != 0 ]]; then failed=1; fi
+
+# lock_holders: process IDs, other than this shell, holding the gate lock open, with the scratch folder in their
+# arguments (so another gate run is never counted as ours).
+lock_holders() {
+  local entry pid
+  for entry in /proc/[0-9]*; do
+    pid=${entry#/proc/}
+    [[ $pid == "$$" ]] && continue
+    if find "$entry/fd" -maxdepth 1 -lname "$(realpath "$GATE_LOCK")" 2>/dev/null | grep -q . &&
+      tr '\0' ' ' <"$entry/cmdline" 2>/dev/null | grep -qF "$scratch"; then
+      echo "$pid"
+    fi
+  done
+}
+
+# The speed step waits for the gate lock. A process this run left holding it would make that wait endless: if the
+# lock is not free within LOCK_WAIT_SECONDS and one of ours holds it, the run fails here and names it.
+if ! flock -w "$LOCK_WAIT_SECONDS" "$GATE_LOCK" true; then
+  holders=$(lock_holders | tr '\n' ' ')
+  if [[ -n $holders ]]; then
+    fail "gate lock: still held after the screen steps by this run's leftover process(es) $holders"
+    exit 1
+  fi
+fi
+ok "gate lock free after the screen steps"
 
 # ----------------------------------------------------------------------------------------------- step 5
 # clanky-gpui's six numbers (speed.sh, SPEED_RUNS runs) against today's clanky's, measured once with the same harness
@@ -379,12 +441,14 @@ for name in gate-t2-terminal gate-mouse gate-exit gate-c2-schemes gate-m12-idle 
   if [[ -f scripts/$name.sh ]]; then
     command=(bash "scripts/$name.sh")
   else
-    command=(xvfb-run -a -n 100 -s '-screen 0 1600x1000x24 -nolisten tcp' python3 "scripts/$name.py")
+    command=(bash -c 'source scripts/private-display.sh; run_on_private_display 1600x1000x24 python3 "$0"' "scripts/$name.py")
   fi
   if output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS CLANKY_BIN="$binary" \
-    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json flock "$GATE_LOCK" "${command[@]}" 2>&1); then
+    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json flock -o "$GATE_LOCK" "${command[@]}" 2>&1); then
     ok "$name: $(tail -n 1 <<<"$output")"
   else
+    # A gate keeps its windows' error output and prints its end as note lines before its FAIL: show them.
+    grep '^note: window error' <<<"$output" || true
     fail "$name: $(tail -n 1 <<<"$output")"
   fi
 done

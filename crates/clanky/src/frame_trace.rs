@@ -58,6 +58,12 @@ impl FrameTrace {
             self.pending_echo.push((self.sequence,time));
         }
     }
+    /// One line per drawn frame from a window that times its draw itself: when it ended and how long it took.
+    pub fn drawn(&mut self,draw_micros:u128){
+        if let Some(file)=&mut self.file{
+            let _=writeln!(file,"draw,{},{draw_micros}",self.started.elapsed().as_micros());
+        }
+    }
     pub fn presented(&mut self){
         if let Some(file)=&mut self.file{
             let time=self.started.elapsed().as_micros();

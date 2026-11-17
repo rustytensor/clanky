@@ -3,6 +3,7 @@
 
 use std::{cell::Cell as Shared, ops::Range, rc::Rc, sync::Arc, time::Instant};
 
+use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
@@ -20,8 +21,23 @@ use crate::{
     palette::Palette,
 };
 
+/// CSS points per logical pixel: the config gives the text size in pixels, `Zoom` counts points.
+const POINTS_PER_PIXEL: f32 = 0.75;
+
 /// Lines the history scrolls per wheel notch, as VTE.
 const WHEEL_LINES: f32 = 3.0;
+/// Lines gpui-ce reports for one wheel notch on X11 and Wayland (`SCROLL_LINES` in gpui_linux).
+const GPUI_LINES_PER_NOTCH: f32 = 3.0;
+
+/// Wheel notches in a scroll event: a mouse wheel's lines, or a touchpad's pixels as rows of history.
+fn wheel_notches(delta: ScrollDelta, scale: f32, line_height: f32) -> f32 {
+    match delta {
+        ScrollDelta::Lines(delta) => delta.y / GPUI_LINES_PER_NOTCH,
+        ScrollDelta::Pixels(delta) => {
+            f32::from(delta.y) * scale / line_height.max(1.0) / WHEEL_LINES
+        }
+    }
+}
 
 pub struct TerminalPane {
     client: Client,
@@ -29,6 +45,8 @@ pub struct TerminalPane {
     snapshot: Option<Arc<TerminalSnapshot>>,
     palette: Palette,
     text: TextSettings,
+    /// The text size in points, changed by Ctrl+wheel and Ctrl+= / Ctrl+- / Ctrl+0, as today's window.
+    zoom: Zoom,
     focus: FocusHandle,
     metrics: Rc<Shared<Metrics>>,
     /// The size last sent to the server, so a resize is sent once per change.
@@ -38,6 +56,10 @@ pub struct TerminalPane {
     clicks: Clicks,
     /// The button held while the program receives mouse reports, and the cell last reported.
     reporting_button: Option<(u8, (usize, usize))>,
+    /// The cell last reported for motion with no button held (mode 1003).
+    motion_cell: Option<(usize, usize)>,
+    /// When the frame now being drawn started, while a frame trace is on.
+    draw_started: Option<Instant>,
     wheel_rest: f32,
     /// Text the input method is composing; it is shown nowhere yet and sent only when committed.
     marked: Option<String>,
@@ -99,6 +121,7 @@ impl TerminalPane {
             tab: setup.tab,
             snapshot: None,
             palette: setup.palette,
+            zoom: Zoom::new(setup.text.size * POINTS_PER_PIXEL),
             text: setup.text,
             focus,
             metrics: Rc::new(Shared::new(Metrics::default())),
@@ -107,6 +130,8 @@ impl TerminalPane {
             selecting: false,
             clicks: Clicks::default(),
             reporting_button: None,
+            motion_cell: None,
+            draw_started: None,
             wheel_rest: 0.0,
             marked: None,
             notice: None,
@@ -116,8 +141,11 @@ impl TerminalPane {
         }
     }
 
-    /// Called once a frame has been painted.
+    /// Called once a frame has been painted: logs the frame and, with a trace, how long its draw took.
     pub fn frame_presented(&mut self) {
+        if let Some(started) = self.draw_started.take() {
+            self.trace.drawn(started.elapsed().as_micros());
+        }
         self.trace.presented();
     }
 
@@ -132,24 +160,38 @@ impl TerminalPane {
         }
     }
 
-    fn send(&mut self, bytes: &[u8]) {
+    /// Sends input to the program. True when the pane itself must be drawn again (a selection ended or the input
+    /// failed); the echo the program writes back arrives as an update of its own, so typing alone draws no frame.
+    fn send(&mut self, bytes: &[u8]) -> bool {
         if bytes.is_empty() {
-            return;
+            return false;
         }
         // Typing returns the view to the bottom and ends a selection, as in VTE.
-        self.selection = None;
+        let ended_selection = self.selection.take().is_some();
         for chunk in bytes.chunks(64 * 1024) {
             if let Err(error) = self.client.input(&self.tab, chunk) {
                 self.notice = Some(format!("sending input: {}", error.message));
-                return;
+                return true;
             }
         }
+        ended_selection
     }
 
     fn modes(&self) -> (u32, bool) {
         self.snapshot
             .as_ref()
             .map_or((0, false), |s| (s.modes, s.app_cursor))
+    }
+
+    /// One zoom step in or out, or back to the configured size for a step of zero.
+    fn zoom_by(&mut self, step: f32, cx: &mut Context<Self>) {
+        if step == 0.0 {
+            self.zoom.reset();
+        } else {
+            self.zoom.adjust(step);
+        }
+        self.text.size = self.zoom.points() / POINTS_PER_PIXEL;
+        cx.notify();
     }
 
     fn paste(&mut self, text: &str) {
@@ -180,11 +222,25 @@ impl TerminalPane {
                 _ => {}
             }
         }
+        if m.control && !m.alt {
+            let step = match keystroke.key.as_str() {
+                "=" | "+" => Some(1.0),
+                "-" => Some(-1.0),
+                "0" => Some(0.0),
+                _ => None,
+            };
+            if let Some(step) = step {
+                self.zoom_by(step, cx);
+                cx.stop_propagation();
+                return;
+            }
+        }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
             self.trace.key_event();
-            self.send(&bytes);
+            if self.send(&bytes) {
+                cx.notify();
+            }
             cx.stop_propagation();
-            cx.notify();
         }
     }
 
@@ -294,6 +350,26 @@ impl TerminalPane {
             }
             return;
         }
+        // Mode 1003 reports motion with no button held too, once per new cell, as button 0 (as xterm and VTE).
+        if event.pressed_button.is_none()
+            && self.reports(event.modifiers)
+            && mouse::reports_motion(self.modes().0, false)
+            && self.motion_cell != Some((row, col))
+        {
+            self.motion_cell = Some((row, col));
+            if let Some(bytes) = mouse::report(
+                self.modes().0,
+                0,
+                Self::mods(event.modifiers),
+                col,
+                row,
+                true,
+                false,
+            ) {
+                self.send(&bytes);
+            }
+            return;
+        }
         if self.selecting
             && event.pressed_button == Some(MouseButton::Left)
             && let Some(selection) = &mut self.selection
@@ -343,14 +419,19 @@ impl TerminalPane {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let m = self.metrics.get();
-        let lines = match event.delta {
-            ScrollDelta::Lines(delta) => delta.y,
-            ScrollDelta::Pixels(delta) => {
-                f32::from(delta.y) * m.scale / m.line_height.max(1.0) / WHEEL_LINES
+        // Ctrl+wheel zooms, as in Ptyxis with enable-zoom-scroll-ctrl: one step per event.
+        if event.modifiers.control {
+            let lines = match event.delta {
+                ScrollDelta::Lines(delta) => delta.y,
+                ScrollDelta::Pixels(delta) => f32::from(delta.y),
+            };
+            if lines != 0.0 {
+                self.zoom_by(lines.signum(), cx);
             }
-        };
-        self.wheel_rest += lines;
+            return;
+        }
+        let m = self.metrics.get();
+        self.wheel_rest += wheel_notches(event.delta, m.scale, m.line_height);
         let notches = self.wheel_rest.trunc();
         self.wheel_rest -= notches;
         if notches == 0.0 {
@@ -404,6 +485,10 @@ impl TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // gpui-ce draws a window by rendering its root view first: the draw time runs from here to the grid's paint.
+        if self.trace.enabled() {
+            self.draw_started = Some(Instant::now());
+        }
         let selection = match (&self.selection, &self.snapshot) {
             (Some(selection), Some(snapshot)) => {
                 let top = self.top_line();
@@ -503,10 +588,11 @@ impl EntityInputHandler for TerminalPane {
         cx: &mut Context<Self>,
     ) {
         // Committed text from the input method (or a plain key): the program reads it as typed.
-        self.marked = None;
+        let had_marked = self.marked.take().is_some();
         self.trace.key_event();
-        self.send(text.as_bytes());
-        cx.notify();
+        if self.send(text.as_bytes()) || had_marked {
+            cx.notify();
+        }
     }
 
     fn replace_and_mark_text_in_range(
@@ -544,5 +630,29 @@ impl EntityInputHandler for TerminalPane {
 impl gpui::Focusable for TerminalPane {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, px};
+
+    #[test]
+    fn one_wheel_notch_is_one_notch() {
+        // gpui-ce reports one notch up as three lines; a mouse program must get one wheel report for it.
+        assert_eq!(
+            wheel_notches(ScrollDelta::Lines(point(0.0, 3.0)), 1.0, 19.0),
+            1.0
+        );
+        assert_eq!(
+            wheel_notches(ScrollDelta::Lines(point(0.0, -6.0)), 1.5, 29.0),
+            -2.0
+        );
+        // A touchpad's 57 device pixels at 19 px rows are three rows of history, one notch.
+        assert_eq!(
+            wheel_notches(ScrollDelta::Pixels(point(px(0.0), px(57.0))), 1.0, 19.0),
+            1.0
+        );
     }
 }

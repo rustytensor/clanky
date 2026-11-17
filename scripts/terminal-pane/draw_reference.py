@@ -5,8 +5,9 @@ Usage: python3 scripts/terminal-pane/draw_reference.py EXPECTED.json OUT.png [--
                                             [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 The picture lets check_cells.py be shown to pass on a correct image and to fail on broken ones. Faults: drift,
-background, nounderline, boxgap, halfblock. Glyphs are drawn at their cell's left edge on the baseline at
-top + ascender; block elements are exact rectangles, as a renderer draws them.
+late (one glyph 1 px right of its cell), background, nounderline, nobold (BOLD in the regular face), boxgap,
+halfblock. Glyphs are drawn at their cell's left edge on the cell's baseline from expected.py; block elements are
+exact rectangles, as a renderer draws them.
 """
 
 import argparse
@@ -16,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gpui_coverage import corrected_mask
 from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -26,7 +28,6 @@ FONT_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-Italic.ttf"
 FONT_BOLD_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-BoldItalic.ttf"
 THEME_FILE = SCRIPT_DIR / "graphite-dark.json"
 FONT_SIZE_LOGICAL_PX = 16  # the fixture's font size
-ASCENDER_UNITS = 1020  # hhea ascender of JetBrains Mono, in units of 1000 per em
 UNITS_PER_EM = 1000
 DIM_OPACITY = 0.7  # dim text is the foreground at this opacity over the background
 UNDERLINE_BELOW_BASELINE = 1.5  # in logical pixels: centre of the underline stroke
@@ -44,7 +45,7 @@ HALF_BLOCKS = {
     "█": (0, 0, 1, 1),
 }
 HALFBLOCK_FAULT_FILL = 0.6
-FAULTS = ("drift", "background", "nounderline", "boxgap", "halfblock")
+FAULTS = ("drift", "late", "background", "nounderline", "nobold", "boxgap", "halfblock")
 CURSOR_COLOUR = (230, 230, 230)
 CURSOR_STRIP_LOGICAL_PX = 2
 
@@ -98,7 +99,8 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
     """Paint one glyph with its pen at x = origin on the given baseline.
 
     It is drawn at eight times the size and reduced, so the glyph sits at the exact fractional position and font
-    hinting does not move it: the picture shows where the glyphs belong, not what a rasteriser makes of them.
+    hinting does not move it: the picture shows where the glyphs belong, not what a rasteriser makes of them. Its
+    coverage goes through gpui-ce's text curve (gpui_coverage.py), so the glyph carries the ink gpui-ce gives it.
     """
     factor = GLYPH_SUPERSAMPLE
     margin = 4
@@ -116,7 +118,11 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
         fill=255,
         anchor="ls",
     )
-    image.paste(colour, (x0, y0), mask.resize((width, height), Image.BOX))
+    image.paste(
+        colour,
+        (x0, y0),
+        corrected_mask(mask.resize((width, height), Image.BOX), colour),
+    )
 
 
 def draw_curl(image, box, centre_y, amplitude, thickness, colour, cell_width):
@@ -156,7 +162,6 @@ def main():
     cell_width, line_height = expected["cell_width"], expected["line_height"]
     origin_x, origin_y = expected["origin"]
     size_px = FONT_SIZE_LOGICAL_PX * scale
-    ascender = ASCENDER_UNITS / UNITS_PER_EM * size_px
     width = math.ceil(2 * origin_x + 200 * cell_width)
     height = math.ceil(2 * origin_y + 11 * line_height)
     image = Image.new("RGB", (width, height), background)
@@ -212,7 +217,7 @@ def main():
             continue
         left, top = cell["left"], cell["top"]
         right, bottom = left + cell["width"], top + cell["height"]
-        baseline = top + ascender
+        baseline = cell["baseline"]
         colour = hex_to_rgb(cell["fg"])
         attributes = cell["attrs"]
         if "dim" in attributes:
@@ -240,11 +245,16 @@ def main():
             font_path = (
                 cjk_path
                 if ord(char) >= 0x3000
-                else text_font("bold" in attributes, "italic" in attributes)
+                else text_font(
+                    "bold" in attributes and arguments.fault != "nobold",
+                    "italic" in attributes,
+                )
             )
             pen = left + (cell["width"] - size_px) / 2 if ord(char) >= 0x3000 else left
             if arguments.fault == "drift" and cell["row"] == 0:
                 pen = origin_x + cell["col"] * round(cell_width)
+            if arguments.fault == "late" and cell["row"] == 0 and cell["col"] == 42:
+                pen += 1
             draw_glyph(image, char, font_path, pen, baseline, colour, size_px)
         if "underline" in attributes and arguments.fault != "nounderline":
             centre = baseline + UNDERLINE_BELOW_BASELINE * scale
@@ -269,7 +279,7 @@ def main():
         draw_curl(
             image,
             (left, top, right, top + line_height),
-            top + ascender + UNDERCURL_BELOW_BASELINE * scale,
+            curl[0]["baseline"] + UNDERCURL_BELOW_BASELINE * scale,
             UNDERCURL_AMPLITUDE * scale,
             scale,
             hex_to_rgb(curl[0]["fg"]),

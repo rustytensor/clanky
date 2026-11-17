@@ -6,6 +6,7 @@ One root <clanky version="1">, one element per setting, text values:
   tools            <tools><tool>files</tool><tool>agents</tool></tools>
   colors           <colors><accent>#3a7bd5</accent></colors>           (one element per colour token)
   terminal_colors  <terminal_colors><background>#..</background><foreground>#..</foreground><cursor>#..</cursor>
+                   <selection>#..</selection>
                    <ansi><color>#..</color> x 16, in order 0..15</ansi></terminal_colors>
   agents           <agents><agent><name>Claude Code</name><command>claude</command></agent>...</agents>
 The legacy keys font_size_pt and rails are written as plain elements, as older gates pass them.
@@ -23,7 +24,7 @@ BOOL = {'post_ai', 'startup_animation', 'compose_send_enter', 'osc52_write', 'os
 INT = {'columns', 'rows', 'notify_after_seconds', 'history_days', 'history_output_kib', 'cursor_blink_time_ms',
        'cursor_blink_timeout_s'}
 NUM = {'font_size', 'font_size_pt', 'opacity', 'cell_width_scale', 'cell_height_scale'}
-TERMINAL_COLOR_KEYS = ('background', 'foreground', 'cursor')
+TERMINAL_COLOR_KEYS = ('background', 'foreground', 'cursor', 'selection')
 
 
 def _scalar(value):

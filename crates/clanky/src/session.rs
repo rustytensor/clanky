@@ -148,7 +148,7 @@ pub fn run_server_configured(socket: &Path, config_path: Option<&Path>, flags: c
     }
     let engine = Shutdown(Engine::new());
     engine.0.configure_post_ai(config.post_ai, flags.post_ai);
-    let editor = |config: &crate::config::Config| config.command_input == crate::config::CommandInput::Editor;
+    let editor = move |config: &crate::config::Config| flags.editor_mode(config);
     clanky_core::shell::set_editor(settings.as_ref().map_or_else(|| editor(&config), |s| editor(s.config())));
     let history_settings = settings.as_ref().map_or_else(|| config.history_settings(), |s| s.config().history_settings());
     let notices = engine.0.clone();

@@ -49,8 +49,13 @@ const DEFAULT_SIZE: (f32, f32) = (1240.0, 760.0);
 /// Line height as a multiple of the font size when the config does not set `cell_height_scale`.
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
 
-/// The bundled terminal font (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt).
-const FONTS: [&[u8]; 4] = [
+/// The bundled terminal fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt and OFL-Geist.txt):
+/// Geist Mono is the window's default `font_family`, so without it a default config draws text in a proportional
+/// fallback font.
+const FONTS: [&[u8]; 7] = [
+    include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Italic.ttf"),
@@ -81,6 +86,15 @@ fn parse_size(text: &str) -> Result<(f32, f32), String> {
     Ok((number(w)? as f32, number(h)? as f32))
 }
 
+/// Classic input for every pane, whatever the config says: this window draws no command input yet, and in editor
+/// mode the session server hides the shell's prompt for the command input to replace it, which leaves a blank pane.
+fn startup_overrides() -> StartupOverrides {
+    StartupOverrides {
+        classic_input: true,
+        ..StartupOverrides::default()
+    }
+}
+
 fn parse_arguments() -> Result<Arguments, String> {
     let mut args = Arguments {
         server: false,
@@ -88,7 +102,7 @@ fn parse_arguments() -> Result<Arguments, String> {
         config: None,
         size: DEFAULT_SIZE,
         exec: None,
-        overrides: StartupOverrides::default(),
+        overrides: startup_overrides(),
     };
     let mut items = std::env::args().skip(1);
     while let Some(item) = items.next() {
@@ -260,4 +274,21 @@ fn main() -> ExitCode {
         }
     });
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clanky::config::CommandInput;
+
+    #[test]
+    fn panes_show_the_shell_prompt_whatever_the_config_says() {
+        let config = Config::default();
+        assert_eq!(config.command_input, CommandInput::Editor);
+        assert!(StartupOverrides::default().editor_mode(&config));
+        assert!(!startup_overrides().editor_mode(&config));
+        let mut applied = config.clone();
+        startup_overrides().apply(&mut applied);
+        assert_eq!(applied.command_input, CommandInput::Classic);
+    }
 }
