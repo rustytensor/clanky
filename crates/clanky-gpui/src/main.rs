@@ -81,6 +81,15 @@ fn parse_size(text: &str) -> Result<(f32, f32), String> {
     Ok((number(w)? as f32, number(h)? as f32))
 }
 
+/// Classic input for every pane, whatever the config says: this window draws no command input yet, and in editor
+/// mode the session server hides the shell's prompt for the command input to replace it, which leaves a blank pane.
+fn startup_overrides() -> StartupOverrides {
+    StartupOverrides {
+        classic_input: true,
+        ..StartupOverrides::default()
+    }
+}
+
 fn parse_arguments() -> Result<Arguments, String> {
     let mut args = Arguments {
         server: false,
@@ -88,7 +97,7 @@ fn parse_arguments() -> Result<Arguments, String> {
         config: None,
         size: DEFAULT_SIZE,
         exec: None,
-        overrides: StartupOverrides::default(),
+        overrides: startup_overrides(),
     };
     let mut items = std::env::args().skip(1);
     while let Some(item) = items.next() {
@@ -260,4 +269,21 @@ fn main() -> ExitCode {
         }
     });
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clanky::config::CommandInput;
+
+    #[test]
+    fn panes_show_the_shell_prompt_whatever_the_config_says() {
+        let config = Config::default();
+        assert_eq!(config.command_input, CommandInput::Editor);
+        assert!(StartupOverrides::default().editor_mode(&config));
+        assert!(!startup_overrides().editor_mode(&config));
+        let mut applied = config.clone();
+        startup_overrides().apply(&mut applied);
+        assert_eq!(applied.command_input, CommandInput::Classic);
+    }
 }
