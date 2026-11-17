@@ -49,8 +49,13 @@ const DEFAULT_SIZE: (f32, f32) = (1240.0, 760.0);
 /// Line height as a multiple of the font size when the config does not set `cell_height_scale`.
 const DEFAULT_LINE_HEIGHT: f32 = 1.2;
 
-/// The bundled terminal font (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt).
-const FONTS: [&[u8]; 4] = [
+/// The bundled terminal fonts (SIL Open Font License 1.1, assets/fonts/OFL-JetBrainsMono.txt and OFL-Geist.txt):
+/// Geist Mono is the window's default `font_family`, so without it a default config draws text in a proportional
+/// fallback font.
+const FONTS: [&[u8]; 7] = [
+    include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-SemiBold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Bold.ttf"),
     include_bytes!("../../../assets/fonts/JetBrainsMono-Italic.ttf"),
