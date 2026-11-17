@@ -57,7 +57,8 @@ fn validate(value: &Value) -> Result<(Vec<WorkspaceGroup>, usize, BTreeMap<Strin
     Ok((groups, active, terminals))
 }
 
-pub(crate) fn remap(layout: &Layout, ids: &BTreeMap<String, String>) -> Result<Layout, String> {
+/// A saved layout with each terminal id replaced by the new id the restore gave it.
+pub fn remap(layout: &Layout, ids: &BTreeMap<String, String>) -> Result<Layout, String> {
     Ok(match layout {
         Layout::Leaf(id) => Layout::Leaf(ids.get(id).ok_or("missing restored ID")?.clone()),
         Layout::Split { axis, ratio, first, second } => Layout::Split { axis: *axis, ratio: *ratio, first: Box::new(remap(first, ids)?), second: Box::new(remap(second, ids)?) },

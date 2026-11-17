@@ -1,12 +1,11 @@
 //! Studio pixel geometry and deterministic motion, independent of a renderer.
 use clanky_core::layout::{Axis, Layout as WorkspaceLayout, MIN_COLUMNS, MIN_ROWS, stable_floor};
 
-mod theme;
 #[cfg(test)]
 mod theme_tests;
 #[cfg(test)]
 mod ansi_tests;
-pub use theme::{Color, Metrics, Theme, COLOR_TOKENS};
+pub use clanky_state::look::{Color, Metrics, Theme, COLOR_TOKENS};
 mod scene_builder;
 pub use scene_builder::*;
 

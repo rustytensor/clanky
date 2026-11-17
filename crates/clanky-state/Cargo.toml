@@ -1,0 +1,16 @@
+[package]
+name = "clanky-state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Clanky's window-side state: settings, themes, the command-input model, mouse selection and key bindings, free of any drawing library."
+
+[dependencies]
+libc = "=0.2.191"
+base64 = "=0.23.1"
+clanky-core = { path = "../clanky-core" }
+clanky-api = { path = "../clanky-api" }
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+roxmltree = "=0.20.0"
+tree-sitter = "=0.27.2"
+tree-sitter-bash = "=0.25.1"

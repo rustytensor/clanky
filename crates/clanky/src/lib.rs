@@ -1,35 +1,36 @@
-//! Shared application configuration and input state.
-pub mod config;
-pub mod config_xml;
+//! Today's window and its tools. The window-side state lives in `clanky-state` and is re-exported here under the
+//! same paths, so `clanky::config` and the like keep working.
+pub use clanky_state::config;
+pub use clanky_state::config_xml;
 pub mod history_cli;
 pub mod agent_launch;
 pub mod agent_cli;
-pub mod cursor_blink;
+pub use clanky_state::cursor_blink;
 pub mod frame_trace;
 pub mod frame_clock;
-pub mod themes;
-pub mod terminal_schemes;
+pub use clanky_state::themes;
+pub use clanky_state::terminal_schemes;
 pub mod theme_scene;
 pub mod calm;
-pub mod theme_store;
-pub mod theme_runtime;
+pub use clanky_state::theme_store;
+pub use clanky_state::theme_runtime;
 pub mod robot;
 pub mod robot_gate_clock;
-pub mod settings;
+pub use clanky_state::settings;
 pub mod settings_panel;
 #[cfg(test)]
 mod settings_panel_tests;
 pub mod platform;
 pub mod look;
-pub mod clipboard;
+pub use clanky_state::clipboard;
 pub mod scrollback_search;
 pub mod window_tools;
-pub mod mouse;
+pub use clanky_state::mouse;
 pub mod compose;
 pub mod editor;
 pub mod input;
-pub mod command_input;
+pub use clanky_state::command_input;
 pub mod mcp;
-pub mod layout_store;
-pub mod notifications;
+pub use clanky_state::layout_store;
+pub use clanky_state::notifications;
 pub mod session;
