@@ -38,6 +38,8 @@ if [[ ${1:-} == --today-bin ]]; then
 fi
 
 scratch=$(mktemp -d /srv/devops/build/terminal-pane-gate.XXXXXX)
+# Nothing this gate starts may reach the user's desktop session: every display goes to a private Xvfb.
+unset WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS
 pids=()
 failed=0
 # The windows' session server lives in the scratch folder, never in the user's runtime folder: a gate must not reach
@@ -189,7 +191,9 @@ launch() {
   local scale=$1 command=$2 waited=0 folder
   for folder in runtime config state data cache; do mkdir -p "$scratch/xdg/$folder"; done
   chmod 700 "$scratch/xdg" "$scratch/xdg"/*
-  HOME=$scratch/home DISPLAY=:$display_number GPUI_X11_SCALE_FACTOR=$scale \
+  # Without WAYLAND_DISPLAY gone, gpui-ce opens the window on the user's own Wayland desktop instead of Xvfb.
+  env -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
+    HOME=$scratch/home DISPLAY=:$display_number GPUI_X11_SCALE_FACTOR=$scale \
     XDG_RUNTIME_DIR=$scratch/xdg/runtime XDG_CONFIG_HOME=$scratch/xdg/config XDG_STATE_HOME=$scratch/xdg/state \
     XDG_DATA_HOME=$scratch/xdg/data XDG_CACHE_HOME=$scratch/xdg/cache \
     "$binary" --config "$scratch/home/config.json" --size "$WINDOW_SIZE" --exec "$command" --socket "$server_socket" \

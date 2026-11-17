@@ -238,18 +238,13 @@ fn main() -> ExitCode {
             }
         };
     }
-    let failed = std::rc::Rc::new(std::cell::Cell::new(false));
-    let flag = failed.clone();
     gpui_platform::application().run(move |cx| {
         if let Err(message) = start_window(args, cx) {
             eprintln!("{TITLE}: {message}");
-            flag.set(true);
-            cx.quit();
+            // No window was opened, and quitting from inside the start callback does not end gpui-ce's event loop
+            // on X11 (the process stayed with no window), so it ends here.
+            std::process::exit(1);
         }
     });
-    if failed.get() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    ExitCode::SUCCESS
 }

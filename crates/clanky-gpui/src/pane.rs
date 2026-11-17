@@ -305,7 +305,7 @@ impl TerminalPane {
                 .map(|(s, snapshot)| s.text(snapshot));
             match text {
                 Some(text) if !text.is_empty() => {
-                    cx.write_to_primary(ClipboardItem::new_string(text))
+                    cx.write_to_primary(ClipboardItem::new_string(text));
                 }
                 _ => self.selection = None,
             }
