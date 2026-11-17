@@ -121,6 +121,18 @@ Expected results, fixed before the work:
   Z1 zsh: /usr/bin/zsh must exist (it is not installed on this machine on 2026-11-13: notes finding 4). With
      SHELL=zsh and ~/.zshrc setting PROMPT='ZUSERPS1> ' and exporting ZRCMARK=sourced-zrc: no "ZUSERPS1" on screen,
      `echo $ZRCMARK` prints sourced-zrc, `false` exits 1, the D3 two-line command is one block.
+On clanky-gpui (CLANKY_BIN, G2), from the Graphite dark theme file and the rulebook (rulebook-tokens.json), never
+from the binary: background #141414 (20,20,20); the input's hairline is the border role, white at 9 % over it
+(41,41,41) (rulebook:46); status line 32 px (h_status), so its top is at 868; the pane's inside ends at
+868 - 8 (pane margin) - 1 (its edge) = 859. The input above that is 1 + 8 + 28 + 8 + 18 + 12 = 75 px: hairline, the
+8 px step above the chips, chips 28 (h_chip, rulebook:99; today's 32), 8 px between chips and text (today's 7 on the
+rulebook's spacing steps, rulebook:87), the text line of the cell height 18 (IBM Plex Mono 11 pt x 1.25, from the font
+file) and the pane padding 12 (rulebook:103; today's 10). A2: the hairline at 859 - 75 = 784 (+-3). K1: chips are
+outlined, no fill, a border in the input role, white at 13 % over the background (51,51,51) +-6 (rulebook:47, 232);
+28 px tall (+-2), top 9 px below the hairline, left edge at 236 + 8 + 1 + 12 = 257 (side column, pane margin, edge,
+pane padding). K3 splits with Ctrl+Shift+D (Split right; the palette comes in G3). M1: the input gives back 63..75
+px (its 75 less the pane's bottom padding of 12 it replaces) of 18 px rows, so classic has 3..5 more rows. Moved: K4
+(the agent picker) to G3, M2 (Settings) to G4; N1 is still checked, at the end of the main story.
 Planted faults: colours (expects `wc` as a string), ghost (Left instead of Right in G1), aside (the logger is told to
 quit before the keys are sent in R1), complete (C1 runs from ~ instead of ~/alpha), idle (one key typed inside I1's
 quiet window), classic (M1's window is started with command_input "editor").
@@ -147,6 +159,28 @@ W, H = 1400, 900
 BG, LINE, STATUS_TOP = (17, 17, 17), (41, 41, 41), 874
 E = '\x1b'
 THEME = json.loads((REPO / 'assets/themes/graphite-dark.json').read_text())
+# Today's window: the hairline 787..803, chips filled, 32 px tall, left at 258; classic gives back 2..4 rows.
+HAIR_RANGE, CHIP_H, CHIP_LEFT, CLASSIC_ROWS = (787, 803), 32, 258, (2, 3, 4)
+GPUI = t2.gate_app.override() is not None
+if GPUI:
+    # clanky-gpui: the theme file's background and border role, the rulebook's heights, steps and padding (see the
+    # docstring's paragraph on clanky-gpui for the sums).
+    _tokens = json.loads((REPO / 'scripts/window-chrome/rulebook-tokens.json').read_text())
+    _bg = tuple(int(THEME['colors']['background'][i:i + 2], 16) for i in (1, 3, 5))
+    _white = lambda a: tuple(round(c + a * (255 - c)) for c in _bg)
+    _px = lambda group, name: _tokens[group][name]['px']
+    _cell_h = t2.gate_app.gpui_cell('IBM Plex Mono', 11, 1.25)[1]
+    BG, LINE = _bg, _white(_tokens['pane']['border_alpha']['value'])
+    STATUS_TOP = H - _px('heights', 'h_status')
+    _inside_bottom = STATUS_TOP - _px('pane', 'margin') - 1
+    CHIP_H = _px('heights', 'h_chip')
+    _input = 1 + 8 + CHIP_H + 8 + _cell_h + _px('pane', 'padding')
+    _hair = _inside_bottom - round(_input)
+    HAIR_RANGE = (_hair - 3, _hair + 3)
+    CHIP_BORDER = _white(_tokens['themes']['graphite-dark']['input']['alpha'])
+    CHIP_LEFT = _tokens['pane']['side_column_width']['px'] + _px('pane', 'margin') + 1 + _px('pane', 'padding')
+    _back = (_input - _px('pane', 'padding'), _input)
+    CLASSIC_ROWS = tuple(range(int(_back[0] // _cell_h), int(-(-_back[1] // _cell_h)) + 1))
 
 
 def rgb(h):
@@ -480,8 +514,8 @@ def prompt_step(win):
     require(not any('USERPS1' in r for r in rows), f'A1 editor mode: the shell\'s own PS1 is not shown (rows {last_rows(win)})')
     im = win.shot('start')
     win.hair = hairline(im)
-    require(win.hair is not None and 787 <= win.hair <= 803,
-            f'A2 the input\'s top hairline (41,41,41) at y 787..803 (observed {win.hair})')
+    require(win.hair is not None and HAIR_RANGE[0] <= win.hair <= HAIR_RANGE[1],
+            f'A2 the input\'s top hairline {LINE} at y {HAIR_RANGE[0]}..{HAIR_RANGE[1]} (observed {win.hair})')
     win.type('x')
     time.sleep(.6)
     a = win.shot('probe-a')
@@ -524,6 +558,35 @@ def rc_step(win):
     print('ok: D1 D4 rc sourced, meta line instead of the prompt')
 
 
+def filled_chip(im, folder, yc, hair):
+    """Today's chip, found by its fill: its left edge, top and bottom rows."""
+    px = im.load()
+    vfill = lambda x: all(near(px[x, y], CHIP, 6) for y in (yc - 4, yc, yc + 4))
+    start = int(folder[1]) - 2
+    out = next((x for x in range(start, 237, -1) if not vfill(x)), None) if vfill(start) else None
+    left = out + 1 if out else None
+    require(left and abs(left - CHIP_LEFT) <= 3,
+            f'K1 the folder chip\'s left edge is at x {CHIP_LEFT}, fill {CHIP} (observed {left})')
+    hfill = lambda y: near(px[left + 8, y], CHIP, 6) and near(px[left + 9, y], CHIP, 6)
+    above = next((y for y in range(yc, hair, -1) if not hfill(y)), None)
+    below = next((y for y in range(yc, STATUS_TOP) if not hfill(y)), None)
+    return left, above and above + 1, below and below - 1
+
+
+def outlined_chip(im, folder, yc, hair):
+    """clanky-gpui's chip, found by its border with the background inside: its left edge, top and bottom rows."""
+    px = im.load()
+    start = int(folder[1]) - 2
+    left = next((x for x in range(start, 237, -1) if near(px[x, yc], CHIP_BORDER, 6)), None)
+    inside = left is not None and all(near(px[x, yc], BG, 6) for x in range(left + 1, start))
+    require(left and inside and abs(left - CHIP_LEFT) <= 3,
+            f'K1 the folder chip\'s left edge {CHIP_BORDER} at x {CHIP_LEFT}, background inside (observed {left})')
+    x = left + 14  # clear of the 6 px corner
+    top = next((y for y in range(yc, hair, -1) if near(px[x, y], CHIP_BORDER, 6)), None)
+    bot = next((y for y in range(yc, STATUS_TOP) if near(px[x, y], CHIP_BORDER, 6)), None)
+    return left, top, bot
+
+
 def chips_step(win):
     im = win.shot('chips')
     words = band_words(win, im)
@@ -531,18 +594,10 @@ def chips_step(win):
     for want in ('alpha', 'papaya', 'bash', 'access', 'shell', 'agent'):
         require(want in text, f'K1 the input reads {want!r} (read {text!r})')
     folder = find_word(words, lambda t: 'alpha' in t)
-    px = im.load()
     yc = int(centre(folder)[1])
-    vfill = lambda x: all(near(px[x, y], CHIP, 6) for y in (yc - 4, yc, yc + 4))
-    start = int(folder[1]) - 2
-    out = next((x for x in range(start, 237, -1) if not vfill(x)), None) if vfill(start) else None
-    left = out + 1 if out else None
-    require(left and abs(left - 258) <= 3, f'K1 the folder chip\'s left edge is at x 258, fill {CHIP} (observed {left})')
-    hfill = lambda y: near(px[left + 8, y], CHIP, 6) and near(px[left + 9, y], CHIP, 6)
-    above = next((y for y in range(yc, win.hair, -1) if not hfill(y)), None)
-    below = next((y for y in range(yc, STATUS_TOP) if not hfill(y)), None)
-    top, bot = above and above + 1, below and below - 1
-    require(top and bot and abs((bot - top + 1) - 32) <= 2, f'K1 the folder chip is 32 px tall (edges {top}, {bot})')
+    left, top, bot = (outlined_chip if GPUI else filled_chip)(im, folder, yc, win.hair)
+    require(top and bot and abs((bot - top + 1) - CHIP_H) <= 2,
+            f'K1 the folder chip is {CHIP_H} px tall (edges {top}, {bot})')
     require(abs(top - win.hair - 9) <= 3, f'K1 the chip top is 9 px below the input hairline ({top} vs {win.hair})')
     box = (left + 2, top + 2, int(folder[3]) + 2, bot - 1)
     ACTIVE.update(box=box, peak=peak(im, box))
@@ -754,10 +809,13 @@ def aside_step(win):
 
 
 def panes_step(win):
-    win.key('ctrl+shift+p')
-    time.sleep(.8)
-    win.type('Split right')
-    win.key('Return')
+    if GPUI:
+        win.key('ctrl+shift+d')
+    else:
+        win.key('ctrl+shift+p')
+        time.sleep(.8)
+        win.type('Split right')
+        win.key('Return')
     until(lambda: len(win.terminals()) == 2, 'K3 "Split right" adds a pane')
     time.sleep(3)
     other = next(t for t in win.terminals() if t != win.tab)
@@ -802,11 +860,22 @@ def agent_step(win):
     win.click(*centre(agent))
     until(lambda: 'start an agent' in ' '.join(w[0] for w in ocr_words(win.shot('picker'), (236, 40, W, STATUS_TOP), 3, 11)),
           'K4 "Agent" opens the agent picker ("Start an agent")', 3)
-    held = inet_sockets([win.p.pid, win.server])
-    require(not held, f'N1 no TCP or UDP sockets in the window or server ({held})')
+    no_network(win)
     win.key('Escape')
     time.sleep(.6)
     print('ok: K4 N1 agent picker, no network')
+
+
+def no_network(win):
+    held = inet_sockets([win.p.pid, win.server])
+    require(not held, f'N1 no TCP or UDP sockets in the window or server ({held})')
+
+
+def editor_rows_step(win):
+    """clanky-gpui keeps its editor window's rows for M1 (today's window takes them in M2), and checks N1."""
+    EDITOR_ROWS_SEEN.append(win.info()['rows'])
+    no_network(win)
+    print('ok: N1 no network')
 
 
 def switch_classic_step(win):
@@ -836,8 +905,8 @@ def main_story():
     win = Win('editor', dict(BASE))
     try:
         steps = {None: [rc_step, chips_step, edit_step, colour_step, lambda w: idle(w, 'I1 at the empty prompt'),
-                        ghost_step, history_step, complete_step, aside_step, panes_step, agent_step,
-                        switch_classic_step],
+                        ghost_step, history_step, complete_step, aside_step, panes_step]
+                 + ([editor_rows_step] if GPUI else [agent_step, switch_classic_step]),
                  'colours': [colour_step], 'ghost': [ghost_step],
                  'idle': [lambda w: idle(w, 'I1 at the empty prompt', poke=True)],
                  'aside': [rc_step, chips_step, aside_step], 'complete': [rc_step, complete_step]}[FAULT]
@@ -876,7 +945,8 @@ def classic_story():
         rows = win.info()['rows']
         if EDITOR_ROWS_SEEN:
             e = EDITOR_ROWS_SEEN[0]
-            require(rows - e in (2, 3, 4), f'M1 classic has 2..4 more rows ({rows} vs editor {e})')
+            require(rows - e in CLASSIC_ROWS,
+                    f'M1 classic has {CLASSIC_ROWS[0]}..{CLASSIC_ROWS[-1]} more rows ({rows} vs editor {e})')
         win.type('echo clok')
         win.key('Return')
         until(lambda: sum(r.strip() == 'clok' for r in screen_rows(win)) == 1, 'M1 echo clok')
