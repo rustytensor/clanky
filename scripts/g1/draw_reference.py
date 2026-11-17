@@ -22,11 +22,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 FONT_REGULAR = REPO_ROOT / "assets/fonts/JetBrainsMono-Regular.ttf"
 FONT_BOLD = REPO_ROOT / "assets/fonts/JetBrainsMono-Bold.ttf"
+FONT_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-Italic.ttf"
+FONT_BOLD_ITALIC = REPO_ROOT / "assets/fonts/JetBrainsMono-BoldItalic.ttf"
 THEME_FILE = SCRIPT_DIR / "graphite-dark.json"
 FONT_SIZE_LOGICAL_PX = 16  # the fixture's font size
 ASCENDER_UNITS = 1020  # hhea ascender of JetBrains Mono, in units of 1000 per em
 UNITS_PER_EM = 1000
-ITALIC_SHEAR = 0.2  # slant of the synthetic italic: the font set has no italic file
 DIM_OPACITY = 0.7  # dim text is the foreground at this opacity over the background
 UNDERLINE_BELOW_BASELINE = 1.5  # in logical pixels: centre of the underline stroke
 UNDERCURL_BELOW_BASELINE = 1.2  # centre line of the wavy underline
@@ -53,6 +54,10 @@ def find_cjk_font():
     return path
 
 
+def text_font(bold, italic):
+    return {(False, False): FONT_REGULAR, (True, False): FONT_BOLD, (False, True): FONT_ITALIC, (True, True): FONT_BOLD_ITALIC}[bold, italic]
+
+
 def hex_to_rgb(text):
     return tuple(int(text[index : index + 2], 16) for index in (1, 3, 5))
 
@@ -72,7 +77,7 @@ def fill_rect(pixels, size, box, colour, opacity=1.0):
                 pixels[x, y] = blend(pixels[x, y], colour, cover_x * cover_y * opacity)
 
 
-def draw_glyph(image, char, font_path, origin, baseline, colour, size_px, shear=0.0):
+def draw_glyph(image, char, font_path, origin, baseline, colour, size_px):
     """Paint one glyph with its pen at x = origin on the given baseline.
 
     It is drawn at eight times the size and reduced, so the glyph sits at the exact fractional position and font
@@ -85,9 +90,6 @@ def draw_glyph(image, char, font_path, origin, baseline, colour, size_px, shear=
     mask = Image.new("L", (width * factor, height * factor), 0)
     font = ImageFont.truetype(str(font_path), size_px * factor)
     ImageDraw.Draw(mask).text(((origin - x0) * factor, (baseline - y0) * factor), char, font=font, fill=255, anchor="ls")
-    if shear:
-        local_baseline = (baseline - y0) * factor
-        mask = mask.transform(mask.size, Image.AFFINE, (1, shear, -shear * local_baseline, 0, 1, 0), resample=Image.BILINEAR)
     image.paste(colour, (x0, y0), mask.resize((width, height), Image.BOX))
 
 
@@ -173,11 +175,11 @@ def main():
         elif char in SHADE_OPACITY:
             fill_rect(pixels, image.size, (left, top, right, bottom), colour, SHADE_OPACITY[char])
         else:
-            font_path = cjk_path if ord(char) >= 0x3000 else (FONT_BOLD if "bold" in attributes else FONT_REGULAR)
+            font_path = cjk_path if ord(char) >= 0x3000 else text_font("bold" in attributes, "italic" in attributes)
             pen = left + (cell["width"] - size_px) / 2 if ord(char) >= 0x3000 else left
             if arguments.fault == "drift" and cell["row"] == 0:
                 pen = origin_x + cell["col"] * round(cell_width)
-            draw_glyph(image, char, font_path, pen, baseline, colour, size_px, ITALIC_SHEAR if "italic" in attributes else 0.0)
+            draw_glyph(image, char, font_path, pen, baseline, colour, size_px)
         if "underline" in attributes and arguments.fault != "nounderline":
             centre = baseline + UNDERLINE_BELOW_BASELINE * scale
             fill_rect(pixels, image.size, (left, centre - scale / 2, right, centre + scale / 2), colour)
