@@ -554,7 +554,7 @@ impl MainWindow {
             let leaves = group.layout.leaves();
             let closer = this.clone();
             // Inside the tab: its press is its own, and an inactive tab keeps the close's room but Tab skips it.
-            let close = Control::new(Kind::IconButtonInRow, id + 1, format!("Close {label}"))
+            let close = Control::new(Kind::IconButtonInline, id + 1, format!("Close {label}"))
                 .icon(Icon::Close)
                 .inside(index == self.workspace.active)
                 .on_click(move |window, cx| {

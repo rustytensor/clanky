@@ -103,9 +103,11 @@ pub const BUTTON_HEIGHT_DEFAULT: f32 = 32.0;
 pub const BUTTON_HEIGHT_LARGE: f32 = 36.0;
 /// Command bar chips.
 pub const CHIP_HEIGHT: f32 = 28.0;
-/// Icon buttons: as tall as bar buttons in bars, as tall as a list row in rows.
+/// Icon buttons: as tall as bar buttons in bars.
 pub const ICON_BUTTON_HEIGHT_BAR: f32 = BUTTON_HEIGHT_BAR;
-pub const ICON_BUTTON_HEIGHT_ROW: f32 = ROW_HEIGHT;
+/// A button inside another control (a tab's close): square at the smallest hit size (rulebook amendment,
+/// 2026-11-17).
+pub const ICON_BUTTON_INLINE_SIZE: f32 = MIN_HIT_SIZE;
 /// The command block toolbar, and the size of each of its buttons.
 pub const BLOCK_TOOLBAR_HEIGHT: f32 = 18.0;
 pub const BLOCK_TOOLBAR_BUTTON_WIDTH: f32 = 22.0;
@@ -194,6 +196,10 @@ pub const FRAME_MIX: f32 = 0.03;
 /// The active tab pill: the foreground at this opacity, with an inner ring at `ACTIVE_TAB_RING`.
 pub const ACTIVE_TAB_FILL: f32 = 0.07;
 pub const ACTIVE_TAB_RING: f32 = 0.05;
+/// A button inside another control: hover and pressed are the foreground at these opacities over whatever lies
+/// under it, so they show on the active tab's pill too.
+pub const INLINE_BUTTON_HOVER_FILL: f32 = 0.08;
+pub const INLINE_BUTTON_PRESSED_FILL: f32 = 0.14;
 /// The command block toolbar at rest; it is fully opaque under the pointer.
 pub const BLOCK_TOOLBAR_REST_OPACITY: f32 = 0.72;
 /// The line between command blocks: the foreground at this opacity, or `err` at

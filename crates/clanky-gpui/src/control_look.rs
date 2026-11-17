@@ -15,8 +15,8 @@ pub enum Kind {
     Button,
     ButtonLarge,
     IconButton,
-    /// An icon button inside a list row, as tall as the row.
-    IconButtonInRow,
+    /// A small icon button inside another control (a tab's close).
+    IconButtonInline,
     Chip,
     Tab,
     Switch,
@@ -43,7 +43,8 @@ impl Kind {
             Kind::ButtonBar => "button-bar",
             Kind::Button => "button",
             Kind::ButtonLarge => "button-large",
-            Kind::IconButton | Kind::IconButtonInRow => "icon-button",
+            Kind::IconButton => "icon-button",
+            Kind::IconButtonInline => "icon-button-inline",
             Kind::Chip => "chip",
             Kind::Tab => "tab",
             Kind::Switch => "switch",
@@ -61,7 +62,7 @@ impl Kind {
             Kind::Button => t::BUTTON_HEIGHT_DEFAULT,
             Kind::ButtonLarge => t::BUTTON_HEIGHT_LARGE,
             Kind::IconButton => t::ICON_BUTTON_HEIGHT_BAR,
-            Kind::IconButtonInRow => t::ICON_BUTTON_HEIGHT_ROW,
+            Kind::IconButtonInline => t::ICON_BUTTON_INLINE_SIZE,
             Kind::Chip => t::CHIP_HEIGHT,
             Kind::Tab => t::TAB_HEIGHT,
             Kind::Switch => t::SWITCH_CONTROL_HEIGHT,
@@ -78,12 +79,11 @@ impl Kind {
             | Kind::ButtonBar
             | Kind::Button
             | Kind::ButtonLarge
-            | Kind::IconButton
-            | Kind::IconButtonInRow => t::RADIUS_BUTTON,
+            | Kind::IconButton => t::RADIUS_BUTTON,
             Kind::Tab => t::RADIUS_MEDIUM,
             Kind::Field => t::RADIUS_FIELD,
             Kind::ListRow => t::RADIUS_ROW,
-            Kind::Chip | Kind::MenuItem => t::RADIUS_SMALL,
+            Kind::Chip | Kind::MenuItem | Kind::IconButtonInline => t::RADIUS_SMALL,
             Kind::Segment => t::RADIUS_SEGMENT,
             Kind::Switch => t::RADIUS_SWITCH,
         }
@@ -122,7 +122,7 @@ impl Kind {
     }
 
     pub fn is_icon_only(self) -> bool {
-        matches!(self, Kind::IconButton | Kind::IconButtonInRow)
+        matches!(self, Kind::IconButton | Kind::IconButtonInline)
     }
 
     fn look(self) -> Look {
@@ -194,6 +194,13 @@ pub fn fill(
             colors.accent
         }),
         (Look::Field, _) => None,
+        // A button inside another control tints whatever lies under it.
+        (_, State::Pressed) if kind == Kind::IconButtonInline => {
+            Some(with_alpha(colors.foreground, t::INLINE_BUTTON_PRESSED_FILL))
+        }
+        (_, State::Hover) if kind == Kind::IconButtonInline => {
+            Some(with_alpha(colors.foreground, t::INLINE_BUTTON_HOVER_FILL))
+        }
         (_, State::Pressed) => Some(colors.pressed),
         // The selected segment stays lifted under the pointer: hover's fill on the switcher's tray would hide which one
         // is selected.
@@ -298,7 +305,7 @@ mod tests {
             (Kind::Button, "button", 32.0, 8.0),
             (Kind::ButtonLarge, "button-large", 36.0, 8.0),
             (Kind::IconButton, "icon-button", 28.0, 8.0),
-            (Kind::IconButtonInRow, "icon-button", 24.0, 8.0),
+            (Kind::IconButtonInline, "icon-button-inline", 24.0, 6.0),
             (Kind::Chip, "chip", 28.0, 6.0),
             (Kind::Tab, "tab", 28.0, 8.0),
             (Kind::Switch, "switch", 24.0, 12.0),
@@ -419,7 +426,7 @@ mod tests {
             Kind::Button,
             Kind::ButtonLarge,
             Kind::IconButton,
-            Kind::IconButtonInRow,
+            Kind::IconButtonInline,
             Kind::Chip,
             Kind::Tab,
             Kind::Switch,

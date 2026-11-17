@@ -471,7 +471,7 @@ impl Kit {
         body = match (kind, control.width) {
             (_, Some(width)) => body.w(px(width)),
             (Kind::Switch, None) => body.w(px(t::SWITCH_CONTROL_WIDTH)),
-            (Kind::IconButton | Kind::IconButtonInRow, None) => body.w(px(height)),
+            (Kind::IconButton | Kind::IconButtonInline, None) => body.w(px(height)),
             (Kind::MenuItem | Kind::ListRow | Kind::Field, None) => body.w_full(),
             _ => body,
         };
@@ -761,7 +761,7 @@ impl Kit {
                 room = room.invisible();
             }
             inner = inner
-                .pr(px((kind.height() - t::ICON_BUTTON_HEIGHT_ROW) / 2.0))
+                .pr(px((kind.height() - t::ICON_BUTTON_INLINE_SIZE) / 2.0))
                 .child(room);
         }
         inner.into_any_element()
