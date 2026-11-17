@@ -113,6 +113,9 @@ pub struct Control {
     content: Option<AnyElement>,
     /// Something at the control's right end, inside it: a tab's close button.
     trailing: Option<AnyElement>,
+    /// A row of a tree: how deep it sits, and its chevron (open or closed) for a folder, none for a file, whose
+    /// chevron's room stays so names line up.
+    tree: Option<(usize, Option<bool>)>,
     /// The focus of an owner that handles the control's keys itself (a field's editor).
     focus: Option<FocusHandle>,
     action: Option<Action>,
@@ -137,6 +140,7 @@ impl Control {
             width: None,
             content: None,
             trailing: None,
+            tree: None,
             focus: None,
             action: None,
         }
@@ -188,6 +192,12 @@ impl Control {
     #[must_use]
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
+        self
+    }
+
+    #[must_use]
+    pub fn tree(mut self, depth: usize, chevron: Option<bool>) -> Self {
+        self.tree = Some((depth, chevron));
         self
     }
 
@@ -587,6 +597,25 @@ impl Kit {
             .px(px(if kind.is_icon_only() { 0.0 } else { t::SPACE_8 }));
         if !row_like {
             inner = inner.justify_center();
+        }
+        if let Some((depth, chevron)) = control.tree {
+            // The rulebook's list row: 12 px a level of indent, a 12 px chevron, then the icon.
+            inner = inner.pl(px(t::SPACE_8 + depth as f32 * t::ROW_INDENT));
+            let mut room = div().flex_none().size(px(t::ROW_CHEVRON_SIZE));
+            if let Some(open) = chevron {
+                let icon = if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                };
+                room = room.child(
+                    svg()
+                        .data(icon.svg())
+                        .size(px(t::ROW_CHEVRON_SIZE))
+                        .text_color(paint(colors.muted_foreground, 1.0)),
+                );
+            }
+            inner = inner.child(room);
         }
         if let Some(icon) = control.icon {
             let size = kind.icon_size();

@@ -221,7 +221,7 @@ fn settings_names(explicit: Option<&Path>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The terminal's text: the config's where it sets it, else the design rulebook's terminal font (JetBrains Mono 16,
+/// The terminal's text: the config's where it sets it, else the design rulebook's terminal font (`JetBrains Mono` 16,
 /// line height 1.2).
 fn text_settings(config: &Config, is_set: &dyn Fn(&str) -> bool) -> TextSettings {
     let family = if is_set("font_family") {
@@ -287,6 +287,9 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         post_ai: args.overrides.post_ai,
         // A pane started with --exec stays open after its command ends; a shell's pane closes when its shell exits.
         exec_tab: args.exec.is_some().then_some(tab),
+        tools_open: config.tools_panel,
+        tools: config.tools.clone(),
+        agent_programs: config.agents.clone(),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

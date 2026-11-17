@@ -13,6 +13,8 @@ pub enum Icon {
     ChevronDown,
     Folder,
     File,
+    /// The tools panel's toggle: a window with a column at its left.
+    Sidebar,
 }
 
 impl Icon {
@@ -25,6 +27,7 @@ impl Icon {
             Icon::ChevronDown => CHEVRON_DOWN,
             Icon::Folder => FOLDER,
             Icon::File => FILE,
+            Icon::Sidebar => SIDEBAR,
         }
     }
 }
@@ -35,3 +38,4 @@ const CHEVRON_RIGHT: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBo
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5l4 4 4-4"/></svg>"##;
 const FOLDER: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5c0-.8.7-1.5 1.5-1.5h2.8l1.5 1.5h4.7c.8 0 1.5.7 1.5 1.5v5.5c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5z"/></svg>"##;
 const FILE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2H5c-.8 0-1.5.7-1.5 1.5v9c0 .8.7 1.5 1.5 1.5h6c.8 0 1.5-.7 1.5-1.5V5.5zM9 2v3.5h3.5"/></svg>"##;
+const SIDEBAR: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10"/></svg>"##;

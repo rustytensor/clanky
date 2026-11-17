@@ -195,6 +195,11 @@ pub fn fill(
         }),
         (Look::Field, _) => None,
         (_, State::Pressed) => Some(colors.pressed),
+        // The selected segment stays lifted under the pointer: hover's fill on the switcher's tray would hide which one
+        // is selected.
+        (_, State::Hover | State::Focus) if kind == Kind::Segment && active => {
+            Some(colors.background)
+        }
         (_, State::Hover) => Some(colors.accent),
         (_, State::Focus) if kind.is_row() => Some(colors.accent),
         _ if kind == Kind::Tab && active => Some(with_alpha(colors.foreground, t::ACTIVE_TAB_FILL)),
@@ -376,6 +381,15 @@ mod tests {
         );
         // A disabled control keeps its rest fill.
         assert_eq!(bar(State::Disabled), None);
+        // The selected segment keeps its lift under the pointer; the others take hover's fill.
+        assert_eq!(
+            fill(Kind::Segment, State::Hover, false, Some(true), &colors),
+            Some(grey(0x14))
+        );
+        assert_eq!(
+            fill(Kind::Segment, State::Hover, false, Some(false), &colors),
+            Some(accent)
+        );
     }
 
     #[test]

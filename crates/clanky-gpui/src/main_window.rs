@@ -29,6 +29,7 @@ use gpui::{
 use serde_json::{Value, json};
 
 mod drag;
+mod tools;
 
 use crate::{
     control_look::paint,
@@ -41,6 +42,7 @@ use crate::{
     tokens as t,
 };
 use drag::{Drag, Places};
+use tools::{Tools, ToolsData, ToolsQuery, read_tools};
 
 /// The main window's name in the control record.
 const SCREEN: &str = "main-window";
@@ -50,10 +52,11 @@ const STATUS_INTERVAL: Duration = Duration::from_secs(1);
 const FALLBACK_CELL: (f32, f32) = (9.6, 19.2);
 /// Control ids: the new-tab button, then two per tab (the tab, its close button).
 const NEW_TAB_ID: u32 = 1;
+const TOOLS_TOGGLE_ID: u32 = 2;
 const FIRST_TAB_ID: u32 = 100;
 
 /// What the window shows of the server beyond the workspace, read once a second; a change draws a frame.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Status {
     /// The workspace revision the server reported; a new one means another window changed the workspace.
     revision: u64,
@@ -63,6 +66,8 @@ struct Status {
     uptime: String,
     masking_ready: bool,
     agents: usize,
+    /// What the tools panel shows.
+    tools: ToolsData,
 }
 
 pub struct WindowSetup {
@@ -75,6 +80,10 @@ pub struct WindowSetup {
     pub post_ai: bool,
     /// The tab started with --exec: it stays open after its command ends.
     pub exec_tab: Option<String>,
+    /// The tools panel open at start, the tools the config lists, and its agent tools (for Recent's labels).
+    pub tools_open: bool,
+    pub tools: Vec<clanky::config::Tool>,
+    pub agent_programs: Vec<clanky::config::AgentTool>,
 }
 
 pub struct MainWindow {
@@ -95,6 +104,7 @@ pub struct MainWindow {
     draw_started: Option<Instant>,
     drag: Option<Drag>,
     places: Places,
+    tools: Tools,
     _status: Task<()>,
 }
 
@@ -103,14 +113,19 @@ impl MainWindow {
         let status = cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(STATUS_INTERVAL).await;
-                let Ok((client, ids)) =
-                    this.update(cx, |this, _| (this.client.clone(), this.tab_focuses()))
-                else {
+                let Ok((client, ids, query)) = this.update_in(cx, |this, window, cx| {
+                    let focused = this.focused_pane(window, cx);
+                    (
+                        this.client.clone(),
+                        this.tab_focuses(),
+                        this.tools_query(focused),
+                    )
+                }) else {
                     break;
                 };
                 let status = cx
                     .background_executor()
-                    .spawn(async move { read_status(&client, &ids) })
+                    .spawn(async move { read_status(&client, &ids, &query) })
                     .await;
                 let applied = this.update_in(cx, |this, window, cx| {
                     let moved = status.revision != this.workspace.revision;
@@ -147,6 +162,7 @@ impl MainWindow {
             draw_started: None,
             drag: None,
             places: Places::default(),
+            tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             _status: status,
         };
         this.after_change(window, cx);
@@ -355,7 +371,12 @@ impl MainWindow {
             .and_then(|pane| pane.0.read(cx).cell_size())
             .unwrap_or(FALLBACK_CELL);
         let viewport = window.viewport_size();
-        let width = f32::from(viewport.width) - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
+        let panel = if self.tools.open {
+            t::SIDE_COLUMN_WIDTH
+        } else {
+            0.0
+        };
+        let width = f32::from(viewport.width) - panel - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
         let height = f32::from(viewport.height)
             - t::TITLE_BAR_HEIGHT
             - t::STATUS_HEIGHT
@@ -417,9 +438,33 @@ impl MainWindow {
                 this.split(Axis::Rows, window, cx)
             }),
             Action::ClosePane => self.act(window, cx, Self::close_pane),
+            Action::ToggleToolsPanel => self.toggle_tools(cx),
             _ => return,
         }
         cx.stop_propagation();
+    }
+
+    /// A tab's title: its focused pane's folder, else its place.
+    fn tab_title(&self, index: usize) -> String {
+        self.workspace
+            .groups
+            .get(index)
+            .and_then(|group| self.status.folders.get(&group.focus))
+            .cloned()
+            .unwrap_or_else(|| format!("Session {}", index + 1))
+    }
+
+    /// Shows a pane: its tab becomes the active one and the pane its focused pane.
+    fn show_pane(&mut self, id: &str) -> Result<(), String> {
+        let index = self
+            .workspace
+            .groups
+            .iter()
+            .position(|group| group.layout.contains(id))
+            .ok_or("that pane has closed")?;
+        id.clone_into(&mut self.workspace.groups[index].focus);
+        self.workspace.active = index;
+        self.save()
     }
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -433,13 +478,14 @@ impl MainWindow {
             .px(px(t::SPACE_8))
             .overflow_hidden();
         let this = cx.entity();
+        let toggler = this.clone();
+        let toggle = Control::new(Kind::IconButton, TOOLS_TOGGLE_ID, "Tools panel")
+            .icon(Icon::Sidebar)
+            .checked(self.tools.open)
+            .on_click(move |_, cx| toggler.update(cx, Self::toggle_tools));
+        bar = bar.child(self.kit.build(SCREEN, toggle, window, cx));
         for (index, group) in self.workspace.groups.iter().enumerate() {
-            let label = self
-                .status
-                .folders
-                .get(&group.focus)
-                .cloned()
-                .unwrap_or_else(|| format!("Session {}", index + 1));
+            let label = self.tab_title(index);
             let id = FIRST_TAB_ID + 2 * index as u32;
             let leaves = group.layout.leaves();
             let closer = this.clone();
@@ -491,7 +537,12 @@ impl MainWindow {
     /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, the
     /// pane gap between them.
     fn panes_area(&self, scale: f32, cx: &mut Context<Self>) -> AnyElement {
-        let area = div().flex().flex_1().min_h_0().p(px(t::PANE_MARGIN));
+        let area = div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .p(px(t::PANE_MARGIN));
         let Some(group) = self.workspace.groups.get(self.workspace.active) else {
             return area.into_any_element();
         };
@@ -673,7 +724,14 @@ impl Render for MainWindow {
             .text_color(paint(self.colors.foreground, 1.0))
             .capture_key_down(cx.listener(Self::shortcut))
             .child(title_bar)
-            .child(self.panes_area(scale, cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .children(self.tools_panel(window, cx))
+                    .child(self.panes_area(scale, cx)),
+            )
             .child(self.status_line(scale))
             .children(self.drag_listener(cx))
             .child(self.frame_end())
@@ -736,7 +794,7 @@ pub fn interface_colors(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Resul
 
 /// One look at the server for the status line and the tab titles. A failed request leaves its part empty: the
 /// window keeps working, and the status line says only what it knows.
-fn read_status(client: &Client, focuses: &[String]) -> Status {
+fn read_status(client: &Client, focuses: &[String], query: &ToolsQuery) -> Status {
     let look = client
         .exchange(3, "look_state", &json!({}))
         .unwrap_or(Value::Null);
@@ -753,6 +811,7 @@ fn read_status(client: &Client, focuses: &[String]) -> Status {
         uptime: clanky::calm::uptime_label(look["uptime_ms"].as_u64().unwrap_or(0) / 1000),
         masking_ready: look["masking_ready"].as_bool().unwrap_or(false),
         agents: look["agents"].as_array().map_or(0, Vec::len),
+        tools: read_tools(client, &look, query),
     }
 }
 
