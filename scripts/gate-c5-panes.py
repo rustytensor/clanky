@@ -59,6 +59,13 @@ Expected results, fixed before the work (window 1400 x 900, scale 1, default the
      <new_window_panes>1</new_window_panes>, restore_layout true and that layout.json in its config folder opens
      the saved 3 panes (API and pixels), not 1.
 
+On clanky-gpui (CLANKY_BIN, G2): P1, I1, P2, I2 and E1's pane count run; S1, I3, S2 and E1's Settings text move to
+G4 (Settings), and R1 (restoring a saved layout) is not part of G2. Its values come from the rulebook
+(rulebook-tokens.json), never from the binary: the gap between panes 8 (rulebook:103); the padding inside a pane 12
+(rulebook:103; today's 14) on every side of the grid; below the grid's padding, the command input of
+1 + 8 + 28 + 8 + 12 = 57 px plus its text line of one cell (hairline, step, h_chip 28, step, its bottom padding 12:
+the sum the Q2 gate checks), then 0 .. one cell left over. A pane region here includes the pane's one-pixel edge
+(rulebook border_width 1), so every distance from it is one more.
 Planted faults (the check that must catch each): nokey (P2: the window's config leaves the key out), noclick (S1:
 the "One" segment is not clicked), badvalue (E1: line 3 holds the valid value 1, so 1 pane opens), norestore (R1:
 the layout.json is not copied, so the window opens 1 pane), idle (I1: a shell loop prints a line every 0.4 s).
@@ -89,6 +96,14 @@ TERM = {'background': PANE_BG, 'foreground': '#d9c8a9', 'cursor': '#f2a541',
 BASE = dict(startup_animation=False, animations=False, cursor_blink='off', terminal_colors=TERM)
 GAP, PAD = 8, 14
 INPUT_H = 1 + 8 + 32 + 7 + 10  # command input without its text line (command_bar.rs height)
+EDGE = 0  # today's pane region has no edge of its own
+GPUI = t2.gate_app.override() is not None
+if GPUI:
+    # clanky-gpui: the rulebook's pane gap, padding and edge, and its command input (see the docstring).
+    _tokens = json.loads((Path(__file__).with_name('window-chrome') / 'rulebook-tokens.json').read_text())
+    GAP, PAD = _tokens['pane']['gap']['px'], _tokens['pane']['padding']['px']
+    INPUT_H = 1 + 8 + _tokens['heights']['h_chip']['px'] + 8 + PAD
+    EDGE = _tokens['pane']['border_width']['device_px']
 MAG = (255, 0, 255)
 PROG = r'''#!/usr/bin/python3 -I
 # c5prog: alternate screen, cursor hidden; magenta cells at (1,1) and at the last cell; quits on "q".
@@ -303,16 +318,17 @@ def one_pane_story(area):
         ay0, ay1 = min(t[2] for t in a), max(t[2] for t in a)
         bx1, by1 = max(t[1] for t in b), max(t[2] for t in b)
         cw, ch = ax1 - ax0 + 1, ay1 - ay0 + 1
-        require(near(ax0 - r[0], PAD) and near(ay0 - r[1], PAD),
-                f'P2 cell (1,1) is {PAD} px inside the pane (observed {ax0 - r[0]} left, {ay0 - r[1]} top)')
+        inset = EDGE + PAD
+        require(near(ax0 - r[0], inset) and near(ay0 - r[1], inset),
+                f'P2 cell (1,1) is {inset} px inside the pane (observed {ax0 - r[0]} left, {ay0 - r[1]} top)')
         # Below the grid sit the command input's reserved rows (docs/terminal.md: "Its rows stay reserved
         # meanwhile, so the terminal is not resized at each command"); one line of input is
         # command_bar::height = 58 px + one cell at scale 1.
         bar = INPUT_H + ch
         right, below = r[2] - bx1, r[3] - by1
-        require(PAD - 1 <= right <= PAD + cw + 1 and PAD + bar - 1 <= below <= PAD + bar + ch + 1,
-                f'P2 right of the last cell the pane goes on for {PAD} .. {PAD} + one cell, below it for the '
-                f'input ({bar}) + {PAD} .. {PAD} + one cell (cell {cw} x {ch}; observed {right} right, {below} below)')
+        require(inset - 1 <= right <= inset + cw + 1 and inset + bar - 1 <= below <= inset + bar + ch + 1,
+                f'P2 right of the last cell the pane goes on for {inset} .. {inset} + one cell, below it for the '
+                f'input ({bar}) + {inset} .. {inset} + one cell (cell {cw} x {ch}; observed {right} right, {below} below)')
         print(f'ok: P2 1 pane {r} fills the area; padding {ax0 - r[0]}/{ay0 - r[1]}, {right}/{below}')
         win.type('q')
         time.sleep(1)
@@ -379,6 +395,9 @@ def bad_story():
     win = start('e1', text, 'E1 a bad value does not stop the window')
     try:
         panes_are(win, 2, 'E1 <new_window_panes>3</new_window_panes> falls back to 2 panes', 'e1')
+        if GPUI:
+            print('ok: E1 a bad value opens 2 panes (its Settings text is checked in G4)')
+            return
         c1.open_settings(win, 'E1')
         texts = c1.all_text(win.shot('e1s'), win.frame)
         require(any(re.search(r'line\s*:?\s*3\b', t) and 'panes' in t for t in texts),
@@ -432,9 +451,11 @@ def main():
     if FAULT is None:
         area = area_story()
         one_pane_story(area)
-        settings_story()
+        if not GPUI:
+            settings_story()
         bad_story()
-        restore_story()
+        if not GPUI:
+            restore_story()
     elif FAULT == 'nokey':
         one_pane_story(area_story())
     elif FAULT == 'idle':
