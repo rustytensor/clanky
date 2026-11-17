@@ -9,6 +9,12 @@
 //! hitbox over those bounds (`Window::insert_hitbox`, `window.rs`), which is where `hit` and the hover state come from.
 //! Device pixels are logical pixels times the scale, rounded half toward zero edge by edge, as painting rounds them
 //! (`Window::snap_bounds`, `window.rs`, with `round_to_device_pixel` in `util.rs`).
+//!
+//! The rule for the control builders: the measuring child must be the control's interactive element. Attach the
+//! control's click, hover and press handlers to the hitbox that [`ControlRecord::wrap`] inserts (or give the control's
+//! own element the same bounds and handlers), so the hit box written to the record is the one that takes the clicks.
+//! A control whose handlers sit on some other element makes `hit` a copy of `box` again, and the gates' check that the
+//! hit box is the drawn box proves nothing.
 // The control builders call into this module; until they do, nothing in the binary uses it.
 #![allow(dead_code)]
 

@@ -9,6 +9,14 @@ A box is the control's painted outer box including its border; never the box of 
 the area the pointer really hits, taken from the control's `Hitbox` and converted to device pixels the way painting
 converts bounds, never copied from `box`.
 
+## The rule for the window code
+
+`hit` is only worth recording if it is the box that takes the clicks. The measuring child over a control must be the
+control's interactive element: the control's click, hover and press handlers attach to the hitbox that child inserts,
+not to some other element laid over or under it. If they sit elsewhere, `hit` is a copy of `box` in effect, and the
+gates' hit-box check (and the pointer probes one pixel inside and outside each edge) test nothing about the real
+control.
+
 ## Screen line
 
 Written whenever a screen's controls, focus or keyboard flag change:
