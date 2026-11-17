@@ -154,18 +154,21 @@ impl TerminalPane {
         }
     }
 
-    fn send(&mut self, bytes: &[u8]) {
+    /// Sends input to the program. True when the pane itself must be drawn again (a selection ended or the input
+    /// failed); the echo the program writes back arrives as an update of its own, so typing alone draws no frame.
+    fn send(&mut self, bytes: &[u8]) -> bool {
         if bytes.is_empty() {
-            return;
+            return false;
         }
         // Typing returns the view to the bottom and ends a selection, as in VTE.
-        self.selection = None;
+        let ended_selection = self.selection.take().is_some();
         for chunk in bytes.chunks(64 * 1024) {
             if let Err(error) = self.client.input(&self.tab, chunk) {
                 self.notice = Some(format!("sending input: {}", error.message));
-                return;
+                return true;
             }
         }
+        ended_selection
     }
 
     fn modes(&self) -> (u32, bool) {
@@ -228,9 +231,10 @@ impl TerminalPane {
         }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
             self.trace.key_event();
-            self.send(&bytes);
+            if self.send(&bytes) {
+                cx.notify();
+            }
             cx.stop_propagation();
-            cx.notify();
         }
     }
 
@@ -574,10 +578,11 @@ impl EntityInputHandler for TerminalPane {
         cx: &mut Context<Self>,
     ) {
         // Committed text from the input method (or a plain key): the program reads it as typed.
-        self.marked = None;
+        let had_marked = self.marked.take().is_some();
         self.trace.key_event();
-        self.send(text.as_bytes());
-        cx.notify();
+        if self.send(text.as_bytes()) || had_marked {
+            cx.notify();
+        }
     }
 
     fn replace_and_mark_text_in_range(
