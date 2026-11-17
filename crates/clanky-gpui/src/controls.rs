@@ -8,7 +8,9 @@
 //!   focused control the same way;
 //! - Tab and Shift+Tab reach every enabled control in the order the screen builds them, which is reading order;
 //! - the arrows move within a group (a menu, a list, a segmented switcher);
-//! - keyboard focus is drawn only after keyboard input, never after a click.
+//! - keyboard focus is drawn only after keyboard input, never after a click;
+//! - a pointer click leaves the keyboard where it was (with the pane), except on a field or a menu item, which take
+//!   it ([`Kind::takes_focus_on_click`]).
 //!
 //! Every control is wrapped by the control record ([`ControlRecord::wrap`]), so the gates list each one with its
 //! painted box, hit box and state. The element that takes the clicks is the one the record wraps, and it fills the
@@ -401,6 +403,7 @@ impl Kit {
         focus: &FocusHandle,
     ) -> AnyElement {
         let faults = self.record.faults();
+        let kind = control.kind;
         let place = self.tab_stops.get();
         self.tab_stops.set(place + 1);
         let mut body = body.track_focus(focus).tab_stop(!faults.tab_skip(place));
@@ -450,7 +453,9 @@ impl Kit {
             .on_mouse_up_out(MouseButton::Left, move |_, _, cx| release(&up_out, cx));
         let Some(action) = control.action else {
             return body
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| press(&down, cx))
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    press(&down, kind, window, cx);
+                })
                 .into_any_element();
         };
         let record = self.record.clone();
@@ -459,7 +464,7 @@ impl Kit {
         let fire = Rc::clone(&action);
         let early = (record.clone(), label.clone());
         body.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            press(&down, cx);
+            press(&down, kind, window, cx);
             if faults.press_fires() {
                 early.0.activate(screen, id, &early.1, Via::Release);
                 fire(window, cx);
@@ -567,7 +572,12 @@ impl Kit {
     }
 }
 
-fn press(kept: &gpui::Entity<Kept>, cx: &mut App) {
+/// The left button went down on a control. gpui runs a control's own mouse-down listeners before the one that moves
+/// the focus to it, so preventing the default here keeps the keyboard where it was for the kinds that do not take it.
+fn press(kept: &gpui::Entity<Kept>, kind: Kind, window: &mut Window, cx: &mut App) {
+    if !kind.takes_focus_on_click() {
+        window.prevent_default();
+    }
     kept.update(cx, |kept, cx| {
         kept.pressed = true;
         cx.notify();

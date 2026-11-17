@@ -114,6 +114,13 @@ impl Kind {
         matches!(self, Kind::MenuItem | Kind::ListRow)
     }
 
+    /// Whether a pointer click gives the control the keyboard. Only a field (to type in) and a menu item (inside a
+    /// popover, which holds the keyboard while open) take it; every other control leaves it with the pane, so a
+    /// click on a tab or a bar button never stops typing from reaching the terminal. Tab still reaches them all.
+    pub fn takes_focus_on_click(self) -> bool {
+        matches!(self, Kind::Field | Kind::MenuItem)
+    }
+
     pub fn is_icon_only(self) -> bool {
         matches!(self, Kind::IconButton | Kind::IconButtonInRow)
     }
@@ -388,6 +395,30 @@ mod tests {
             border(Kind::Switch, State::Rest, Some(true), &colors),
             input
         );
+    }
+
+    #[test]
+    fn only_fields_and_menu_items_take_focus_on_click() {
+        let all = [
+            Kind::ButtonSmall,
+            Kind::ButtonBar,
+            Kind::Button,
+            Kind::ButtonLarge,
+            Kind::IconButton,
+            Kind::IconButtonInRow,
+            Kind::Chip,
+            Kind::Tab,
+            Kind::Switch,
+            Kind::Field,
+            Kind::MenuItem,
+            Kind::ListRow,
+            Kind::Segment,
+        ];
+        let taking: Vec<Kind> = all
+            .into_iter()
+            .filter(|kind| kind.takes_focus_on_click())
+            .collect();
+        assert_eq!(taking, [Kind::Field, Kind::MenuItem]);
     }
 
     #[test]
