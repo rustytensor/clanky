@@ -28,6 +28,14 @@ from the mockup CSS [M] and the Q1 gate [Q1]:
     "16", Enter writes font_size 16. The window starts at R1's default (Marc's R1 2026-11-14: terminal text 11 pt =
     11 x 4 / 3 = 14.67 px; the old default was 13), and 16 px is 12 pt, one point up (the old + step was 13 -> 14).
     Animations is a switch row on the General page [C1], found by its label; a click on the label flips it.
+
+With CLANKY_BIN (clanky-gpui, G2) the window chrome's clicks run, each control found by its label in the window's
+control record (scripts/window-chrome/RECORD.md) and clicked with the real pointer at its box's centre: the tools
+panel's "Agents" segment, then the pane's "Agent access to ..." switch turns access on; "New tab" makes 2 sessions;
+a click on the first tab selects session 0; two splits make 2 then 3 panes; a click on the second tab selects
+session 1. The server, the window and the owner helper (clanky-agent-gate from CARGO_TARGET_DIR's release or debug
+folder) are as above. Moved: the splits come from Ctrl+Shift+D, as the palette that clicks them comes in G3; the
+Settings and Post-AI steps move to G4.
 """
 import json
 import os
@@ -98,7 +106,99 @@ def stop(p):
     except subprocess.TimeoutExpired:p.kill();p.wait(timeout=5)
 
 
+def record_controls(path):
+    """The main window's controls from the control record's latest main-window screen line."""
+    lines=[json.loads(l) for l in Path(path).read_text().splitlines() if l.strip()] if Path(path).exists() else []
+    screens=[l for l in lines if l.get('record')=='screen' and l.get('screen')=='main-window']
+    return screens[-1]['controls'] if screens else []
+
+
+def record_centre(path,pick,label):
+    """The centre of the control the record lists for pick(control), waiting for it to be drawn."""
+    def find():
+        hits=[c for c in record_controls(path) if pick(c)]
+        return min(hits,key=lambda c:c['box'][0]) if hits else None
+    c=until(find,label,5);x,y,w,h=c['box'];return x+w//2,y+h//2
+
+
+def main_gpui(gpui):
+    """The window chrome's clicks on clanky-gpui (see the docstring)."""
+    target=Path(os.environ['CARGO_TARGET_DIR'])
+    helper=next((d/'clanky-agent-gate' for d in (target/'release',target/'debug') if (d/'clanky-agent-gate').exists()),None)
+    require(helper,f'the owner helper clanky-agent-gate is built in {target}/release or debug')
+    with tempfile.TemporaryDirectory(prefix='m12-click-',dir=target) as tmp:
+        work=Path(tmp)
+        env={k:v for k,v in os.environ.items() if not any(x in k.upper() for x in ('KEY','TOKEN','SECRET','PASSWORD','PASSWD'))}
+        for key in ('WAYLAND_DISPLAY','DBUS_SESSION_BUS_ADDRESS'):env.pop(key,None)
+        for name in ('home','config','state','runtime'):(work/name).mkdir(mode=0o700)
+        rec=work/'record.jsonl'
+        env.update(HOME=str(work/'home'),XDG_CONFIG_HOME=str(work/'config'),XDG_STATE_HOME=str(work/'state'),
+                   XDG_RUNTIME_DIR=str(work/'runtime'),SHELL='/bin/sh',CLANKY_CONTROL_RECORD=str(rec))
+        config=work/'config.xml';config_xml.write(config,{'animations':False,'startup_animation':False,'restore_layout':False,'osc52_read':False,'osc52_write':False,'font_size':14.67,'theme':'dark'})
+        sock=work/'server.sock'; children=[]; owner=None
+        def launch(args,pipe=False):
+            p=subprocess.Popen([str(x) for x in args],env=env,cwd=work,stdin=subprocess.PIPE if pipe else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE if pipe else subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            children.append(p);return p
+        def call(op,args=None,v=1):
+            owner.stdin.write(json.dumps({'v':v,'op':op,'args':args or {}}).encode()+b'\n');owner.stdin.flush()
+            require(bool(select.select([owner.stdout],[],[],10)[0]),'owner reply deadline')
+            value=json.loads(owner.stdout.readline());require(value.get('ok') is True,'owner RPC '+op);return value['result']
+        def xdo(*args):
+            p=subprocess.run(['xdotool',*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+            require(p.returncode==0,f'xdotool {args[0]} exit {p.returncode}: {p.stderr.decode(errors="replace").strip()}');return p.stdout.decode().strip()
+        try:
+            server=launch([gpui,'--server','--socket',sock]);until(lambda:sock.exists() or (server.poll() is not None and require(False,'server startup')),'server startup')
+            owner=launch([helper,'owner',sock],True)
+            tab=call('open_tab',{'rows':24,'cols':80,'allow_agent':False})['tab_id']
+            call('run',{'tab_id':tab,'argv':['sh','-c','sleep 600'],'cwd':str(work)})
+            window=launch([gpui,'--socket',sock,'--config',config])
+            def window_id():
+                require(window.poll() is None,'window remained alive')
+                p=subprocess.run(['xdotool','search','--onlyvisible','--pid',str(window.pid)],env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
+                ids=p.stdout.decode().splitlines();return ids[0] if p.returncode==0 and ids else None
+            wid=until(window_id,'window identity');xdo('windowsize',wid,1240,760);xdo('windowfocus','--sync',wid);time.sleep(1.2)
+            def click(x,y):
+                xdo('mousemove','--window',wid,x,y);xdo('click',1)
+            def workspace():return call('workspace_get',{},3)
+            def pane_count(tree):
+                if 'Leaf' in tree:return 1
+                split=tree['Split'];return pane_count(split['first'])+pane_count(split['second'])
+            def tabs():
+                return sorted((c for c in record_controls(rec) if c['kind']=='tab'),key=lambda c:c['box'][0])
+            def tab_centre(index):
+                found=until(lambda:(t:=tabs()) and len(t)>index and t,f'tab {index + 1} in the record',5)
+                x,y,w,h=found[index]['box'];return x+w//2,y+h//2
+            require(len(workspace()['groups'])==1,'initial session count')
+            require(call('permission_get',{'tab_id':tab},3)['allow_agent'] is False,'initial access off')
+            click(*record_centre(rec,lambda c:c['kind']=='segment' and c['label']=='Agents','the tools panel\'s "Agents" segment'))
+            click(*record_centre(rec,lambda c:c['kind']=='switch' and c['label'].startswith('Agent access to'),
+                                 'the Agents view\'s "Agent access to ..." switch'))
+            until(lambda:call('permission_get',{'tab_id':tab},3)['allow_agent'] is True,'access switch toggles permission')
+            print('PASS: tools panel access switch toggles owner permission off → on')
+            if os.environ.get('CLANKY_GATE_FAULT')!='click':
+                click(*record_centre(rec,lambda c:c['label']=='New tab','the "New tab" button'))
+            try:until(lambda:len(workspace()['groups'])==2,'new tab session count',3)
+            except RuntimeError:
+                raise RuntimeError(f"new tab sessions: expected 2, observed {len(workspace()['groups'])}")
+            print('PASS: real New tab click: sessions 1 → 2')
+            click(*tab_centre(0))
+            until(lambda:workspace()['active']==0,'first session selected')
+            for expected in (2,3):
+                xdo('key','--window',wid,'ctrl+shift+d')
+                until(lambda:pane_count(workspace()['groups'][0]['layout'])==expected,f'split creates {expected} panes')
+                time.sleep(.2)
+            click(*tab_centre(1))
+            until(lambda:workspace()['active']==1,'second session selected')
+            print('PASS: 1 → 2 → 3 panes; a click on the second tab selected the second session')
+        finally:
+            for p in reversed(children):stop(p)
+
+
 def main():
+    gpui=os.environ.get('CLANKY_BIN')
+    if gpui:
+        return main_gpui(gpui)
     target=Path(os.environ['CARGO_TARGET_DIR']); bins=target/'debug'
     with tempfile.TemporaryDirectory(prefix='m12-click-',dir=target) as tmp:
         work=Path(tmp)
