@@ -79,7 +79,9 @@ fail() { echo "FAIL: $*"; failed=1; }
 # ----------------------------------------------------------------------------------------------- --faults
 if [[ ${1:-} == --faults ]]; then
   caught=0
-  expected_count=$((${#FAULT_PAIRS[@]} * ${#SCALES[@]} + 1))
+  expected_count=$(((${#FAULT_PAIRS[@]} + 1) * ${#SCALES[@]} + 1))
+  selection=0,10,30,$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["colors"]["selection"])' \
+    "$CHECK_DIR/graphite-dark.json")
   for scale in "${SCALES[@]}"; do
     python3 "$CHECK_DIR/expected.py" --scale "$scale" >"$scratch/expected-$scale.json"
     python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/reference.png"
@@ -104,6 +106,24 @@ if [[ ${1:-} == --faults ]]; then
         fi
       fi
     done
+    # Selected text is measured against the selection colour: the reference with a selection passes, and a
+    # selection drawn one cell short is caught by the selection check.
+    python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/selected.png" --selection "$selection"
+    if python3 "$CHECK_DIR/check_cells.py" "$scratch/selected.png" "$scratch/expected-$scale.json" \
+      --selection "$selection" >/dev/null; then
+      ok "reference image with a selection at scale $scale passes every check"
+    else
+      fail "reference image with a selection at scale $scale does not pass"
+    fi
+    python3 "$CHECK_DIR/draw_reference.py" "$scratch/expected-$scale.json" "$scratch/fault.png" \
+      --selection "${selection/,30,/,29,}"
+    if output=$(python3 "$CHECK_DIR/check_cells.py" "$scratch/fault.png" "$scratch/expected-$scale.json" \
+      --selection "$selection") || ! grep -q '^FAIL: selection ' <<<"$output"; then
+      fail "planted fault selection one cell short at scale $scale was not caught by the selection check"
+    else
+      echo "CAUGHT: selection one cell short at scale $scale (check selection)"
+      caught=$((caught + 1))
+    fi
   done
   if output=$(bash "$CHECK_DIR/check_engine_free.sh" --fault 2>&1) && [[ $output == *"FAIL: engine-free clanky-core depends on gpui"* ]]; then
     echo "CAUGHT: gpui-ce in clanky-core (check engine-free)"
@@ -163,7 +183,7 @@ start_display() {
 }
 
 # The config's terminal colours come from the Graphite dark theme file, in the format Clanky's `terminal_colors` reads.
-# The theme has no cursor or selection role: the cursor takes the foreground and the selection the accent colour.
+# The theme has no cursor role, so the cursor takes the foreground; the selection is the theme's own selection role.
 write_config() {
   mkdir -p "$scratch/home"
   python3 - "$CHECK_DIR/graphite-dark.json" "$scratch/home/config.json" <<'PY'
@@ -175,7 +195,7 @@ config = {
     "restore_layout": False, "startup_animation": False, "history": False, "animations": False, "cursor_blink": "off",
     "terminal_colors": {
         "background": theme["background"], "foreground": theme["foreground"], "cursor": theme["foreground"],
-        "selection": theme["accent"], "ansi": colors["ansi"],
+        "selection": theme["selection"], "ansi": colors["ansi"],
     },
 }
 json.dump(config, open(sys.argv[2], "w"))
@@ -186,7 +206,14 @@ PY
 launch() {
   local scale=$1 command=$2 waited=0 folder
   for folder in runtime config state data cache; do mkdir -p "$scratch/xdg/$folder"; done
+  # Folders under /srv/devops inherit the setgid bit, and chmod 700 keeps it on a directory: the session server
+  # wants its runtime folder exactly 0700, so the bit is cleared first and the result checked.
+  chmod g-s "$scratch/xdg" "$scratch/xdg"/*
   chmod 700 "$scratch/xdg" "$scratch/xdg"/*
+  if [[ $(stat -c %a "$scratch/xdg/runtime") != 700 ]]; then
+    echo "note: isolation: runtime folder $scratch/xdg/runtime is $(stat -c %a "$scratch/xdg/runtime"), not 700"
+    return 1
+  fi
   # Without WAYLAND_DISPLAY gone, gpui-ce opens the window on the user's own Wayland desktop instead of Xvfb.
   env -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME=$scratch/home DISPLAY=:$display_number GPUI_X11_SCALE_FACTOR=$scale \
@@ -282,7 +309,6 @@ screen_checks() {
 
   # Selection: drag from the left quarter of row 0 column 10 to the right quarter of column 30 (device pixels).
   selection_colour=$(selection_colour)
-  echo "note: theme has no selection role, using accent $selection_colour as terminal_colors.selection"
   read -r sx sy ex < <(python3 - "$scratch/expected-$scale.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
