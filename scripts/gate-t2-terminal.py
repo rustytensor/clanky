@@ -245,8 +245,10 @@ class Window:
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        if self.errors:
-            self.errors.close()
+        # Subclasses with their own start (gate-q1-look's Win) keep their error file themselves.
+        errors = getattr(self, 'errors', None)
+        if errors:
+            errors.close()
 
 
 def rgb(h):
