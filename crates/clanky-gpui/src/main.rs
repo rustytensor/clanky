@@ -19,6 +19,7 @@
     clippy::cast_possible_wrap
 )]
 
+mod blocks_view;
 mod cells;
 // Item by item, the window chrome uses the rest of the control set and the icons.
 #[allow(dead_code)]

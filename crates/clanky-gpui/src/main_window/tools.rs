@@ -30,13 +30,17 @@ const ACCESS_IDS: u32 = 4000;
 /// How many recent events the Recent tool lists, newest first.
 const RECENT_SHOWN: usize = 20;
 
+/// A pane's id and a command typed in it.
+type PaneCommand = (String, String);
+
 /// What the panel shows, read from the server; compared without the recent events' ages, which alone never draw.
 #[derive(Clone, Debug, Default)]
 pub(super) struct ToolsData {
     /// The folder the Files tool lists, and its rows.
     folder: String,
     tree: Vec<TreeRow>,
-    recent: Vec<(clanky::look::TimelineItem, String)>,
+    /// Each event, its age, and for a typed command its pane and command (the pane's blocks give its exit code).
+    recent: Vec<(clanky::look::TimelineItem, String, Option<PaneCommand>)>,
     /// Agent commands in the last 30 minutes.
     activity: u64,
     /// Connected agents: id, label, running, the pane each works in.
@@ -50,7 +54,7 @@ impl PartialEq for ToolsData {
         let events = |data: &Self| {
             data.recent
                 .iter()
-                .map(|(item, _)| item.clone())
+                .map(|(item, _, command)| (item.clone(), command.clone()))
                 .collect::<Vec<_>>()
         };
         self.folder == other.folder
@@ -131,7 +135,7 @@ pub(super) fn read_tools(client: &Client, look: &Value, query: &ToolsQuery) -> T
                 .into_iter()
                 .rev()
                 .take(RECENT_SHOWN)
-                .map(|(age, item, _)| (item, age_text(age)))
+                .map(|(age, item, command)| (item, age_text(age), command))
                 .collect();
         }
         Tool::Agents => {
@@ -299,7 +303,7 @@ impl MainWindow {
         };
         let body = match shown {
             Tool::Files => self.files_body(window, cx),
-            Tool::Recent => self.recent_body(),
+            Tool::Recent => self.recent_body(cx),
             Tool::Agents => self.agents_body(window, cx),
         };
         let this = cx.entity();
@@ -400,14 +404,32 @@ impl MainWindow {
         list.into_any_element()
     }
 
-    fn recent_body(&self) -> AnyElement {
+    /// A finished command's exit code, from the newest finished block on its pane's screen with the same command.
+    fn exit_of(&self, command: Option<&(String, String)>, cx: &App) -> Option<i32> {
+        let (tab, command) = command?;
+        self.panes.get(tab)?.0.read(cx).last_exit(command)
+    }
+
+    fn recent_body(&self, cx: &App) -> AnyElement {
         let data = &self.status.tools;
         if data.recent.is_empty() {
             return self.quiet_line("No recent events");
         }
         let colors = &self.colors;
         let mut list = div().flex().flex_col().gap(px(t::SPACE_4));
-        for (item, age) in &data.recent {
+        for (item, age, command) in &data.recent {
+            // Exit-code dots are status dots: `ok` for success, `err` for failure. Every row keeps the dot's room, so
+            // the labels line up.
+            let tone = self
+                .exit_of(command.as_ref(), cx)
+                .map_or(gpui::transparent_black(), |code| {
+                    paint(if code == 0 { colors.ok } else { colors.err }, 1.0)
+                });
+            let dot = div()
+                .flex_none()
+                .size(px(t::SPACE_6))
+                .rounded_full()
+                .bg(tone);
             list = list.child(
                 div()
                     .flex()
@@ -416,8 +438,10 @@ impl MainWindow {
                     .child(
                         div()
                             .flex()
+                            .items_center()
                             .gap(px(t::SPACE_8))
                             .text_size(px(t::TEXT_TREE))
+                            .child(dot)
                             .child(
                                 div()
                                     .flex_1()

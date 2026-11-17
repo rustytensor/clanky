@@ -132,6 +132,15 @@ pub fn local_hhmm(unix_ms: i64) -> String {
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 
+/// A folder as the meta text names it: the home folder is "~", a folder inside it "~/..." (mockup: ~/git/clanky).
+pub fn home_short(cwd: &str, home: Option<&str>) -> String {
+    match home.filter(|home| !home.is_empty()) {
+        Some(home) if cwd == home => "~".into(),
+        Some(home) if cwd.strip_prefix(home).is_some_and(|rest| rest.starts_with('/')) => format!("~{}", &cwd[home.len()..]),
+        _ => cwd.into(),
+    }
+}
+
 /// A finished command's duration as the meta row and the sticky line word it.
 pub fn duration_label(ms:u64)->String{
     if ms<1000{format!("{ms} ms")}else if ms<60_000{format!("{:.1} s",ms as f64/1000.0)}
@@ -172,6 +181,14 @@ mod tests {
         let block = |id: &str, first_row, last_row| BlockCard { id: id.into(), first_row, last_row, command: String::new(), exit_code: Some(0), duration_ms: None, running: false };
         let breath = breathe(&[block("a", 0, 1), block("b", 2, 3)], &screen(4, 4, &[0, 1, 2, 3]), 26.0, 1.0, 1000.0, 0.0);
         assert_eq!(breath.map(|b| b.tops), Some(vec![32.0, 58.0, 128.0, 154.0]));
+    }
+
+    #[test]
+    fn folders_read_from_home() {
+        assert_eq!(home_short("/home/a", Some("/home/a")), "~");
+        assert_eq!(home_short("/home/a/alpha", Some("/home/a")), "~/alpha");
+        assert_eq!(home_short("/home/ab", Some("/home/a")), "/home/ab");
+        assert_eq!(home_short("/srv", None), "/srv");
     }
 
     #[test]

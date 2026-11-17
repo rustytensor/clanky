@@ -16,7 +16,7 @@ use std::{
 
 use clanky_api::Client;
 use clanky_core::TerminalSnapshot;
-use serde_json::json;
+use serde_json::{Value, json};
 
 const GATHER: Duration = Duration::from_millis(4);
 const GATHER_NOTICES: usize = 100;
@@ -24,7 +24,8 @@ const GATHER_NOTICES: usize = 100;
 const WAIT_MS: u64 = 1000;
 
 pub enum Update {
-    Snapshot(Arc<TerminalSnapshot>),
+    /// The screen, and the server's command blocks placed on it (from the same generation).
+    Snapshot(Arc<TerminalSnapshot>, Arc<Value>),
     /// The server went away or refused us; the window shows the reason and stops updating.
     Lost(String),
     /// The shell the window started in the pane has exited.
@@ -96,9 +97,9 @@ fn watch(
     let mut quiet_since = Instant::now();
     let send = |update: Update| sender.send_blocking(update).is_ok();
     // The first screen, before any change.
-    match fetch.snapshot(tab) {
-        Ok(snapshot) => {
-            if !send(Update::Snapshot(Arc::new(snapshot))) {
+    match fetch.snapshot_with_blocks(tab) {
+        Ok((snapshot, blocks)) => {
+            if !send(Update::Snapshot(Arc::new(snapshot), Arc::new(blocks))) {
                 return;
             }
         }
@@ -141,10 +142,10 @@ fn watch(
         // The change notice is the whole session's: when this pane's screen is the one already held (the server
         // answers "unchanged" for its generation), there is nothing to draw.
         let held = fetch.cached_generation(tab);
-        match fetch.snapshot(tab) {
+        match fetch.snapshot_with_blocks(tab) {
             Ok(_) if held.is_some() && fetch.cached_generation(tab) == held => {}
-            Ok(snapshot) => {
-                if !send(Update::Snapshot(Arc::new(snapshot))) {
+            Ok((snapshot, blocks)) => {
+                if !send(Update::Snapshot(Arc::new(snapshot), Arc::new(blocks))) {
                     return;
                 }
             }

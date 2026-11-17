@@ -212,6 +212,8 @@ impl MainWindow {
             client: self.client.clone(),
             tab: tab.clone(),
             palette: self.palette.clone(),
+            colors: self.colors.clone(),
+            record: self.kit.record().clone(),
             text: self.text.clone(),
             size_sent: (0, 0),
             link,

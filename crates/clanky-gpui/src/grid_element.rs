@@ -38,6 +38,8 @@ pub struct Metrics {
     pub ascent: f32,
     pub rows: usize,
     pub cols: usize,
+    /// The pane's whole width, padding included.
+    pub pane_width: f32,
 }
 
 impl Metrics {
@@ -309,6 +311,7 @@ impl GridElement {
             ascent,
             rows,
             cols,
+            pane_width: f32::from(bounds.size.width) * scale,
         }
     }
 

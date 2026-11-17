@@ -13,14 +13,18 @@ use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
+use clanky_state::themes::Colors;
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
+    AnyElement, App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent,
     Styled, Task, UTF16Selection, Window, div, point, px, size,
 };
+use serde_json::Value;
 
 use crate::{
+    blocks_view::{self, Look},
+    control_record::ControlRecord,
     grid_element::{GridElement, Metrics, TextSettings, colour},
     keys,
     link::{Link, Update},
@@ -32,7 +36,7 @@ const POINTS_PER_PIXEL: f32 = 0.75;
 
 /// Lines the history scrolls per wheel notch, as VTE.
 const WHEEL_LINES: f32 = 3.0;
-/// Lines gpui-ce reports for one wheel notch on X11 and Wayland (`SCROLL_LINES` in gpui_linux).
+/// Lines gpui-ce reports for one wheel notch on X11 and Wayland (`SCROLL_LINES` in `gpui_linux`).
 const GPUI_LINES_PER_NOTCH: f32 = 3.0;
 
 /// Wheel notches in a scroll event: a mouse wheel's lines, or a touchpad's pixels as rows of history.
@@ -49,7 +53,15 @@ pub struct TerminalPane {
     client: Client,
     tab: String,
     snapshot: Option<Arc<TerminalSnapshot>>,
+    /// The server's command blocks for `snapshot`, from the same reply.
+    blocks: Arc<Value>,
     palette: Palette,
+    /// The interface colours, for the blocks' hairlines, meta text and sticky line.
+    colors: Colors,
+    record: ControlRecord,
+    home: Option<String>,
+    /// Wakes the pane on the next whole second while a running time counts.
+    tick: Option<Task<()>>,
     text: TextSettings,
     /// The text size in points, changed by Ctrl+wheel and Ctrl+= / Ctrl+- / Ctrl+0, as today's window.
     zoom: Zoom,
@@ -79,6 +91,8 @@ pub struct PaneSetup {
     pub client: Client,
     pub tab: String,
     pub palette: Palette,
+    pub colors: Colors,
+    pub record: ControlRecord,
     pub text: TextSettings,
     pub size_sent: (usize, usize),
     pub link: Link,
@@ -105,7 +119,10 @@ impl TerminalPane {
                 let finished = matches!(update, Update::Finished);
                 let applied = pane.update(cx, |pane, cx| {
                     match update {
-                        Update::Snapshot(snapshot) => pane.snapshot = Some(snapshot),
+                        Update::Snapshot(snapshot, blocks) => {
+                            pane.snapshot = Some(snapshot);
+                            pane.blocks = blocks;
+                        }
                         Update::Lost(message) => pane.notice = Some(message),
                         Update::Finished => cx.emit(PaneEvent::Finished),
                     }
@@ -121,7 +138,13 @@ impl TerminalPane {
             client: setup.client,
             tab: setup.tab,
             snapshot: None,
+            blocks: Arc::new(Value::Null),
             palette: setup.palette,
+            colors: setup.colors,
+            record: setup.record,
+            home: clanky_core::platform::home_dir()
+                .and_then(|home| home.to_str().map(str::to_owned)),
+            tick: None,
             zoom: Zoom::new(setup.text.size * POINTS_PER_PIXEL),
             text: setup.text,
             focus,
@@ -159,6 +182,20 @@ impl TerminalPane {
                 metrics.line_height / metrics.scale,
             )
         })
+    }
+
+    /// The exit code of the newest finished block on the screen whose command is `command`.
+    pub fn last_exit(&self, command: &str) -> Option<i32> {
+        self.blocks["blocks"]
+            .as_array()?
+            .iter()
+            .rev()
+            .find(|block| {
+                block["complete"] == true
+                    && block["command"].as_str().map(str::trim) == Some(command)
+            })
+            .and_then(|block| block["exit_code"].as_i64())
+            .and_then(|code| i32::try_from(code).ok())
     }
 
     /// Called while laying out: tells the server the grid's size when it changed.
@@ -495,8 +532,57 @@ impl TerminalPane {
     }
 }
 
+impl TerminalPane {
+    /// The snapshot to draw and the blocks drawn over it. Without blocks on the screen the snapshot is drawn as it
+    /// came; the first frame, before the grid is measured, draws no blocks.
+    fn blocks_drawn(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> (Option<Arc<TerminalSnapshot>>, Option<AnyElement>) {
+        let m = self.metrics.get();
+        let Some(snapshot) = self.snapshot.clone().filter(|_| m.scale > 0.0) else {
+            return (self.snapshot.clone(), None);
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+            });
+        let shown = blocks_view::shown(&snapshot, &self.blocks, now_ms, self.home.as_deref());
+        if shown.counting && self.tick.is_none() {
+            let wait =
+                std::time::Duration::from_millis(1000 - now_ms.rem_euclid(1000).unsigned_abs() + 5);
+            self.tick = Some(cx.spawn(async move |pane, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = pane.update(cx, |pane, cx| {
+                    pane.tick = None;
+                    cx.notify();
+                });
+            }));
+        }
+        if shown.blocks.is_empty() && shown.sticky.is_none() {
+            return (Some(snapshot), None);
+        }
+        let widths = blocks_view::meta_widths(&shown, window);
+        let drawn = if shown.blocks.is_empty() {
+            snapshot
+        } else {
+            Arc::new(blocks_view::decorate(&snapshot, &shown, &widths, m))
+        };
+        let look = Look {
+            colors: &self.colors,
+            palette: &self.palette,
+            text: &self.text,
+            record: &self.record,
+            landmarks: self.focus.is_focused(window),
+        };
+        (Some(drawn), Some(blocks_view::overlay(&shown, m, &look)))
+    }
+}
+
 impl Render for TerminalPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = match (&self.selection, &self.snapshot) {
             (Some(selection), Some(snapshot)) => {
                 let top = self.top_line();
@@ -515,9 +601,10 @@ impl Render for TerminalPane {
             }
             _ => Vec::new(),
         };
+        let (drawn, overlay) = self.blocks_drawn(window, cx);
         let grid = GridElement {
             pane: cx.entity(),
-            snapshot: self.snapshot.clone(),
+            snapshot: drawn,
             palette: self.palette.clone(),
             text: self.text.clone(),
             selection,
@@ -537,7 +624,9 @@ impl Render for TerminalPane {
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .relative()
             .child(grid)
+            .children(overlay)
             .children(self.notice.clone().map(|notice| {
                 div()
                     .absolute()
@@ -642,6 +731,8 @@ impl gpui::Focusable for TerminalPane {
 }
 
 #[cfg(test)]
+// The notch counts compared are exact in binary: whole numbers from whole-number inputs.
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use gpui::{point, px};
