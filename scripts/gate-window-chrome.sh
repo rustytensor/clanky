@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Window chrome gate (G2): the design token gate and the controls gate, retargeted to clanky-gpui.
+# Window chrome gate (G2): the design token gate and the controls gate, retargeted to clanky-gpui, then today's
+# behaviour gates for these parts run on clanky-gpui (q2-input, q4-blocks, c5-panes, mouse, m12-clicks' chrome steps).
 # Prints one "ok:", "CAUGHT:" or "FAIL:" line per step, then PASS or FAIL.
 # --faults needs no clanky-gpui binary and no display: both gates run on a simulated window (scripts/window-chrome/
 #   simulated_window.py) and on the fixtures; the good runs must pass and each of eight planted faults must fail the check
@@ -83,6 +84,28 @@ for gate in gate-controls.py gate-design-tokens.py; do
   output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$DIR/$gate" --app "$binary" 2>&1) || status=$?
   if ((status == 0)); then ok "$gate: $(tail -n 1 <<<"$output")"; else fail "$gate: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 done
+# Today's behaviour gates on clanky-gpui, each with its own window on a private display, under the gate lock. Each
+# names in its docstring the steps it runs on clanky-gpui and the ones moved to G3 or G4.
+target=$(realpath -m "$(dirname "$binary")/..")
+CLANKY_BIN=$(realpath "$binary")
+export CLANKY_BIN CARGO_HOME=${CARGO_HOME:-/srv/devops/cache/clanky-cargo}
+if [[ ! -x $target/release/clanky-agent-gate ]]; then
+  CARGO_TARGET_DIR=$target flock "${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}" \
+    cargo build -q --offline --locked --release -j 8 -p clanky --bin clanky-agent-gate
+fi
+# behaviour NAME PASS-TEXT COMMAND...: runs one behaviour gate; ok when it exits 0 and prints PASS-TEXT.
+behaviour() {
+  local name=$1 want=$2
+  shift 2
+  status=0
+  output=$(env -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS CARGO_TARGET_DIR="$target" flock "$GATE_LOCK" "$@" 2>&1) || status=$?
+  if ((status == 0)) && [[ $output == *"$want"* ]]; then ok "$name: $want"; else fail "$name: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+}
+behaviour q2-input 'PASS: Q2 command input' env -u DISPLAY scripts/gate-q2-input.sh
+behaviour q4-blocks 'PASS: Q4' env -u DISPLAY scripts/gate-q4-blocks.sh
+behaviour c5-panes 'PASS: C5' env -u DISPLAY scripts/gate-c5-panes.sh
+behaviour mouse 'PASS: mouse' env -u DISPLAY scripts/gate-mouse.sh
+behaviour m12-clicks 'second session' bash -c 'source scripts/private-display.sh && run_on_private_display 1400x900x24 python3 scripts/gate-m12-clicks.py'
 if ((failed)); then
   echo "FAIL: window chrome"
   exit 1
