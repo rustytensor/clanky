@@ -3,12 +3,15 @@
 # Check 9: under a headless sway (own runtime folder, XWayland off, never the user's session), the default config
 #   with no --exec opens a native Wayland window within WINDOW_SECONDS, the prompt row has ink before typing, and after
 #   typing `echo g1-ok` and Enter the text g1-ok shows twice (the typed line and its output).
+# Check 9, defaults: the same with the config a user has (the command input and two panes): ink in the input line before
+#   typing, the typed line in it, and after Enter g1-ok twice in the focused pane (its block's command row and the
+#   output). Check 9 above is the classic one-pane run.
 # Check 10: the same start with a runtime folder that has the setgid bit either opens a window that takes the same
 #   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
 # --faults needs no binary and no sway: it shows the screenshot reader accepting a window drawn as it should look and
-#   rejecting one whose prompt row shows only the cursor (the planted fault: a prompt row with no prompt drawn, as the
-#   editor input would show).
+#   rejecting one whose prompt row shows only the cursor (a prompt row with no prompt drawn, as the editor input would
+#   show), and the default window's reader accepting each stage and rejecting typed text that never reached the shell.
 # CLANKY_GPUI_BIN=PATH names the binary (default target/release/clanky-gpui under CARGO_TARGET_DIR).
 # Tools: sway, swaymsg, wtype (types through the virtual keyboard protocol), grim (screenshots), python3 with Pillow.
 set -euo pipefail
@@ -20,6 +23,7 @@ binary=${CLANKY_GPUI_BIN:-$CARGO_TARGET_DIR/release/clanky-gpui}
 WINDOW_SECONDS=2      # check 9: the window must be mapped this soon after the start
 SETTLE_SECONDS=10     # check 10 and the first frame: the longest we wait for a window or its ink
 TYPE_SECONDS=5        # the typed text must show within this long
+STAGE_MS=6000         # the default window: the typed line waits this long in the input before Return
 SETGID_FOLDER_MODE=2700
 RUNTIME_PARENT=/run/user/$(id -u)
 
@@ -80,11 +84,27 @@ if [[ ${1:-} == --faults ]]; then
   else
     echo "CAUGHT: a prompt row with only the cursor (check 9 prompt row): $output"
   fi
+  for stage in input typed output; do
+    python3 "$CHECK_DIR/check_wayland.py" draw-default "$scratch/default-$stage.png" --stage "$stage"
+  done
+  python3 "$CHECK_DIR/check_wayland.py" draw-default "$scratch/default-fault.png" --fault typed-not-sent
+  if python3 "$CHECK_DIR/check_wayland.py" input "$scratch/default-input.png" >/dev/null \
+    && python3 "$CHECK_DIR/check_wayland.py" typed "$scratch/default-typed.png" >/dev/null \
+    && python3 "$CHECK_DIR/check_wayland.py" output "$scratch/default-output.png" >/dev/null; then
+    ok "reader accepts the default window at each stage: ink in the input, the typed line in it, g1-ok twice after Enter"
+  else
+    fail "reader rejects the default window drawn as it should look"
+  fi
+  if output=$(python3 "$CHECK_DIR/check_wayland.py" output "$scratch/default-fault.png"); then
+    fail "planted fault (typed text that never reaches the shell) was not caught"
+  else
+    echo "CAUGHT: typed text never reaching the shell (the default window's output check): $output"
+  fi
   if ((failed)); then
-    echo "FAIL: wayland checks catch 0 of 1 planted faults"
+    echo "FAIL: wayland checks catch 0 of 2 planted faults"
     exit 1
   fi
-  echo "PASS: wayland checks catch all 1 planted faults"
+  echo "PASS: wayland checks catch all 2 planted faults"
   exit 0
 fi
 
@@ -108,9 +128,14 @@ case $sway_runtime in
   "$RUNTIME_PARENT"/clanky-wayland-check.*) ;;
   *) echo "FAIL: isolation: sway runtime folder $sway_runtime is outside $RUNTIME_PARENT"; exit 1 ;;
 esac
-mkdir -p "$scratch/home"
-for folder in config state data cache; do private_folder "$scratch/xdg/$folder" 700; done
-private_folder "$scratch/home" 700
+# fresh_state: empty home and XDG folders, so that no start restores the layout or the history of the start before it.
+fresh_state() {
+  rm -rf -- "${scratch:?}/xdg" "${scratch:?}/home"
+  mkdir -p "$scratch/home"
+  for folder in config state data cache; do private_folder "$scratch/xdg/$folder" 700; done
+  private_folder "$scratch/home" 700
+}
+fresh_state
 
 cat >"$scratch/sway.conf" <<'EOF'
 xwayland disable
@@ -139,17 +164,21 @@ on_sway() {
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$sway_runtime" WAYLAND_DISPLAY="$(basename "$wayland_socket")" "$@"
 }
 
-# launch RUNTIME SOCKET_NAME: starts clanky-gpui as a user would (default config file, no --exec, no --socket) with
+classic_config='{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "tools_panel": "off", "new_window_panes": 1, "command_input": "classic"}'
+# The window as a user gets it, but for the terminal font and size (the reader's cell geometry depends on them; the
+# default font is a moving target): the command input, two panes and the tools panel are the defaults.
+default_config='{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2}'
+# launch RUNTIME SOCKET_NAME [CONFIG_JSON]: starts clanky-gpui as a user would (default config file, no --exec, no --socket) with
 # XDG_RUNTIME_DIR=RUNTIME and WAYLAND_DISPLAY=SOCKET_NAME; sets app_pid and app_start (seconds).
 launch() {
+  fresh_state
   mkdir -p "$scratch/app-config"
   # The default config but for the terminal font and size, which the screenshot reader (expected.py's cell geometry,
   # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. The tools panel is
   # off and the window opens one pane because that geometry is one pane with no panel beside it. The input is the
   # classic one, where the shell draws its prompt row: these checks prove the native Wayland window and its typing,
   # and the command input that is the default since G2 has its own gate (q2-input).
-  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2, "tools_panel": "off", "new_window_panes": 1, "command_input": "classic"}' \
-    >"$scratch/app-config/config.json"
+  echo "${3:-$classic_config}" >"$scratch/app-config/config.json"
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME="$scratch/home" WAYLAND_DISPLAY="$2" XDG_RUNTIME_DIR="$1" XDG_CONFIG_HOME="$scratch/xdg/config" \
     XDG_STATE_HOME="$scratch/xdg/state" XDG_DATA_HOME="$scratch/xdg/data" XDG_CACHE_HOME="$scratch/xdg/cache" \
@@ -203,6 +232,14 @@ wait_screen() {
   done
 }
 
+# type_echo_staged: one wtype process types the line, waits, and presses Return, so that the typed line can be seen in
+# the input before it is run; it runs in the background and typer_pid is its process ID.
+type_echo_staged() {
+  on_sway wtype -s 500 'echo g1-ok' -s "$STAGE_MS" -k Return &
+  typer_pid=$!
+  pids+=("$typer_pid")
+}
+
 # One wtype process types the line and presses Return: each process makes its own virtual keyboard, and the first key
 # a new keyboard sends is lost, so a second process for Return left the typed line unrun in 3 of 10 runs.
 type_echo() {
@@ -244,6 +281,30 @@ check_9() {
   stop_server "$sway_runtime"
 }
 
+# The same start with the defaults: the command input and two panes, as a user gets them (the check Marc's own first
+# run needs). The input line has ink before typing; the typed line shows in the input line; after Enter g1-ok shows
+# twice in the focused pane, the lower one: the command in its block's command row and the output. The expected count
+# is read off the block layout in a screenshot of clanky-gpui: a block is a meta row, the command row, then the output.
+check_9_default() {
+  local line
+  launch "$sway_runtime" "$(basename "$wayland_socket")" "$default_config"
+  if ! wait_window "$SETTLE_SECONDS"; then
+    fail "wayland (check 9, defaults): no window within ${SETTLE_SECONDS}s; the app said: $(tail -n 2 "$scratch/app.err" | tr '\n' ' ')"
+    stop_app
+    return
+  fi
+  if line=$(wait_screen "$SETTLE_SECONDS" input); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
+  keep_shot "check-9-default-start"
+  type_echo_staged
+  if line=$(wait_screen "$TYPE_SECONDS" typed); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
+  keep_shot "check-9-default-typed"
+  if line=$(wait_screen "$((STAGE_MS / 1000 + TYPE_SECONDS))" output); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
+  keep_shot "check-9-default-output"
+  wait "$typer_pid" 2>/dev/null || true
+  stop_app
+  stop_server "$sway_runtime"
+}
+
 # ----------------------------------------------------------------------------------------------- check 10
 check_10() {
   local line status message
@@ -273,6 +334,7 @@ check_10() {
 }
 
 check_9
+check_9_default
 check_10
 if ((failed)); then
   echo "FAIL: wayland start"

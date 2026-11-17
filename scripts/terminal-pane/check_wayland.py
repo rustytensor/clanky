@@ -5,7 +5,19 @@ Usage:
   python3 check_wayland.py prompt SCREENSHOT.png          the prompt row has ink before anything is typed
   python3 check_wayland.py text SCREENSHOT.png COUNT [--exactly]   g1-ok shows at least (or exactly) COUNT times
   python3 check_wayland.py draw OUT.png [--fault cursor-only]    a window as it should look, or the editor's: a bare cursor
+  python3 check_wayland.py input SCREENSHOT.png           the default window's command input line has ink before typing
+  python3 check_wayland.py typed SCREENSHOT.png           `echo g1-ok` shows in the input line, and nowhere above it
+  python3 check_wayland.py output SCREENSHOT.png          after Enter: g1-ok twice in the focused pane (the command in
+                                                          its block's command row, the output), nowhere else
+  python3 check_wayland.py draw-default OUT.png [--stage input|typed|output] [--fault typed-not-sent]
+                                                          the default window as it should look at each stage
   python3 check_wayland.py window                          reads `swaymsg -t get_tree` JSON on stdin, prints "X Y W H SHELL"
+
+The default window (command input, two panes, tools panel) is read by its own layout, from the rulebook and not from
+the program: the focused pane is the lower one, its command bar's hairline lies 75 px above the pane's inside bottom
+(the q2 gate's A2; the pane's inside bottom is the window's height minus the status line, the pane margin and the
+pane's border), and the input line lies 38 to 72 px below that hairline. g1-ok is found in a band of rows by trying
+every offset of the cell grid, as the text on those rows is not on the fixture's grid.
 
 Text is found with the cell geometry of expected.py (scale 1) and check_cells.py's reader: a cell matches a character
 when its ink and the font's own glyph for it, drawn at that cell, cover each other to within one pixel. The search
@@ -17,6 +29,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -147,6 +160,128 @@ def prompt_ink_pixels(shot, geometry, background):
     return len(ink - rim)
 
 
+# The default window, from the rulebook's token table (window-chrome/rulebook-tokens.json) and the q2 gate's A2.
+TOKENS_FILE = (
+    Path(__file__).resolve().parents[1] / "window-chrome" / "rulebook-tokens.json"
+)
+HAIRLINE_ABOVE_INSIDE_BOTTOM_PX = 75
+HAIRLINE_TOLERANCE_PX = 3
+HAIRLINE_COVERAGE = 0.9
+HAIRLINE_LEVEL_TOLERANCE = 6
+INPUT_BAND_PX = (38, 72)  # below the hairline: the input line, under the chips row
+OUTPUT_ABOVE_HAIRLINE_PX = (220, 4)  # the pane's block area, above its command bar
+INPUT_MIN_INK_PIXELS = (
+    30  # a chevron alone is about 14; a caret block or placeholder text is far more
+)
+INK_SEARCH_COLUMNS = (
+    0.2,
+    0.95,
+)  # the share of the window's width the hairline and bands are read across
+
+
+def tokens():
+    return json.loads(TOKENS_FILE.read_text(encoding="utf-8"))
+
+
+def inside_bottom(shot):
+    """The lower pane's inside bottom row: the window height minus the status line, the pane margin and its border."""
+    book = tokens()
+    chrome = book["heights"]["h_status"]["px"] + book["pane"]["margin"]["px"]
+    return shot.height - chrome * SCALE - book["pane"]["border_width"]["device_px"]
+
+
+def hairline_colour(background):
+    alpha = tokens()["pane"]["border_alpha"]["value"]
+    return tuple(c + alpha * (255 - c) for c in background)
+
+
+def hairlines(shot, background):
+    """The rows that are a command bar's hairline: the border colour across 90 % of the pane columns."""
+    line = hairline_colour(background)
+    columns = range(
+        int(INK_SEARCH_COLUMNS[0] * shot.width),
+        int(INK_SEARCH_COLUMNS[1] * shot.width),
+        3,
+    )
+    found = []
+    for y in range(shot.height):
+        near = sum(
+            shot.difference(x, y, line) <= HAIRLINE_LEVEL_TOLERANCE for x in columns
+        )
+        if near >= HAIRLINE_COVERAGE * len(columns):
+            found.append(y)
+    return found
+
+
+def lower_hairline(shot, background):
+    """The lower pane's hairline, or None; it must lie where the rulebook puts it."""
+    want = inside_bottom(shot) - HAIRLINE_ABOVE_INSIDE_BOTTOM_PX
+    near = [
+        y for y in hairlines(shot, background) if abs(y - want) <= HAIRLINE_TOLERANCE_PX
+    ]
+    return (near[0], want) if near else (None, want)
+
+
+def band_ink_pixels(shot, background, top, bottom):
+    left, right = (int(share * shot.width) for share in INK_SEARCH_COLUMNS)
+    return sum(
+        shot.is_ink(x, y, background)
+        for y in range(top, bottom)
+        for x in range(left, right)
+    )
+
+
+def count_word_free(shot, geometry, background, top, bottom):
+    """The most times WORD shows in the rows between top and bottom over every offset of the cell grid: the grid's
+    origin is tried at every pixel of one cell before the first inked column, and its rows at every phase of a line,
+    and only the rows and columns that hold ink are matched."""
+    cell_width, line_height = geometry["cell_width"], geometry["line_height"]
+    ascender = check_cells.Font(SCALE).ascender
+    masks = {
+        char: glyph_mask(char, cell_width, line_height, ascender) for char in set(WORD)
+    }
+    left = int(INK_SEARCH_COLUMNS[0] * shot.width)
+    right = int(INK_SEARCH_COLUMNS[1] * shot.width)
+    pixels = np.asarray(shot.image, dtype=int)[top:bottom, left:right]
+    ink = np.abs(pixels - np.array(background)).max(axis=2) > check_cells.INK_THRESHOLD
+    if not ink.any():
+        return 0
+    inked_columns = np.where(ink.any(axis=0))[0]
+    first, last = int(inked_columns.min()), int(inked_columns.max())
+    width = round(cell_width)
+    best = 0
+    for phase in range(line_height):
+        rows = [
+            r
+            for r in range(phase, ink.shape[0] - line_height + 1, line_height)
+            if ink[r : r + line_height].any()
+        ]
+        if not rows:
+            continue
+        for shift in range(width):
+            origin = first - shift
+            columns = int((last + 1 - origin) / cell_width) + 1
+            count = 0
+            for row in rows:
+                cells = []
+                for column in range(columns):
+                    x0 = round(origin + column * cell_width)
+                    cell = ink[row : row + line_height, max(x0, 0) : x0 + width]
+                    cells.append({(x, y) for y, x in zip(*np.nonzero(cell))})
+                column = 0
+                while column + len(WORD) <= columns:
+                    if all(
+                        cell_matches(cells[column + i], masks[char])
+                        for i, char in enumerate(WORD)
+                    ):
+                        count += 1
+                        column += len(WORD)
+                    else:
+                        column += 1
+            best = max(best, count)
+    return best
+
+
 def load_shot(path):
     background = theme_background()
     return check_cells.Shot(Image.open(path), background), background
@@ -177,6 +312,92 @@ def command_text(arguments):
     return 0
 
 
+def default_layout(arguments):
+    shot, background = load_shot(arguments.screenshot)
+    hairline, want = lower_hairline(shot, background)
+    return shot, background, hairline, want
+
+
+def command_input(arguments):
+    shot, background, hairline, want = default_layout(arguments)
+    if hairline is None:
+        print(
+            f"FAIL: wayland default window has no command bar hairline at y {want} (+-{HAIRLINE_TOLERANCE_PX}), 75 px above the lower pane's inside bottom"
+        )
+        return 1
+    top, bottom = hairline + INPUT_BAND_PX[0], hairline + INPUT_BAND_PX[1]
+    pixels = band_ink_pixels(shot, background, top, bottom)
+    if pixels < INPUT_MIN_INK_PIXELS:
+        print(
+            f"FAIL: wayland input line (y {top}..{bottom}) shows {pixels} inked pixels before typing, at least {INPUT_MIN_INK_PIXELS} expected (a caret or placeholder)"
+        )
+        return 1
+    print(
+        f"ok: wayland input line has ink before typing ({pixels} pixels, hairline at y {hairline})"
+    )
+    return 0
+
+
+def band_counts(arguments):
+    """WORD counts in the lower pane's input line, its block area, and the upper pane's block area."""
+    shot, background, hairline, want = default_layout(arguments)
+    if hairline is None:
+        return None, f"wayland default window has no command bar hairline at y {want}"
+    geometry = expected.build(SCALE)
+    above = (
+        hairline - OUTPUT_ABOVE_HAIRLINE_PX[0],
+        hairline - OUTPUT_ABOVE_HAIRLINE_PX[1],
+    )
+    upper = [y for y in hairlines(shot, background) if y < hairline - 100]
+    counts = {
+        "input line": count_word_free(
+            shot,
+            geometry,
+            background,
+            hairline + INPUT_BAND_PX[0],
+            hairline + INPUT_BAND_PX[1],
+        ),
+        "lower pane": count_word_free(shot, geometry, background, *above),
+    }
+    if upper:
+        counts["upper pane"] = count_word_free(
+            shot,
+            geometry,
+            background,
+            upper[-1] - OUTPUT_ABOVE_HAIRLINE_PX[0],
+            upper[-1] - OUTPUT_ABOVE_HAIRLINE_PX[1],
+        )
+    return counts, ""
+
+
+def command_typed(arguments):
+    counts, problem = band_counts(arguments)
+    if counts is None:
+        print(f"FAIL: {problem}")
+        return 1
+    if counts["input line"] != 1 or counts["lower pane"] or counts.get("upper pane"):
+        print(
+            f"FAIL: wayland typed {WORD} should show once in the input line and nowhere above it, counted {counts}"
+        )
+        return 1
+    print(f"ok: wayland the typed line shows in the input line ({counts})")
+    return 0
+
+
+def command_output(arguments):
+    counts, problem = band_counts(arguments)
+    if counts is None:
+        print(f"FAIL: {problem}")
+        return 1
+    if counts["lower pane"] != 2 or counts["input line"] or counts.get("upper pane"):
+        print(
+            f"FAIL: wayland after Enter {WORD} should show twice in the focused pane (its command row and the output) and nowhere else, counted {counts}"
+        )
+        return 1
+    print(f"ok: wayland after Enter {WORD} shows twice in the focused pane ({counts})")
+    return 0
+
+
 def command_draw(arguments):
     """A window as a classic prompt draws it after `echo g1-ok`; the fault is the editor's window: a block cursor only."""
     geometry = expected.build(SCALE)
@@ -203,6 +424,78 @@ def command_draw(arguments):
         )
     image.save(arguments.out)
     return 0
+
+
+DEFAULT_WINDOW_SIZE = (1280, 720)
+PANE_LEFT, PANE_RIGHT = (
+    245,
+    1271,
+)  # the default window's panes beside the tools panel, at 1280 px wide
+PANE_TOPS = (49, 369)  # logical px: the upper and lower pane's top edge
+FRAME_GREY = 29
+
+
+def command_draw_default(arguments):
+    """The default window at one stage: the command input empty, with `echo g1-ok` typed, or after Enter. The fault
+    leaves the typed line in the input line and never runs it (typing that does not reach the shell)."""
+    geometry = expected.build(SCALE)
+    theme = json.loads(check_cells.THEME_FILE.read_text(encoding="utf-8"))
+    background = check_cells.hex_to_rgb(theme["colors"]["background"])
+    image = Image.new("RGB", DEFAULT_WINDOW_SIZE, (FRAME_GREY,) * 3)
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(
+        str(check_cells.FONT_REGULAR), expected.FONT_SIZE_LOGICAL_PX * SCALE
+    )
+    ascender = check_cells.Font(SCALE).ascender
+    bottom = inside_bottom(Image_shot(image, background))
+    pane_bottoms = (PANE_TOPS[1] - 10, bottom + 1)
+    line = tuple(round(c) for c in hairline_colour(background))
+    for top, end in zip(PANE_TOPS, pane_bottoms):
+        draw.rectangle((PANE_LEFT, top, PANE_RIGHT, end), fill=background)
+        draw.line(
+            (
+                PANE_LEFT + 1,
+                end - 1 - HAIRLINE_ABOVE_INSIDE_BOTTOM_PX,
+                PANE_RIGHT - 1,
+                end - 1 - HAIRLINE_ABOVE_INSIDE_BOTTOM_PX,
+            ),
+            fill=line,
+        )
+    hair = bottom - HAIRLINE_ABOVE_INSIDE_BOTTOM_PX
+    foreground = theme["colors"]["foreground"]
+
+    def write(text, left, top):
+        for column, char in enumerate(text):
+            draw.text(
+                (left + column * geometry["cell_width"], top + ascender),
+                char,
+                font=font,
+                fill=foreground,
+                anchor="ls",
+            )
+
+    input_top = hair + 44
+    typed = arguments.stage == "typed" or arguments.fault == "typed-not-sent"
+    draw.polygon(
+        [(262, input_top + 4), (268, input_top + 10), (262, input_top + 16)],
+        fill=(70, 110, 220),
+    )
+    if typed:
+        write(f"echo {WORD}", 279, input_top)
+    else:
+        draw.rectangle((279, input_top, 289, input_top + 18), fill=foreground)
+    if arguments.stage == "output" and arguments.fault != "typed-not-sent":
+        write(f"echo {WORD}", 257, hair - 160)
+        write(WORD, 257, hair - 160 + geometry["line_height"])
+    image.save(arguments.out)
+    return 0
+
+
+class Image_shot:
+    """Just the size of an image, for the layout arithmetic before the screenshot reader exists."""
+
+    def __init__(self, image, background):
+        self.width, self.height = image.size
 
 
 def find_window(node):
@@ -247,12 +540,24 @@ def main():
     draw = commands.add_parser("draw")
     draw.add_argument("out", type=Path)
     draw.add_argument("--fault", choices=["cursor-only"])
+    for name in ("input", "typed", "output"):
+        commands.add_parser(name).add_argument("screenshot", type=Path)
+    default = commands.add_parser("draw-default")
+    default.add_argument("out", type=Path)
+    default.add_argument(
+        "--stage", choices=["input", "typed", "output"], default="output"
+    )
+    default.add_argument("--fault", choices=["typed-not-sent"])
     commands.add_parser("window")
     arguments = parser.parse_args()
     handlers = {
         "prompt": command_prompt,
         "text": command_text,
         "draw": command_draw,
+        "input": command_input,
+        "typed": command_typed,
+        "output": command_output,
+        "draw-default": command_draw_default,
         "window": command_window,
     }
     sys.exit(handlers[arguments.command](arguments))
