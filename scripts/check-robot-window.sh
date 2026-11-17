@@ -10,7 +10,9 @@ mkdir -p "$CARGO_TARGET_DIR"
 exec 9>"${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}"
 flock 9
 if [[ ${CLANKY_GATE_BINARIES_READY:-0} != 1 ]]; then
-  cargo build --offline -p clanky --bin clanky --bin clanky-agent-gate -j8
+  # With CLANKY_BIN only the owner test client is needed; today's clanky is not built.
+  if [[ -n ${CLANKY_BIN:-} ]]; then cargo build --offline -p clanky --bin clanky-agent-gate -j8
+  else cargo build --offline -p clanky --bin clanky --bin clanky-agent-gate -j8; fi
 fi
 work=$(mktemp -d "$CARGO_TARGET_DIR/robot-window.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT

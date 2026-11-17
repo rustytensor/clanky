@@ -8,8 +8,13 @@ export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json LIBGL_ALWAYS_
 mkdir -p "$CARGO_TARGET_DIR"
 exec 9>"${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}"
 flock 9
-cargo test --offline -p clanky --lib robot::tests::startup_schedule -j8 -- --exact --test-threads=1 --nocapture
-cargo build --offline -p clanky --bin clanky --bin clanky-agent-gate -j8
+# With CLANKY_BIN (no startup robot) only the owner test client is needed; today's clanky is not built.
+if [[ -n ${CLANKY_BIN:-} ]]; then
+  cargo build --offline -p clanky --bin clanky-agent-gate -j8
+else
+  cargo test --offline -p clanky --lib robot::tests::startup_schedule -j8 -- --exact --test-threads=1 --nocapture
+  cargo build --offline -p clanky --bin clanky --bin clanky-agent-gate -j8
+fi
 work=$(mktemp -d "$CARGO_TARGET_DIR/robot-startup.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 xvfb-run -a -n 100 -f "$work/xauthority" -e "$work/xvfb.log" -s '-screen 0 1400x900x24 -nolisten tcp' \
