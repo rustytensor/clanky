@@ -200,6 +200,13 @@ pub const BLOCK_TOOLBAR_REST_OPACITY: f32 = 0.72;
 /// `BLOCK_DIVIDER_FAILED` after a failed command.
 pub const BLOCK_DIVIDER: f32 = 0.08;
 pub const BLOCK_DIVIDER_FAILED: f32 = 0.5;
+/// The space between command blocks with the command input on (the mockup's `.blk` and `.meta` on the 4 px grid):
+/// under a block's last row, then the divider, then over the next block's meta row, the meta row itself (the
+/// rulebook's 18), and between the meta row and the command.
+pub const BLOCK_SPACE_BELOW: f32 = SPACE_12;
+pub const BLOCK_SPACE_ABOVE: f32 = SPACE_8;
+pub const BLOCK_META_ROW_HEIGHT: f32 = 18.0;
+pub const BLOCK_META_GAP: f32 = SPACE_2;
 
 /// Keyboard focus: a ring this wide outside the control in the ring colour at this opacity, and the
 /// control's own border in the ring colour.

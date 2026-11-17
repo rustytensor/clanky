@@ -9,10 +9,10 @@ use clanky_core::{
     STYLE_STRIKEOUT, STYLE_TERMINAL_ITALIC, STYLE_UNDERCURL, STYLE_UNDERLINE, TerminalSnapshot,
 };
 use gpui::{
-    App, Bounds, Element, ElementId, ElementInputHandler, Entity, FocusHandle, Font, FontStyle,
-    FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad,
-    Pixels, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, Window, point, px,
-    relative, rgb_to_hsla, rgba, size,
+    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, FocusHandle, Font,
+    FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId,
+    PaintQuad, Pixels, SharedString, StrikethroughStyle, Style, TextAlign, TextRun, Window, point,
+    px, relative, rgb_to_hsla, rgba, size,
 };
 
 use crate::{
@@ -38,8 +38,9 @@ pub struct Metrics {
     pub ascent: f32,
     pub rows: usize,
     pub cols: usize,
-    /// The pane's whole width, padding included.
+    /// The pane's whole width and height, padding included.
     pub pane_width: f32,
+    pub pane_height: f32,
 }
 
 impl Metrics {
@@ -61,19 +62,6 @@ impl Metrics {
     /// cells share their edge and a cell covers exactly the pixels it would cover on paper.
     fn x(&self, col: usize) -> f32 {
         (self.origin_x + col as f32 * self.cell_width - 0.5).ceil()
-    }
-
-    fn y(&self, row: usize) -> f32 {
-        self.origin_y + row as f32 * self.line_height
-    }
-
-    fn cell_box(&self, row: usize, col: usize, width: usize) -> CellBox {
-        CellBox {
-            left: self.x(col),
-            top: self.y(row),
-            right: self.x(col + width),
-            bottom: self.y(row + 1),
-        }
     }
 
     fn logical(&self, device: f32) -> Pixels {
@@ -101,6 +89,9 @@ pub struct GridElement {
     pub metrics: Rc<Shared<Metrics>>,
     /// False while another place (the command input) has the caret.
     pub show_cursor: bool,
+    /// Each row's top in device pixels below the grid's origin, when rows have space between command blocks;
+    /// None for the plain grid.
+    pub tops: Option<Rc<[f32]>>,
 }
 
 struct SnapshotCell<'a> {
@@ -241,6 +232,57 @@ impl Element for GridElement {
         let Some(layout) = layout.as_ref() else {
             return;
         };
+        // Rows lifted above the first row (to keep the newest one in view) stay under the pane's top padding.
+        let clip = Bounds::new(
+            point(bounds.origin.x, m.logical(m.origin_y)),
+            size(
+                bounds.size.width,
+                m.logical(
+                    (m.pane_height - m.origin_y + (f32::from(bounds.origin.y) * m.scale).floor())
+                        .max(0.0),
+                ),
+            ),
+        );
+        window.with_content_mask(
+            Some(ContentMask {
+                bounds: clip,
+                fade_out: gpui::Edges::default(),
+            }),
+            |window| {
+                self.paint_grid(layout, m, window, cx);
+            },
+        );
+    }
+}
+
+impl GridElement {
+    /// A row's top in device pixels.
+    fn row_top(&self, m: Metrics, row: usize) -> f32 {
+        m.origin_y
+            + self
+                .tops
+                .as_ref()
+                .and_then(|tops| tops.get(row).copied())
+                .unwrap_or(row as f32 * m.line_height)
+    }
+
+    fn cell_box(&self, m: Metrics, row: usize, col: usize, width: usize) -> CellBox {
+        let top = self.row_top(m, row);
+        CellBox {
+            left: m.x(col),
+            top,
+            right: m.x(col + width),
+            bottom: top + m.line_height,
+        }
+    }
+
+    fn paint_grid(
+        &self,
+        layout: &cells::GridLayout,
+        m: Metrics,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         let device = |b: CellBox| {
             Bounds::new(
                 point(m.logical(b.left), m.logical(b.top)),
@@ -249,13 +291,13 @@ impl Element for GridElement {
         };
         for bg in &layout.backgrounds {
             window.paint_quad(filled(
-                device(m.cell_box(bg.row, bg.column, bg.width)),
+                device(self.cell_box(m, bg.row, bg.column, bg.width)),
                 colour(bg.colour),
             ));
         }
         for &(row, start, end) in &self.selection {
             window.paint_quad(filled(
-                device(m.cell_box(row, start, end - start)),
+                device(self.cell_box(m, row, start, end - start)),
                 colour(self.palette.selection),
             ));
         }
@@ -263,7 +305,7 @@ impl Element for GridElement {
         for shape in &layout.shapes {
             for piece in glyphs::pieces(
                 shape.character,
-                m.cell_box(shape.row, shape.column, 1),
+                self.cell_box(m, shape.row, shape.column, 1),
                 light,
             ) {
                 let b = CellBox {
@@ -282,9 +324,7 @@ impl Element for GridElement {
             self.paint_cursor(m, window, cx);
         }
     }
-}
 
-impl GridElement {
     fn measure(&self, bounds: Bounds<Pixels>, window: &Window) -> Metrics {
         let scale = window.scale_factor();
         let font = self.font(false, false);
@@ -316,6 +356,7 @@ impl GridElement {
             rows,
             cols,
             pane_width: f32::from(bounds.size.width) * scale,
+            pane_height: f32::from(bounds.size.height) * scale,
         }
     }
 
@@ -358,7 +399,7 @@ impl GridElement {
         );
         // Text starts at the cell's exact edge (not snapped): glyphs are drawn at sub-pixel positions, and the
         // gate places each glyph at column x cell width.
-        let row_top = m.y(run.row);
+        let row_top = self.row_top(m, run.row);
         let origin = point(
             m.logical(m.origin_x + run.column as f32 * m.cell_width),
             m.logical(row_top),
@@ -387,7 +428,7 @@ impl GridElement {
                     .map(|c| if cells::is_wide(c) { 2 } else { 1 })
                     .sum::<usize>()),
             baseline: row_top + m.ascent,
-            bottom: m.y(run.row + 1),
+            bottom: row_top + m.line_height,
             thickness,
             wave_origin: m.origin_x,
             wave_period: m.cell_width,
@@ -413,7 +454,7 @@ impl GridElement {
         let Some((row, col)) = snapshot.cursor else {
             return;
         };
-        let cell = m.cell_box(row, col, 1);
+        let cell = self.cell_box(m, row, col, 1);
         let focused = self.focus.is_focused(window);
         let colour_cursor = colour(self.palette.cursor);
         let stroke = m.scale.round().max(1.0);

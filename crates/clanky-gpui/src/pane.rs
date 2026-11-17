@@ -15,19 +15,19 @@ use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
 use clanky_state::themes::Colors;
 use gpui::{
-    AnyElement, App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
+    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent,
     Styled, Task, UTF16Selection, Window, div, point, px, size,
 };
 use serde_json::Value;
 
+mod blocks;
 mod command;
 
 pub use command::SharedInput;
 
 use crate::{
-    blocks_view::{self, Look},
     control_record::ControlRecord,
     grid_element::{GridElement, Metrics, TextSettings, colour},
     keys,
@@ -68,6 +68,10 @@ pub struct TerminalPane {
     tick: Option<Task<()>>,
     /// The command input under the grid; None with the classic input (the shell's own prompt).
     input: Option<command::Input>,
+    /// The rows as last drawn with space between command blocks, and that space.
+    breath: Option<blocks::Spaced>,
+    /// Device pixels the wheel took back from the lift that keeps the newest row in view.
+    lift: f32,
     text: TextSettings,
     /// The text size in points, changed by Ctrl+wheel and Ctrl+= / Ctrl+- / Ctrl+0, as today's window.
     zoom: Zoom,
@@ -155,6 +159,8 @@ impl TerminalPane {
                 .and_then(|home| home.to_str().map(str::to_owned)),
             tick: None,
             input: setup.input.map(command::Input::new),
+            breath: None,
+            lift: 0.0,
             zoom: Zoom::new(setup.text.size * POINTS_PER_PIXEL),
             text: setup.text,
             focus,
@@ -225,8 +231,9 @@ impl TerminalPane {
         if bytes.is_empty() {
             return false;
         }
-        // Typing returns the view to the bottom and ends a selection, as in VTE.
+        // Typing returns the view to the bottom (out of any wheel lift too) and ends a selection, as in VTE.
         let ended_selection = self.selection.take().is_some();
+        self.lift = 0.0;
         for chunk in bytes.chunks(64 * 1024) {
             if let Err(error) = self.client.input(&self.tab, chunk) {
                 self.notice = Some(format!("sending input: {}", error.message));
@@ -319,7 +326,11 @@ impl TerminalPane {
     }
 
     fn pos_at(&self, x: Pixels, y: Pixels) -> (Pos, usize, usize) {
-        let (row, col, right) = self.metrics.get().cell_at(x, y);
+        let m = self.metrics.get();
+        let (row, col, right) = m.cell_at(x, y);
+        let row = self
+            .row_at(f32::from(y) * m.scale - m.origin_y)
+            .unwrap_or(row);
         (
             Pos {
                 line: self.top_line() + row as i64,
@@ -524,7 +535,7 @@ impl TerminalPane {
                 }
             } else if let Some(bytes) = mouse::wheel_keys(modes, app_cursor, m.rows, up) {
                 self.send(&bytes);
-            } else {
+            } else if !self.lift_by_wheel(if up { WHEEL_LINES } else { -WHEEL_LINES }) {
                 let delta = if up {
                     WHEEL_LINES as i32
                 } else {
@@ -543,7 +554,7 @@ impl TerminalPane {
         let (row, col) = snapshot.cursor?;
         let m = self.metrics.get();
         let x = (m.origin_x + col as f32 * m.cell_width) / m.scale;
-        let y = (m.origin_y + row as f32 * m.line_height) / m.scale;
+        let y = (m.origin_y + self.row_offset(row)) / m.scale;
         Some(Bounds::new(
             point(px(x), px(y)),
             size(px(m.cell_width / m.scale), px(m.line_height / m.scale)),
@@ -551,54 +562,7 @@ impl TerminalPane {
     }
 }
 
-impl TerminalPane {
-    /// The snapshot to draw and the blocks drawn over it. Without blocks on the screen the snapshot is drawn as it
-    /// came; the first frame, before the grid is measured, draws no blocks.
-    fn blocks_drawn(
-        &mut self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> (Option<Arc<TerminalSnapshot>>, Option<AnyElement>) {
-        let m = self.metrics.get();
-        let Some(snapshot) = self.snapshot.clone().filter(|_| m.scale > 0.0) else {
-            return (self.snapshot.clone(), None);
-        };
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| {
-                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
-            });
-        let shown = blocks_view::shown(&snapshot, &self.blocks, now_ms, self.home.as_deref());
-        if shown.counting && self.tick.is_none() {
-            let wait =
-                std::time::Duration::from_millis(1000 - now_ms.rem_euclid(1000).unsigned_abs() + 5);
-            self.tick = Some(cx.spawn(async move |pane, cx| {
-                cx.background_executor().timer(wait).await;
-                let _ = pane.update(cx, |pane, cx| {
-                    pane.tick = None;
-                    cx.notify();
-                });
-            }));
-        }
-        if shown.blocks.is_empty() && shown.sticky.is_none() {
-            return (Some(snapshot), None);
-        }
-        let widths = blocks_view::meta_widths(&shown, window);
-        let drawn = if shown.blocks.is_empty() {
-            snapshot
-        } else {
-            Arc::new(blocks_view::decorate(&snapshot, &shown, &widths, m))
-        };
-        let look = Look {
-            colors: &self.colors,
-            palette: &self.palette,
-            text: &self.text,
-            record: &self.record,
-            landmarks: self.focus.is_focused(window),
-        };
-        (Some(drawn), Some(blocks_view::overlay(&shown, m, &look)))
-    }
-}
+impl TerminalPane {}
 
 impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -620,10 +584,11 @@ impl Render for TerminalPane {
             }
             _ => Vec::new(),
         };
-        let (drawn, overlay) = self.blocks_drawn(window, cx);
+        let drawn = self.blocks_drawn(window, cx);
         let grid = GridElement {
             pane: cx.entity(),
-            snapshot: drawn,
+            snapshot: drawn.snapshot,
+            tops: drawn.tops,
             palette: self.palette.clone(),
             text: self.text.clone(),
             selection,
@@ -647,7 +612,7 @@ impl Render for TerminalPane {
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .relative()
             .child(grid)
-            .children(overlay)
+            .children(drawn.overlay)
             .children(self.notice.clone().map(|notice| {
                 div()
                     .absolute()

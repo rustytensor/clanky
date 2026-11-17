@@ -50,12 +50,42 @@ pub fn gap_above(first: bool, scale: f32) -> f32 {
 /// rows are lifted so the cursor and the last written row stay in it, less `lift` px the
 /// wheel took back to show the rows above.
 pub fn breathe(blocks: &[BlockCard], snapshot: &TerminalSnapshot, ch: f32, scale: f32, clip_h: f32, lift: f32) -> Option<Breath> {
+    breathe_spaced(blocks, snapshot, ch, Spacing::mockup(scale), clip_h, lift)
+}
+
+/// The space around a block's meta row, in device pixels: under the block before it, the hairline, over the meta
+/// row, the meta row, and between the meta row and the command.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Spacing { pub below: f32, pub line: f32, pub above: f32, pub meta: f32, pub meta_gap: f32 }
+
+impl Spacing {
+    /// The mockup's spacing (.blk and .meta) at `scale`.
+    pub fn mockup(scale: f32) -> Self {
+        Self { below: BELOW * scale, line: scale, above: ABOVE * scale, meta: META_H * scale, meta_gap: META_GAP * scale }
+    }
+    /// The space a block gets above its command row; the first block on the screen has no block above it.
+    pub fn gap_above(&self, first: bool) -> f32 {
+        let meta = self.above + self.meta + self.meta_gap;
+        if first { meta } else { self.below + self.line + meta }
+    }
+    /// The hairline's top above a block (relative to the grid origin), under the row before it.
+    pub fn hairline(&self, breath: &Breath, first_row: usize, ch: f32) -> Option<f32> {
+        (first_row > 0 && first_row < breath.tops.len()).then(|| breath.tops[first_row - 1] + ch + self.below)
+    }
+    /// The meta row's top (relative to the grid origin) above a block's command row.
+    pub fn meta_top(&self, breath: &Breath, first_row: usize) -> f32 {
+        breath.tops[first_row] - self.meta_gap - self.meta
+    }
+}
+
+/// [`breathe`] with the given spacing.
+pub fn breathe_spaced(blocks: &[BlockCard], snapshot: &TerminalSnapshot, ch: f32, spacing: Spacing, clip_h: f32, lift: f32) -> Option<Breath> {
     let rows = snapshot.rows;
     if rows == 0 || snapshot.cols == 0 || snapshot.modes & clanky_core::MODE_ALT_SCREEN != 0 { return None; }
     let mut extra = vec![0.0f32; rows];
     let mut any = false;
     for block in blocks.iter().filter(|b| b.first_row < rows) {
-        extra[block.first_row] += gap_above(block.first_row == 0, scale);
+        extra[block.first_row] += spacing.gap_above(block.first_row == 0);
         any = true;
     }
     if !any { return None; }
@@ -181,6 +211,19 @@ mod tests {
         let block = |id: &str, first_row, last_row| BlockCard { id: id.into(), first_row, last_row, command: String::new(), exit_code: Some(0), duration_ms: None, running: false };
         let breath = breathe(&[block("a", 0, 1), block("b", 2, 3)], &screen(4, 4, &[0, 1, 2, 3]), 26.0, 1.0, 1000.0, 0.0);
         assert_eq!(breath.map(|b| b.tops), Some(vec![32.0, 58.0, 128.0, 154.0]));
+    }
+
+    /// The rulebook's spacing at scale 1 with 19 px rows: the first block gets 8 + 18 + 2 = 28 px above it, a later
+    /// one 12 + 1 + 28 = 41 px more; its hairline sits 12 px under the row before it, its meta row 2 + 18 px over it.
+    #[test]
+    fn spacing_from_the_rulebook() {
+        let block = |id: &str, first_row, last_row| BlockCard { id: id.into(), first_row, last_row, command: String::new(), exit_code: Some(0), duration_ms: None, running: false };
+        let spacing = Spacing { below: 12.0, line: 1.0, above: 8.0, meta: 18.0, meta_gap: 2.0 };
+        let breath = breathe_spaced(&[block("a", 0, 1), block("b", 2, 3)], &screen(4, 4, &[0, 1, 2, 3]), 19.0, spacing, 1000.0, 0.0).expect("two blocks on the screen");
+        assert_eq!(breath.tops, vec![28.0, 47.0, 107.0, 126.0]);
+        assert_eq!(spacing.hairline(&breath, 2, 19.0), Some(78.0));
+        assert_eq!(spacing.hairline(&breath, 0, 19.0), None);
+        assert_eq!(spacing.meta_top(&breath, 2), 87.0);
     }
 
     #[test]

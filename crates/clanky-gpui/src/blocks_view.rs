@@ -6,7 +6,10 @@
 //! change, so selection and mouse reports read the real cells.
 
 use clanky_core::{STYLE_BOLD, TerminalSnapshot};
-use clanky_state::{blocks, themes::Colors};
+use clanky_state::{
+    blocks::{self, BlockCard, Breath, Spacing},
+    themes::Colors,
+};
 use gpui::{
     AnyElement, FontFeatures, FontWeight, IntoElement, ParentElement, SharedString, Styled,
     TextRun, Window, div, font, px,
@@ -23,11 +26,13 @@ use crate::{
     tokens as t,
 };
 
-/// One group of meta words, and whether it reports the failure.
+/// One group of meta words, whether it reports the failure, and whether it sits at the right (running time, exit
+/// code, duration) rather than the left (folder, time) when the meta text has its own row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetaText {
     pub text: String,
     pub failure: bool,
+    pub right: bool,
 }
 
 /// A block as the pane draws it: its command row, whether it failed, and its meta text in reading order.
@@ -49,6 +54,8 @@ pub struct StickyLine {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Shown {
     pub blocks: Vec<ShownBlock>,
+    /// The blocks as the server placed them on the screen's rows.
+    pub cards: Vec<BlockCard>,
     pub sticky: Option<StickyLine>,
     pub counting: bool,
 }
@@ -58,10 +65,11 @@ pub fn tabular_digits() -> FontFeatures {
     FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
 }
 
-fn plain(text: String) -> Option<MetaText> {
+fn plain(text: String, right: bool) -> Option<MetaText> {
     (!text.is_empty()).then_some(MetaText {
         text,
         failure: false,
+        right,
     })
 }
 
@@ -74,8 +82,9 @@ fn running_label(block: &Value, now_ms: i64) -> String {
 pub fn shown(snapshot: &TerminalSnapshot, view: &Value, now_ms: i64, home: Option<&str>) -> Shown {
     let mut counting = false;
     let listed = view["blocks"].as_array();
-    let shown_blocks = blocks::matched_blocks(snapshot, view)
-        .into_iter()
+    let cards = blocks::matched_blocks(snapshot, view);
+    let shown_blocks = cards
+        .iter()
         .map(|card| {
             let block = listed
                 .and_then(|list| {
@@ -87,26 +96,27 @@ pub fn shown(snapshot: &TerminalSnapshot, view: &Value, now_ms: i64, home: Optio
             let mut meta: Vec<MetaText> = [
                 block["cwd"]
                     .as_str()
-                    .and_then(|cwd| plain(blocks::home_short(cwd, home))),
+                    .and_then(|cwd| plain(blocks::home_short(cwd, home), false)),
                 block["started_unix_ms"]
                     .as_i64()
-                    .and_then(|at| plain(blocks::local_hhmm(at))),
+                    .and_then(|at| plain(blocks::local_hhmm(at), false)),
             ]
             .into_iter()
             .flatten()
             .collect();
             if card.running {
                 counting = true;
-                meta.extend(plain(running_label(block, now_ms)));
+                meta.extend(plain(running_label(block, now_ms), true));
             }
             if failed {
                 meta.push(MetaText {
                     text: format!("exit {}", card.exit_code.unwrap_or(1)),
                     failure: true,
+                    right: true,
                 });
             }
             if let Some(ms) = card.duration_ms.filter(|_| !card.running) {
-                meta.extend(plain(blocks::duration_label(ms)));
+                meta.extend(plain(blocks::duration_label(ms), true));
             }
             ShownBlock {
                 row: card.first_row,
@@ -137,6 +147,7 @@ pub fn shown(snapshot: &TerminalSnapshot, view: &Value, now_ms: i64, home: Optio
         });
     Shown {
         blocks: shown_blocks,
+        cards,
         sticky,
         counting,
     }
@@ -188,18 +199,23 @@ pub fn meta_widths(shown: &Shown, window: &Window) -> Vec<f32> {
 pub fn decorate(
     snapshot: &TerminalSnapshot,
     shown: &Shown,
-    widths: &[f32],
+    widths: Option<&[f32]>,
     m: Metrics,
 ) -> TerminalSnapshot {
     let mut drawn = snapshot.clone();
     let cols = drawn.cols;
     let pad = (t::PANE_PADDING * m.scale).floor();
-    for (block, width) in shown.blocks.iter().zip(widths) {
+    for (index, block) in shown.blocks.iter().enumerate() {
         if block.row >= drawn.rows {
             continue;
         }
-        // Device pixels from the pane's left edge: where the meta text starts, less the gap before it.
-        let clear_from = m.pane_width - pad - (width + t::SPACE_8) * m.scale;
+        // Device pixels from the pane's left edge: where the meta text starts, less the gap before it. Meta text
+        // in a row of its own (`widths` None) blanks nothing.
+        let clear_from = widths
+            .and_then(|widths| widths.get(index))
+            .map_or(f32::INFINITY, |width| {
+                m.pane_width - pad - (width + t::SPACE_8) * m.scale
+            });
         for (col, cell) in drawn.cells[block.row * cols..(block.row + 1) * cols]
             .iter_mut()
             .enumerate()
@@ -221,28 +237,47 @@ pub struct Look<'a> {
     pub record: &'a ControlRecord,
     /// Only the focused pane names its meta text in the control record, so two panes never share a landmark.
     pub landmarks: bool,
+    /// The rows with space between blocks, and that space; None for the plain grid.
+    pub spaced: Option<(&'a Breath, Spacing)>,
 }
 
 /// The hairlines, meta text and sticky line, placed over the grid with the grid's own row geometry.
 pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
     let pad = (t::PANE_PADDING * m.scale).floor();
-    let row_top = |row: usize| px((pad + row as f32 * m.line_height) / m.scale);
-    let row_height = px(m.line_height / m.scale);
+    // A row's top in device pixels below the pane's top edge.
+    let top_of = |row: usize| {
+        pad + look
+            .spaced
+            .map_or(row as f32 * m.line_height, |(breath, _)| {
+                breath
+                    .tops
+                    .get(row)
+                    .copied()
+                    .unwrap_or(row as f32 * m.line_height)
+            })
+    };
+    let logical = |device: f32| px(device / m.scale);
     let colors = look.colors;
     let mut layer = div().absolute().top_0().left_0().size_full();
     for (index, block) in shown.blocks.iter().enumerate() {
-        if block.row > 0 {
-            let line = if block.failed {
-                paint(colors.err, t::BLOCK_DIVIDER_FAILED)
-            } else {
-                paint(colors.foreground, t::BLOCK_DIVIDER)
-            };
+        let line = if block.failed {
+            paint(colors.err, t::BLOCK_DIVIDER_FAILED)
+        } else {
+            paint(colors.foreground, t::BLOCK_DIVIDER)
+        };
+        let hairline = match look.spaced {
+            Some((breath, spacing)) => spacing
+                .hairline(breath, block.row, m.line_height)
+                .map(|y| pad + y),
+            None => (block.row > 0).then(|| top_of(block.row)),
+        };
+        if let Some(y) = hairline.filter(|y| *y >= pad) {
             layer = layer.child(
                 div()
                     .absolute()
                     .left_0()
                     .w_full()
-                    .top(row_top(block.row))
+                    .top(logical(y))
                     .h(px(t::hairline(m.scale)))
                     .bg(line),
             );
@@ -250,27 +285,52 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
         if block.meta.is_empty() {
             continue;
         }
+        // The meta text: a row of its own above the command (folder and time at the grid's first column, the rest
+        // at the right), or with the classic input the right end of the command row.
+        let (top, height) = match look.spaced {
+            Some((breath, spacing)) => (pad + spacing.meta_top(breath, block.row), spacing.meta),
+            None => (top_of(block.row), m.line_height),
+        };
+        // Meta text lifted above the grid with its rows is not drawn over the pane's top.
+        if top < pad {
+            continue;
+        }
+        let words = |right: bool| {
+            div().flex().items_center().gap(px(t::SPACE_8)).children(
+                block
+                    .meta
+                    .iter()
+                    .filter(|word| look.spaced.is_none() || word.right == right)
+                    .map(|word| {
+                        let text = div().child(word.text.clone());
+                        if word.failure {
+                            text.text_color(paint(colors.err, 1.0))
+                        } else {
+                            text
+                        }
+                    }),
+            )
+        };
         let mut meta = div()
             .absolute()
             .right(px(t::PANE_PADDING))
-            .top(row_top(block.row))
-            .h(row_height)
+            .top(logical(top))
+            .h(logical(height))
             .flex()
             .items_center()
-            .gap(px(t::SPACE_8))
             .font_family(INTERFACE_FONT_FAMILY)
             .font_features(tabular_digits())
             .text_size(px(t::TEXT_META))
             .whitespace_nowrap()
-            .text_color(paint(colors.muted_foreground, 1.0))
-            .children(block.meta.iter().map(|word| {
-                let text = div().child(word.text.clone());
-                if word.failure {
-                    text.text_color(paint(colors.err, 1.0))
-                } else {
-                    text
-                }
-            }));
+            .text_color(paint(colors.muted_foreground, 1.0));
+        meta = if look.spaced.is_some() {
+            meta.left(logical(pad))
+                .justify_between()
+                .child(words(false))
+                .child(words(true))
+        } else {
+            meta.child(words(true))
+        };
         if look.landmarks {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
             meta = meta.child(look.record.landmark("meta-text", index));
@@ -281,6 +341,38 @@ pub fn overlay(shown: &Shown, m: Metrics, look: &Look) -> AnyElement {
         layer = layer.child(sticky_line(sticky, m, look));
     }
     layer.into_any_element()
+}
+
+/// With space between blocks, a block whose command row the rows' lift moved above the pane while its output still
+/// shows keeps its command in the sticky line, unless the server already named one.
+pub fn lifted_sticky(shown: &mut Shown, breath: &Breath, line_height: f32) {
+    if shown.sticky.is_some() {
+        return;
+    }
+    let lifted = shown.cards.iter().zip(&shown.blocks).find(|(card, _)| {
+        let last = card.last_row.min(breath.tops.len().saturating_sub(1));
+        breath
+            .tops
+            .get(card.first_row)
+            .is_some_and(|top| *top < 0.0)
+            && breath
+                .tops
+                .get(last)
+                .is_some_and(|top| *top + line_height > line_height)
+    });
+    if let Some((card, block)) = lifted {
+        let right = block
+            .meta
+            .iter()
+            .rev()
+            .find(|word| word.right && !word.failure)
+            .map(|word| word.text.clone())
+            .unwrap_or_default();
+        shown.sticky = Some(StickyLine {
+            command: card.command.trim().to_owned(),
+            right,
+        });
+    }
 }
 
 /// The sticky line covers the pane's top padding and first row, in `card`, with the command in the terminal's bold.
@@ -418,8 +510,10 @@ mod tests {
                 meta: vec![MetaText {
                     text: "1 s".into(),
                     failure: false,
+                    right: true,
                 }],
             }],
+            cards: Vec::new(),
             sticky: None,
             counting: false,
         };
@@ -432,7 +526,7 @@ mod tests {
             cols: 4,
             ..Metrics::default()
         };
-        let drawn = decorate(&screen(2, 4), &shown, &[30.0], m);
+        let drawn = decorate(&screen(2, 4), &shown, Some(&[30.0]), m);
         let row =
             |r: usize| -> String { drawn.cells[r * 4..r * 4 + 4].iter().map(|c| c.ch).collect() };
         assert_eq!(row(0), "xxxx");
