@@ -249,6 +249,7 @@ class SimWindow:
         """Makes one segment of the tools switcher the selected one."""
         for segment in (c for c in self.layout.controls if c["kind"] == "segment"):
             segment["checked"] = segment is chosen
+        self.layout.view = chosen["label"]
 
     def _select_tab(self, chosen):
         """Makes one tab the active one. Every tab keeps its box (the planted fault grows the active one by a pixel)."""

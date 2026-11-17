@@ -215,8 +215,36 @@ def use_expected(scale, theme):
 # the rest of the run depends on. A screen that names none fails activate-keys and release until it names one.
 
 
-def open_main(win):
-    win.away()
+def open_tool_view(label):
+    """Opens the main window with the tools panel showing one tool, chosen through its segment as a person would."""
+
+    def open_it(win):
+        win.away()
+        segment = next(
+            (
+                c
+                for c in (win.screen("main-window") or {}).get("controls", [])
+                if c["kind"] == "segment" and c["label"] == label
+            ),
+            None,
+        )
+        if segment is None:
+            raise Fail(f"no switcher segment {label} in the record")
+        if not segment["checked"]:
+            win.move(*centre(segment["box"]))
+            win.x("mousedown", "1")
+            win.x("mouseup", "1")
+            until(
+                lambda: any(
+                    c["label"] == label and c["checked"]
+                    for c in (win.screen("main-window") or {}).get("controls", [])
+                ),
+                f"the {label} tool is shown",
+                3,
+            )
+        win.away()
+
+    return open_it
 
 
 def open_context_menu(win, at=None):
@@ -285,8 +313,28 @@ POPOVER_MAX_GAP_LOGICAL_PX = (
 )
 
 SCREENS = {
+    # The tools panel shows one tool at a time; the main window is checked with each of the three, whose segment is the
+    # screen's harmless control (clicking the shown tool's segment changes nothing).
     "main-window": dict(
-        open=open_main, close=None, container=None, harmless="Recent", click_focus=True
+        open=open_tool_view("Files"),
+        close=None,
+        container=None,
+        harmless="Files",
+        click_focus=True,
+    ),
+    "main-window-recent": dict(
+        record="main-window",
+        open=open_tool_view("Recent"),
+        close=None,
+        container=None,
+        harmless="Recent",
+    ),
+    "main-window-agents": dict(
+        record="main-window",
+        open=open_tool_view("Agents"),
+        close=None,
+        container=None,
+        harmless="Agents",
     ),
     # TODO(G2): the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
     "context-menu": dict(
@@ -532,13 +580,14 @@ def expected_fill(ctl, state, container):
 class Screen:
     def __init__(self, win, name, spec):
         self.win, self.name, self.spec, self.s = win, name, spec, win.scale
+        self.record_name = spec.get("record", name)  # the screen's name in the record
         self.record = None
 
     def ok(self, check_name, ok, what, expected, observed):
         return check(check_name, self.name, self.s, ok, what, expected, observed)
 
     def current(self):
-        return self.win.screen(self.name)
+        return self.win.screen(self.record_name)
 
     def controls(self):
         r = self.current()
@@ -914,7 +963,7 @@ class Screen:
             cid = c["id"]
             self.win.move(*centre(c["box"]))
             self.wait_state(cid, "hover", 1.5)
-            fired = len(self.win.activations(self.name))
+            fired = len(self.win.activations(self.record_name))
             self.win.x("mousedown", "1")
             pressed = self.wait_state(cid, "pressed", 2)
             self.ok(
@@ -928,7 +977,7 @@ class Screen:
             )
             time.sleep(0.15)
             a = self.win.shot(f"{self.name}-pressed-{cid}")
-            on_press = len(self.win.activations(self.name)) - fired
+            on_press = len(self.win.activations(self.record_name)) - fired
             ok = self.ok(
                 "release",
                 on_press == 0,
@@ -970,7 +1019,7 @@ class Screen:
             time.sleep(0.2)
             self.win.x("mouseup", "1")
             time.sleep(0.4)
-            after = len(self.win.activations(self.name)) - fired
+            after = len(self.win.activations(self.record_name)) - fired
             self.ok(
                 "release",
                 after == 0 and self.is_open(),
@@ -1169,10 +1218,10 @@ class Screen:
                     "never focused",
                 )
                 continue
-            fired = len(self.win.activations(self.name))
+            fired = len(self.win.activations(self.record_name))
             self.win.key(key)
             time.sleep(0.6)
-            new = self.win.activations(self.name)[fired:]
+            new = self.win.activations(self.record_name)[fired:]
             good = (
                 len(new) == 1
                 and new[0]["id"] == h["id"]
@@ -1192,13 +1241,13 @@ class Screen:
         cx, cy = centre(h["box"])
         self.win.move(cx, cy)
         self.wait_state(h["id"], "hover", 1.5)
-        fired = len(self.win.activations(self.name))
+        fired = len(self.win.activations(self.record_name))
         self.win.x("mousedown", "1")
         time.sleep(0.4)
-        on_press = len(self.win.activations(self.name)) - fired
+        on_press = len(self.win.activations(self.record_name)) - fired
         self.win.x("mouseup", "1")
         time.sleep(0.6)
-        new = self.win.activations(self.name)[fired:]
+        new = self.win.activations(self.record_name)[fired:]
         good = (
             on_press == 0
             and len(new) == 1

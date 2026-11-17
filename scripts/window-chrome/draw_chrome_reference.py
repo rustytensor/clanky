@@ -39,6 +39,9 @@ SEGMENT_WIDTH, SEGMENT_GAP, TRAY_PADDING = 70, 2, 2
 TOOLS = ("Files", "Recent", "Agents")
 FIRST_SEGMENT_ID, FIRST_ROW_ID, FIRST_SWITCH_ID, TOOLS_TOGGLE_ID = 50, 1000, 4000, 2
 PANEL_ROWS = ("src", "Cargo.toml", "README.md")
+RECENT_ROWS = ("Split right", "New tab")
+AGENT_ROWS = ("Fake Tool", "Codex")
+FIRST_RECENT_ID, FIRST_AGENT_ID = 2000, 3000
 FIRST_AUTO_ID = 10
 ROW_KINDS = (
     "menu-item",
@@ -196,10 +199,18 @@ class Layout:
             round(LOGICAL_W * self.scale),
             round(LOGICAL_H * self.scale),
         )
-        self.controls = []
+        self.all_controls = []
+        self.view = TOOLS[
+            0
+        ]  # the tool the panel shows; its controls are on screen, the others' are not
         self.landmarks = []
         self._next_id = FIRST_AUTO_ID
         self._build()
+
+    @property
+    def controls(self):
+        """The controls on screen now: every one that belongs to no tool, and the shown tool's."""
+        return [c for c in self.all_controls if c["view"] in (None, self.view)]
 
     def kind_logical(self, kind, key="height"):
         return self.expected["controls"][kind][key]["logical"]
@@ -225,9 +236,10 @@ class Layout:
             "primary": False,
             "label_box": None,
             "icon": None,
+            "view": extra.pop("view", None),
         }
         control.update(extra)
-        self.controls.append(control)
+        self.all_controls.append(control)
         return control
 
     def _build(self):
@@ -293,7 +305,7 @@ class Layout:
         self.add("field", "Command", left + 16, 152, 200)
         self.add("chip", "Shell", left + 16, 200, 72)
         self.landmarks = self._landmarks(bar_h, status_h)
-        for control in self.controls:
+        for control in self.all_controls:
             self._place_content(control)
 
     def _build_panel(self, left, top, height):
@@ -309,6 +321,31 @@ class Layout:
                 ident=FIRST_ROW_ID + index,
                 group="files",
                 axis="vertical",
+                view="Files",
+            )
+        for index, label in enumerate(RECENT_ROWS):
+            self.add(
+                "list-row",
+                label,
+                left + 8,
+                top + 40 + index * (row_h + 2),
+                PANEL_WIDTH - 16,
+                ident=FIRST_RECENT_ID + index,
+                group="recent",
+                axis="vertical",
+                view="Recent",
+            )
+        for index, label in enumerate(AGENT_ROWS):
+            self.add(
+                "list-row",
+                label,
+                left + 8,
+                top + 40 + index * (row_h + 2),
+                PANEL_WIDTH - 16,
+                ident=FIRST_AGENT_ID + index,
+                group="agents",
+                axis="vertical",
+                view="Agents",
             )
         for index, on in enumerate((True, False)):
             self.add(
@@ -319,6 +356,7 @@ class Layout:
                 40,
                 ident=FIRST_SWITCH_ID + index,
                 checked=on,
+                view="Agents",
             )
         seg_h = self.kind_logical("segment")
         tray_w = 3 * SEGMENT_WIDTH + 2 * SEGMENT_GAP + 2 * TRAY_PADDING
