@@ -392,6 +392,9 @@ done
 # ----------------------------------------------------------------------------------------------- step 7
 if output=$(bash "$CHECK_DIR/check_engine_free.sh" 2>&1); then ok "$output"; else fail "$output"; fi
 
+# ----------------------------------------------------------------------------------------------- steps 8 and 9
+if output=$(CLANKY_GPUI_BIN="$binary" bash "$CHECK_DIR/check_wayland.sh" 2>&1); then ok "$output"; else fail "$output"; fi
+
 if ((failed)); then
   echo "FAIL: terminal pane"
   exit 1
