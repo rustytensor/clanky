@@ -1,0 +1,150 @@
+{
+  "about": "The design rulebook's token table and controls states table, transcribed once. Sizes are logical pixels. Every entry names its source line: rulebook:N is 2026-11-16-clanky-design-rulebook.md in the design notes; g2-definition:N is 2026-11-17-g2-definition.md. A value the rulebook does not state is not here; see gaps.",
+  "themes": {
+    "graphite-dark": {
+      "background": {"hex": "#141414", "src": "rulebook:41"},
+      "card": {"hex": "#1d1d1d", "src": "rulebook:42"},
+      "accent": {"hex": "#2a2a2a", "src": "rulebook:43"},
+      "foreground": {"hex": "#f7f7f7", "src": "rulebook:44"},
+      "muted_foreground": {"hex": "#a3a3a3", "src": "rulebook:45"},
+      "border": {"over": "#ffffff", "alpha": 0.09, "src": "rulebook:46"},
+      "input": {"over": "#ffffff", "alpha": 0.13, "src": "rulebook:47"},
+      "frame": {"mix_card_toward_foreground": 0.03, "src": "rulebook:48"},
+      "err": {"hex": "#e35d5d", "src": "rulebook:49"},
+      "selection": {"hex": "#393939", "src": "g2-definition:91-93"}
+    },
+    "graphite-light": {
+      "background": {"hex": "#ffffff", "src": "rulebook:41"},
+      "card": {"hex": "#f3f3f3", "src": "rulebook:42"},
+      "accent": {"hex": "#e5e5e5", "src": "rulebook:43"},
+      "foreground": {"hex": "#111111", "src": "rulebook:44"},
+      "muted_foreground": {"hex": "#656565", "src": "rulebook:45"},
+      "border": {"over": "#000000", "alpha": 0.09, "src": "rulebook:46"},
+      "input": {"over": "#000000", "alpha": 0.13, "src": "rulebook:47"},
+      "frame": {"mix_card_toward_foreground": 0.03, "src": "rulebook:48"},
+      "err": {"hex": "#c0392f", "src": "rulebook:49"},
+      "selection": {"hex": "#cecece", "src": "g2-definition:93-94"}
+    }
+  },
+  "selection_contrast": {
+    "selection_against_background_min": {"ratio": 1.5, "src": "g2-definition:86-88"},
+    "foreground_on_selection_min": {"ratio": 4.5, "src": "g2-definition:86-88"}
+  },
+  "text": {
+    "text_tree": {"px": 13, "weight": 400, "use": "file and list rows, recent folders", "src": "rulebook:62"},
+    "text_title": {"px": 12.5, "weight": 500, "use": "settings row title, palette rows", "src": "rulebook:63"},
+    "text_ui": {"px": 12, "weight": 400, "use": "tabs, menus, chips, buttons, completion list", "src": "rulebook:64"},
+    "text_tab_switch": {"px": 11.5, "weight": 400, "use": "settings section tabs", "src": "rulebook:65"},
+    "text_status": {"px": 11, "weight": 400, "use": "status line, small buttons, palette footer", "src": "rulebook:66"},
+    "text_desc": {"px": 10.5, "weight": 400, "use": "settings descriptions", "src": "rulebook:67"},
+    "text_meta": {"px": 10, "weight": 400, "use": "block meta, tabular digits", "src": "rulebook:68"}
+  },
+  "weights": {"regular": 400, "medium": 500, "dialog_title": 600, "src": "rulebook:58"},
+  "row": {"indent_px": 12, "chevron_px": 12, "icon_px": 16, "gap_px": 8, "src": "rulebook:93"},
+  "radius": {
+    "radius_sm": {"px": 6, "use": "menu items, chips inside a bar, swatches", "src": "rulebook:77"},
+    "radius_md": {"px": 8, "use": "tabs, buttons in bars, fields, the block toolbar", "src": "rulebook:78"},
+    "radius_lg": {"px": 10, "use": "menus, palette, settings cards, dialogs", "src": "rulebook:79"},
+    "radius_xl": {"px": 14, "use": "panes", "src": "rulebook:80"},
+    "window": {"px": 12, "use": "the window itself", "src": "rulebook:81"}
+  },
+  "spacing_steps": {"px": [2, 4, 6, 8, 12, 16, 24, 32], "src": "rulebook:87"},
+  "heights": {
+    "h_title_bar": {"px": 40, "src": "rulebook:91"},
+    "h_tab": {"px": 28, "src": "rulebook:92"},
+    "h_row": {"px": 24, "src": "rulebook:93"},
+    "h_menu_item": {"px": 28, "src": "rulebook:94"},
+    "h_palette_row": {"px": 36, "src": "rulebook:95"},
+    "h_palette_input": {"px": 44, "src": "rulebook:96"},
+    "h_status": {"px": 32, "src": "rulebook:97"},
+    "h_button_small": {"px": 24, "src": "rulebook:98"},
+    "h_button_bar": {"px": 28, "src": "rulebook:98"},
+    "h_button_default": {"px": 32, "src": "rulebook:98"},
+    "h_button_large": {"px": 36, "src": "rulebook:98"},
+    "h_chip": {"px": 28, "src": "rulebook:99"},
+    "h_block_bar": {"px": 18, "src": "rulebook:100"},
+    "h_dialog_header": {"px": 44, "src": "rulebook:101"}
+  },
+  "pane": {
+    "gap": {"px": 8, "src": "rulebook:103"},
+    "padding": {"px": 12, "src": "rulebook:103"},
+    "radius": {"px": 14, "src": "rulebook:80"},
+    "border_alpha": {"value": 0.09, "src": "rulebook:46"},
+    "border_width": {"device_px": 1, "src": "rulebook:107,160-161"},
+    "side_column_width": {"px": 236, "src": "rulebook:103"}
+  },
+  "active_tab": {
+    "fill_foreground_alpha": {"value": 0.07, "src": "rulebook:92"},
+    "inner_ring_foreground_alpha": {"value": 0.05, "src": "rulebook:92"}
+  },
+  "hairline": {"device_px": 1, "every_scale": true, "src": "rulebook:160-161"},
+  "icons": {"row_px": 16, "bar_px": 14, "stroke_px": 1.75, "src": "rulebook:119-120"},
+  "shadows": {
+    "popover": {"offset_y": 12, "blur": 32, "black_alpha": 0.35, "use": "menus, palette, completion list, dialogs", "src": "rulebook:107-108"},
+    "toolbar": {"offset_y": 4, "blur": 14, "black_alpha": 0.28, "use": "block toolbar", "src": "rulebook:108"}
+  },
+  "motion": {"fast_ms": 160, "medium_ms": 240, "slow_ms": 320, "easing": [0.16, 1, 0.3, 1], "spinner_steps_per_turn": 12, "spinner_steps_per_second": 4, "src": "rulebook:113"},
+  "block": {
+    "toolbar_height": {"px": 18, "src": "rulebook:100"},
+    "toolbar_button_width": {"px": 22, "src": "rulebook:100"},
+    "toolbar_rest_opacity": {"value": 0.72, "src": "rulebook:130"},
+    "divider_foreground_alpha": {"value": 0.08, "src": "rulebook:130"},
+    "divider_failed_err_alpha": {"value": 0.5, "src": "rulebook:130"}
+  },
+  "settings": {
+    "column_max": {"px": 640, "src": "rulebook:134"},
+    "padding_side": {"px": 32, "src": "rulebook:134"},
+    "padding_top": {"px": 24, "src": "rulebook:134"},
+    "card_padding_x": {"px": 12, "src": "rulebook:134"},
+    "card_padding_y": {"px": 10, "src": "rulebook:134"},
+    "card_opacity": {"value": 0.6, "src": "rulebook:134"},
+    "card_border_opacity": {"value": 0.6, "src": "rulebook:134"}
+  },
+  "palette": {"width": {"px": 560, "src": "rulebook:22"}},
+  "controls": {
+    "button-small": {"height": {"px": 24, "src": "rulebook:98"}, "text": "text_status", "text_src": "rulebook:66", "icon_px": 14, "icon_src": "rulebook:120"},
+    "button-bar": {"height": {"px": 28, "src": "rulebook:98"}, "radius": {"px": 8, "src": "rulebook:78"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},
+    "button": {"height": {"px": 32, "src": "rulebook:98"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},
+    "button-large": {"height": {"px": 36, "src": "rulebook:98"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},
+    "chip": {"height": {"px": 28, "src": "rulebook:99"}, "radius": {"px": 6, "src": "rulebook:77"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},
+    "tab": {"height": {"px": 28, "src": "rulebook:92"}, "radius": {"px": 8, "src": "rulebook:78"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 14, "icon_src": "rulebook:120"},
+    "field": {"radius": {"px": 8, "src": "rulebook:78"}, "icon_px": 14, "icon_src": "rulebook:120"},
+    "menu-item": {"height": {"px": 28, "src": "rulebook:94"}, "radius": {"px": 6, "src": "rulebook:77"}, "text": "text_ui", "text_src": "rulebook:64", "icon_px": 16, "icon_src": "rulebook:120"},
+    "list-row": {"height": {"px": 24, "src": "rulebook:93"}, "text": "text_tree", "text_src": "rulebook:62", "icon_px": 16, "icon_src": "rulebook:93,120"},
+    "palette-row": {"height": {"px": 36, "src": "rulebook:95"}, "text": "text_title", "text_src": "rulebook:63", "icon_px": 16, "icon_src": "rulebook:120"},
+    "segment": {"text": "text_tab_switch", "text_src": "rulebook:65,134", "icon_px": 14, "icon_src": "rulebook:120"}
+  },
+  "switcher_pill": {"height": {"px": 28, "src": "rulebook:134"}},
+  "states": {
+    "rest": {"look": "as the table", "src": "rulebook:152"},
+    "hover": {"fill": "accent", "primary_fill": "primary_pressed", "applies_to": "bar and ghost controls", "src": "rulebook:153"},
+    "pressed": {"fill": "pressed", "at_once": true, "src": "rulebook:154"},
+    "focus": {"ring_width_px": 2, "ring_colour": "ring", "ring_alpha": 0.25, "border_colour": "ring", "only_after_keyboard": true, "src": "rulebook:155"},
+    "disabled": {"opacity": 0.5, "no_hover": true, "no_press": true, "skipped_by_tab": true, "src": "rulebook:156"}
+  },
+  "geometry_rules": {
+    "edges_on_whole_device_pixels_at_scales": {"scales": [1, 1.25, 1.5, 2], "src": "rulebook:160-161"},
+    "label_centring_px": {"tolerance": 0.5, "src": "rulebook:162"},
+    "icon_centring_px": {"tolerance": 0.5, "src": "rulebook:162"},
+    "hit_box_min_px": {"value": 24, "src": "rulebook:167"}
+  },
+  "tolerance": {
+    "edge_px": {"value": 1, "src": "rulebook:195; gate-design-tokens.py:107 EDGE_TOL; gate-controls.py:142 EDGE_TOL"},
+    "cap_height_px": {"value": 0.5, "src": "rulebook:195; gate-design-tokens.py:107 TEXT_TOL"},
+    "centring_px": {"value": 0.5, "src": "rulebook:162; gate-controls.py:142 CENTRE_TOL"},
+    "colour_levels": {"value": 3, "src": "gate-design-tokens.py:107 COLOUR_TOL; gate-controls.py:142 COLOUR_TOL (the rulebook gives none)"}
+  },
+  "gaps": [
+    "colour roles pressed, ring, primary, primary_pressed: named by the states table (rulebook:153-155) with no value",
+    "pane margin: the rulebook has pane gap 8 and pane padding 12 (rulebook:103) and no margin",
+    "title bar colour and status line colour: no role or value",
+    "radius of button-small, button, button-large, list-row, palette-row, segment, switch (rulebook:77-78 name only bar buttons, tabs, fields, chips and menu items)",
+    "height of icon-button (rulebook:98 says 'bar buttons are 28', no row for icon buttons), field, switch, segment",
+    "text size of field and of switch labels; of icon-button (no label)",
+    "hover and pressed look of field and switch (rulebook:153 says accent for bar and ghost controls only)",
+    "tab hover colour and the inactive tab's look (rulebook:92 describes the active pill only)",
+    "light-theme values for pressed, ring, primary, primary_pressed",
+    "disabled label ink and the colour a disabled control fades toward",
+    "shadow colour of the focus ring against the container is derived (ring at 25 %) but ring itself has no value"
+  ]
+}
