@@ -4,7 +4,7 @@
 //! above it. While a command runs, a full-screen program has the keys or the shell sets no marks, the line says where
 //! keys go and the chips dim.
 
-use std::{cell::Cell, collections::BTreeMap, path::Path, rc::Rc};
+use std::{cell::Cell, collections::BTreeMap, ops::Range, path::Path, rc::Rc};
 
 use clanky_api::Client;
 use clanky_state::{
@@ -12,8 +12,9 @@ use clanky_state::{
     pane_input::{self, View},
 };
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Styled, Window, canvas, div, px, svg,
+    AnyElement, App, Bounds, Context, Entity, HighlightStyle, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Styled, StyledText, Window, canvas, div, px,
+    svg,
 };
 use serde_json::json;
 
@@ -338,61 +339,60 @@ impl MainWindow {
         lines.into_any_element()
     }
 
+    /// One line of the input as a single shaped text, so every character sits on the terminal font's cell grid:
+    /// bash colours, the selection, the caret as a block over its character, and the ghost text after the line,
+    /// whose first character the caret covers when it rests at the end (as in today's input).
     fn text_line(
         &self,
         line: &[(char, Tok, bool)],
         caret: Option<usize>,
         ghost: Option<&str>,
     ) -> AnyElement {
-        let mut row = div().flex().h(px(self.line_height())).items_center();
-        let mut run = String::new();
-        let mut run_look: Option<(Hsla, Option<Hsla>)> = None;
-        let span = |text: String, (fg, bg): (Hsla, Option<Hsla>)| {
-            let piece = div().text_color(fg).child(text);
-            match bg {
-                Some(bg) => piece.bg(bg),
-                None => piece,
+        let caret_look = HighlightStyle {
+            color: Some(colour(self.palette.background)),
+            background_color: Some(colour(self.palette.foreground)),
+            ..HighlightStyle::default()
+        };
+        let mut text = String::new();
+        let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+        let mut push = |text: &mut String, ch: char, look: HighlightStyle| {
+            let at = text.len();
+            text.push(ch);
+            match highlights.last_mut() {
+                Some((range, last)) if range.end == at && *last == look => range.end = text.len(),
+                _ => highlights.push((at..text.len(), look)),
             }
         };
         for (col, (ch, tok, selected)) in line.iter().enumerate() {
             let shown = if ch.is_control() { ' ' } else { *ch };
             let look = if caret == Some(col) {
-                (
-                    colour(self.palette.background),
-                    Some(colour(self.palette.foreground)),
-                )
+                caret_look
             } else {
-                (
-                    self.token_colour(*tok),
-                    selected.then(|| colour(self.palette.selection)),
-                )
+                HighlightStyle {
+                    color: Some(self.token_colour(*tok)),
+                    background_color: selected.then(|| colour(self.palette.selection)),
+                    ..HighlightStyle::default()
+                }
             };
-            if run_look != Some(look) && !run.is_empty() {
-                row = row.child(span(std::mem::take(&mut run), run_look.unwrap_or(look)));
-            }
-            run_look = Some(look);
-            run.push(shown);
+            push(&mut text, shown, look);
         }
-        if let Some(look) = run_look.filter(|_| !run.is_empty()) {
-            row = row.child(span(run, look));
-        }
+        let ghost_look = HighlightStyle {
+            color: Some(paint(self.colors.muted_foreground, 1.0)),
+            ..HighlightStyle::default()
+        };
+        let mut ghost = ghost.unwrap_or_default().chars();
         if caret.is_some_and(|col| col >= line.len()) {
-            row = row.child(span(
-                " ".to_owned(),
-                (
-                    colour(self.palette.background),
-                    Some(colour(self.palette.foreground)),
-                ),
-            ));
+            push(&mut text, ghost.next().unwrap_or(' '), caret_look);
         }
-        if let Some(ghost) = ghost.filter(|g| !g.is_empty()) {
-            row = row.child(
-                div()
-                    .text_color(paint(self.colors.muted_foreground, 1.0))
-                    .child(ghost.to_owned()),
-            );
+        for ch in ghost {
+            push(&mut text, ch, ghost_look);
         }
-        row.into_any_element()
+        div()
+            .flex()
+            .h(px(self.line_height()))
+            .items_center()
+            .child(StyledText::new(text).with_highlights(highlights))
+            .into_any_element()
     }
 
     fn token_colour(&self, tok: Tok) -> Hsla {
