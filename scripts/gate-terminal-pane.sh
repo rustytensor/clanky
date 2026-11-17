@@ -40,6 +40,14 @@ fi
 scratch=$(mktemp -d /srv/devops/build/terminal-pane-gate.XXXXXX)
 pids=()
 failed=0
+# The windows' session server lives in the scratch folder, never in the user's runtime folder: a gate must not reach
+# Marc's own running Clanky server or his config.
+server_socket=$scratch/server.sock
+SHOTS_DIR=${CLANKY_GATE_SHOTS:-}   # when set, the grid and selection screenshots are kept there
+case $server_socket in
+  "$scratch"/*) ;;
+  *) echo "FAIL: isolation: session socket $server_socket is outside the scratch folder $scratch"; exit 1 ;;
+esac
 
 kill_started() {
   local pid
@@ -50,8 +58,21 @@ kill_started() {
   pids=()
 }
 
+# stop_server: stops the session server the windows started on the scratch socket, found by its exact argument
+# list (the socket path is unique to this run) and stopped by process ID.
+stop_server() {
+  local entry pid
+  for entry in /proc/[0-9]*; do
+    pid=${entry#/proc/}
+    if tr '\0' ' ' <"$entry/cmdline" 2>/dev/null | grep -qF -- "--server --socket $server_socket "; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+}
+
 cleanup() {
   kill_started
+  stop_server
   rm -rf "${scratch:?}"
 }
 trap cleanup EXIT
@@ -165,9 +186,13 @@ PY
 
 # launch SCALE COMMAND: starts clanky-gpui on $display_number and sets app_pid and window_id.
 launch() {
-  local scale=$1 command=$2 waited=0
+  local scale=$1 command=$2 waited=0 folder
+  for folder in runtime config state data cache; do mkdir -p "$scratch/xdg/$folder"; done
+  chmod 700 "$scratch/xdg" "$scratch/xdg"/*
   HOME=$scratch/home DISPLAY=:$display_number GPUI_X11_SCALE_FACTOR=$scale \
-    "$binary" --config "$scratch/home/config.json" --size "$WINDOW_SIZE" --exec "$command" \
+    XDG_RUNTIME_DIR=$scratch/xdg/runtime XDG_CONFIG_HOME=$scratch/xdg/config XDG_STATE_HOME=$scratch/xdg/state \
+    XDG_DATA_HOME=$scratch/xdg/data XDG_CACHE_HOME=$scratch/xdg/cache \
+    "$binary" --config "$scratch/home/config.json" --size "$WINDOW_SIZE" --exec "$command" --socket "$server_socket" \
     >"$scratch/app.log" 2>&1 &
   app_pid=$!
   pids+=("$app_pid")
@@ -177,6 +202,7 @@ launch() {
     sleep 0.25
     waited=$((waited + 1))
     if ((waited > WAIT_SECONDS * 4)); then
+      echo "note: the window's last output: $(tail -n 3 "$scratch/app.log" | tr '\n' ' ')"
       return 1
     fi
   done
@@ -249,6 +275,7 @@ screen_checks() {
   fi
   if screenshot "$scale" "$scratch/grid-$scale.png"; then
     run_checks "grid fixture" "$scratch/grid-$scale.png" "$scale"
+    [[ -z $SHOTS_DIR ]] || { mkdir -p "$SHOTS_DIR"; cp "$scratch/grid-$scale.png" "$SHOTS_DIR/clanky-gpui-grid-scale-$scale.png"; }
   else
     fail "row 10 did not show within ${WAIT_SECONDS}s at scale $scale"
   fi
@@ -270,6 +297,7 @@ PY
   sleep 0.5
   DISPLAY=:$display_number import -window "$window_id" "$scratch/selection-$scale.png" 2>/dev/null || true
   run_checks "selection" "$scratch/selection-$scale.png" "$scale" --selection "0,10,30,$selection_colour"
+  [[ -z $SHOTS_DIR ]] || { mkdir -p "$SHOTS_DIR"; cp "$scratch/selection-$scale.png" "$SHOTS_DIR/clanky-gpui-selection-scale-$scale.png"; }
   stop_app
 
   # Cursor: one window per shape; the fixture leaves the cursor at row 11, column 0.
