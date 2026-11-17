@@ -24,6 +24,9 @@ impl MainWindow {
         if self.test_popover_key(chord, window, cx) {
             return true;
         }
+        if self.find_bar_key(chord, window, cx) {
+            return true;
+        }
         false
     }
 
@@ -40,10 +43,14 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        self.find_bar_frame(cx);
         let screen = self.popover.screen()?;
         #[cfg(feature = "test-popover")]
         if super::test_popover::owns(screen) {
             return self.test_popover(screen, window, cx);
+        }
+        if screen == "find-bar" {
+            return self.find_bar(window, cx);
         }
         // A screen with no content here would hold the keyboard with nothing drawn: it is closed instead.
         eprintln!("the popover {screen} has nothing to draw; closing it");

@@ -11,8 +11,10 @@ pub enum Icon {
     Close,
     /// A closed folder row.
     ChevronRight,
-    /// An open folder row.
+    /// An open folder row; the next match.
     ChevronDown,
+    /// The previous match.
+    ChevronUp,
     /// A folder row.
     Folder,
     /// A file row.
@@ -49,6 +51,7 @@ impl Icon {
             Icon::Close => CLOSE,
             Icon::ChevronRight => CHEVRON_RIGHT,
             Icon::ChevronDown => CHEVRON_DOWN,
+            Icon::ChevronUp => CHEVRON_UP,
             Icon::Folder => FOLDER,
             Icon::File => FILE,
             Icon::Sidebar => SIDEBAR,
@@ -74,6 +77,8 @@ const CLOSE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
 const CHEVRON_RIGHT: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>"##;
 /// Lucide `chevron-down`.
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>"##;
+/// Lucide `chevron-up`.
+const CHEVRON_UP: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></svg>"##;
 /// Lucide `folder`.
 const FOLDER: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></svg>"##;
 /// Lucide `file`.

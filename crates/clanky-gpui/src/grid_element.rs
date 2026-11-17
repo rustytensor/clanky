@@ -85,6 +85,8 @@ pub struct GridElement {
     pub palette: Palette,
     pub text: TextSettings,
     pub selection: Vec<(usize, usize, usize)>,
+    /// The find bar's matches: row, first and end column, and fill.
+    pub found: Vec<(usize, usize, usize, [u8; 3])>,
     pub focus: FocusHandle,
     pub metrics: Rc<Shared<Metrics>>,
     /// False while another place (the command input) has the caret.
@@ -293,6 +295,12 @@ impl GridElement {
             window.paint_quad(filled(
                 device(self.cell_box(m, bg.row, bg.column, bg.width)),
                 colour(bg.colour),
+            ));
+        }
+        for &(row, start, end, fill) in &self.found {
+            window.paint_quad(filled(
+                device(self.cell_box(m, row, start, end - start)),
+                colour(fill),
             ));
         }
         for &(row, start, end) in &self.selection {

@@ -78,6 +78,9 @@ FAULTS = {
     "popover-over-opener": "popover",
     "esc-loses-focus": "focus-return",
     "idle-draw": "idle-frames",
+    "find-count-off": "find-count",
+    "find-mark-accent": "find-highlight",
+    "shift-enter-next": "find-previous",
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
     "selected-segment-hover": "hover-colour",
@@ -271,6 +274,15 @@ def open_context_menu(win, at=None):
     win.x("click", "3")
 
 
+def count_label(query, total):
+    """The find bar's count as today's window words it (calm `scene.rs` `find_bar`)."""
+    if not query:
+        return ""
+    if total == 0:
+        return "No matches"
+    return "1 match" if total == 1 else f"{total} matches"
+
+
 def close_with_escape(win):
     win.key("Escape")
 
@@ -323,8 +335,9 @@ FLOATING_SCREENS = {
         harmless="scripts/gate-menu.sh",
         idle=True,
     ),
+    # The pane's find bar opens on Ctrl+Shift+F, as today's window does (Ctrl+F stays the shell's).
     "find-bar": dict(
-        open=open_by_keys("ctrl+f"),
+        open=open_by_keys("ctrl+shift+f"),
         close=close_with_escape,
         container="card",
         harmless="Next",
@@ -1739,6 +1752,10 @@ class Screen:
         if not self.spec.get("find"):
             return
         self.close()
+        # The pane takes the keyboard back from whatever an earlier check left it on, as a click in it does.
+        self.win.move(*self.win.menu_point())
+        self.win.x("click", "1")
+        time.sleep(0.3)
         self.win.type("echo g1 g1 g1")
         self.win.key("Return")
         time.sleep(0.5)
@@ -1784,6 +1801,25 @@ class Screen:
             "a match box inside a pane",
             first,
         )
+        total = self.win.text_count("g1")
+        self.ok(
+            "find-count",
+            self.landmark_text("find-count") == count_label("g1", total),
+            "g1 typed",
+            f"{count_label('g1', total)!r}, the count of g1 in the pane's text from the server",
+            repr(self.landmark_text("find-count")),
+        )
+        if first:
+            a = self.win.shot(f"{self.name}-find-match")
+            got = grey(a, first[0] + 1, first[1] + 1)
+            want = grey_of(EXPECTED, "selection")
+            self.ok(
+                "find-highlight",
+                near(got, want),
+                "the current match's top left cell corner",
+                f"the selection colour, grey {want}",
+                got,
+            )
         self.win.key("Return")
         time.sleep(0.4)
         second = self.match_box()
@@ -1793,6 +1829,16 @@ class Screen:
             "Enter",
             "the next match, a different box",
             f"{first} then {second}",
+        )
+        self.win.key("shift+Return")
+        time.sleep(0.4)
+        back = self.match_box()
+        self.ok(
+            "find-previous",
+            bool(first) and back == first,
+            "Shift+Enter after Enter",
+            f"the first match again, {first}",
+            back,
         )
         self.win.key("Escape")
         try:
@@ -1806,6 +1852,15 @@ class Screen:
             "the bar closed and no match marked",
             f"open {self.is_open()}, match {self.match_box()}",
         )
+
+    def landmark_text(self, name):
+        """The words of the last line written for a landmark that carries text."""
+        lines = [
+            r
+            for r in self.win.records()
+            if r.get("record") == "landmark" and r.get("name") == name
+        ]
+        return lines[-1].get("text") if lines else None
 
     def control_by_kind(self, kind):
         return next((c for c in self.controls() if c["kind"] == kind), None)
@@ -2134,6 +2189,9 @@ class Screen:
                 "popover-over-opener": [self.static_checks],
                 "esc-loses-focus": [self.focus_return_checks],
                 "idle-draw": [self.idle_checks],
+                "find-count-off": [self.find_checks],
+                "find-mark-accent": [self.find_checks],
+                "shift-enter-next": [self.find_checks],
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],
                 "selected-segment-hover": [self.hover_checks],

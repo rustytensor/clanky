@@ -70,6 +70,7 @@ FAULTS = {
     "loose-literal": "loose-numbers",
     "palette-row-short": "palette-row-height",  # G3: a palette row 2 px short (--floating)
     "palette-text-big": "palette-row-cap-height",  # G3: palette row text 2 px too large (--floating)
+    "find-field-short": "find-bar-field-height",  # G3: the find bar's field 2 px short (--floating)
     "card-padding": "settings-card-padding-x",  # G4: every card's text 2 px too far right (--settings)
 }
 SIMULATE = "--simulate" in ARGS
@@ -656,7 +657,8 @@ def selection_check(win, e):
 
 # ---------------------------------------------------------------- G3: the floating screens
 
-# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist.
+# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist (the find bar's,
+# Ctrl+Shift+F, is today's: see find_bar_checks).
 
 
 def open_completion(win):
@@ -921,12 +923,55 @@ def palette_text_checks(win, e, screen):
     measure("footer", landmark(win, "popover-footer"), card, first_letter=True)
 
 
+def find_bar_checks(win, e):
+    """The pane's find bar: its field's height from the field's two edge rows (the `input` colour over `card`, in a
+    column near the field's right end, clear of the placeholder and the empty count), the popover radius and shadow."""
+    tolerance = e["chrome"]["tab_height"]["tolerance_px"]
+    closed = win.shot("closed")
+    win.key("ctrl+shift+f")  # today's window opens the find bar on Ctrl+Shift+F
+    shown = until(
+        lambda: (win.screen("find-bar") or {}).get("controls"),
+        "find-bar records its controls",
+        5,
+    )
+    box = win.screen("find-bar")["popover"]["box"]
+    field = next(c for c in shown if c["kind"] == "field")
+    time.sleep(0.3)
+    a = win.shot("find-bar")
+    card = round(sum(e_rgb(e, "card")) / 3)
+    edge = expected_values.load_tokens()["themes"][THEME]["input"]
+    over = round(sum(int(edge["over"][i : i + 2], 16) for i in (1, 3, 5)) / 3)
+    column = (
+        field["box"][0]
+        + field["box"][2]
+        - 2 * e["controls"]["field"]["radius"]["device"]
+    )
+    rows = hairline_rows(a, box, int(column), card + edge["alpha"] * (over - card))
+    height = rows[-1] - rows[0] + 1 if len(rows) >= 2 else None
+    want = e["floating"]["find_field"]["device"]
+    record(
+        "find-bar-field-height",
+        height is not None and abs(height - want) <= tolerance,
+        f"{want:g}",
+        height,
+    )
+    radius = popover_radius(a, box, card, e)
+    want = e["floating"]["popover_radius"]["device"]
+    record(
+        "find-bar-radius", abs(radius - want) <= tolerance, f"{want:g}", f"{radius:.2f}"
+    )
+    shadow_check(win, e, "find-bar", box, closed)
+    win.key("Escape")
+    time.sleep(0.3)
+
+
 def floating_checks(win, e):
     for screen, spec in FLOATING_SCREENS.items():
         guarded(
             f"{screen}-row-height",
             lambda s=screen, p=spec: floating_screen_checks(win, e, s, p),
         )
+    guarded("find-bar-field-height", lambda: find_bar_checks(win, e))
 
 
 # ---------------------------------------------------------------- G4: the Settings window

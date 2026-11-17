@@ -1,6 +1,6 @@
 """The simulated window of G3: the main window of window-chrome/simulated_window.py plus the floating screens.
 
-Ctrl+Shift+P opens the palette, Ctrl+Shift+G the agent picker, Ctrl+F the find bar, Tab after `ls scripts/gate-m` typed
+Ctrl+Shift+P opens the palette, Ctrl+Shift+G the agent picker, Ctrl+Shift+F the find bar, Tab after `ls scripts/gate-m` typed
 into the pane the completion list, a right click the context menu. Esc closes the open one and gives the focus back to
 what had it. Lists filter as text is typed, arrows move the highlighted row, Enter picks it, Tab stays inside. The
 planted faults (`fault`) are the four of G3's definition: popover-over-opener, esc-loses-focus, palette-row-short,
@@ -29,6 +29,10 @@ FLOATING_FAULTS = (
     "palette-row-short",
     "idle-draw",
     "palette-text-big",
+    "find-count-off",
+    "find-mark-accent",
+    "shift-enter-next",
+    "find-field-short",
 )
 POPOVER_SCREENS = (
     "context-menu",
@@ -150,6 +154,8 @@ class SimFloatingWindow(chrome_sim.SimWindow):
     def _open_find(self):
         popover = floating_draw.find_popover(self.expected, self.layout.panes[0], "")
         popover["master"] = None
+        if self.float_fault == "find-field-short":
+            popover["items"][0]["box"][3] -= 2
         self._open(popover)
 
     def _open_menu(self):
@@ -173,6 +179,17 @@ class SimFloatingWindow(chrome_sim.SimWindow):
             lines.append(self._popover_line(name, states))
         for name, box in self._landmarks_now():
             lines.append({"record": "landmark", "name": name, "index": 0, "box": box})
+        count = self._find_count()
+        count_box = list(self.popover["items"][0]["box"]) if count else [0, 0, 0, 0]
+        lines.append(
+            {
+                "record": "landmark",
+                "name": "find-count",
+                "index": 0,
+                "box": count_box,
+                "text": count,
+            }
+        )
         for line in lines:
             key = (
                 line["screen"]
@@ -237,6 +254,22 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         marks.append(("find-match", self._current_match() or [0, 0, 0, 0]))
         return marks
 
+    def text_count(self, text):
+        """How many times `text` stands in the pane: the find row's text."""
+        return FIND_TEXT.count(text)
+
+    def _find_count(self):
+        """The find bar's count, as today's window words it; the find-count-off fault counts one too many."""
+        if not self.popover or self.popover["screen"] != "find-bar":
+            return ""
+        query = self.popover["query"]
+        total = len(self._find_matches(query)) + (self.float_fault == "find-count-off")
+        if not query:
+            return ""
+        if total == 0:
+            return "No matches"
+        return "1 match" if total == 1 else f"{total} matches"
+
     def _current_match(self):
         if not self.popover or self.popover["screen"] != "find-bar":
             return None
@@ -286,7 +319,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
                 floating_draw.AGENT_PLACEHOLDER,
                 False,
             )
-        elif name == "ctrl+f":
+        elif name == "ctrl+shift+f":
             self._open_find()
         elif (
             name == "Tab"
@@ -299,12 +332,15 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         elif name == "Escape" and self.popover:
             self._close()
         elif (
-            name == "Return"
+            name in ("Return", "shift+Return")
             and self.popover
             and self.popover["screen"] == "find-bar"
             and self.focus_id is None
         ):
-            self.find_index += 1
+            backwards = (
+                name == "shift+Return" and self.float_fault != "shift-enter-next"
+            )
+            self.find_index += -1 if backwards else 1
         elif self.popover and name in ("Tab", "shift+Tab"):
             self._step(self._order(), name == "Tab")
         else:
@@ -380,7 +416,9 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         states = self._states()
         match = self._current_match()
         if match:
-            canvas.rect(match, self.theme.rgb["accent"])
+            # The current match takes the selection colour; the find-mark-accent fault paints it in accent.
+            mark = "accent" if self.float_fault == "find-mark-accent" else "selection"
+            canvas.rect(match, self.theme.rgb[mark])
         px = self.expected["cap_heights"]["text_ui"]["size_px"] * self.scale
         row = self._find_row
         baseline = (

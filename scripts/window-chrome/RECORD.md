@@ -63,7 +63,9 @@ popover object while it is open.
   gate measures that are not controls. Names: `title-bar` (the whole bar), `status-line` (the whole line, its top line
   included), `pane` (one line per pane, `index` counting from 0 in reading order, the pane's outer box), `status-count` (the box of the single digit that counts
   tabs in the status line, on its own text element), `meta-text` (the block meta row's text; the gate's meta cap-height check needs a finished block on screen and fails when
-  the landmark is absent), `pane-text` (the first row of a pane's text, for the selection drag).
+  the landmark is absent), `pane-text` (the first row of a pane's text, for the selection drag). The find bar adds `find-match` (the current match's
+  first run of cells in its pane; `[0,0,0,0]` while there is none or the bar is closed) and `find-count` (the count at
+  the field's right end, with `"text"`: `""`, `No matches`, `1 match` or `N matches`; `[0,0,0,0]` while closed).
 - Frame: `{"record":"frame","n":N}` is allowed and ignored.
 
 ## Checked by the gates

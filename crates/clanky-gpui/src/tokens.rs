@@ -280,6 +280,15 @@ pub const POPOVER_OPENER_GAP: f32 = SPACE_4;
 pub const POPOVER_WINDOW_MARGIN: f32 = PANE_MARGIN;
 /// The room between a popover's edge and its rows: the rows' radius is one step below the popover's.
 pub const POPOVER_PADDING: f32 = SPACE_4;
+/// The pane's find bar, a popover over the pane's top right corner: as wide as the find bar it replaces (calm
+/// `scene.rs` `find_bar`, 360), with a field (`FIELD_HEIGHT`) and bar icon buttons (`ICON_BUTTON_HEIGHT_BAR`).
+pub const FIND_BAR_WIDTH: f32 = 360.0;
+/// How far the find bar sits in from the pane's top and right edges: the pane margin.
+pub const FIND_BAR_INSET: f32 = PANE_MARGIN;
+/// Between the find bar's field and its buttons, and between the buttons.
+pub const FIND_BAR_GAP: f32 = SPACE_4;
+/// A field's caret: one device pixel wide, as tall as `text_ui` with a pixel of room above and below.
+pub const CARET_HEIGHT: f32 = TEXT_UI + SPACE_2;
 
 // Motion. Every animation pauses while the window is unfocused or hidden, and reduced motion turns
 // them off, so an idle window draws no frames.

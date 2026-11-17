@@ -29,6 +29,10 @@ FAULTS=(
   "gate-controls.py:idle-draw:completion-list:idle-frames"
   "gate-design-tokens.py:palette-row-short:-:palette-row-height"
   "gate-design-tokens.py:palette-text-big:-:palette-row-cap-height"
+  "gate-controls.py:find-count-off:find-bar:find-count"
+  "gate-controls.py:find-mark-accent:find-bar:find-highlight"
+  "gate-controls.py:shift-enter-next:find-bar:find-previous"
+  "gate-design-tokens.py:find-field-short:-:find-bar-field-height"
 )
 SPEED_RUNS=3
 ENGINE_CHECK=scripts/terminal-pane/check_engine_free.sh
