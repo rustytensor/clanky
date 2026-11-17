@@ -23,6 +23,8 @@ pub enum Kind {
     Field,
     MenuItem,
     ListRow,
+    /// A row of a search-and-pick list: the palette's results.
+    PaletteRow,
     Segment,
 }
 
@@ -51,6 +53,7 @@ impl Kind {
             Kind::Field => "field",
             Kind::MenuItem => "menu-item",
             Kind::ListRow => "list-row",
+            Kind::PaletteRow => "palette-row",
             Kind::Segment => "segment",
         }
     }
@@ -69,6 +72,7 @@ impl Kind {
             Kind::Field => t::FIELD_HEIGHT,
             Kind::MenuItem => t::MENU_ITEM_HEIGHT,
             Kind::ListRow => t::ROW_HEIGHT,
+            Kind::PaletteRow => t::PALETTE_ROW_HEIGHT,
             Kind::Segment => t::SEGMENT_HEIGHT,
         }
     }
@@ -82,7 +86,7 @@ impl Kind {
             | Kind::IconButton => t::RADIUS_BUTTON,
             Kind::Tab => t::RADIUS_MEDIUM,
             Kind::Field => t::RADIUS_FIELD,
-            Kind::ListRow => t::RADIUS_ROW,
+            Kind::ListRow | Kind::PaletteRow => t::RADIUS_ROW,
             Kind::Chip | Kind::MenuItem | Kind::IconButtonInline => t::RADIUS_SMALL,
             Kind::Segment => t::RADIUS_SEGMENT,
             Kind::Switch => t::RADIUS_SWITCH,
@@ -94,6 +98,7 @@ impl Kind {
         match self {
             Kind::ButtonSmall => t::TEXT_STATUS,
             Kind::ListRow => t::TEXT_TREE,
+            Kind::PaletteRow => t::TEXT_TITLE,
             Kind::Segment => t::TEXT_TAB_SWITCH,
             _ => t::TEXT_UI,
         }
@@ -111,14 +116,14 @@ impl Kind {
     /// The rows of a menu or a list: their content starts at the left, and keyboard focus takes the hover fill too,
     /// so the keyboard's place reads the same as the pointer's.
     pub fn is_row(self) -> bool {
-        matches!(self, Kind::MenuItem | Kind::ListRow)
+        matches!(self, Kind::MenuItem | Kind::ListRow | Kind::PaletteRow)
     }
 
-    /// Whether a pointer click gives the control the keyboard. Only a field (to type in) and a menu item (inside a
-    /// popover, which holds the keyboard while open) take it; every other control leaves it with the pane, so a
+    /// Whether a pointer click gives the control the keyboard. Only a field (to type in) and a menu item or palette
+    /// row (inside a popover, which holds the keyboard while open) take it; every other control leaves it with the pane, so a
     /// click on a tab or a bar button never stops typing from reaching the terminal. Tab still reaches them all.
     pub fn takes_focus_on_click(self) -> bool {
-        matches!(self, Kind::Field | Kind::MenuItem)
+        matches!(self, Kind::Field | Kind::MenuItem | Kind::PaletteRow)
     }
 
     pub fn is_icon_only(self) -> bool {
@@ -314,6 +319,7 @@ mod tests {
             (Kind::Field, "field", 32.0, 8.0),
             (Kind::MenuItem, "menu-item", 28.0, 6.0),
             (Kind::ListRow, "list-row", 24.0, 8.0),
+            (Kind::PaletteRow, "palette-row", 36.0, 8.0),
             (Kind::Segment, "segment", 24.0, 6.0),
         ];
         for (kind, name, height, radius) in expected {
@@ -336,6 +342,11 @@ mod tests {
             (11.0, 14.0)
         );
         assert_eq!(Kind::Segment.text_size(), 11.5);
+        // Palette rows: 12.5 px text (text_title) and the 16 px row icon.
+        assert_eq!(
+            (Kind::PaletteRow.text_size(), Kind::PaletteRow.icon_size()),
+            (12.5, 16.0)
+        );
     }
 
     /// Fills per state on Graphite dark, from the rulebook's states table and the theme file's hex values.
@@ -421,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn only_fields_and_menu_items_take_focus_on_click() {
+    fn only_fields_menu_items_and_palette_rows_take_focus_on_click() {
         let all = [
             Kind::ButtonSmall,
             Kind::ButtonBar,
@@ -435,13 +446,14 @@ mod tests {
             Kind::Field,
             Kind::MenuItem,
             Kind::ListRow,
+            Kind::PaletteRow,
             Kind::Segment,
         ];
         let taking: Vec<Kind> = all
             .into_iter()
             .filter(|kind| kind.takes_focus_on_click())
             .collect();
-        assert_eq!(taking, [Kind::Field, Kind::MenuItem]);
+        assert_eq!(taking, [Kind::Field, Kind::MenuItem, Kind::PaletteRow]);
     }
 
     #[test]

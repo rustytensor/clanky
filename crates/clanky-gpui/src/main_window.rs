@@ -31,6 +31,7 @@ use gpui::{
 use serde_json::{Value, json};
 
 mod command_bar;
+mod command_palette;
 mod drag;
 mod floating;
 #[cfg(feature = "test-popover")]
@@ -132,6 +133,7 @@ pub struct MainWindow {
     inputs: Option<SharedInput>,
     /// The floating screen open above the panes, if any.
     popover: Popover,
+    palette_state: command_palette::PaletteState,
     _status: Task<()>,
 }
 
@@ -203,6 +205,7 @@ impl MainWindow {
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
             popover: Popover::default(),
+            palette_state: command_palette::PaletteState::default(),
             _status: status,
         };
         this.after_change(window, cx);
@@ -636,6 +639,8 @@ impl MainWindow {
                 adder.update(cx, |this, cx| this.act(window, cx, Self::new_tab));
             });
         bar.child(self.kit.build(SCREEN, new_tab, window, cx))
+            .child(div().flex_1())
+            .child(self.search_box(window, cx))
             .child(self.kit.record().landmark("title-bar", 0))
             .into_any_element()
     }

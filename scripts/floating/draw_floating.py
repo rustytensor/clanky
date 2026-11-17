@@ -5,6 +5,7 @@ write the committed fixtures. The layout is a stand-in with the right sizes: eve
 from the expected values, the positions are this file's choice. Nothing here reads the program under test.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -55,6 +56,29 @@ def filtered(master, query):
     ]
 
 
+def palette_matches(master, query):
+    """The palette's rows for a query (clanky_state::command_palette's rule): labels starting with it, then with a
+    word starting with it, then holding it, ties in list order; then the offer to run it in the pane, whose index is
+    one past the master list."""
+    needle = query.strip().lower()
+
+    def rank(text):
+        text = text.lower()
+        if text.startswith(needle):
+            return 0
+        if any(word.startswith(needle) for word in re.split(r"[^0-9a-z]+", text)):
+            return 1
+        return 2 if needle in text else None
+
+    found = sorted(
+        (rank(text), index, text)
+        for index, text in enumerate(master)
+        if rank(text) is not None
+    )
+    run = f"Run \u201c{query.strip()}\u201d in this pane"
+    return [(index, text) for _, index, text in found] + [(len(master), run)]
+
+
 def row_control(index, text, kind, box):
     return {
         "id": FIRST_ID + index,
@@ -94,6 +118,8 @@ def list_popover(
     ]
     footer_h = floating["palette_footer"]["device_rounded"] if with_footer else 0
     shown = filtered(master, query)
+    if screen == "palette" and query.strip():
+        shown = palette_matches(master, query)
     x = round_half_up(left * s)
     y = round_half_up(top * s)
     w = round_half_up(width * s)

@@ -53,6 +53,7 @@ Planted faults (--simulate --fault NAME; each must fail the check named):
 
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -81,6 +82,7 @@ FAULTS = {
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
     "selected-segment-hover": "hover-colour",
+    "palette-no-run": "filter",  # the palette drops its offer to run the typed text (real window)
     # G4's faults, planted in the Settings simulation (--settings). card-padding is the design gate's.
     "setting-not-written": "config-roundtrip",
     "switch-hit-larger": "hit-box",
@@ -275,7 +277,26 @@ def close_with_escape(win):
     win.key("Escape")
 
 
-# G3's screens. TODO(G3): every open key and harmless control below is a guess until G3's key bindings exist.
+# G3's screens. TODO(G3): every open key and harmless control below is a guess until G3's key bindings exist, except
+# the palette's, which are the real ones (Ctrl+Shift+P opens it; New tab changes nothing the run depends on).
+
+
+def ranked_matches(labels, query):
+    """The palette's matching rule, written apart from the program (clanky_state::command_palette's comment): case
+    folded and trimmed; labels starting with the query first, then those with a word starting with it, then those
+    holding it anywhere; scattered letters do not match; ties keep the list's order."""
+    query = query.strip().lower()
+
+    def rank(label):
+        label = label.lower()
+        if label.startswith(query):
+            return 0
+        if any(word.startswith(query) for word in re.split(r"[^0-9a-z]+", label)):
+            return 1
+        return 2 if query in label else None
+
+    found = [(rank(label), place, label) for place, label in enumerate(labels)]
+    return [label for r, _, label in sorted(f for f in found if f[0] is not None)]
 
 
 def open_by_keys(*keys):
@@ -305,7 +326,8 @@ FLOATING_SCREENS = {
         container="card",
         harmless="New tab",
         adjacent=False,  # a modal list centred at the top: no opener beside it
-        filter=True,
+        filter="ranked",  # best matches first (clanky_state::command_palette)
+        run_row=True,  # and last, the offer to run the typed text in the pane
         idle=True,
     ),
     "agent-picker": dict(
@@ -1102,7 +1124,9 @@ class Screen:
                     gi, go = grey(a, ix, iy), grey(a, ox, oy)
                     edge = border_blend(c, want)
                     if side in ("left", "right"):
-                        edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (edge - bg)
+                        edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (
+                            edge - bg
+                        )
                     self.ok(
                         "whole-pixels",
                         near(gi, edge) and near(go, bg),
@@ -1706,17 +1730,19 @@ class Screen:
             return
         self.win.type(prefix)
         want = [label for label in labels if prefix in label.lower()]
+        if self.spec.get("filter") == "ranked":
+            want = ranked_matches(labels, prefix)
         try:
             until(lambda: [c["label"] for c in self.controls()] == want, "", 3)
         except Fail:
             pass
-        self.ok(
-            "filter",
-            [c["label"] for c in self.controls()] == want,
-            f"typed {prefix!r}",
-            want,
-            [c["label"] for c in self.controls()],
-        )
+        got = [c["label"] for c in self.controls()]
+        if self.spec.get("run_row"):
+            # The last row offers to run what was typed in the pane: "Run “ne” in this pane".
+            want = want + [f"Run \u201c{prefix}\u201d in …"]
+            if got and got[-1].startswith(f"Run \u201c{prefix}\u201d in "):
+                got = got[:-1] + [want[-1]]
+        self.ok("filter", got == want, f"typed {prefix!r}", want, got)
 
     def idle_checks(self):
         """No frame is drawn while the popover stays open and nothing happens."""
@@ -2137,6 +2163,7 @@ class Screen:
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],
                 "selected-segment-hover": [self.hover_checks],
+                "palette-no-run": [self.filter_checks],
                 "setting-not-written": [self.roundtrip_checks],
                 "switch-hit-larger": [self.static_checks, self.hover_checks],
                 "page-control-out-of-tab-order": [self.tab_checks],

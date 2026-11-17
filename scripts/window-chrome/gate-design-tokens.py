@@ -656,7 +656,23 @@ def selection_check(win, e):
 
 # ---------------------------------------------------------------- G3: the floating screens
 
-# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist.
+# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist, except the
+# palette's (Ctrl+Shift+P, the real one).
+
+TAB_SETTLE_S = 1.0  # a new or closed tab: the server answers and the window redraws well within this
+
+
+def open_second_tab(win):
+    """The palette lists "Go to" for every tab but the active one (clanky_state::command_palette), so a second tab,
+    which opens in the first one's HIH folder, makes "Go to HIH" one of its rows."""
+    win.key("ctrl+shift+t")
+    time.sleep(TAB_SETTLE_S)
+
+
+def close_second_tab(win):
+    """Closes the tab open_second_tab opened (the active one, whose pane has the keyboard again after Esc)."""
+    win.key("ctrl+shift+w")
+    time.sleep(TAB_SETTLE_S)
 
 
 def open_completion(win):
@@ -677,6 +693,8 @@ FLOATING_SCREENS = {
         input="palette_input",
         footer="palette_footer",
         text=True,
+        prepare=open_second_tab,
+        cleanup=close_second_tab,
     ),
     "agent-picker": dict(
         open=lambda win: win.key("ctrl+shift+g"),
@@ -777,6 +795,8 @@ def shadow_check(win, e, screen, box, closed):
 
 def floating_screen_checks(win, e, screen, spec):
     tolerance = e["chrome"]["tab_height"]["tolerance_px"]
+    if spec.get("prepare"):
+        spec["prepare"](win)
     closed = win.shot("closed")
     spec["open"](win)
     shown = until(
@@ -862,6 +882,8 @@ def floating_screen_checks(win, e, screen, spec):
     win.key("Escape")
     win.key("ctrl+u")
     time.sleep(0.3)
+    if spec.get("cleanup"):
+        spec["cleanup"](win)
 
 
 def palette_text_checks(win, e, screen):
