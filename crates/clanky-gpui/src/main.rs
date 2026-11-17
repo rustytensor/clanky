@@ -264,9 +264,11 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
             .map_err(|e| format!("finding the session socket: {e}"))?,
     };
     let config = Config::load(args.config.as_deref())?;
+    // With restore_layout on, a fresh session reopens the saved tabs and splits, and the window keeps the file current.
+    let layout_file = clanky::layout_store::default_path().filter(|_| config.restore_layout);
     let client = clanky::session::prepare_window_configured(
         &socket,
-        None,
+        layout_file.as_deref(),
         args.config.as_deref(),
         args.overrides,
     )?;
@@ -306,6 +308,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         command_input: args.overrides.editor_mode(&config),
         // Today's new window: one tab split in two, one pane above the other, unless the config says one pane.
         opens_with: if opened { config.new_window_panes } else { 1 },
+        layout_file: layout_file.map(|file| (file, socket.clone())),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

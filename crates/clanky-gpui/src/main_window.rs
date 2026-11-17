@@ -7,6 +7,7 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
+    path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -96,6 +97,8 @@ pub struct WindowSetup {
     /// Panes the window's first tab opens with: 2 splits it down once the window has drawn (a new window, the
     /// config's `new_window_panes`); 1 leaves the tab as it is.
     pub opens_with: u8,
+    /// With restore_layout on: the saved layout's file and the session socket, whose startup lock guards each save.
+    pub layout_file: Option<(PathBuf, PathBuf)>,
 }
 
 pub struct MainWindow {
@@ -108,6 +111,7 @@ pub struct MainWindow {
     colors: Colors,
     post_ai: bool,
     exec_tab: Option<String>,
+    layout_file: Option<(PathBuf, PathBuf)>,
     workspace: Workspace,
     panes: HashMap<String, (Entity<TerminalPane>, Subscription)>,
     status: Status,
@@ -175,6 +179,7 @@ impl MainWindow {
             colors: setup.colors,
             post_ai: setup.post_ai,
             exec_tab: setup.exec_tab,
+            layout_file: setup.layout_file,
             workspace: Workspace {
                 revision: 0,
                 groups: Vec::new(),
@@ -274,6 +279,9 @@ impl MainWindow {
         if let Err(message) = self.sync(window, cx) {
             self.notice = Some(message);
         }
+        if let Err(message) = self.save_layout() {
+            self.notice = Some(message);
+        }
         if self.workspace.groups.is_empty() && self.notice.is_none() {
             cx.quit();
             return;
@@ -353,6 +361,18 @@ impl MainWindow {
             .map(|pane| pane.0.read(cx).size_sent())
             .filter(|&(rows, cols)| rows > 0 && cols > 0)
             .unwrap_or((24, 80))
+    }
+
+    /// With restore_layout on, keeps the saved layout up to date with the workspace (its tabs, splits and each
+    /// pane's folder), as today's window does after every change, so the next fresh session opens it again.
+    fn save_layout(&self) -> Result<(), String> {
+        let Some((file, socket)) = &self.layout_file else {
+            return Ok(());
+        };
+        let _guard = clanky_core::platform::StartupLock::acquire(socket)
+            .map_err(|e| format!("locking the session to save the layout: {e}"))?;
+        clanky::layout_store::save(&self.client, file)
+            .map_err(|e| format!("saving the layout to {}: {e}", file.display()))
     }
 
     /// Writes the workspace to the server, which answers with its new revision.
