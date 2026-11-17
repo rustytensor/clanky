@@ -212,10 +212,7 @@ pub fn notice(layout:&Layout,theme:&Theme,text:&str,measure:&mut dyn FnMut(&Text
 struct CardGeometry{id:String,frame:PixelRect,header:PixelRect,first_row:usize,clear_from:f32,command:String,
     badge:Option<(PixelRect,String,u8)>,duration:Option<(PixelRect,String)>,actions:Vec<(PixelRect,&'static str,&'static str)>,
     opacity:f32,hovered:bool,running:bool,failed:bool,focus:Option<usize>}
-pub(super) fn duration_label(ms:u64)->String{
-    if ms<1000{format!("{ms} ms")}else if ms<60_000{format!("{:.1} s",ms as f64/1000.0)}
-    else{format!("{} m {} s",ms/60_000,(ms%60_000)/1000)}
-}
+pub(super) use clanky_state::blocks::duration_label;
 fn card_geometry(p:&mut Paint,layout:&Layout,pane:&look::PaneLayout,data:&look::PaneState,block:&look::BlockCard,origin:[f32;2],state:&LookState)->Option<CardGeometry>{
     let s=layout.scale as f32;let ch=layout.cell_px[1] as f32;
     let rows=data.snapshot.rows;if block.first_row>=rows||block.last_row<block.first_row{return None;}

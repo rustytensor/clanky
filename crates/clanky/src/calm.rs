@@ -17,7 +17,7 @@ mod settings_access;
 mod settings_form;
 mod settings_pages;
 pub mod command_bar;
-pub mod breath;
+pub use clanky_state::blocks as breath;
 pub use recent::{human_recent,pane_label,uptime_label};
 pub use scene::{presentation,legacy_palette,notice,review_buttons};
 

@@ -1302,28 +1302,7 @@ fn modal_rect(layout: &look::Layout, lines: usize) -> PixelRect {
     PixelRect { x:(layout.window_px[0] as f32-w)/2.0,y:(m.top_bar+m.outer_gap) as f32,w,h }
 }
 
-/// Only server anchors from this snapshot's generation place cards; never text matching.
-pub(super) fn matched_blocks(snapshot: &TerminalSnapshot, view: &Value) -> Vec<look::BlockCard> {
-    let mut cards = Vec::new();
-    if !snapshot.images.is_empty() || snapshot.cols == 0 { return cards; }
-    let Some(top) = view["viewport_line"].as_u64() else { return cards; };
-    let Some(blocks) = view["blocks"].as_array() else { return cards; };
-    for block in blocks {
-        let (Some(id), Some(command), Some(line)) = (block["block_id"].as_str(), block["command"].as_str(), block["command_line"].as_u64()) else { continue; };
-        let Some(prompt) = block["prompt_line"].as_u64() else { continue; };
-        // Server lines (fish, measured): the command is typed on the line before output
-        // starts (command_line), and the finish mark sits on the next prompt's line.
-        let typed = if line > prompt { line - 1 } else { prompt };
-        let Some(first) = typed.checked_sub(top).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < snapshot.rows) else { continue; };
-        let complete = block["complete"] == true;
-        let end = match block["end_line"].as_u64() { Some(end) if complete => end.saturating_sub(1).max(typed), _ => top + snapshot.rows as u64 - 1 };
-        let last = end.saturating_sub(top).min(snapshot.rows.saturating_sub(1) as u64) as usize;
-        if last < first || cards.iter().any(|c: &look::BlockCard| first <= c.last_row && last >= c.first_row) { continue; }
-        cards.push(look::BlockCard { id:id.into(), first_row:first, last_row:last, command:command.into(),
-            exit_code:block["exit_code"].as_i64().and_then(|n|i32::try_from(n).ok()), duration_ms:block["duration_ms"].as_u64(), running:block["complete"] != true });
-    }
-    cards
-}
+pub(super) use clanky_state::blocks::matched_blocks;
 
 /// Keep widget chrome stationary while stitching only its actual source rows.
 fn stitch_region(old: &TerminalSnapshot,new: &TerminalSnapshot,start: usize,end: usize,cell_h: f32) -> Option<(TerminalSnapshot,f32,f32)> {
@@ -1374,14 +1353,7 @@ pub(super) fn git_branch(dir: &str) -> Option<String> {
     }
     None
 }
-/// Local wall-clock HH:MM for a Unix time in milliseconds.
-pub(super) fn local_hhmm(unix_ms: i64) -> String {
-    let secs = (unix_ms / 1000) as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: localtime_r writes only into the tm we own; a null return leaves it zeroed.
-    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() { return String::new(); }
-    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
-}
+pub(super) use clanky_state::blocks::local_hhmm;
 fn folder_name(cwd: &str) -> String {
     let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));
     clanky_state::files_tree::folder_name(cwd, home.as_deref())

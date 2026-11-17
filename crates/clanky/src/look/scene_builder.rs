@@ -95,7 +95,7 @@ pub struct PaneState {
     pub scroll_px: f32,
     pub sticky: Option<StickyLine>,
     /// Space between quiet blocks (Q4): the pixel top of every row, or None for the plain grid.
-    pub breath: Option<crate::calm::breath::Breath>,
+    pub breath: Option<clanky_state::blocks::Breath>,
     /// The overlay scrollbar's opacity, 0 (hidden) to 1, shown for a moment after the wheel.
     pub scrollbar: f32,
 }
@@ -106,16 +106,7 @@ impl PaneState {
             blocks: vec![], cursor: None, scroll_px: 0.0, sticky: None, breath: None, scrollbar: 0.0 }
     }
 }
-#[derive(Clone, Debug)]
-pub struct BlockCard {
-    pub id: String,
-    pub first_row: usize,
-    pub last_row: usize,
-    pub command: String,
-    pub exit_code: Option<i32>,
-    pub duration_ms: Option<u64>,
-    pub running: bool,
-}
+pub use clanky_state::blocks::BlockCard;
 #[derive(Clone, Copy, Debug)]
 pub struct CursorMotion { pub from: [f32; 2], pub to: [f32; 2], pub elapsed_ms: f32 }
 #[derive(Clone, Debug, PartialEq)]
