@@ -142,7 +142,10 @@ on_sway() {
 # XDG_RUNTIME_DIR=RUNTIME and WAYLAND_DISPLAY=SOCKET_NAME; sets app_pid and app_start (seconds).
 launch() {
   mkdir -p "$scratch/app-config"
-  echo '{}' >"$scratch/app-config/config.json"
+  # The default config but for the terminal font and size, which the screenshot reader (expected.py's cell geometry,
+  # JetBrains Mono at 16 px with 1.2 line height) depends on; the default font is a moving target. command_input is
+  # left unset, so the window starts as a user's does.
+  echo '{"font_family": "JetBrains Mono", "font_size": 16, "cell_height_scale": 1.2}' >"$scratch/app-config/config.json"
   env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u XDG_SESSION_TYPE \
     HOME="$scratch/home" WAYLAND_DISPLAY="$2" XDG_RUNTIME_DIR="$1" XDG_CONFIG_HOME="$scratch/xdg/config" \
     XDG_STATE_HOME="$scratch/xdg/state" XDG_DATA_HOME="$scratch/xdg/data" XDG_CACHE_HOME="$scratch/xdg/cache" \
