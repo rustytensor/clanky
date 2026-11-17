@@ -86,16 +86,15 @@ fn base(context:&Context)->Vec<Entry>{
     out
 }
 
-/// 0 label starts with the query, 1 a word starts with it, 2 it appears inside,
-/// 3 its letters appear in order. None: no match. Case is ignored.
+/// 0 label starts with the query, 1 a word starts with it, 2 it appears inside.
+/// None: no match, scattered letters included. Case is ignored. The rule is
+/// written down with its expected results in `clanky_state::command_palette`.
 fn rank(label:&str,query:&str)->Option<u8>{
     let label=label.to_lowercase();let query=query.trim().to_lowercase();
     if query.is_empty(){return Some(0);}
     if label.starts_with(&query){return Some(0);}
     if label.split(|c:char|!c.is_alphanumeric()).any(|word|word.starts_with(&query)){return Some(1);}
-    if label.contains(&query){return Some(2);}
-    let mut letters=label.chars();
-    query.chars().filter(|c|!c.is_whitespace()).all(|q|letters.any(|c|c==q)).then_some(3)
+    label.contains(&query).then_some(2)
 }
 
 /// The entries shown for a query, best match first, stable within a rank. A typed
