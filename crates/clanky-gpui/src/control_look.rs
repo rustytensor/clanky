@@ -23,6 +23,8 @@ pub enum Kind {
     Field,
     MenuItem,
     ListRow,
+    /// A search-and-pick list's row: the palette's results, the agent picker's tools.
+    PaletteRow,
     Segment,
 }
 
@@ -51,6 +53,7 @@ impl Kind {
             Kind::Field => "field",
             Kind::MenuItem => "menu-item",
             Kind::ListRow => "list-row",
+            Kind::PaletteRow => "palette-row",
             Kind::Segment => "segment",
         }
     }
@@ -69,6 +72,7 @@ impl Kind {
             Kind::Field => t::FIELD_HEIGHT,
             Kind::MenuItem => t::MENU_ITEM_HEIGHT,
             Kind::ListRow => t::ROW_HEIGHT,
+            Kind::PaletteRow => t::PALETTE_ROW_HEIGHT,
             Kind::Segment => t::SEGMENT_HEIGHT,
         }
     }
@@ -82,7 +86,7 @@ impl Kind {
             | Kind::IconButton => t::RADIUS_BUTTON,
             Kind::Tab => t::RADIUS_MEDIUM,
             Kind::Field => t::RADIUS_FIELD,
-            Kind::ListRow => t::RADIUS_ROW,
+            Kind::ListRow | Kind::PaletteRow => t::RADIUS_ROW,
             Kind::Chip | Kind::MenuItem | Kind::IconButtonInline => t::RADIUS_SMALL,
             Kind::Segment => t::RADIUS_SEGMENT,
             Kind::Switch => t::RADIUS_SWITCH,
@@ -94,6 +98,7 @@ impl Kind {
         match self {
             Kind::ButtonSmall => t::TEXT_STATUS,
             Kind::ListRow => t::TEXT_TREE,
+            Kind::PaletteRow => t::TEXT_TITLE,
             Kind::Segment => t::TEXT_TAB_SWITCH,
             _ => t::TEXT_UI,
         }
@@ -111,7 +116,7 @@ impl Kind {
     /// The rows of a menu or a list: their content starts at the left, and keyboard focus takes the hover fill too,
     /// so the keyboard's place reads the same as the pointer's.
     pub fn is_row(self) -> bool {
-        matches!(self, Kind::MenuItem | Kind::ListRow)
+        matches!(self, Kind::MenuItem | Kind::ListRow | Kind::PaletteRow)
     }
 
     /// Whether a pointer click gives the control the keyboard. Only a field (to type in) and a menu item (inside a
@@ -314,6 +319,7 @@ mod tests {
             (Kind::Field, "field", 32.0, 8.0),
             (Kind::MenuItem, "menu-item", 28.0, 6.0),
             (Kind::ListRow, "list-row", 24.0, 8.0),
+            (Kind::PaletteRow, "palette-row", 36.0, 8.0),
             (Kind::Segment, "segment", 24.0, 6.0),
         ];
         for (kind, name, height, radius) in expected {
@@ -330,6 +336,10 @@ mod tests {
         assert_eq!(
             (Kind::MenuItem.text_size(), Kind::MenuItem.icon_size()),
             (12.0, 16.0)
+        );
+        assert_eq!(
+            (Kind::PaletteRow.text_size(), Kind::PaletteRow.icon_size()),
+            (12.5, 16.0)
         );
         assert_eq!(
             (Kind::ButtonSmall.text_size(), Kind::Chip.icon_size()),
@@ -435,6 +445,7 @@ mod tests {
             Kind::Field,
             Kind::MenuItem,
             Kind::ListRow,
+            Kind::PaletteRow,
             Kind::Segment,
         ];
         let taking: Vec<Kind> = all

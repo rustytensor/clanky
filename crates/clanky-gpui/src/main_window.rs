@@ -30,6 +30,7 @@ use gpui::{
 };
 use serde_json::{Value, json};
 
+mod agent_picker;
 mod command_bar;
 mod drag;
 mod floating;
@@ -48,6 +49,7 @@ use crate::{
     popover::Popover,
     tokens as t,
 };
+use agent_picker::AgentTools;
 use command_bar::{Chips, read_chips};
 use drag::{Drag, Places};
 use tools::{Tools, ToolsData, ToolsQuery, read_tools};
@@ -96,6 +98,8 @@ pub struct WindowSetup {
     pub tools_open: bool,
     pub tools: Vec<clanky::config::Tool>,
     pub agent_programs: Vec<clanky::config::AgentTool>,
+    /// Whether a pane started for an agent gets agent access (read + run in that pane only).
+    pub agent_pane_access: bool,
     /// Each terminal pane shows a command input (the config's editor mode); off, panes show the shell's prompt.
     pub command_input: bool,
     /// Panes the window's first tab opens with: 2 splits it down once the window has drawn (a new window, the
@@ -132,6 +136,8 @@ pub struct MainWindow {
     inputs: Option<SharedInput>,
     /// The floating screen open above the panes, if any.
     popover: Popover,
+    /// The agent tools the picker offers, and the one being started.
+    agent_tools: AgentTools,
     _status: Task<()>,
 }
 
@@ -200,6 +206,7 @@ impl MainWindow {
             drag: None,
             controls_from: None,
             places: Places::default(),
+            agent_tools: AgentTools::new(setup.agent_programs.clone(), setup.agent_pane_access),
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
             popover: Popover::default(),
@@ -396,7 +403,7 @@ impl MainWindow {
     fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
         let source = self.focused_pane(window, cx);
         let (rows, cols) = self.pane_size(source.as_deref(), cx);
-        let id = clanky::window_tools::new_terminal(&self.client, source.as_deref(), rows, cols)?;
+        let id = self.spawn_terminal(source.as_deref(), rows, cols)?;
         self.sync(window, cx)?;
         self.workspace.active = self
             .workspace
@@ -436,7 +443,7 @@ impl MainWindow {
             Axis::Columns => (rows, (cols / 2).max(1)),
             Axis::Rows => ((rows / 2).max(1), cols),
         };
-        let id = clanky::window_tools::new_terminal(&self.client, Some(&target), rows, cols)?;
+        let id = self.spawn_terminal(Some(&target), rows, cols)?;
         self.sync(window, cx)?;
         self.workspace
             .groups

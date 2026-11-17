@@ -311,6 +311,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         tools_open: config.tools_panel,
         tools: config.tools.clone(),
         agent_programs: config.agents.clone(),
+        agent_pane_access: config.agent_pane_access,
         command_input: args.overrides.editor_mode(&config),
         // Today's new window: one tab split in two, one pane above the other, unless the config says one pane.
         opens_with: if opened { config.new_window_panes } else { 1 },

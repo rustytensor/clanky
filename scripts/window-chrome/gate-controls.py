@@ -123,6 +123,13 @@ CONFIG = dict(
     animations=False,
     cursor_blink="off",
     theme="dark",
+    # The agent picker's tools: two found on PATH and one that is not installed. Fake Tool, which the controls gate
+    # fires, ends the shell of the pane it starts in, so the pane closes again and the window keeps one wide pane.
+    agents=[
+        dict(name="Fake Tool", command="sh -c 'kill -HUP $PPID'"),
+        dict(name="Other Tool", command="true"),
+        dict(name="Missing Tool", command="no-such-agent-t9"),
+    ],
 )
 
 # ---------------------------------------------------------------- expected values, from expected.py at the run's scale
@@ -308,6 +315,7 @@ FLOATING_SCREENS = {
         filter=True,
         idle=True,
     ),
+    # The real key: Ctrl+Shift+G opens the picker; firing "Fake Tool" starts a pane that closes itself.
     "agent-picker": dict(
         open=open_by_keys("ctrl+shift+g"),
         close=close_with_escape,

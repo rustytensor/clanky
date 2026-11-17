@@ -229,14 +229,21 @@ impl MainWindow {
         }
         row = row.child(div().flex_1());
         if !self.post_ai {
-            // Shell | Agent: Agent opens the agent picker, which comes with the floating screens; until then the
-            // switch shows the pane is a shell.
+            // Shell | Agent: the pane is a shell; Agent opens the agent picker to start one beside it.
             let segments = [(base + 1, "Shell"), (base + 2, "Agent")];
+            let (this, pane) = (cx.entity(), id.to_owned());
             let switcher = Switcher {
                 group: Group::horizontal("command-mode"),
                 segments: &segments,
                 selected: 0,
-                choose: Rc::new(|_, _, _: &mut App| {}),
+                choose: Rc::new(move |index, window, cx: &mut App| {
+                    if index == 1 {
+                        let pane = pane.clone();
+                        this.update(cx, |this, cx| {
+                            this.agent_segment_chosen(base + 2, pane, window, cx);
+                        });
+                    }
+                }),
             };
             row = row.child(self.kit.segmented(SCREEN, &switcher, window, cx));
         }

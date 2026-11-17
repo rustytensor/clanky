@@ -514,7 +514,9 @@ impl Kit {
             (_, Some(width)) => body.w(px(width)),
             (Kind::Switch, None) => body.w(px(t::SWITCH_CONTROL_WIDTH)),
             (Kind::IconButton | Kind::IconButtonInline, None) => body.w(px(height)),
-            (Kind::MenuItem | Kind::ListRow | Kind::Field, None) => body.w_full(),
+            (Kind::MenuItem | Kind::ListRow | Kind::PaletteRow | Kind::Field, None) => {
+                body.w_full()
+            }
             _ => body,
         };
         if let Some(fill) = fill(kind, state, control.primary, control.checked, colors) {
@@ -656,11 +658,13 @@ impl Kit {
     /// A control's label text, with its measuring child.
     fn label(&self, screen: &'static str, control: &Control, ink: Color, scale: f32) -> AnyElement {
         let kind = control.kind;
-        let weight = if kind == Kind::Tab && control.checked == Some(true) {
-            t::WEIGHT_MEDIUM
-        } else {
-            t::WEIGHT_REGULAR
-        };
+        // The palette's rows are set in the title text, which is medium weight.
+        let weight =
+            if (kind == Kind::Tab && control.checked == Some(true)) || kind == Kind::PaletteRow {
+                t::WEIGHT_MEDIUM
+            } else {
+                t::WEIGHT_REGULAR
+            };
         let text = |weight: u16| {
             div()
                 .min_w_0()
@@ -698,8 +702,8 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
-        } else if kind == Kind::MenuItem {
-            // A menu item's line fills the item, as a tab's does: inside a popover the item's top is a whole device
+        } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow) {
+            // A popover row's line fills the row, as a tab's does: inside a popover the row's top is a whole device
             // pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off at 1.5.
             text(weight)
                 .line_height(px(kind.height()))

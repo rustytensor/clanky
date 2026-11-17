@@ -218,6 +218,14 @@ impl Popover {
         }
     }
 
+    /// Selects a row of the open popover's list, for a list that starts elsewhere than its first row; a row past the
+    /// end selects nothing.
+    pub fn select_row(&mut self, row: usize) {
+        if let Some(open) = self.open.as_mut() {
+            open.list.select(row);
+        }
+    }
+
     /// The selected row of the open popover's list.
     pub fn selected_row(&self) -> Option<usize> {
         self.open.as_ref().and_then(|open| open.list.selected())

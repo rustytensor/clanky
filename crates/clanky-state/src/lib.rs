@@ -2,6 +2,7 @@
 //! shares it: the config and its file, themes and terminal colour schemes, the command-input model, mouse selection,
 //! notifications, cursor blink, the clipboard bridge, the saved layout and the key bindings. Tabs, panes and their
 //! split tree live in `clanky-core`. The selection of a list the arrow keys move through is here too.
+pub mod agent_picker;
 pub mod blocks;
 pub mod clipboard;
 pub mod command_input;
