@@ -14,6 +14,7 @@ pub mod look;
 pub mod mouse;
 pub mod keys;
 pub mod notifications;
+pub mod pane_input;
 pub mod platform;
 pub mod settings;
 pub mod terminal_schemes;
