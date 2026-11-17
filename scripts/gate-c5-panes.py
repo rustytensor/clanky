@@ -59,8 +59,8 @@ Expected results, fixed before the work (window 1400 x 900, scale 1, default the
      <new_window_panes>1</new_window_panes>, restore_layout true and that layout.json in its config folder opens
      the saved 3 panes (API and pixels), not 1.
 
-On clanky-gpui (CLANKY_BIN, G2): P1, I1, P2, I2 and E1's pane count run; S1, I3, S2 and E1's Settings text move to
-G4 (Settings), and R1 (restoring a saved layout) is not part of G2. Its values come from the rulebook
+On clanky-gpui (CLANKY_BIN, G2): P1, I1, P2, I2, E1's pane count and R1 run; S1, I3, S2 and E1's Settings text
+move to G4 (Settings). Its values come from the rulebook
 (rulebook-tokens.json), never from the binary: the gap between panes 8 (rulebook:103); the padding inside a pane 12
 (rulebook:103; today's 14) on every side of the grid; below the grid's padding, the command input of
 1 + 8 + 28 + 8 + 12 = 57 px plus its text line of one cell (hairline, step, h_chip 28, step, its bottom padding 12:
@@ -454,8 +454,7 @@ def main():
         if not GPUI:
             settings_story()
         bad_story()
-        if not GPUI:
-            restore_story()
+        restore_story()
     elif FAULT == 'nokey':
         one_pane_story(area_story())
     elif FAULT == 'idle':

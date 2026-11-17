@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # C5 gate ("New windows open with" One pane | Two panes): prints "PASS: C5 new windows open with one or two panes"
-# or fails. --faults plants five faults (three on clanky-gpui) and passes only if each is caught by the check it targets.
+# or fails. --faults plants five faults (four on clanky-gpui) and passes only if each is caught by the check it targets.
 # Run under the gate lock: flock /srv/devops/build/clanky/.gate.lock scripts/gate-c5-panes.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,8 +13,8 @@ fi
 if [[ ${1:-} == --faults ]]; then
     declare -A want=([nokey]=P2 [noclick]=S1 [badvalue]=E1 [norestore]=R1 [idle]=I1)
     faults=(nokey noclick badvalue norestore idle)
-    # clanky-gpui runs P1, P2, E1's pane count and the idle checks; Settings and restore come later.
-    [[ -n ${CLANKY_BIN:-} ]] && faults=(nokey badvalue idle)
+    # clanky-gpui runs P1, P2, E1's pane count, R1 and the idle checks; the Settings ones come in G4.
+    [[ -n ${CLANKY_BIN:-} ]] && faults=(nokey badvalue norestore idle)
     caught=0
     for fault in "${faults[@]}"; do
         if out=$(python3 scripts/gate-c5-panes.py --fault "$fault"); then
