@@ -121,6 +121,9 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    /// Move the keyboard from the pane into the window's controls, at the first in reading order. Plain F6 stays
+    /// the program's (mc's Rename, htop's sort).
+    EnterControls,
 }
 
 /// One row of the table.
@@ -160,6 +163,7 @@ pub const BINDINGS: &[Binding] = &[
     bind(Mods::CTRL, Key::Char('+'), Action::ZoomIn),
     bind(Mods::CTRL, Key::Char('-'), Action::ZoomOut),
     bind(Mods::CTRL, Key::Char('0'), Action::ZoomReset),
+    bind(Mods::CTRL, Key::F(6), Action::EnterControls),
 ];
 
 /// The action bound to a chord, if any.
@@ -183,7 +187,8 @@ mod tests {
     use super::*;
 
     /// Today's shortcuts, read off the winit window's key handler (`crates/clanky/src/main.rs`, `App::key`), not
-    /// from the table, so a row lost or changed in the table fails here.
+    /// from the table, so a row lost or changed in the table fails here; then the ones the new window adds, each
+    /// with the decision that added it.
     const TODAY: &[(&str, Action)] = &[
         ("Ctrl+Shift+Escape", Action::StopAgents),
         ("Ctrl+,", Action::ToggleSettings),
@@ -206,6 +211,9 @@ mod tests {
         ("Ctrl++", Action::ZoomIn),
         ("Ctrl+-", Action::ZoomOut),
         ("Ctrl+0", Action::ZoomReset),
+        // Keyboard into the window's controls (G2's focus rule, 2026-11-17): Ctrl+F6, as GTK and VS Code move
+        // between parts of a window; plain F6 belongs to terminal programs.
+        ("Ctrl+F6", Action::EnterControls),
     ];
 
     #[test]
@@ -238,6 +246,12 @@ mod tests {
             action_for(Chord::new(Mods::CTRL_SHIFT, Key::Char('t'))),
             Some(Action::NewTab)
         );
+        assert_eq!(
+            action_for(Chord::new(Mods::CTRL, Key::F(6))),
+            Some(Action::EnterControls)
+        );
+        // Plain F6 is the program's.
+        assert_eq!(action_for(Chord::new(Mods::NONE, Key::F(6))), None);
         // Shift matters: Ctrl+T is the program's, not New tab.
         assert_eq!(action_for(Chord::new(Mods::CTRL, Key::Char('t'))), None);
         assert_eq!(action_for(Chord::new(Mods::NONE, Key::Char('a'))), None);

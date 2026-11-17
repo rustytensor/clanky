@@ -113,6 +113,8 @@ pub struct MainWindow {
     /// When the frame now being drawn started, while a frame trace is on.
     draw_started: Option<Instant>,
     drag: Option<Drag>,
+    /// The pane the keyboard came from with Ctrl+F6; Escape in the controls returns it there.
+    controls_from: Option<String>,
     places: Places,
     tools: Tools,
     /// What the panes' command inputs share; None with the classic input.
@@ -180,6 +182,7 @@ impl MainWindow {
             notice: None,
             draw_started: None,
             drag: None,
+            controls_from: None,
             places: Places::default(),
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
@@ -308,6 +311,30 @@ impl MainWindow {
                     .is_some_and(|pane| pane.0.read(cx).focus_handle().is_focused(window))
             })
             .or_else(|| Some(group.focus.clone()))
+    }
+
+    /// Keys while a control has the keyboard: Tab and Shift+Tab walk the controls in reading order and wrap;
+    /// Escape gives the keyboard back to the pane it came from. True when the key was one of these.
+    fn controls_key(&mut self, chord: Chord, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if chord.mods.ctrl || chord.mods.alt || !self.kit.has_focus(window) {
+            return false;
+        }
+        match chord.key {
+            Key::Tab => self.kit.focus_step(!chord.mods.shift, window, cx),
+            Key::Escape => {
+                let pane = self
+                    .controls_from
+                    .take()
+                    .or_else(|| self.focused_pane(window, cx))
+                    .and_then(|id| self.panes.get(&id))
+                    .map(|pane| pane.0.read(cx).focus_handle().clone());
+                if let Some(handle) = pane {
+                    window.focus(&handle, cx);
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
     fn pane_size(&self, id: Option<&str>, cx: &App) -> (usize, usize) {
@@ -446,10 +473,23 @@ impl MainWindow {
 
     /// A window-wide shortcut from clanky-state's table, if this window handles it; the rest go to the pane.
     fn shortcut(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(action) = chord_of(&event.keystroke).and_then(action_for) else {
+        let Some(chord) = chord_of(&event.keystroke) else {
+            return;
+        };
+        if self.controls_key(chord, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+        let Some(action) = action_for(chord) else {
             return;
         };
         match action {
+            Action::EnterControls => {
+                let from = self.focused_pane(window, cx);
+                if self.kit.focus_first_control(window, cx) {
+                    self.controls_from = from;
+                }
+            }
             Action::NewTab => self.act(window, cx, Self::new_tab),
             Action::NextTab => {
                 let next = (self.workspace.active + 1) % self.workspace.groups.len().max(1);
@@ -513,8 +553,10 @@ impl MainWindow {
             let id = FIRST_TAB_ID + 2 * index as u32;
             let leaves = group.layout.leaves();
             let closer = this.clone();
+            // Inside the tab: its press is its own, and an inactive tab keeps the close's room but Tab skips it.
             let close = Control::new(Kind::IconButtonInRow, id + 1, format!("Close {label}"))
                 .icon(Icon::Close)
+                .inside(index == self.workspace.active)
                 .on_click(move |window, cx| {
                     // The tab under the button must not take this click as its own.
                     cx.stop_propagation();
@@ -780,7 +822,7 @@ impl Render for MainWindow {
                     .child(self.panes_area(scale, window, cx)),
             )
             .child(self.status_line(scale))
-            .children(self.drag_listener(cx))
+            .child(Self::drag_listener(cx))
             .child(self.frame_end())
             .child(self.kit.record().flush())
     }

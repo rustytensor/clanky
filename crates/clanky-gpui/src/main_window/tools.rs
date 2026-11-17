@@ -276,6 +276,20 @@ impl MainWindow {
             .set_agent_permission(id, allowed)
             .err()
             .map(|e| format!("setting agent access: {}", e.message));
+        // The server took it: show it now rather than at the next status read.
+        if self.notice.is_none() {
+            self.status
+                .chips
+                .entry(id.to_owned())
+                .or_default()
+                .set_access(allowed);
+            for row in &mut self.status.tools.access {
+                if row.0 == id {
+                    row.2 = allowed;
+                }
+            }
+            cx.notify();
+        }
         self.read_now(cx);
     }
 

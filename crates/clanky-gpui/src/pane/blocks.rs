@@ -6,7 +6,7 @@ use std::{rc::Rc, sync::Arc};
 
 use clanky_core::{MODE_ALT_SCREEN, TerminalSnapshot};
 use clanky_state::blocks::{self, Breath, Spacing};
-use gpui::{AnyElement, Context, Window};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
 
 use super::TerminalPane;
 use crate::{
@@ -124,6 +124,25 @@ impl TerminalPane {
                 .map(|(breath, _)| Rc::from(breath.tops.as_slice())),
             overlay: Some(blocks_view::overlay(&shown, m, &look)),
         }
+    }
+
+    /// The focused pane's first text row, named `pane-text` in the control record for the gate's selection drag.
+    pub(super) fn text_landmark(&self, window: &Window) -> Option<AnyElement> {
+        let m = self.metrics.get();
+        if !self.record.enabled() || !self.focus.is_focused(window) || m.scale <= 0.0 {
+            return None;
+        }
+        let pad = (t::PANE_PADDING * m.scale).floor();
+        Some(
+            div()
+                .absolute()
+                .left(px(pad / m.scale))
+                .top(px((pad + self.row_offset(0)) / m.scale))
+                .w(px(m.cols as f32 * m.cell_width / m.scale))
+                .h(px(m.line_height / m.scale))
+                .child(self.record.landmark("pane-text", 0))
+                .into_any_element(),
+        )
     }
 
     /// The grid row under `dy` device pixels below the grid's origin: through the space between blocks when there

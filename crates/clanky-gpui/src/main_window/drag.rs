@@ -281,34 +281,42 @@ impl MainWindow {
         }
     }
 
-    /// While a drag lasts: the window-wide listener for the pointer's moves and the release.
-    pub(super) fn drag_listener(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.drag.as_ref()?;
+    /// The window-wide pointer listener for drags. It is in every frame, not only once a drag has begun: a release
+    /// that comes before the next frame (a quick click on a tab) must still end the drag.
+    pub(super) fn drag_listener(cx: &mut Context<Self>) -> AnyElement {
         let (moves, release) = (cx.entity(), cx.entity());
-        Some(
-            canvas(
-                |_, _, _| (),
-                move |_, (), window, _| {
-                    let moves = moves.clone();
-                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx: &mut App| {
-                        if phase == DispatchPhase::Capture {
-                            moves.update(cx, |this, cx| this.drag_to(event.position, cx));
-                            cx.stop_propagation();
+        canvas(
+            |_, _, _| (),
+            move |_, (), window, _| {
+                let moves = moves.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx: &mut App| {
+                    if phase != DispatchPhase::Capture {
+                        return;
+                    }
+                    let dragging = moves.update(cx, |this, cx| {
+                        let dragging = this.drag.is_some();
+                        if dragging {
+                            this.drag_to(event.position, cx);
                         }
+                        dragging
                     });
-                    let release = release.clone();
-                    window.on_mouse_event(
-                        move |event: &MouseUpEvent, phase, window, cx: &mut App| {
-                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
-                            {
-                                release.update(cx, |this, cx| this.end_drag(window, cx));
+                    if dragging {
+                        cx.stop_propagation();
+                    }
+                });
+                let release = release.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx: &mut App| {
+                    if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                        release.update(cx, |this, cx| {
+                            if this.drag.is_some() {
+                                this.end_drag(window, cx);
                             }
-                        },
-                    );
-                },
-            )
-            .into_any_element(),
+                        });
+                    }
+                });
+            },
         )
+        .into_any_element()
     }
 }
 

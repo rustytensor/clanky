@@ -33,6 +33,7 @@ use crate::{
     keys,
     link::{Link, Update},
     palette::Palette,
+    tokens as t,
 };
 
 /// CSS points per logical pixel: the config gives the text size in pixels, `Zoom` counts points.
@@ -644,12 +645,13 @@ impl Render for TerminalPane {
             .relative()
             .child(grid)
             .children(drawn.overlay)
+            .children(self.text_landmark(window))
             .children(self.notice.clone().map(|notice| {
                 div()
                     .absolute()
                     .bottom_0()
                     .left_0()
-                    .p_2()
+                    .p(px(t::SPACE_8))
                     .bg(colour(self.palette.background))
                     .text_color(colour(self.palette.foreground))
                     .child(notice)

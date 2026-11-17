@@ -42,6 +42,12 @@ pub(super) struct Chips {
     access: bool,
 }
 
+impl Chips {
+    pub(super) fn set_access(&mut self, allowed: bool) {
+        self.access = allowed;
+    }
+}
+
 /// Each pane's chips: its shell's folder and git branch, the shell's name and the pane's agent access.
 pub(super) fn read_chips(client: &Client, ids: &[String]) -> BTreeMap<String, Chips> {
     let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));

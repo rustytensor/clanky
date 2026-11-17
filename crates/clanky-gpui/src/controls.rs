@@ -26,9 +26,9 @@ use std::{
 
 use clanky_state::themes::{Color, Colors};
 use gpui::{
-    AnyElement, App, ElementId, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px, svg,
+    AnyElement, App, Bounds, ElementId, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    KeyDownEvent, MouseButton, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
+    Styled, Window, canvas, div, px, svg,
 };
 
 pub use crate::control_look::Kind;
@@ -119,6 +119,10 @@ pub struct Control {
     /// The focus of an owner that handles the control's keys itself (a field's editor).
     focus: Option<FocusHandle>,
     action: Option<Action>,
+    /// Set for a control inside another control (a tab's close): its press stays with it and never reaches what
+    /// holds it (the tab's press would start a drag), and the value says whether Tab reaches it (not while it is
+    /// kept hidden with its room reserved, as on an inactive tab).
+    inside: Option<bool>,
 }
 
 impl Control {
@@ -143,7 +147,15 @@ impl Control {
             tree: None,
             focus: None,
             action: None,
+            inside: None,
         }
+    }
+
+    /// The control sits inside another control; `reachable`: whether Tab reaches it now.
+    #[must_use]
+    pub fn inside(mut self, reachable: bool) -> Self {
+        self.inside = Some(reachable);
+        self
     }
 
     #[must_use]
@@ -232,6 +244,12 @@ struct Kept {
 /// The focus handles of each group's enabled controls in the frame being built, in build order.
 type Groups = Rc<RefCell<BTreeMap<(&'static str, &'static str), Vec<FocusHandle>>>>;
 
+/// An enabled control Tab reaches, and its box as last drawn.
+struct Stop {
+    focus: FocusHandle,
+    bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+}
+
 /// Builds a window's controls. One per window, cloned freely: the clones share the record and the frame's groups.
 #[derive(Clone)]
 pub struct Kit {
@@ -242,6 +260,8 @@ pub struct Kit {
     groups: Groups,
     /// Enabled controls built so far in this frame: their places in the Tab order.
     tab_stops: Rc<Cell<usize>>,
+    /// The frame's controls that Tab reaches, with their drawn boxes, for walking them in reading order.
+    stops: Rc<RefCell<Vec<Stop>>>,
 }
 
 impl Kit {
@@ -252,6 +272,7 @@ impl Kit {
             motion,
             groups: Rc::default(),
             tab_stops: Rc::default(),
+            stops: Rc::default(),
         }
     }
 
@@ -268,6 +289,59 @@ impl Kit {
         self.record.begin_frame();
         self.groups.borrow_mut().clear();
         self.tab_stops.set(0);
+        self.stops.borrow_mut().clear();
+    }
+
+    /// The controls Tab reaches, in reading order: by the top of their drawn box, then its left, as a reader scans
+    /// the window. A control not drawn yet goes last.
+    fn reading_order(&self) -> Vec<FocusHandle> {
+        let stops = self.stops.borrow();
+        let mut placed: Vec<(f32, f32, &FocusHandle)> = stops
+            .iter()
+            .map(|stop| {
+                let at = stop.bounds.get().map_or((f32::MAX, f32::MAX), |b| {
+                    (f32::from(b.origin.y).round(), f32::from(b.origin.x).round())
+                });
+                (at.0, at.1, &stop.focus)
+            })
+            .collect();
+        placed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        placed
+            .into_iter()
+            .map(|(_, _, focus)| focus.clone())
+            .collect()
+    }
+
+    /// Whether a control of the window has the keyboard.
+    pub fn has_focus(&self, window: &Window) -> bool {
+        self.stops
+            .borrow()
+            .iter()
+            .any(|stop| stop.focus.is_focused(window))
+    }
+
+    /// Gives the keyboard to the first control in reading order (Ctrl+F6 from a pane). False when there is none.
+    pub fn focus_first_control(&self, window: &mut Window, cx: &mut App) -> bool {
+        let Some(first) = self.reading_order().into_iter().next() else {
+            return false;
+        };
+        window.focus(&first, cx);
+        true
+    }
+
+    /// Tab or Shift+Tab among the controls, wrapping at either end. False when no control has the keyboard.
+    pub fn focus_step(&self, forward: bool, window: &mut Window, cx: &mut App) -> bool {
+        let order = self.reading_order();
+        let Some(index) = order.iter().position(|focus| focus.is_focused(window)) else {
+            return false;
+        };
+        let next = if forward {
+            (index + 1) % order.len()
+        } else {
+            (index + order.len() - 1) % order.len()
+        };
+        window.focus(&order[next], cx);
+        true
     }
 
     /// Gives the keyboard to the first enabled control of a group, as Down or Right does from no focus.
@@ -419,7 +493,7 @@ impl Kit {
         };
         body = body.border(px(width)).border_color(paint(edge, 1.0));
         if state == State::Focus {
-            body = body.child(focus_ring(kind, scale, colors));
+            body = body.child(focus_ring(kind, scale, width, colors));
         }
         if kind == Kind::Tab {
             body = body.max_w(px(t::TAB_MAX_WIDTH));
@@ -443,7 +517,20 @@ impl Kit {
         let kind = control.kind;
         let place = self.tab_stops.get();
         self.tab_stops.set(place + 1);
-        let mut body = body.track_focus(focus).tab_stop(!faults.tab_skip(place));
+        let reached = control.inside.unwrap_or(true) && !faults.tab_skip(place);
+        let mut body = body.track_focus(focus).tab_stop(reached);
+        if reached {
+            let bounds: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::default();
+            self.stops.borrow_mut().push(Stop {
+                focus: focus.clone(),
+                bounds: Rc::clone(&bounds),
+            });
+            body = body.child(
+                canvas(move |drawn, _, _| bounds.set(Some(drawn)), |_, (), _, _| {})
+                    .absolute()
+                    .size_full(),
+            );
+        }
         if let Some(group) = control.group {
             let key = (screen, group.name);
             self.groups
@@ -500,8 +587,12 @@ impl Kit {
         let id = control.id;
         let fire = Rc::clone(&action);
         let early = (record.clone(), label.clone());
+        let keeps_press = control.inside.is_some();
         body.on_mouse_down(MouseButton::Left, move |_, window, cx| {
             press(&down, kind, window, cx);
+            if keeps_press {
+                cx.stop_propagation();
+            }
             if faults.press_fires() {
                 early.0.activate(screen, id, &early.1, Via::Release);
                 fire(window, cx);
@@ -519,7 +610,7 @@ impl Kit {
     }
 
     /// A control's label text, with its measuring child.
-    fn label(&self, screen: &'static str, control: &Control, ink: Color) -> AnyElement {
+    fn label(&self, screen: &'static str, control: &Control, ink: Color, scale: f32) -> AnyElement {
         let kind = control.kind;
         let weight = if kind == Kind::Tab && control.checked == Some(true) {
             t::WEIGHT_MEDIUM
@@ -540,7 +631,11 @@ impl Kit {
         };
         let label = if kind == Kind::Tab {
             // A tab's room is its label's at the active weight, whatever its own, so a tab is as wide active as
-            // not; the label is centred in that room.
+            // not; the label is centred in that room. Its line fills the tab, so the line's top falls on
+            // a whole device pixel at every scale and only the baseline's rounding is left: the tab's height inside
+            // its two one-device-pixel edges.
+            let line = kind.height() - 2.0 * t::hairline(scale);
+            let text = |weight: u16| text(weight).line_height(px(line));
             div()
                 .relative()
                 .min_w_0()
@@ -646,7 +741,7 @@ impl Kit {
                 .into_any_element();
         }
         if !kind.is_icon_only() && !control.label.is_empty() {
-            inner = inner.child(self.label(screen, control, ink));
+            inner = inner.child(self.label(screen, control, ink, scale));
         }
         if let Some(keys) = &control.keys {
             inner = inner.child(
@@ -729,15 +824,17 @@ impl Kit {
 }
 
 /// The keyboard focus ring: `FOCUS_RING_WIDTH` outside the control, rounded to whole device pixels, in the ring
-/// colour at `FOCUS_RING_OPACITY`. It is drawn around the box, so the fill inside stays the state's own.
-fn focus_ring(kind: Kind, scale: f32, colors: &Colors) -> AnyElement {
+/// colour at `FOCUS_RING_OPACITY`. It is drawn around the box, so the fill inside stays the state's own. An absolute
+/// child is placed from inside the control's own edge (`edge` wide), so the ring reaches out past that edge too.
+fn focus_ring(kind: Kind, scale: f32, edge: f32, colors: &Colors) -> AnyElement {
     let ring = ring_width(scale);
+    let out = px(-(ring + edge));
     div()
         .absolute()
-        .top(px(-ring))
-        .left(px(-ring))
-        .right(px(-ring))
-        .bottom(px(-ring))
+        .top(out)
+        .left(out)
+        .right(out)
+        .bottom(out)
         .rounded(px(kind.radius() + ring))
         .border(px(ring))
         .border_color(paint(colors.ring, t::FOCUS_RING_OPACITY))
