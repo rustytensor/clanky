@@ -1,0 +1,25 @@
+[package]
+name = "clanky-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Clanky's window drawn with gpui-ce: one terminal pane, a client of Clanky's session server"
+
+[[bin]]
+name = "clanky-gpui"
+path = "src/main.rs"
+
+[dependencies]
+clanky = { path = "../clanky" }
+clanky-api = { path = "../clanky-api" }
+clanky-core = { path = "../clanky-core" }
+# Our copy of gpui-ce, pinned; never github.com (the copy exists so Clanky builds if upstream goes away).
+gpui = { package = "gpui-ce", git = "https://git.servorra.com/servorra/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98" }
+gpui_platform = { package = "gpui_ce_platform", git = "https://git.servorra.com/servorra/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", features = ["x11", "wayland"] }
+# The same channel gpui-ce itself uses: the session thread hands snapshots to the window's async task.
+async-channel = "=2.5.0"
+serde_json = "=1.0.154"
+# The same width table clanky-vt uses to decide which characters take two cells.
+unicode-width = "=0.2.0"
+# Key types only: today's key encoder (clanky::input::key_bytes) takes them, so both windows send the same bytes.
+winit = "=0.30.13"

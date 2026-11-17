@@ -184,7 +184,7 @@ fn breathing_grid(p:&mut Paint,breath:&super::breath::Breath,pane:&look::PaneLay
         let y=origin[1]+top;
         if y>=clip.y+clip.h||y+n as f32*ch<=clip.y{continue;}
         let part=clanky_core::TerminalSnapshot{rows:n,cols,cells:snapshot.cells[start*cols..(start+n)*cols].to_vec(),cursor:None,images:Vec::new(),
-            app_cursor:snapshot.app_cursor,modes:snapshot.modes,history:snapshot.history,display_offset:snapshot.display_offset,
+            app_cursor:snapshot.app_cursor,cursor_shape:snapshot.cursor_shape,modes:snapshot.modes,history:snapshot.history,display_offset:snapshot.display_offset,
             wrapped:snapshot.wrapped.iter().filter(|r|**r>=start&&**r<start+n).map(|r|r-start).collect()};
         let lines=underlines.iter().filter(|u|u.row>=start&&u.row<start+n).map(|u|clanky_render::Underline{row:u.row-start,..u.clone()}).collect();
         p.out.scene.layers.push(Layer::Grid(GridLayer{origin:[origin[0],y],clip:clip.array(),snapshot:part,underlines:lines,opacity:1.0}));

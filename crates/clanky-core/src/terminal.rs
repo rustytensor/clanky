@@ -877,8 +877,7 @@ impl Terminal {
                         fg: color_source(cell.fg), bg: color_source(cell.bg),
                         inverse: cell.flags.contains(Flags::INVERSE),
                     }),
-                    style: if cell.flags.contains(Flags::BOLD) { crate::STYLE_BOLD } else { 0 }
-                        | if cell.flags.contains(Flags::DIM) { crate::STYLE_FAINT } else { 0 },
+                    style: style_bits(cell.flags),
                 });
             }
         }
@@ -901,6 +900,11 @@ impl Terminal {
                 Vec::new()
             },
             app_cursor: self.term.mode().contains(TermMode::APP_CURSOR),
+            cursor_shape: match self.term.cursor_style().shape {
+                ansi::CursorShape::Underline => crate::CURSOR_UNDERLINE,
+                ansi::CursorShape::Beam => crate::CURSOR_BAR,
+                _ => crate::CURSOR_BLOCK,
+            },
             modes: self.modes(),
             history: self.term.grid().history_size(),
             display_offset: offset,
@@ -943,6 +947,18 @@ fn color_source(color: Color) -> ColorSource {
         Color::Named(_) => ColorSource::Default,
     }
 }
+/// The snapshot's STYLE_* bits for one cell's flags.
+fn style_bits(flags: Flags) -> u8 {
+    let bit = |flag: Flags, style: u8| if flags.intersects(flag) { style } else { 0 };
+    bit(Flags::BOLD, crate::STYLE_BOLD)
+        | bit(Flags::DIM, crate::STYLE_FAINT)
+        | bit(Flags::ITALIC, crate::STYLE_TERMINAL_ITALIC)
+        | bit(Flags::UNDERLINE | Flags::DOTTED_UNDERLINE | Flags::DASHED_UNDERLINE, crate::STYLE_UNDERLINE)
+        | bit(Flags::DOUBLE_UNDERLINE, crate::STYLE_DOUBLE_UNDERLINE)
+        | bit(Flags::UNDERCURL, crate::STYLE_UNDERCURL)
+        | bit(Flags::STRIKEOUT, crate::STYLE_STRIKEOUT)
+}
+
 fn color(c: Color, foreground: bool) -> [u8; 3] {
     match c {
         Color::Spec(rgb) => [rgb.r, rgb.g, rgb.b],

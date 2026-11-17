@@ -31,7 +31,7 @@ pub struct Cell {
     /// Optional presentation provenance; legacy readers continue using fg/bg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_source: Option<CellColorSource>,
-    /// Attributes the renderer draws: STYLE_BOLD, STYLE_FAINT, STYLE_ITALIC.
+    /// Attributes the renderer draws: the STYLE_* bits below.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub style: u8,
 }
@@ -41,6 +41,17 @@ pub const STYLE_BOLD: u8 = 1;
 pub const STYLE_FAINT: u8 = 2;
 /// Drawn with the italic face (editor comments; the terminal does not set it).
 pub const STYLE_ITALIC: u8 = 4;
+/// SGR 4 (and 4:4, 4:5, the dotted and dashed underlines): one underline under the cell.
+pub const STYLE_UNDERLINE: u8 = 8;
+/// SGR 21 or 4:2: a double underline.
+pub const STYLE_DOUBLE_UNDERLINE: u8 = 16;
+/// SGR 4:3: a curly underline.
+pub const STYLE_UNDERCURL: u8 = 32;
+/// SGR 9: a line through the cell.
+pub const STYLE_STRIKEOUT: u8 = 64;
+/// SGR 3 from a program. Kept apart from STYLE_ITALIC, which the editor sets, so today's window keeps drawing
+/// terminal text upright while a renderer that reads this bit can draw it italic.
+pub const STYLE_TERMINAL_ITALIC: u8 = 128;
 fn is_zero(value: &u8) -> bool { *value == 0 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TerminalSnapshot {
@@ -64,7 +75,16 @@ pub struct TerminalSnapshot {
     /// View rows whose line goes on in the next row (soft wrap).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wrapped: Vec<usize>,
+    /// The cursor shape the program asked for (DECSCUSR): CURSOR_BLOCK, CURSOR_UNDERLINE or CURSOR_BAR.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cursor_shape: u8,
 }
+/// DECSCUSR 0 to 2, and the default: a filled block.
+pub const CURSOR_BLOCK: u8 = 0;
+/// DECSCUSR 3 and 4: an underline.
+pub const CURSOR_UNDERLINE: u8 = 1;
+/// DECSCUSR 5 and 6: a vertical bar.
+pub const CURSOR_BAR: u8 = 2;
 fn is_zero32(value: &u32) -> bool { *value == 0 }
 /// ESC[?1000h: report button presses and releases.
 pub const MODE_MOUSE_CLICK: u32 = 1;
