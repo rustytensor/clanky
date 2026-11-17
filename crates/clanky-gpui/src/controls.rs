@@ -424,7 +424,10 @@ impl Kit {
         if kind == Kind::Tab {
             body = body.max_w(px(t::TAB_MAX_WIDTH));
         }
-        body.child(self.content(screen, control, field_content, (scale, show_trailing)))
+        // Icons are muted at rest and take the label's colour on hover, press, focus or when selected.
+        let lit = matches!(state, State::Hover | State::Pressed | State::Focus)
+            || control.checked == Some(true);
+        body.child(self.content(screen, control, field_content, (scale, show_trailing, lit)))
     }
 
     /// The pointer, the keyboard and the action, on an enabled control's body.
@@ -570,9 +573,9 @@ impl Kit {
         screen: &'static str,
         control: &Control,
         field_content: (Option<AnyElement>, Option<AnyElement>),
-        place: (f32, bool),
+        place: (f32, bool, bool),
     ) -> AnyElement {
-        let (scale, show_trailing) = place;
+        let (scale, show_trailing, lit) = place;
         let colors = &self.colors;
         let kind = control.kind;
         if kind == Kind::Switch {
@@ -624,12 +627,14 @@ impl Kit {
                     .relative()
                     .flex_none()
                     .size(px(size))
-                    .child(
-                        svg()
-                            .data(icon.svg())
-                            .size(px(size))
-                            .text_color(paint(ink, 1.0)),
-                    )
+                    .child(svg().data(icon.svg()).size(px(size)).text_color(paint(
+                        if lit || control.primary {
+                            ink
+                        } else {
+                            colors.muted_foreground
+                        },
+                        1.0,
+                    )))
                     .child(self.record.part(screen, control.id, Part::Icon)),
             );
         }
