@@ -99,6 +99,12 @@ Expected results:
      (first top - 26) in 42..70; and the three OSC 133 blocks exist (list_blocks, K2 exit 3).
   N1 without OSC 133: a window whose shell is the Q2 gate's minish (no OSC 133), editor mode: the same three
      commands give output cells 52 and 104 px apart (+-1), origin in 42..70; list_blocks has no block.
+On clanky-gpui (CLANKY_BIN, G2): the same checks and arithmetic on its cell (8.8 x 18 px, from the font file) and its
+colours: background #141414, dividers foreground 8 % (38,38,38) and err 50 % (126,73,73) over it, err #e97e7e (the
+Graphite dark theme file and the rulebook's "block" tokens). Its meta text is the rulebook's text_meta, 10 px (Marc
+kept 10 px, 2026-11-16), in an 18 px meta row; its space between blocks is 12 + 1 + 8 + 18 + 2 = 41 px, inside 39..46.
+Nothing here checks a shadow under the sticky line; clanky-gpui draws none (the rulebook gives shadows to floating
+things only).
 Planted faults: fail (K2 exits 0, so no red hairline), select (the drag ends in column 6, "kiwi"), alt (the
 alternate-screen program is not started, so the blocks' own cells are measured), naive (R1 clicks at the y a grid
 without gaps would have: cmd(K1) + (row - 1) x 26 + 13), idle (a running "sleep 20" during I1), classic (C1's window
@@ -122,11 +128,26 @@ W, H = 1400, 900
 BG, LINE_BG, FAIL_LINE, ERR = (17, 17, 17), (41, 41, 41), (116, 72, 65), (236, 138, 124)
 MAG, CYAN, YEL, GRN = (255, 0, 255), (0, 255, 255), (255, 255, 0), (0, 255, 0)
 CW, CH = 9, 26
+# The last row above the pane's text area: today's window ends its 38 px title bar there [M].
+TOP = 38
 GPUI = t2.gate_app.override() is not None
 if GPUI:
     # clanky-gpui's cell for the same config (IBM Plex Mono 11 pt, cell_height_scale 1.25), from the font file:
     # 8.8 x 18 px (its line height is the font size x the scale; today's window scales the font's natural height).
     CW, CH = t2.gate_app.gpui_cell('IBM Plex Mono', 11, 1.25)
+    # Its colours: the Graphite dark theme it draws with (the terminal takes the theme's background) and the
+    # rulebook's dividers, foreground at 8 % and err at 50 % over the background (rulebook-tokens.json "block").
+    _theme = json.loads((q2.REPO / 'assets/themes/graphite-dark.json').read_text())['colors']
+    _block = json.loads((q2.REPO / 'scripts/window-chrome/rulebook-tokens.json').read_text())['block']
+    _rgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    _over = lambda a, b, t: tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+    BG, ERR = _rgb(_theme['background']), _rgb(_theme['err'])
+    LINE_BG = _over(BG, _rgb(_theme['foreground']), _block['divider_foreground_alpha']['value'])
+    FAIL_LINE = _over(BG, ERR, _block['divider_failed_err_alpha']['value'])
+    # The pane's inside starts under the 40 px title bar, the 8 px margin and its one-pixel edge (the rulebook's
+    # h_title_bar and pane margin): the rows above it are the window's frame.
+    _tokens = json.loads((q2.REPO / 'scripts/window-chrome/rulebook-tokens.json').read_text())
+    TOP = _tokens['heights']['h_title_bar']['px'] + _tokens['pane']['margin']['px'] + 1
 MID = (236 + W) // 2
 E = '\x1b'
 BASE = dict(q1.BASE, theme='dark', theme_dark='graphite-dark')
@@ -191,7 +212,7 @@ Win = q2.Win
 
 # ---------------------------------------------------------------- pixels
 
-def marker_cells(im, colours=(MAG, CYAN, YEL, GRN), region=(237, 39, W, 880)):
+def marker_cells(im, colours=(MAG, CYAN, YEL, GRN), region=(237, TOP + 1, W, 880)):
     """Boxes (x0, y0, x1, y1) of exact-colour cells, per colour."""
     import numpy as np
     a = np.asarray(im.crop(region)).astype(int)
@@ -362,16 +383,16 @@ def geometry(win, start):
     require(abs(m[0] - c[0]) <= 1 and abs(m[0] - y[0]) <= 1, f'setup: the three cells share column 1 ({m}, {c}, {y})')
     x1 = m[0]
     cmd1 = m[1] - CH
-    hits = any_hair(im, 39, cmd1)
+    hits = any_hair(im, TOP + 1, cmd1)
     require(not hits, f'G1 no hairline above the first block (rows {hits}, first command row at y {cmd1})')
-    ink = ink_rows(im, 38, cmd1, x1 - 4, W - 4)
-    require(ink and ink[0] >= 47, f'G1 the first block\'s meta text starts >= 9 px below the title bar (first ink '
+    ink = ink_rows(im, TOP, cmd1, x1 - 4, W - 4)
+    require(ink and ink[0] >= TOP + 9, f'G1 the first block\'s meta text starts >= 9 px below the title bar (first ink '
                                   f'row {ink[:1]}, command row at y {cmd1})')
     h2, _ = gap(im, m, c, FAIL_LINE, 8, 'G2 K1 -> failed K2')
     h3, g3 = gap(im, c, y, LINE_BG, 5, 'G2 K2 -> K3')
     print('ok: G1 G2 gaps and hairlines')
     stamps = {time.strftime('%H:%M', time.gmtime(start + d)) for d in (0, 5)}
-    bands = {'K1': (x1 - 6, max(39, ink[0] - 3), W - 2, cmd1), 'K2': (x1 - 6, h2 + 2, W - 2, c[1] - CH),
+    bands = {'K1': (x1 - 6, max(TOP + 1, ink[0] - 3), W - 2, cmd1), 'K2': (x1 - 6, h2 + 2, W - 2, c[1] - CH),
              'K3': (x1 - 6, h3 + 2, W - 2, y[1] - CH)}
     meta_check(im, bands['K1'], x1, stamps, None, None, 'K1')
     meta_check(im, bands['K2'], x1, stamps, 3, None, 'K2')
@@ -444,7 +465,7 @@ def alt_story(win, g):
             f'A1 alternate screen: three cells {7 * CH} and {18 * CH} px apart (7 and 18 rows), a plain grid '
             f'(observed tops {tops})')
     require(42 <= tops[0] - CH <= 70, f'A1 alternate screen: grid origin y in 42..70 (observed {tops[0] - CH})')
-    hits = any_hair(im, 39, tops[2] + CH)
+    hits = any_hair(im, TOP + 1, tops[2] + CH)
     require(not hits, f'A1 alternate screen: no hairline (rows {hits})')
     win.type('q')
     wait_done(win, n, 'setup: the alternate-screen program ends')
@@ -498,7 +519,7 @@ def wheel_story(win, g):
     im = win.shot('v1')
     top_in = q2.hairline(im) or 874
     gr = sorted(marker_cells(im, (GRN,))[GRN], key=lambda b: b[1])
-    require(gr and gr[-1][1] >= 39 and gr[-1][3] <= top_in,
+    require(gr and gr[-1][1] >= TOP + 1 and gr[-1][3] <= top_in,
             f'V1 the newest row (lastrow) is in view above the input at y {top_in} (green cells {gr})')
     win.x('mousemove', '--window', win.wid, '800', '400')
     found = None
@@ -540,7 +561,7 @@ def sticky_story(win, g):
     until(lambda: any(l.strip() == '150' for l in q2.screen_rows(win)), 'setup: 150 lines of output', 10)
     time.sleep(1.2)
     win.away()
-    strip = (240, 38, W, 84)
+    strip = (240, TOP, W, TOP + 46)
 
     def text(name):
         im = win.shot(name)
