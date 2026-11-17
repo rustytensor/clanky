@@ -230,7 +230,9 @@ class Window:
         f = self.w / 'frames.csv'
         lines = f.read_text().splitlines() if f.exists() else []
         clock = next((int(l.split(',')[1]) for l in lines if l.startswith('clock,')), 0)
-        return [(clock + int(l.split(',')[1])) / 1e6 for l in lines if l.startswith(('phases,', 'frame,'))]
+        # Today's window writes "phases,TIME,..."; clanky-gpui writes "frame,0,TIME" (its trace's event lines).
+        return [(clock + int(l.split(',')[1 if l.startswith('phases,') else 2])) / 1e6
+                for l in lines if l.startswith(('phases,', 'frame,'))]
 
     def close(self):
         if self.server:
