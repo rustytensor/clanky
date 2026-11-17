@@ -1,5 +1,5 @@
 {
-  "measured": "2026-11-16 23:24-23:29 EST, scripts/g1/speed.sh, 3 runs x 200 keys, scale 1, Xvfb with lavapipe",
+  "measured": "2026-11-16 23:24-23:29 EST, scripts/terminal-pane/speed.sh, 3 runs x 200 keys, scale 1, Xvfb with lavapipe",
   "binary": "clanky 1.7.0-7-g2a91765 release (code of c-int fc2ddc1 and 2c8fd0c)",
   "machine_load": "1-minute load average 15.6 before, 18.4 after (other work running)",
   "text_file": "mixed-100mb.txt, 100000000 bytes, sha256 prefix 1c41a3fabf3173b8, seed 20261117",

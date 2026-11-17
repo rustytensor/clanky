@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Draws a "perfect" screenshot of the G1 grid fixture from the expected cells, with Pillow.
+"""Draws a "perfect" screenshot of the terminal grid fixture from the expected cells, with Pillow.
 
-Usage: python3 scripts/g1/draw_reference.py EXPECTED.json OUT.png [--fault NAME] [--cursor ROW,COL,SHAPE]
+Usage: python3 scripts/terminal-pane/draw_reference.py EXPECTED.json OUT.png [--fault NAME] [--cursor ROW,COL,SHAPE]
                                             [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 The picture lets check_cells.py be shown to pass on a correct image and to fail on broken ones. Faults: drift,

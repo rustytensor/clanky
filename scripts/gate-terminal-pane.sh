@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G1 gate: one terminal pane on gpui-ce. Prints one "ok: ..." or "FAIL: ..." line per step, then "PASS: G1 pane"
+# Terminal pane gate: one terminal pane on gpui-ce. Prints one "ok: ..." or "FAIL: ..." line per step, then "PASS: terminal pane"
 # only if every step printed ok. --faults needs no clanky-gpui binary: it runs the screenshot checks against drawn
 # reference images with five planted faults at both scales, and the engine check with its planted fault, and passes
 # only if each fault is caught by the check aimed at it.
@@ -16,7 +16,7 @@ export CARGO_TARGET_DIR
 export CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=url.git@git.servorra.com:.insteadOf GIT_CONFIG_VALUE_0=https://git.servorra.com/
 
-CHECK_DIR=scripts/g1
+CHECK_DIR=scripts/terminal-pane
 TODAY_WORKTREE=/srv/devops/build/clanky-c-int
 BUILD_LOCK=${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}
 GATE_LOCK=${CLANKY_GATE_LOCK:-/srv/devops/build/clanky/.gate.lock}
@@ -37,7 +37,7 @@ if [[ ${1:-} == --today-bin ]]; then
   shift 2
 fi
 
-scratch=$(mktemp -d /srv/devops/build/g1-gate.XXXXXX)
+scratch=$(mktemp -d /srv/devops/build/terminal-pane-gate.XXXXXX)
 pids=()
 failed=0
 
@@ -369,7 +369,7 @@ done
 if output=$(bash "$CHECK_DIR/check_engine_free.sh" 2>&1); then ok "$output"; else fail "$output"; fi
 
 if ((failed)); then
-  echo "FAIL: G1 pane"
+  echo "FAIL: terminal pane"
   exit 1
 fi
-echo "PASS: G1 pane"
+echo "PASS: terminal pane"

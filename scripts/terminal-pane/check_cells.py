@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Screenshot checks for the G1 grid fixture: reads a screenshot and the expected cells, says pass or fail.
+"""Screenshot checks for the terminal grid fixture: reads a screenshot and the expected cells, says pass or fail.
 
-Usage: python3 scripts/g1/check_cells.py SCREENSHOT.png EXPECTED.json [--cursor ROW,COL,SHAPE]
+Usage: python3 scripts/terminal-pane/check_cells.py SCREENSHOT.png EXPECTED.json [--cursor ROW,COL,SHAPE]
                                          [--selection ROW,COL_FROM,COL_TO,#rrggbb]
 
 EXPECTED.json comes from expected.py. The screenshot's (0, 0) is the pane's top-left corner. Prints one line per check,

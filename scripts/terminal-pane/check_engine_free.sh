@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G1 gate check 8: the engine crates must not depend on gpui-ce, directly or through anything else.
+# Terminal pane gate, engine check: the engine crates must not depend on gpui-ce, directly or through anything else.
 # Prints "ok: engine-free <crate count> crates, no gpui" or "FAIL: engine-free <crate> depends on <gpui crate>"; exit 1 on failure.
 # --fault plants the failure: it copies the workspace to a scratch folder, adds gpui-ce to clanky-core, and runs the same check there.
 # Only dependency resolution runs, no build. The fault needs one git fetch (over ssh, as the copy check does).

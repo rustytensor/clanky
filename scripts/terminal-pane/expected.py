@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Expected cells for the G1 grid fixture (scripts/g1/fixture.sh), computed from the font and theme files.
+"""Expected cells for the terminal grid fixture (scripts/terminal-pane/fixture.sh), computed from the font and theme files.
 
-Usage: python3 scripts/g1/expected.py --scale S > expected-S.json
+Usage: python3 scripts/terminal-pane/expected.py --scale S > expected-S.json
 
 This script must not depend on the program under test: it reads only the font file and the theme file.
 """

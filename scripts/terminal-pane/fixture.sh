@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Prints the grid fixture that the G1 gate compares screenshots against: eleven rows, then the cursor-show sequence.
+# Prints the grid fixture that the terminal pane gate compares screenshots against: eleven rows, then the cursor-show sequence.
 # The gate clears the screen and homes the cursor before running it. Only printf is used.
-# Row meanings are in the G1 definition; the expected cell values are computed by expected.py.
+# Row meanings are in the gate's definition; the expected cell values are computed by expected.py.
 
 # Row 0: "miW." fifty times, default colours.
 for _ in {1..50}; do printf 'miW.'; done
