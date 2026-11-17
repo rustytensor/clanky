@@ -224,6 +224,14 @@ impl MainWindow {
             cx.quit();
             return;
         }
+        // A tab whose focused pane is new is titled now, not at the next look, so its title does not jump.
+        for id in self.tab_focuses() {
+            if !self.status.folders.contains_key(&id)
+                && let Some(folder) = folder_of(&self.client, &id)
+            {
+                self.status.folders.insert(id, folder);
+            }
+        }
         if let Some(focus) = self
             .workspace
             .groups
@@ -737,16 +745,7 @@ fn read_status(client: &Client, focuses: &[String]) -> Status {
         .map_or(0, |workspace| workspace.revision);
     let folders = focuses
         .iter()
-        .filter_map(|id| {
-            let reply = client
-                .exchange(3, "terminal_cwd", &json!({"tab_id": id}))
-                .ok()?;
-            let name = std::path::Path::new(reply["cwd"].as_str()?)
-                .file_name()?
-                .to_string_lossy()
-                .into_owned();
-            Some((id.clone(), name))
-        })
+        .filter_map(|id| Some((id.clone(), folder_of(client, id)?)))
         .collect();
     Status {
         revision,
@@ -755,6 +754,18 @@ fn read_status(client: &Client, focuses: &[String]) -> Status {
         masking_ready: look["masking_ready"].as_bool().unwrap_or(false),
         agents: look["agents"].as_array().map_or(0, Vec::len),
     }
+}
+
+/// The name of the folder a pane's shell is in, or None when the server cannot say.
+fn folder_of(client: &Client, id: &str) -> Option<String> {
+    let reply = client
+        .exchange(3, "terminal_cwd", &json!({"tab_id": id}))
+        .ok()?;
+    let name = std::path::Path::new(reply["cwd"].as_str()?)
+        .file_name()?
+        .to_string_lossy()
+        .into_owned();
+    Some(name)
 }
 
 /// The window's frame trace, shared with its panes.

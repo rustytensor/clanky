@@ -339,7 +339,18 @@ impl Kit {
         };
         let mut control = control;
         let field_content = (control.content.take(), control.trailing.take());
-        let body = self.body(screen, &control, field_content, (state, hover, scale));
+        // A tab shows its trailing close button while it is active, under the pointer, or holding the keyboard
+        // (itself or the button); elsewhere the button's room stays, so no tab moves when another changes state.
+        let show_trailing = control.kind != Kind::Tab
+            || control.checked == Some(true)
+            || matches!(state, State::Hover | State::Pressed | State::Focus)
+            || focus.contains_focused(window, cx);
+        let body = self.body(
+            screen,
+            &control,
+            field_content,
+            (state, hover, scale, show_trailing),
+        );
         let body = if control.enabled {
             self.wire(screen, control, body, &kept, &focus)
         } else {
@@ -354,9 +365,9 @@ impl Kit {
         screen: &'static str,
         control: &Control,
         field_content: (Option<AnyElement>, Option<AnyElement>),
-        appearance: (State, f32, f32),
+        appearance: (State, f32, f32, bool),
     ) -> gpui::Stateful<gpui::Div> {
-        let (state, hover, scale) = appearance;
+        let (state, hover, scale, show_trailing) = appearance;
         let colors = &self.colors;
         let kind = control.kind;
         let height = kind.height();
@@ -388,18 +399,22 @@ impl Kit {
             };
             body = body.bg(paint(fill, strength));
         }
-        if let Some(edge) = border(kind, state, control.checked, colors) {
-            let width = if state == State::Focus && self.record.faults().border_two_pixels() {
-                2.0 * hair
-            } else {
-                hair
-            };
-            body = body.border(px(width)).border_color(paint(edge, 1.0));
-        }
+        // Every control has its one-pixel edge in every state, see-through where the state draws none: an edge
+        // adds to a box's size, so a control that gained one on focus or when active would grow.
+        let edge = border(kind, state, control.checked, colors).unwrap_or(t::TRANSPARENT);
+        let width = if state == State::Focus && self.record.faults().border_two_pixels() {
+            2.0 * hair
+        } else {
+            hair
+        };
+        body = body.border(px(width)).border_color(paint(edge, 1.0));
         if state == State::Focus {
             body = body.child(focus_ring(kind, scale, colors));
         }
-        body.child(self.content(screen, control, field_content, scale))
+        if kind == Kind::Tab {
+            body = body.max_w(px(t::TAB_MAX_WIDTH));
+        }
+        body.child(self.content(screen, control, field_content, (scale, show_trailing)))
     }
 
     /// The pointer, the keyboard and the action, on an enabled control's body.
@@ -496,8 +511,9 @@ impl Kit {
         screen: &'static str,
         control: &Control,
         field_content: (Option<AnyElement>, Option<AnyElement>),
-        scale: f32,
+        place: (f32, bool),
     ) -> AnyElement {
+        let (scale, show_trailing) = place;
         let colors = &self.colors;
         let kind = control.kind;
         if kind == Kind::Switch {
@@ -552,9 +568,8 @@ impl Kit {
             } else {
                 t::WEIGHT_REGULAR
             };
-            inner = inner.child(
+            let text = |weight: u16| {
                 div()
-                    .relative()
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
@@ -564,8 +579,34 @@ impl Kit {
                     .font_weight(FontWeight(f32::from(weight)))
                     .text_color(paint(ink, 1.0))
                     .child(control.label.clone())
-                    .child(self.record.part(screen, control.id, Part::Label)),
-            );
+            };
+            let label = if kind == Kind::Tab {
+                // A tab's room is its label's at the active weight, whatever its own, so a tab is as wide active as
+                // not; the label is centred in that room.
+                div()
+                    .relative()
+                    .min_w_0()
+                    .child(text(t::WEIGHT_MEDIUM).invisible())
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .flex()
+                            .justify_center()
+                            .child(text(weight).relative().child(self.record.part(
+                                screen,
+                                control.id,
+                                Part::Label,
+                            ))),
+                    )
+            } else {
+                text(weight)
+                    .relative()
+                    .child(self.record.part(screen, control.id, Part::Label))
+            };
+            inner = inner.child(label);
         }
         if let Some(keys) = &control.keys {
             inner = inner.child(
@@ -580,9 +621,13 @@ impl Kit {
         }
         if let Some(trailing) = trailing {
             // A button inside the control sits as far in from the right edge as from the top and bottom.
+            let mut room = div().flex_none().child(trailing);
+            if !show_trailing {
+                room = room.invisible();
+            }
             inner = inner
                 .pr(px((kind.height() - t::ICON_BUTTON_HEIGHT_ROW) / 2.0))
-                .child(trailing);
+                .child(room);
         }
         inner.into_any_element()
     }

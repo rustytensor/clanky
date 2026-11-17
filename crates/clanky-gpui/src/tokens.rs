@@ -84,6 +84,8 @@ pub const TITLE_BAR_HEIGHT: f32 = 40.0;
 /// A tab. The active tab is a pill of the foreground at `ACTIVE_TAB_FILL` with an inner ring at
 /// `ACTIVE_TAB_RING`.
 pub const TAB_HEIGHT: f32 = 28.0;
+/// The widest a tab grows; a longer label ends in an ellipsis.
+pub const TAB_MAX_WIDTH: f32 = 200.0;
 /// List rows (files, recent folders).
 pub const ROW_HEIGHT: f32 = 24.0;
 /// Context menu and dropdown items.
