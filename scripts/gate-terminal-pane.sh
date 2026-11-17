@@ -441,7 +441,7 @@ for name in gate-t2-terminal gate-mouse gate-exit gate-c2-schemes gate-m12-idle 
   if [[ -f scripts/$name.sh ]]; then
     command=(bash "scripts/$name.sh")
   else
-    command=(xvfb-run -a -n 100 -s '-screen 0 1600x1000x24 -nolisten tcp' python3 "scripts/$name.py")
+    command=(bash -c 'source scripts/private-display.sh; run_on_private_display 1600x1000x24 python3 "$0"' "scripts/$name.py")
   fi
   if output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS CLANKY_BIN="$binary" \
     VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json flock -o "$GATE_LOCK" "${command[@]}" 2>&1); then

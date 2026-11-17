@@ -17,5 +17,6 @@ else
 fi
 work=$(mktemp -d "$CARGO_TARGET_DIR/robot-startup.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-xvfb-run -a -n 100 -f "$work/xauthority" -e "$work/xvfb.log" -s '-screen 0 1400x900x24 -nolisten tcp' \
+source scripts/private-display.sh
+run_on_private_display 1400x900x24 \
   python3 scripts/check-robot-startup.py "$work" "$CARGO_TARGET_DIR/debug"
