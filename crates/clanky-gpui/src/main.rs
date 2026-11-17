@@ -20,10 +20,10 @@
 )]
 
 mod cells;
+// Item by item, the window chrome uses the rest of the control set and the icons.
 #[allow(dead_code)]
 mod control_look;
 mod control_record;
-// The window chrome builds its controls from these.
 #[allow(dead_code)]
 mod controls;
 mod glyphs;
@@ -32,6 +32,7 @@ mod grid_element;
 mod icons;
 mod keys;
 mod link;
+mod main_window;
 mod palette;
 mod pane;
 // The controls and the window chrome use the rest of the table.
@@ -53,10 +54,11 @@ use gpui::{
 use serde_json::{Value, json};
 
 use crate::{
+    control_record::ControlRecord,
+    controls::Kit,
     grid_element::{PANE_PADDING, TextSettings},
-    link::Link,
+    main_window::{MainWindow, WindowSetup, interface_colors, shared_trace},
     palette::Palette,
-    pane::{PaneSetup, TerminalPane},
 };
 
 const TITLE: &str = "clanky-gpui";
@@ -269,20 +271,22 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     let cols = (((args.size.0 - 2.0 * PANE_PADDING) / (text.size * 0.6)) as usize).clamp(2, 1000);
     let rows =
         (((args.size.1 - 2.0 * PANE_PADDING) / (text.size * line_height)) as usize).clamp(1, 1000);
+    // The workspace needs a tab to show: the session's own when it has one, else a new one.
     let tab = open_tab(&client, args.exec.as_deref(), rows, cols)?;
-    // A pane started with --exec stays open after its command ends; a shell's pane closes the window, as today.
-    let (link, updates) = Link::start(&client, tab.clone(), args.exec.is_none())?;
     let trace = clanky::frame_trace::FrameTrace::from_env()
         .map_err(|e| format!("opening CLANKY_FRAME_TRACE: {e}"))?;
-    let setup = PaneSetup {
+    let record = ControlRecord::from_environment().map_err(|e| e.to_string())?;
+    let colors = interface_colors(&config, &|name| named.iter().any(|set| set == name))?;
+    let setup = WindowSetup {
         client,
-        tab,
         palette: Palette::from_config(&config),
         text,
-        size_sent: (rows, cols),
-        link,
-        updates,
-        trace,
+        trace: shared_trace(trace),
+        kit: Kit::new(record, colors.clone(), config.animations),
+        colors,
+        post_ai: args.overrides.post_ai,
+        // A pane started with --exec stays open after its command ends; a shell's pane closes when its shell exits.
+        exec_tab: args.exec.is_some().then_some(tab),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -296,7 +300,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         ..WindowOptions::default()
     };
     cx.open_window(options, |window, cx| {
-        cx.new(|cx| TerminalPane::new(setup, window, cx))
+        cx.new(|cx| MainWindow::new(setup, window, cx))
     })
     .map(|_| ())
     .map_err(|e| format!("opening the window: {e}"))

@@ -228,7 +228,7 @@ impl Element for GridElement {
         cx: &mut App,
     ) {
         let m = self.metrics.get();
-        window.paint_quad(filled(bounds, colour(self.palette.background)));
+        // The pane around the grid paints the terminal background, with its rounded corners.
         window.handle_input(
             &self.focus,
             ElementInputHandler::new(bounds, self.pane.clone()),
@@ -275,7 +275,6 @@ impl Element for GridElement {
             self.paint_run(run, m, window, cx);
         }
         self.paint_cursor(m, window, cx);
-        self.pane.update(cx, |pane, _| pane.frame_presented());
     }
 }
 

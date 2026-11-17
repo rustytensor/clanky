@@ -1,17 +1,23 @@
 //! One terminal pane: the latest snapshot from the session server, and every input that goes back to it
 //! (keys, input-method text, paste, mouse reports, wheel, selection). The grid itself is drawn by `GridElement`.
 
-use std::{cell::Cell as Shared, ops::Range, rc::Rc, sync::Arc, time::Instant};
+use std::{
+    cell::{Cell as Shared, RefCell},
+    ops::Range,
+    rc::Rc,
+    sync::Arc,
+    time::Instant,
+};
 
 use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, InteractiveElement,
-    IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, Styled, Task,
-    UTF16Selection, Window, div, point, px, size,
+    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
+    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent,
+    Styled, Task, UTF16Selection, Window, div, point, px, size,
 };
 
 use crate::{
@@ -58,14 +64,13 @@ pub struct TerminalPane {
     reporting_button: Option<(u8, (usize, usize))>,
     /// The cell last reported for motion with no button held (mode 1003).
     motion_cell: Option<(usize, usize)>,
-    /// When the frame now being drawn started, while a frame trace is on.
-    draw_started: Option<Instant>,
     wheel_rest: f32,
     /// Text the input method is composing; it is shown nowhere yet and sent only when committed.
     marked: Option<String>,
     notice: Option<String>,
-    /// Clanky's opt-in frame log (`CLANKY_FRAME_TRACE`): frames drawn and keys, for the gates that count them.
-    trace: clanky::frame_trace::FrameTrace,
+    /// Clanky's opt-in frame log (`CLANKY_FRAME_TRACE`), shared by the window's panes: the pane logs its keys, the
+    /// window logs its frames.
+    trace: SharedTrace,
     _link: Link,
     _updates: Task<()>,
 }
@@ -78,8 +83,19 @@ pub struct PaneSetup {
     pub size_sent: (usize, usize),
     pub link: Link,
     pub updates: async_channel::Receiver<Update>,
-    pub trace: clanky::frame_trace::FrameTrace,
+    pub trace: SharedTrace,
 }
+
+/// The window's one frame trace, shared by its panes.
+pub type SharedTrace = Rc<RefCell<clanky::frame_trace::FrameTrace>>;
+
+/// What a pane tells the window.
+pub enum PaneEvent {
+    /// The shell the window started in the pane has exited.
+    Finished,
+}
+
+impl EventEmitter<PaneEvent> for TerminalPane {}
 
 impl TerminalPane {
     pub fn new(setup: PaneSetup, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -91,21 +107,7 @@ impl TerminalPane {
                     match update {
                         Update::Snapshot(snapshot) => pane.snapshot = Some(snapshot),
                         Update::Lost(message) => pane.notice = Some(message),
-                        Update::Finished => {
-                            // Closing the last tab is what lets the session server exit after its last terminal,
-                            // as it does behind today's window.
-                            if let Err(error) = pane.client.request(
-                                "close_tab",
-                                &serde_json::json!({"tab_id": pane.tab}),
-                                true,
-                            ) {
-                                eprintln!(
-                                    "clanky-gpui: closing the finished pane: {}",
-                                    error.message
-                                );
-                            }
-                            cx.quit();
-                        }
+                        Update::Finished => cx.emit(PaneEvent::Finished),
                     }
                     cx.notify();
                 });
@@ -115,7 +117,6 @@ impl TerminalPane {
             }
         });
         let focus = cx.focus_handle();
-        window.focus(&focus, cx);
         Self {
             client: setup.client,
             tab: setup.tab,
@@ -131,7 +132,6 @@ impl TerminalPane {
             clicks: Clicks::default(),
             reporting_button: None,
             motion_cell: None,
-            draw_started: None,
             wheel_rest: 0.0,
             marked: None,
             notice: None,
@@ -141,12 +141,24 @@ impl TerminalPane {
         }
     }
 
-    /// Called once a frame has been painted: logs the frame and, with a trace, how long its draw took.
-    pub fn frame_presented(&mut self) {
-        if let Some(started) = self.draw_started.take() {
-            self.trace.drawn(started.elapsed().as_micros());
-        }
-        self.trace.presented();
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
+    }
+
+    /// The grid size last sent to the server.
+    pub fn size_sent(&self) -> (usize, usize) {
+        self.size_sent
+    }
+
+    /// One cell's width and height in logical pixels, once the pane has been laid out.
+    pub fn cell_size(&self) -> Option<(f32, f32)> {
+        let metrics = self.metrics.get();
+        (metrics.cell_width > 0.0 && metrics.scale > 0.0).then(|| {
+            (
+                metrics.cell_width / metrics.scale,
+                metrics.line_height / metrics.scale,
+            )
+        })
     }
 
     /// Called while laying out: tells the server the grid's size when it changed.
@@ -236,7 +248,7 @@ impl TerminalPane {
             }
         }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
-            self.trace.key_event();
+            self.trace.borrow_mut().key_event();
             if self.send(&bytes) {
                 cx.notify();
             }
@@ -485,10 +497,6 @@ impl TerminalPane {
 
 impl Render for TerminalPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // gpui-ce draws a window by rendering its root view first: the draw time runs from here to the grid's paint.
-        if self.trace.enabled() {
-            self.draw_started = Some(Instant::now());
-        }
         let selection = match (&self.selection, &self.snapshot) {
             (Some(selection), Some(snapshot)) => {
                 let top = self.top_line();
@@ -589,7 +597,7 @@ impl EntityInputHandler for TerminalPane {
     ) {
         // Committed text from the input method (or a plain key): the program reads it as typed.
         let had_marked = self.marked.take().is_some();
-        self.trace.key_event();
+        self.trace.borrow_mut().key_event();
         if self.send(text.as_bytes()) || had_marked {
             cx.notify();
         }

@@ -111,6 +111,8 @@ pub struct Control {
     width: Option<f32>,
     /// A field's text and caret, drawn by its owner.
     content: Option<AnyElement>,
+    /// Something at the control's right end, inside it: a tab's close button.
+    trailing: Option<AnyElement>,
     /// The focus of an owner that handles the control's keys itself (a field's editor).
     focus: Option<FocusHandle>,
     action: Option<Action>,
@@ -134,6 +136,7 @@ impl Control {
             keys: None,
             width: None,
             content: None,
+            trailing: None,
             focus: None,
             action: None,
         }
@@ -185,6 +188,12 @@ impl Control {
     #[must_use]
     pub fn content(mut self, content: impl IntoElement) -> Self {
         self.content = Some(content.into_any_element());
+        self
+    }
+
+    #[must_use]
+    pub fn trailing(mut self, element: impl IntoElement) -> Self {
+        self.trailing = Some(element.into_any_element());
         self
     }
 
@@ -329,7 +338,7 @@ impl Kit {
             focus: Some(focus.clone()),
         };
         let mut control = control;
-        let field_content = control.content.take();
+        let field_content = (control.content.take(), control.trailing.take());
         let body = self.body(screen, &control, field_content, (state, hover, scale));
         let body = if control.enabled {
             self.wire(screen, control, body, &kept, &focus)
@@ -344,7 +353,7 @@ impl Kit {
         &self,
         screen: &'static str,
         control: &Control,
-        field_content: Option<AnyElement>,
+        field_content: (Option<AnyElement>, Option<AnyElement>),
         appearance: (State, f32, f32),
     ) -> gpui::Stateful<gpui::Div> {
         let (state, hover, scale) = appearance;
@@ -486,7 +495,7 @@ impl Kit {
         &self,
         screen: &'static str,
         control: &Control,
-        field_content: Option<AnyElement>,
+        field_content: (Option<AnyElement>, Option<AnyElement>),
         scale: f32,
     ) -> AnyElement {
         let colors = &self.colors;
@@ -530,6 +539,7 @@ impl Kit {
                     .child(self.record.part(screen, control.id, Part::Icon)),
             );
         }
+        let (field_content, trailing) = field_content;
         if let Some(content) = field_content {
             // The owner's text and caret; the field only frames them.
             return inner
@@ -567,6 +577,12 @@ impl Kit {
                     .text_color(paint(colors.muted_foreground, 1.0))
                     .child(keys.clone()),
             );
+        }
+        if let Some(trailing) = trailing {
+            // A button inside the control sits as far in from the right edge as from the top and bottom.
+            inner = inner
+                .pr(px((kind.height() - t::ICON_BUTTON_HEIGHT_ROW) / 2.0))
+                .child(trailing);
         }
         inner.into_any_element()
     }
