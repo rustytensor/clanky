@@ -3,6 +3,7 @@
 
 use std::{cell::Cell as Shared, ops::Range, rc::Rc, sync::Arc, time::Instant};
 
+use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
@@ -20,8 +21,23 @@ use crate::{
     palette::Palette,
 };
 
+/// CSS points per logical pixel: the config gives the text size in pixels, `Zoom` counts points.
+const POINTS_PER_PIXEL: f32 = 0.75;
+
 /// Lines the history scrolls per wheel notch, as VTE.
 const WHEEL_LINES: f32 = 3.0;
+/// Lines gpui-ce reports for one wheel notch on X11 and Wayland (`SCROLL_LINES` in gpui_linux).
+const GPUI_LINES_PER_NOTCH: f32 = 3.0;
+
+/// Wheel notches in a scroll event: a mouse wheel's lines, or a touchpad's pixels as rows of history.
+fn wheel_notches(delta: ScrollDelta, scale: f32, line_height: f32) -> f32 {
+    match delta {
+        ScrollDelta::Lines(delta) => delta.y / GPUI_LINES_PER_NOTCH,
+        ScrollDelta::Pixels(delta) => {
+            f32::from(delta.y) * scale / line_height.max(1.0) / WHEEL_LINES
+        }
+    }
+}
 
 pub struct TerminalPane {
     client: Client,
@@ -29,6 +45,8 @@ pub struct TerminalPane {
     snapshot: Option<Arc<TerminalSnapshot>>,
     palette: Palette,
     text: TextSettings,
+    /// The text size in points, changed by Ctrl+wheel and Ctrl+= / Ctrl+- / Ctrl+0, as today's window.
+    zoom: Zoom,
     focus: FocusHandle,
     metrics: Rc<Shared<Metrics>>,
     /// The size last sent to the server, so a resize is sent once per change.
@@ -38,6 +56,8 @@ pub struct TerminalPane {
     clicks: Clicks,
     /// The button held while the program receives mouse reports, and the cell last reported.
     reporting_button: Option<(u8, (usize, usize))>,
+    /// The cell last reported for motion with no button held (mode 1003).
+    motion_cell: Option<(usize, usize)>,
     wheel_rest: f32,
     /// Text the input method is composing; it is shown nowhere yet and sent only when committed.
     marked: Option<String>,
@@ -99,6 +119,7 @@ impl TerminalPane {
             tab: setup.tab,
             snapshot: None,
             palette: setup.palette,
+            zoom: Zoom::new(setup.text.size * POINTS_PER_PIXEL),
             text: setup.text,
             focus,
             metrics: Rc::new(Shared::new(Metrics::default())),
@@ -107,6 +128,7 @@ impl TerminalPane {
             selecting: false,
             clicks: Clicks::default(),
             reporting_button: None,
+            motion_cell: None,
             wheel_rest: 0.0,
             marked: None,
             notice: None,
@@ -152,6 +174,17 @@ impl TerminalPane {
             .map_or((0, false), |s| (s.modes, s.app_cursor))
     }
 
+    /// One zoom step in or out, or back to the configured size for a step of zero.
+    fn zoom_by(&mut self, step: f32, cx: &mut Context<Self>) {
+        if step == 0.0 {
+            self.zoom.reset();
+        } else {
+            self.zoom.adjust(step);
+        }
+        self.text.size = self.zoom.points() / POINTS_PER_PIXEL;
+        cx.notify();
+    }
+
     fn paste(&mut self, text: &str) {
         let bracketed = self.modes().0 & MODE_BRACKETED_PASTE != 0;
         self.send(&mouse::pastify(text, bracketed));
@@ -178,6 +211,19 @@ impl TerminalPane {
                     return;
                 }
                 _ => {}
+            }
+        }
+        if m.control && !m.alt {
+            let step = match keystroke.key.as_str() {
+                "=" | "+" => Some(1.0),
+                "-" => Some(-1.0),
+                "0" => Some(0.0),
+                _ => None,
+            };
+            if let Some(step) = step {
+                self.zoom_by(step, cx);
+                cx.stop_propagation();
+                return;
             }
         }
         if let Some(bytes) = keys::bytes_for(keystroke, self.modes().1) {
@@ -294,6 +340,26 @@ impl TerminalPane {
             }
             return;
         }
+        // Mode 1003 reports motion with no button held too, once per new cell, as button 0 (as xterm and VTE).
+        if event.pressed_button.is_none()
+            && self.reports(event.modifiers)
+            && mouse::reports_motion(self.modes().0, false)
+            && self.motion_cell != Some((row, col))
+        {
+            self.motion_cell = Some((row, col));
+            if let Some(bytes) = mouse::report(
+                self.modes().0,
+                0,
+                Self::mods(event.modifiers),
+                col,
+                row,
+                true,
+                false,
+            ) {
+                self.send(&bytes);
+            }
+            return;
+        }
         if self.selecting
             && event.pressed_button == Some(MouseButton::Left)
             && let Some(selection) = &mut self.selection
@@ -343,14 +409,19 @@ impl TerminalPane {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let m = self.metrics.get();
-        let lines = match event.delta {
-            ScrollDelta::Lines(delta) => delta.y,
-            ScrollDelta::Pixels(delta) => {
-                f32::from(delta.y) * m.scale / m.line_height.max(1.0) / WHEEL_LINES
+        // Ctrl+wheel zooms, as in Ptyxis with enable-zoom-scroll-ctrl: one step per event.
+        if event.modifiers.control {
+            let lines = match event.delta {
+                ScrollDelta::Lines(delta) => delta.y,
+                ScrollDelta::Pixels(delta) => f32::from(delta.y),
+            };
+            if lines != 0.0 {
+                self.zoom_by(lines.signum(), cx);
             }
-        };
-        self.wheel_rest += lines;
+            return;
+        }
+        let m = self.metrics.get();
+        self.wheel_rest += wheel_notches(event.delta, m.scale, m.line_height);
         let notches = self.wheel_rest.trunc();
         self.wheel_rest -= notches;
         if notches == 0.0 {
@@ -544,5 +615,29 @@ impl EntityInputHandler for TerminalPane {
 impl gpui::Focusable for TerminalPane {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, px};
+
+    #[test]
+    fn one_wheel_notch_is_one_notch() {
+        // gpui-ce reports one notch up as three lines; a mouse program must get one wheel report for it.
+        assert_eq!(
+            wheel_notches(ScrollDelta::Lines(point(0.0, 3.0)), 1.0, 19.0),
+            1.0
+        );
+        assert_eq!(
+            wheel_notches(ScrollDelta::Lines(point(0.0, -6.0)), 1.5, 29.0),
+            -2.0
+        );
+        // A touchpad's 57 device pixels at 19 px rows are three rows of history, one notch.
+        assert_eq!(
+            wheel_notches(ScrollDelta::Pixels(point(px(0.0), px(57.0))), 1.0, 19.0),
+            1.0
+        );
     }
 }
