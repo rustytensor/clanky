@@ -109,6 +109,9 @@ from chrome_pixels import corner_area_radius as corner_radius  # noqa: E402
 LOGICAL_W, LOGICAL_H = 1200, 800
 CONFIG = dict(
     restore_layout=False,
+    # One pane, as the screens are defined: a second startup pane (new_window_panes, default 2, checked by the c5
+    # gate) would take the keys from the first pane the checks type into.
+    new_window_panes=1,
     startup_animation=False,
     history=False,
     animations=False,
@@ -424,6 +427,22 @@ def radius_px(kind, box, scale):
     return box[3] / 2 if r is None else r * scale
 
 
+def side_coverage(box, radius, px, py):
+    """How much of device pixel (px, py) a rounded box with whole-pixel edges covers, for a pixel on its left or
+    right edge: 1 on the straight part; on a round end, the antialiased coverage at the pixel's centre, half a pixel
+    either side of the curve (clamp(0.5 - signed distance)). A pill's middle row lies half a pixel from its circles'
+    centres when its height is even, so even a whole-pixel edge there is not fully covered."""
+    x, y, w, h = box
+    cx, cy = px + 0.5, py + 0.5
+    top, bottom = y + radius, y + h - radius
+    if top <= cy <= bottom or radius <= 0:
+        return 1.0
+    centre_y = top if cy < top else bottom
+    centre_x = x + radius if cx < x + w / 2 else x + w - radius
+    distance = math.hypot(cx - centre_x, cy - centre_y) - radius
+    return min(1.0, max(0.0, 0.5 - distance))
+
+
 _REFERENCE = {}
 
 
@@ -681,10 +700,22 @@ class Screen:
             ),
             None,
         )
-        if other is None:
-            x, y, w, _ = ctl["box"]
-            return grey(a, x + w / 2, y - 1)
-        return fill_sample(a, other, hair(self.s) + 1)
+        if other is not None:
+            return fill_sample(a, other, hair(self.s) + 1)
+        # No other unselected segment (a two-segment switcher with its sibling selected): the tray just above that
+        # sibling, which this segment's focus ring does not cover.
+        sibling = next(
+            (
+                c
+                for c in self.controls()
+                if c["kind"] == "segment"
+                and c.get("group") == ctl.get("group")
+                and c["id"] != ctl["id"]
+            ),
+            ctl,
+        )
+        x, y, w, _ = sibling["box"]
+        return grey(a, x + w / 2, y - 1)
 
     def rest_point(self):
         """A pointer position over no control and inside no popover: the popover's opener when there is one."""
@@ -950,9 +981,12 @@ class Screen:
                     ((ex, y), (ex, y - 1), "top"),
                     ((ex, y + h - 1), (ex, y + h), "bottom"),
                 )
+                exact = radius_px(c["kind"], c["box"], self.s)
                 for (ix, iy), (ox, oy), side in pairs:
                     gi, go = grey(a, ix, iy), grey(a, ox, oy)
                     edge = border_blend(c, want)
+                    if side in ("left", "right"):
+                        edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (edge - bg)
                     self.ok(
                         "whole-pixels",
                         near(gi, edge) and near(go, bg),

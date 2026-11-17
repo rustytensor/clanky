@@ -91,6 +91,9 @@ WORK = Path(
 )
 CONFIG = dict(
     restore_layout=False,
+    # One pane, as the screens are defined: a second startup pane (new_window_panes, default 2, checked by the c5
+    # gate) would take the keys from the first pane the checks type into.
+    new_window_panes=1,
     startup_animation=False,
     history=False,
     animations=False,
