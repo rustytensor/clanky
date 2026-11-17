@@ -31,7 +31,7 @@ use std::{
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, DispatchPhase, FocusHandle, Hitbox, HitboxBehavior,
     IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Styled, Window,
-    canvas, div, point, px, size,
+    canvas, deferred, div, point, px, size,
 };
 use serde_json::{Value, json};
 
@@ -78,6 +78,8 @@ pub enum Faults {
     PressFires,
     TabSkip,
     BorderTwoPixels,
+    PopoverOverOpener,
+    EscLosesFocus,
 }
 
 impl Faults {
@@ -88,6 +90,8 @@ impl Faults {
             "press-fires" => Self::PressFires,
             "tab-skip" => Self::TabSkip,
             "border-2px" => Self::BorderTwoPixels,
+            "popover-over-opener" => Self::PopoverOverOpener,
+            "esc-loses-focus" => Self::EscLosesFocus,
             _ => Self::None,
         }
     }
@@ -121,6 +125,16 @@ impl Faults {
     /// A focus border drawn two device pixels wide.
     pub fn border_two_pixels(self) -> bool {
         self == Self::BorderTwoPixels
+    }
+
+    /// A popover placed on its opener's top-left corner, covering it.
+    pub fn popover_over_opener(self) -> bool {
+        self == Self::PopoverOverOpener
+    }
+
+    /// Esc closes a popover without giving the focus back to what had it.
+    pub fn esc_loses_focus(self) -> bool {
+        self == Self::EscLosesFocus
     }
 
     fn hit(self, painted: DeviceBox) -> DeviceBox {
@@ -199,6 +213,8 @@ struct Frame {
     controls: Vec<Entry>,
     parts: BTreeMap<(&'static str, u32, Part), DeviceBox>,
     landmarks: BTreeMap<(&'static str, u32), DeviceBox>,
+    /// Each open popover's `popover` object, by the screen it belongs to.
+    popovers: BTreeMap<&'static str, Value>,
     keyboard: bool,
     scale: f32,
 }
@@ -363,12 +379,50 @@ impl ControlRecord {
             .into_any_element()
     }
 
-    /// Placed last in the window: when the frame has drawn, writes what changed since the last one.
+    /// A measuring child for a popover: place it, absolute and full size, inside the element that holds the popover's
+    /// outer box (its border included). It writes the screen line's `popover` object: that box, the opener's box
+    /// (`opener`, logical `[x, y, w, h]` in the window), and the opener's control id or pane id.
+    pub fn popover(
+        &self,
+        screen: &'static str,
+        opener: [f32; 4],
+        opener_id: Option<u32>,
+        opener_pane: Option<String>,
+    ) -> AnyElement {
+        let Some(writer) = self.0.clone() else {
+            return div().into_any_element();
+        };
+        let overlay = canvas(
+            |_, _, _| (),
+            move |bounds, (), window, _| {
+                let scale = window.scale_factor();
+                let line = json!({
+                    "box": device_box(logical_of(bounds), scale), "opener": device_box(opener, scale),
+                    "opener_id": opener_id, "opener_pane": opener_pane,
+                });
+                let mut writer = writer.borrow_mut();
+                writer.screens.insert(screen);
+                writer.frame.popovers.insert(screen, line);
+            },
+        )
+        .size_full();
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(overlay)
+            .into_any_element()
+    }
+
+    /// Placed in the window: when the frame has drawn, writes what changed since the last one. It is deferred behind
+    /// every other deferred element (popovers paint after the window's own tree), so their controls are measured
+    /// before it writes.
     pub fn flush(&self) -> AnyElement {
         let Some(writer) = self.0.clone() else {
             return div().into_any_element();
         };
-        canvas(
+        deferred(canvas(
             |_, _, _| (),
             move |_, (), window, _| {
                 let mut writer = writer.borrow_mut();
@@ -378,7 +432,8 @@ impl ControlRecord {
                     eprintln!("writing the control record: {error}");
                 }
             },
-        )
+        ))
+        .priority(usize::MAX)
         .into_any_element()
     }
 
@@ -516,8 +571,8 @@ impl Writer {
         Ok(())
     }
 
-    /// The screen line: its controls in the frame, the focused control's id, and no popover (the popover lines
-    /// are written by the window code that opens one).
+    /// The screen line: its controls in the frame, the focused control's id, and its popover's place when one is
+    /// open.
     fn screen_line(&self, screen: &'static str) -> Value {
         let frame = &self.frame;
         let controls: Vec<Value> = frame
@@ -542,7 +597,8 @@ impl Writer {
             .map(|entry| entry.spec.id);
         json!({
             "record": "screen", "screen": screen, "scale": frame.scale, "focus": focus,
-            "keyboard": frame.keyboard, "popover": Value::Null, "controls": controls,
+            "keyboard": frame.keyboard, "popover": frame.popovers.get(screen).cloned().unwrap_or(Value::Null),
+            "controls": controls,
         })
     }
 }
@@ -607,6 +663,8 @@ mod tests {
     fn the_other_faults_are_named_and_unknown_names_plant_nothing() {
         assert!(Faults::from_name("press-fires").press_fires());
         assert!(Faults::from_name("border-2px").border_two_pixels());
+        assert!(Faults::from_name("popover-over-opener").popover_over_opener());
+        assert!(Faults::from_name("esc-loses-focus").esc_loses_focus());
         let skipping = Faults::from_name("tab-skip");
         assert!(skipping.tab_skip(2) && !skipping.tab_skip(1));
         assert_eq!(Faults::from_name("nonsense"), Faults::default());

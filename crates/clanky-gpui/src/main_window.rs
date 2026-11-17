@@ -32,6 +32,9 @@ use serde_json::{Value, json};
 
 mod command_bar;
 mod drag;
+mod floating;
+#[cfg(feature = "test-popover")]
+mod test_popover;
 mod tools;
 
 use crate::{
@@ -42,6 +45,7 @@ use crate::{
     link::Link,
     palette::Palette,
     pane::{PaneEvent, PaneSetup, SharedInput, SharedTrace, TerminalPane},
+    popover::Popover,
     tokens as t,
 };
 use command_bar::{Chips, read_chips};
@@ -126,6 +130,8 @@ pub struct MainWindow {
     tools: Tools,
     /// What the panes' command inputs share; None with the classic input.
     inputs: Option<SharedInput>,
+    /// The floating screen open above the panes, if any.
+    popover: Popover,
     _status: Task<()>,
 }
 
@@ -196,6 +202,7 @@ impl MainWindow {
             places: Places::default(),
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
+            popover: Popover::default(),
             _status: status,
         };
         this.after_change(window, cx);
@@ -509,7 +516,7 @@ impl MainWindow {
         let Some(chord) = chord_of(&event.keystroke) else {
             return;
         };
-        if self.controls_key(chord, window, cx) {
+        if self.floating_key(chord, window, cx) || self.controls_key(chord, window, cx) {
             cx.stop_propagation();
             return;
         }
@@ -855,6 +862,7 @@ impl Render for MainWindow {
                     .child(self.panes_area(scale, window, cx)),
             )
             .child(self.status_line(scale))
+            .children(self.floating_layer(window, cx))
             .child(Self::drag_listener(cx))
             .child(self.frame_end())
             .child(self.kit.record().flush())

@@ -244,8 +244,10 @@ struct Kept {
 /// The focus handles of each group's enabled controls in the frame being built, in build order.
 type Groups = Rc<RefCell<BTreeMap<(&'static str, &'static str), Vec<FocusHandle>>>>;
 
-/// An enabled control Tab reaches, and its box as last drawn.
+/// An enabled control Tab reaches: its screen and id, and its box as last drawn.
 struct Stop {
+    screen: &'static str,
+    id: u32,
     focus: FocusHandle,
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
 }
@@ -262,6 +264,9 @@ pub struct Kit {
     tab_stops: Rc<Cell<usize>>,
     /// The frame's controls that Tab reaches, with their drawn boxes, for walking them in reading order.
     stops: Rc<RefCell<Vec<Stop>>>,
+    /// The screen of the open popover, set while it is drawn: Tab, Shift+Tab and Ctrl+F6 then stay among its
+    /// controls.
+    trap: Rc<Cell<Option<&'static str>>>,
 }
 
 impl Kit {
@@ -273,6 +278,7 @@ impl Kit {
             groups: Rc::default(),
             tab_stops: Rc::default(),
             stops: Rc::default(),
+            trap: Rc::default(),
         }
     }
 
@@ -290,14 +296,57 @@ impl Kit {
         self.groups.borrow_mut().clear();
         self.tab_stops.set(0);
         self.stops.borrow_mut().clear();
+        self.trap.set(None);
+    }
+
+    /// Keeps the keyboard's walk among one screen's controls for this frame: the open popover's.
+    pub fn trap(&self, screen: &'static str) {
+        self.trap.set(Some(screen));
+    }
+
+    /// The box a control of the window was last drawn in, if Tab reaches it.
+    pub fn bounds_of(&self, screen: &'static str, id: u32) -> Option<Bounds<Pixels>> {
+        self.stops
+            .borrow()
+            .iter()
+            .find(|stop| stop.screen == screen && stop.id == id)
+            .and_then(|stop| stop.bounds.get())
+    }
+
+    /// The control that has the keyboard: its screen, id and last drawn box.
+    pub fn focused_control(&self, window: &Window) -> Option<(&'static str, u32, Bounds<Pixels>)> {
+        let stops = self.stops.borrow();
+        let stop = stops.iter().find(|stop| stop.focus.is_focused(window))?;
+        Some((stop.screen, stop.id, stop.bounds.get()?))
+    }
+
+    /// Gives the keyboard to a group's control by its place among the group's enabled controls.
+    pub fn focus_in_group(
+        &self,
+        screen: &'static str,
+        group: Group,
+        index: usize,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let handle = self
+            .groups
+            .borrow()
+            .get(&(screen, group.name))
+            .and_then(|handles| handles.get(index).cloned());
+        if let Some(handle) = handle {
+            window.focus(&handle, cx);
+        }
     }
 
     /// The controls Tab reaches, in reading order: by the top of their drawn box, then its left, as a reader scans
     /// the window. A control not drawn yet goes last.
     fn reading_order(&self) -> Vec<FocusHandle> {
         let stops = self.stops.borrow();
+        let trap = self.trap.get();
         let mut placed: Vec<(f32, f32, &FocusHandle)> = stops
             .iter()
+            .filter(|stop| trap.is_none_or(|screen| stop.screen == screen))
             .map(|stop| {
                 let at = stop.bounds.get().map_or((f32::MAX, f32::MAX), |b| {
                     (f32::from(b.origin.y).round(), f32::from(b.origin.x).round())
@@ -352,14 +401,7 @@ impl Kit {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let first = self
-            .groups
-            .borrow()
-            .get(&(screen, group.name))
-            .and_then(|handles| handles.first().cloned());
-        if let Some(handle) = first {
-            window.focus(&handle, cx);
-        }
+        self.focus_in_group(screen, group, 0, window, cx);
     }
 
     /// The control, drawn in its state and wired to the pointer and the keyboard.
@@ -522,6 +564,8 @@ impl Kit {
         if reached {
             let bounds: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::default();
             self.stops.borrow_mut().push(Stop {
+                screen,
+                id: control.id,
                 focus: focus.clone(),
                 bounds: Rc::clone(&bounds),
             });
@@ -654,6 +698,13 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
+        } else if kind == Kind::MenuItem {
+            // A menu item's line fills the item, as a tab's does: inside a popover the item's top is a whole device
+            // pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off at 1.5.
+            text(weight)
+                .line_height(px(kind.height()))
+                .relative()
+                .child(self.record.part(screen, control.id, Part::Label))
         } else {
             text(weight)
                 .relative()

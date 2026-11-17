@@ -36,6 +36,9 @@ mod link;
 mod main_window;
 mod palette;
 mod pane;
+// The floating screens use the rest of the popover; until each is in, the test popover uses some of it.
+#[allow(dead_code)]
+mod popover;
 // The controls and the window chrome use the rest of the table.
 #[allow(dead_code)]
 mod tokens;

@@ -8,6 +8,11 @@
 #   fixture results, one slow number each, and the engine check on a clanky-state that depends on gpui-ce. Without --faults the gate stops with "FAIL: clanky-gpui has no
 #   floating screens yet" until the window code writes a `find-bar` screen in its control record; after that it runs
 #   both gates on the real window, with CLANKY_GPUI_BIN=PATH or target/release/clanky-gpui, under the gate lock.
+# --popover checks the one popover every floating screen uses, on the test popover of a clanky-gpui built with
+#   `--features control-faults,test-popover` (CLANKY_GPUI_BIN=PATH): the controls gate's checks on both of its screens
+#   (placement inside the window and clear of the opener, beside it and from the bottom-right corner; Esc closing it and
+#   giving the keyboard back; Tab kept inside; arrows; no idle frames), then the planted faults popover-over-opener and
+#   esc-loses-focus, each of which must fail the check aimed at it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -97,6 +102,35 @@ if [[ ${1:-} == --faults ]]; then
     exit 0
   fi
   echo "FAIL: floating gates caught $caught of $((${#FAULTS[@]} + extra_faults)) planted faults"
+  exit 1
+fi
+
+if [[ ${1:-} == --popover ]]; then
+  binary=${CLANKY_GPUI_BIN:-target/release/clanky-gpui}
+  # run_real ARGS...: the controls gate on the real window's test popover; sets output and status.
+  run_real() {
+    status=0
+    output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/gate-controls.py" --test-popover --app "$binary" --scales "$SCALES" "$@" 2>&1) || status=$?
+  }
+  run_real --screens test-popover,test-popover-corner
+  grep -E '^(ok|FAIL):' <<<"$output" || true
+  if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate passes the test popover"; else fail "controls gate on the test popover"; fi
+  caught=0
+  for entry in popover-over-opener:test-popover-corner:popover esc-loses-focus:test-popover:focus-return; do
+    IFS=: read -r fault screen check <<<"$entry"
+    run_real --screens "$screen" --fault "$fault"
+    if ((status != 0)) && grep -q "^FAIL: $check " <<<"$output"; then
+      echo "CAUGHT: $fault by $check (gate-controls.py on the test popover)"
+      caught=$((caught + 1))
+    else
+      fail "planted fault $fault was not caught by $check on the test popover (exit $status)"
+    fi
+  done
+  if ((failed == 0 && caught == 2)); then
+    echo "PASS: the popover"
+    exit 0
+  fi
+  echo "FAIL: the popover"
   exit 1
 fi
 

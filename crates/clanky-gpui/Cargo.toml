@@ -28,3 +28,5 @@ winit = "=0.30.13"
 [features]
 # The gates plant faults through CLANKY_CONTROL_FAULT (see control_record.rs); release builds leave this off.
 control-faults = []
+# A small popover the floating-screen gates open with Ctrl+Shift+F11 and F12; release builds leave this off.
+test-popover = []

@@ -31,7 +31,9 @@ Written whenever a screen's controls, focus or keyboard flag change:
 from the keyboard (so the focus ring is drawn). A screen with no controls writes its line with an empty list. `popover`
 is null unless a popover is open; `box` is its outer box, `opener` the box of what opened it (a control's box, or a
 zero-size box at the pointer for a right-click on a pane), `opener_id` that control's id, `opener_pane` the pane's id
-for a right-click on a pane.
+for a right-click on a pane. Each floating screen has its own name (`palette`, `context-menu`, `agent-picker`,
+`completion-list`, `find-bar`; the debug build's `test-popover` and `test-popover-corner`), and its line carries the
+popover object while it is open.
 
 ## Control
 
@@ -47,7 +49,7 @@ for a right-click on a pane.
 | `tab` | true when Tab reaches the control (equal to `enabled`) | `FocusHandle::tab_stop` (`elements/div.rs:980`); order from `tab_stop.rs` |
 | `group` | name of the group the arrow keys move within, or null | the app |
 | `axis` | `vertical` or `horizontal` when `group` is set, else null | the app |
-| `checked` | tab: active; switch: on; segment: selected; else null | the app |
+| `checked` | tab: active; switch: on; segment: selected; menu item or list row: the selected row of a list whose keyboard stays in its field or popover (drawn in `accent`); else null | the app |
 | `primary` | true for the primary button of a dialog | the app |
 | `label_box` | box of the label's text, or null | a measuring child, as `control`'s box is |
 | `icon` | box of the icon, or null | a measuring child |

@@ -209,6 +209,8 @@ pub fn fill(
         }
         (_, State::Hover) => Some(colors.accent),
         (_, State::Focus) if kind.is_row() => Some(colors.accent),
+        // A list's selected row, while the keyboard stays in the list's field or popover.
+        _ if kind.is_row() && active => Some(colors.accent),
         _ if kind == Kind::Tab && active => Some(with_alpha(colors.foreground, t::ACTIVE_TAB_FILL)),
         _ if kind == Kind::Segment && active => Some(colors.background),
         _ => None,

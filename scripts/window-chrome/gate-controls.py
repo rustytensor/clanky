@@ -3,7 +3,7 @@
 rulebook's section "Controls: drawn and working without a flaw" and its 2026-11-17 amendments ask.
 
 Usage: gate-controls.py [--screens NAME,NAME...] [--scales 1,1.5] [--theme graphite-dark] [--app PATH]
-                        [--simulate] [--fault NAME] [--keep]
+                        [--simulate] [--fault NAME] [--keep] [--floating] [--test-popover]
 Prints "FAIL: <check> <screen> @<scale> <control>: expected ..., observed ..." for each failure and one
 "ok: <check> <screen> @<scale> ... (n checked)" line per passed check and screen, then "PASS: controls" when nothing
 failed. Exit status 0 only on PASS.
@@ -397,6 +397,25 @@ POPOVER_MAX_GAP_LOGICAL_PX = (
     16  # "next to what opened it" (G3 definition): at most this far from the opener
 )
 
+# The test popover of a clanky-gpui built with the test-popover feature (--test-popover): what every floating screen
+# shares, checked before the screens exist. Ctrl+Shift+F11 opens it beside the focused control (else the tools panel
+# button), Ctrl+Shift+F12 from a point near the bottom-right corner, where it must go up and left.
+TEST_POPOVER_SCREENS = {
+    "test-popover": dict(
+        open=open_by_keys("ctrl+shift+F11"),
+        close=close_with_escape,
+        container="card",
+        harmless="First",
+        idle=True,
+    ),
+    "test-popover-corner": dict(
+        open=open_by_keys("ctrl+shift+F12"),
+        close=close_with_escape,
+        container="card",
+        harmless="First",
+    ),
+}
+
 SCREENS = {
     # The tools panel shows one tool at a time; the main window is checked with each of the three, whose segment is the
     # screen's harmless control (clicking the shown tool's segment changes nothing).
@@ -426,6 +445,8 @@ if FLOATING:
     SCREENS.update(FLOATING_SCREENS)
 if SETTINGS:
     SCREENS.update(SETTINGS_SCREENS)
+if "--test-popover" in ARGS:
+    SCREENS.update(TEST_POPOVER_SCREENS)
 
 RECORD_FIELDS = {
     "id",
@@ -691,6 +712,8 @@ def expected_fill(ctl, state, container):
     elif kind == "segment" and ctl.get("checked"):
         # The selected segment keeps its own fill under the pointer and in focus; only a press changes it.
         return PRESSED if state == "pressed" and ctl["enabled"] else BACKGROUND
+    elif kind in ROWS and ctl.get("checked"):
+        rest = ACCENT  # the selected row of a list (rulebook token table: accent is "hover, selected row")
     if state == "rest" or not ctl["enabled"] or kind == "field":
         return rest
     if state == "hover":

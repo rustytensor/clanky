@@ -271,6 +271,16 @@ pub const SHADOW_TOOLBAR: ShadowToken = ShadowToken {
     opacity: 0.28,
 };
 
+// Popovers: the one floating element under the palette, the menus, the agent picker, the completion list and the
+// find bar. Its edge is `RADIUS_LARGE` with a hairline in `border` on `card`, its shadow `SHADOW_POPOVER`.
+
+/// The room between a popover and what opened it: next to it, never touching or covering it.
+pub const POPOVER_OPENER_GAP: f32 = SPACE_4;
+/// How close a popover may come to the window's edge.
+pub const POPOVER_WINDOW_MARGIN: f32 = PANE_MARGIN;
+/// The room between a popover's edge and its rows: the rows' radius is one step below the popover's.
+pub const POPOVER_PADDING: f32 = SPACE_4;
+
 // Motion. Every animation pauses while the window is unfocused or hidden, and reduced motion turns
 // them off, so an idle window draws no frames.
 
