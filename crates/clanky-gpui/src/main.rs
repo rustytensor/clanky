@@ -20,6 +20,7 @@
 )]
 
 mod cells;
+mod control_record;
 mod glyphs;
 mod grid_element;
 mod keys;

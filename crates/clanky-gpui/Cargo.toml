@@ -23,3 +23,7 @@ serde_json = "=1.0.154"
 unicode-width = "=0.2.0"
 # Key types only: today's key encoder (clanky::input::key_bytes) takes them, so both windows send the same bytes.
 winit = "=0.30.13"
+
+[features]
+# The gates plant faults through CLANKY_CONTROL_FAULT (see control_record.rs); release builds leave this off.
+control-faults = []
