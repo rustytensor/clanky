@@ -24,7 +24,11 @@ FONT_FILES = {
     600: REPO_ROOT / "assets/fonts/Inter-SemiBold.ttf",
 }
 CAP_GLYPH = "H"
-NO_TEXT_KINDS = ("switch", "icon-button")  # no label of their own (rulebook:227)
+NO_TEXT_KINDS = (
+    "switch",
+    "icon-button",
+    "icon-button-inline",
+)  # no label of their own (rulebook:227)
 
 
 def load_tokens():
@@ -253,6 +257,8 @@ def control_values(tokens, scale):
                 entry[extra] = measure(
                     control[extra]["px"], scale, edge, control[extra]["src"]
                 )
+        if "fill_alpha" in control:
+            entry["fill_alpha"] = control["fill_alpha"]
         if "radius" in control:
             entry["radius"] = measure(
                 control["radius"]["px"], scale, edge, control["radius"]["src"]

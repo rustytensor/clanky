@@ -124,12 +124,14 @@ GHOST = {
     "palette-row",
     "tab",
     "icon-button",
+    "icon-button-inline",
     "button-bar",
     "segment",
 }
 OUTLINED = {"button-small", "button", "button-large", "chip"}
 ROWS = {"menu-item", "list-row", "palette-row"}
 KINDS = {}
+INLINE_FILL_ALPHA = {}  # state -> share of the foreground over the container, for the tab close button
 BACKGROUND = CARD = ACCENT = PRESSED = RING = FOREGROUND = PRIMARY = PRIMARY_PRESSED = 0
 RING_ALPHA = DISABLED_ALPHA = TAB_ACTIVE_FILL = TAB_RING_ALPHA = INPUT_OVER = (
     INPUT_ALPHA
@@ -149,6 +151,7 @@ def use_expected(scale, theme):
     """Loads expected.py's values for this scale and theme into the module's names, before each window."""
     global \
         KINDS, \
+        INLINE_FILL_ALPHA, \
         BACKGROUND, \
         CARD, \
         ACCENT, \
@@ -190,6 +193,10 @@ def use_expected(scale, theme):
     FOREGROUND, PRIMARY, PRIMARY_PRESSED = (
         grey_of(EXPECTED, r) for r in ("foreground", "primary", "primary_pressed")
     )
+    INLINE_FILL_ALPHA = {
+        state: EXPECTED["controls"]["icon-button-inline"]["fill_alpha"][state]
+        for state in ("hover", "pressed")
+    }
     RING_ALPHA = EXPECTED["states"]["focus"]["ring_alpha"]
     DISABLED_ALPHA = EXPECTED["states"]["disabled"]["opacity"]
     TAB_ACTIVE_FILL = tokens["active_tab"]["fill_foreground_alpha"]["value"]
@@ -275,6 +282,14 @@ def open_completion(win):
 
 
 FLOATING_SCREENS = {
+    # The pane's context menu is G3's (a popover); the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
+    "context-menu": dict(
+        open=open_context_menu,
+        close=close_with_escape,
+        container="card",
+        harmless="Select all",
+        flip=True,
+    ),
     "palette": dict(
         open=open_by_keys("ctrl+shift+p"),
         close=close_with_escape,
@@ -336,14 +351,6 @@ SCREENS = {
         close=None,
         container=None,
         harmless="Agents",
-    ),
-    # TODO(G2): the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
-    "context-menu": dict(
-        open=open_context_menu,
-        close=close_with_escape,
-        container="card",
-        harmless="Select all",
-        flip=True,
     ),
 }
 if FLOATING:
@@ -559,6 +566,12 @@ def border_blend(ctl, fill):
 
 def expected_fill(ctl, state, container):
     kind = ctl["kind"]
+    if kind == "icon-button-inline":
+        # No fill at rest; hover and press lay the foreground over whatever is under it (rulebook, Amendments).
+        alpha = INLINE_FILL_ALPHA.get(state)
+        return (
+            container if alpha is None else round(blend(container, FOREGROUND, alpha))
+        )
     if kind == "switch":
         return (
             PRIMARY if ctl.get("checked") else ACCENT
@@ -688,7 +701,9 @@ class Screen:
                 if (
                     not any(inside(c["hit"], x, y) for c in self.controls())
                     and not any(inside(box, x, y) for box in panes)
-                    and not (r and r.get("popover") and inside(r["popover"]["box"], x, y))
+                    and not (
+                        r and r.get("popover") and inside(r["popover"]["box"], x, y)
+                    )
                 ):
                     return x, y
         return 2, 2
@@ -1467,9 +1482,7 @@ class Screen:
         if not self.record.get("popover"):
             return
         self.close()
-        self.win.key(
-            "ctrl+u"
-        )  # clears any line typed to open the popover
+        self.win.key("ctrl+u")  # clears any line typed to open the popover
         self.win.away(self.rest_point())
         # The pane has the keyboard: Ctrl+F6 gives it to the first control.
         self.win.key("ctrl+F6")
