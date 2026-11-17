@@ -93,6 +93,9 @@ pub struct WindowSetup {
     pub agent_programs: Vec<clanky::config::AgentTool>,
     /// Each terminal pane shows a command input (the config's editor mode); off, panes show the shell's prompt.
     pub command_input: bool,
+    /// Panes the window's first tab opens with: 2 splits it down once the window has drawn (a new window, the
+    /// config's `new_window_panes`); 1 leaves the tab as it is.
+    pub opens_with: u8,
 }
 
 pub struct MainWindow {
@@ -189,6 +192,14 @@ impl MainWindow {
             _status: status,
         };
         this.after_change(window, cx);
+        if setup.opens_with >= 2 {
+            // After the first frame, so the new pane is sized from the measured one.
+            cx.on_next_frame(window, |this, window, cx| {
+                this.act(window, cx, |this, window, cx| {
+                    this.split(Axis::Rows, window, cx)
+                });
+            });
+        }
         this
     }
 

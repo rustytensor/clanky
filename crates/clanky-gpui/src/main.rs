@@ -140,20 +140,24 @@ fn parse_arguments() -> Result<Arguments, String> {
 }
 
 /// The pane's tab: with --exec a new tab running `bash -c CMD`; otherwise the server's first tab when it already
-/// has one (as today's window shows the session it joins), or a new tab running the server's default shell.
+/// has one (as today's window shows the session it joins), or a new tab running the server's default shell. The
+/// flag says the window opened that shell tab itself (a fresh session, no --exec): such a window is a new window,
+/// which `new_window_panes` may split.
 fn open_tab(
     client: &Client,
     exec: Option<&str>,
     rows: usize,
     cols: usize,
-) -> Result<String, String> {
+) -> Result<(String, bool), String> {
     let Some(command) = exec else {
         let existing = client
             .tab_ids()
             .map_err(|e| format!("listing the session's tabs: {}", e.message))?;
         return match existing.into_iter().next() {
-            Some(tab) => Ok(tab),
-            None => clanky::window_tools::new_terminal(client, None, rows, cols),
+            Some(tab) => Ok((tab, false)),
+            None => {
+                clanky::window_tools::new_terminal(client, None, rows, cols).map(|tab| (tab, true))
+            }
         };
     };
     let defaults = client
@@ -196,7 +200,7 @@ fn open_tab(
             .workspace_set(&workspace)
             .map_err(|e| format!("showing the --exec tab: {}", e.message))?;
     }
-    Ok(id)
+    Ok((id, false))
 }
 
 /// The settings the settings file sets itself, by name, so a value it leaves out takes clanky-gpui's own default
@@ -279,7 +283,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
     let rows =
         (((args.size.1 - 2.0 * PANE_PADDING) / (text.size * line_height)) as usize).clamp(1, 1000);
     // The workspace needs a tab to show: the session's own when it has one, else a new one.
-    let tab = open_tab(&client, args.exec.as_deref(), rows, cols)?;
+    let (tab, opened) = open_tab(&client, args.exec.as_deref(), rows, cols)?;
     let trace = clanky::frame_trace::FrameTrace::from_env()
         .map_err(|e| format!("opening CLANKY_FRAME_TRACE: {e}"))?;
     let record = ControlRecord::from_environment().map_err(|e| e.to_string())?;
@@ -300,6 +304,8 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         tools: config.tools.clone(),
         agent_programs: config.agents.clone(),
         command_input: args.overrides.editor_mode(&config),
+        // Today's new window: one tab split in two, one pane above the other, unless the config says one pane.
+        opens_with: if opened { config.new_window_panes } else { 1 },
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
