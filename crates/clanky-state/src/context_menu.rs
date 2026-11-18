@@ -325,10 +325,10 @@ mod tests {
         assert_eq!(menu.selected(), Some(1));
         press(&mut menu, &[Up]);
         assert_eq!(menu.selected(), Some(1));
-        // 12 rows without a link or block; End and Down stop on Close pane (11).
+        // 11 rows without a link or block; End and Down stop on Close pane (10).
         press(&mut menu, &[End, Down]);
-        assert_eq!(menu.selected(), Some(11));
-        assert_eq!(menu.key(Chord::new(Mods::NONE, Enter)), ListKey::Pick(11));
+        assert_eq!(menu.selected(), Some(10));
+        assert_eq!(menu.key(Chord::new(Mods::NONE, Enter)), ListKey::Pick(10));
     }
 
     #[test]
