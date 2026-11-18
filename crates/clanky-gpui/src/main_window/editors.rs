@@ -13,11 +13,10 @@ use gpui::{
 
 use super::MainWindow;
 use crate::{
-    control_look::paint,
     editor_pane::{EditorEvent, EditorSetup, EditorView},
     grid_element::colour,
-    tokens as t,
 };
+use clanky_core::layout::Axis;
 
 struct Attached {
     /// The terminal pane the editor sits beside.
@@ -175,13 +174,10 @@ impl MainWindow {
                             .flex()
                             .size_full()
                             .overflow_hidden()
-                            .rounded(px(t::RADIUS_PANE))
-                            .border(px(t::hairline(scale)))
-                            .border_color(paint(self.colors.border, 1.0))
                             .bg(colour(self.palette.background))
                             .child(attached.view.clone()),
                     )
-                    // The landmark measures the pane's outer box, border included, as a terminal pane's does.
+                    // The landmark measures the pane's box; flush panes have no border, the divider before it does.
                     .child(self.kit.record().landmark("editor-pane", attached.slot))
                     .into_any_element()
             })
@@ -189,16 +185,17 @@ impl MainWindow {
         if editors.is_empty() {
             return pane;
         }
-        div()
+        let mut row = div()
             .flex()
             .flex_row()
             .flex_basis(px(0.0))
             .flex_grow(share)
             .min_w_0()
             .min_h_0()
-            .gap(px(t::PANE_GAP))
-            .child(pane)
-            .children(editors)
-            .into_any_element()
+            .child(pane);
+        for editor in editors {
+            row = row.child(self.hairline(Axis::Columns, scale)).child(editor);
+        }
+        row.into_any_element()
     }
 }

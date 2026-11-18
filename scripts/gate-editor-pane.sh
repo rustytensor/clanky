@@ -98,7 +98,9 @@ if ((status == 0)); then ok "window checks pass"; else fail "window checks"; fi
 
 # 3. The controls gate with an editor pane open.
 status=0
-output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 scripts/window-chrome/gate-controls.py --editor --screens main-window-editor --app "$binary" --scales 1,1.5 2>&1) || status=$?
+# Its own run folder: the controls gate's default one is shared with other runs of it.
+output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS CLANKY_CONTROLS_WORK="${CLANKY_CONTROLS_WORK:-/srv/devops/build/clanky-editor-controls-run}" \
+  flock "$GATE_LOCK" python3 scripts/window-chrome/gate-controls.py --editor --screens main-window-editor --app "$binary" --scales 1,1.5 2>&1) || status=$?
 grep -E '^FAIL:' <<<"$output" || true
 if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate: $(grep -c '^ok:' <<<"$output") checks pass with the editor's bar"; else fail "controls gate with the editor's bar"; fi
 

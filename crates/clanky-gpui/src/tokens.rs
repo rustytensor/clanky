@@ -275,8 +275,8 @@ pub const SHADOW_TOOLBAR: ShadowToken = ShadowToken {
 
 /// The room between a popover and what opened it: next to it, never touching or covering it.
 pub const POPOVER_OPENER_GAP: f32 = SPACE_4;
-/// How close a popover may come to the window's edge.
-pub const POPOVER_WINDOW_MARGIN: f32 = PANE_MARGIN;
+/// How close a popover may come to the window's edge: the old pane margin, kept when panes became flush.
+pub const POPOVER_WINDOW_MARGIN: f32 = SPACE_8;
 /// The room between a popover's edge and its rows: the rows' radius is one step below the popover's.
 pub const POPOVER_PADDING: f32 = SPACE_4;
 

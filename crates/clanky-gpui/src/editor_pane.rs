@@ -419,9 +419,7 @@ impl EditorView {
             .gap(px(t::SPACE_8))
             .px(px(t::PANE_PADDING))
             .pt(px(t::SPACE_8))
-            // The pane's padding counts from its outer edge, its one-device-pixel border included, so the bar's
-            // controls sit on whole device pixels at every scale.
-            .pb(px(t::PANE_PADDING - t::hairline(window.scale_factor())))
+            .pb(px(t::PANE_PADDING))
             .border_t(px(t::hairline(window.scale_factor())))
             .border_color(paint(self.colors.border, 1.0))
             .text_size(px(t::TEXT_UI))
