@@ -1689,8 +1689,17 @@ class Screen:
 
     def pane_focus_return(self):
         """A popover opened by a press in a pane, which takes the keyboard before the popover opens: Esc gives the
-        keyboard back to that pane, so a command typed after it runs there (its line and its output both show)."""
-        if not self.reopen():
+        keyboard back to that pane, so a command typed after it runs there (its line and its output both show). A
+        popover that cannot be opened for the check fails it: a window that lost the keyboard on an earlier Esc no
+        longer opens its popovers from a key."""
+        if not self.is_open() and not self.reopen():
+            self.ok(
+                "focus-return",
+                False,
+                "Esc",
+                "the popover opens again for the check",
+                "it did not open",
+            )
             return
         pane = self.current()["popover"]["opener_pane"]
         self.win.key("Escape")
