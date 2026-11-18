@@ -45,8 +45,6 @@ while (($#)); do
   shift
 done
 
-LOG_DIR=${LOG_DIR:-$(mktemp -d /srv/devops/build/parity-run.XXXXXX)}
-mkdir -p "$LOG_DIR"
 failed=0
 ok() { echo "ok: $*"; }
 fail() { echo "FAIL: $*"; failed=1; }
@@ -131,6 +129,8 @@ if ((faults)); then
 fi
 
 # ----------------------------------------------------------------------------------------------- steps
+LOG_DIR=${LOG_DIR:-$(mktemp -d /srv/devops/build/parity-run.XXXXXX)}
+mkdir -p "$LOG_DIR"
 step_lists() {
   if line=$(python3 "$PARITY_DIR/check_lists.py"); then ok "lists: ${line#PASS: }"; else fail "lists: ${line#FAIL: }"; fi
 }
