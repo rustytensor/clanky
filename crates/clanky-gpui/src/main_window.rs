@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use clanky::config::Config;
+use clanky::config::{Config, ThemePreference};
 use clanky_api::Client;
 use clanky_core::{
     Workspace,
@@ -900,16 +900,18 @@ pub fn chord_of(keystroke: &Keystroke) -> Option<Chord> {
     ))
 }
 
-/// The window's theme, for the interface and the terminal alike: the settings file's dark theme where it names one,
-/// else Graphite, the rulebook's default.
+/// The window's theme, for the interface and the terminal alike: the settings file's light theme when it asks for
+/// light, its dark theme otherwise (the window does not yet follow the desktop's mode), and Graphite, the rulebook's
+/// default, where the file names none.
 pub fn interface_theme(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Result<Theme, String> {
-    let id = if is_set("theme_dark") {
-        config.theme_dark.as_str()
+    let (key, saved, default) = if config.theme == ThemePreference::Light {
+        ("theme_light", config.theme_light.as_str(), "graphite-light")
     } else {
-        "graphite-dark"
+        ("theme_dark", config.theme_dark.as_str(), "graphite-dark")
     };
+    let id = if is_set(key) { saved } else { default };
     clanky_state::themes::builtin(id)
-        .or_else(|_| clanky_state::themes::builtin("graphite-dark"))
+        .or_else(|_| clanky_state::themes::builtin(default))
         .map_err(|e| format!("loading the interface theme: {e}"))
 }
 
@@ -965,6 +967,24 @@ mod tests {
 
     fn stroke(text: &str) -> Keystroke {
         Keystroke::parse(text).expect("a valid keystroke")
+    }
+
+    #[test]
+    fn the_interface_theme_follows_the_saved_preference() {
+        let named = |config: &Config| interface_theme(config, &|_| true).expect("a built-in theme").name;
+        let unset = Config::window_from_json("{}").expect("an empty config is valid");
+        assert_eq!(interface_theme(&unset, &|_| false).expect("graphite").name, "Graphite");
+        let light = Config::window_from_json(r#"{"theme":"light","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
+            .expect("the config is valid");
+        assert_eq!(named(&light), "Zinc");
+        let dark = Config::window_from_json(r#"{"theme":"dark","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
+            .expect("the config is valid");
+        assert_eq!(named(&dark), "Neutral");
+        let system = Config::window_from_json(r#"{"theme":"system","theme_dark":"zinc-dark"}"#).expect("the config is valid");
+        assert_eq!(named(&system), "Zinc");
+        let light_default = Config::window_from_json(r#"{"theme":"light"}"#).expect("the config is valid");
+        let theme = interface_theme(&light_default, &|_| false).expect("graphite light");
+        assert_eq!((theme.name.as_str(), theme.appearance), ("Graphite", clanky_state::themes::Appearance::Light));
     }
 
     #[test]
