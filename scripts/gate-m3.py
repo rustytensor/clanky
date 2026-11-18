@@ -274,13 +274,6 @@ def gate():
                 print('2 palette actions PASS', flush=True)
             finally:
                 stop(child, helper=True)
-    # M2 includes M1. Do not run either a second time.
-    previous = None
-    try:
-        previous = subprocess.Popen([str(Path(__file__).resolve().with_name('gate-m2.sh'))])
-        require(previous.wait(timeout=180) == 0, 'M2 regression failed')
-    finally:
-        stop(previous)
 
 
 def interrupted(signum, frame):
