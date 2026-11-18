@@ -698,9 +698,10 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
-        } else if kind == Kind::MenuItem {
-            // A menu item's line fills the item, as a tab's does: inside a popover the item's top is a whole device
-            // pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off at 1.5.
+        } else if matches!(kind, Kind::MenuItem | Kind::ButtonBar) {
+            // A menu item's or bar button's line fills the control, as a tab's does: the control's top is a whole
+            // device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off at
+            // 1.5.
             text(weight)
                 .line_height(px(kind.height()))
                 .relative()
@@ -768,11 +769,23 @@ impl Kit {
         }
         if let Some(icon) = control.icon {
             let size = kind.icon_size();
+            // An icon-only control whose spare room is an odd count of device pixels (a 14 px icon in 28 at 1.5) cannot
+            // centre its icon on whole pixels. Layout rounds the half pixel toward the top left, where the icon's
+            // antialiased edges already lean, which tips it past half a pixel off; one device pixel of margin before
+            // the icon puts the spare pixel there instead, half a pixel the other way.
+            let spare = ((kind.height() - size) * scale).round();
+            let nudge = if kind.is_icon_only() && spare.rem_euclid(2.0) > 0.5 {
+                t::hairline(scale)
+            } else {
+                0.0
+            };
             inner = inner.child(
                 div()
                     .relative()
                     .flex_none()
                     .size(px(size))
+                    .mt(px(nudge))
+                    .ml(px(nudge))
                     .child(svg().data(icon.svg()).size(px(size)).text_color(paint(
                         if lit || control.primary {
                             ink
