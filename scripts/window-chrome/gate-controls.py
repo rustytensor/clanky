@@ -1297,9 +1297,15 @@ class Screen:
 
     def outside_fill(self, ctl, x, y, bg):
         """What lies just outside a control's edge: its container, or the rest fill of a neighbouring row drawn in
-        `accent` because it is the list's selected row (a list's rows touch, 28 px apart)."""
+        `accent` because it is the list's selected row (a list's rows touch, 28 px apart). A control holding this one
+        (the active tab around its close button) is its container, not a neighbour: `container` already sampled it."""
         for d in self.controls():
-            if d["id"] != ctl["id"] and d.get("checked") and inside(d["box"], x, y):
+            if (
+                d["id"] != ctl["id"]
+                and d.get("checked")
+                and inside(d["box"], x, y)
+                and not contains(d["box"], ctl["box"])
+            ):
                 want = expected_fill(d, "rest", bg)
                 return bg if want is None else want
         return bg
