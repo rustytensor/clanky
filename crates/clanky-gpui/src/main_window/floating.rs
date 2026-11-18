@@ -64,6 +64,9 @@ impl MainWindow {
         if screen == "palette" {
             return self.command_palette(window, cx);
         }
+        if screen == super::context_menu::SCREEN {
+            return self.context_menu(window, cx);
+        }
         // A screen with no content here would hold the keyboard with nothing drawn: it is closed instead.
         eprintln!("the popover {screen} has nothing to draw; closing it");
         self.close_popover(window, cx);

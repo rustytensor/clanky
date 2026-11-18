@@ -88,6 +88,10 @@ pub const TAB_MAX_WIDTH: f32 = 200.0;
 pub const ROW_HEIGHT: f32 = 24.0;
 /// Context menu and dropdown items.
 pub const MENU_ITEM_HEIGHT: f32 = 28.0;
+/// A menu's width. The rulebook gives none. The pane's longest row, "Start an agent here…" (Inter 12 px, 118.8 by the
+/// font file's advances) with its icon and "Ctrl+Shift+G" (JetBrains Mono 12 px, 86.4), needs 263 with the popover's
+/// padding and the row's padding and gaps; 272 is the next multiple of 8, so the label never ends in an ellipsis.
+pub const MENU_WIDTH: f32 = 272.0;
 /// Palette results.
 pub const PALETTE_ROW_HEIGHT: f32 = 36.0;
 /// The palette's search field.
@@ -290,7 +294,8 @@ pub const SHADOW_TOOLBAR: ShadowToken = ShadowToken {
 
 /// The room between a popover and what opened it: next to it, never touching or covering it.
 pub const POPOVER_OPENER_GAP: f32 = SPACE_4;
-/// How close a popover may come to the window's edge.
+/// How close a popover may come to the window's edge: one spacing step, as the old pane margin was, so a popover
+/// never touches the window's rounded corner.
 pub const POPOVER_WINDOW_MARGIN: f32 = SPACE_8;
 /// The room between a popover's edge and its rows: the rows' radius is one step below the popover's.
 pub const POPOVER_PADDING: f32 = SPACE_4;

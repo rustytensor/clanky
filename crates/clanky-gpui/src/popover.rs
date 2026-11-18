@@ -77,13 +77,15 @@ pub enum Placement {
 
 /// The popover's top-left corner for its size, next to the opener: below it when it fits, else above, else to its
 /// right, else to its left, `POPOVER_OPENER_GAP` away, and slid along that side to stay `POPOVER_WINDOW_MARGIN` inside
-/// the window. A popover that fits on no side is only slid inside the window, as near its opener as it can be, and may
-/// then cover it; the side named is the one with more room, below or above.
+/// the window. An opener that is a point (a right-click) is a corner instead, as in desktop menus: the popover starts at
+/// it, or ends at it when the window has no room past it. A popover that fits on no side is only slid inside the
+/// window, as near its opener as it can be, and may then cover it; the side named is the one with more room, below or
+/// above.
 pub fn place(opener: Area, size: (f32, f32), window: (f32, f32)) -> (f32, f32, Side) {
     let (gap, margin) = (t::POPOVER_OPENER_GAP, t::POPOVER_WINDOW_MARGIN);
     let (width, height) = size;
-    let along_x = slide(opener.x, width, window.0);
-    let along_y = slide(opener.y, height, window.1);
+    let along_x = along(opener.x, opener.w, width, window.0);
+    let along_y = along(opener.y, opener.h, height, window.1);
     let room_below = window.1 - margin - (opener.bottom() + gap);
     let room_above = opener.y - gap - margin;
     if height <= room_below {
@@ -104,6 +106,16 @@ pub fn place(opener: Area, size: (f32, f32), window: (f32, f32)) -> (f32, f32, S
         Side::Above
     };
     (along_x, along_y, side)
+}
+
+/// Where along one axis a popover of `length` goes beside an opener at `start` of `size` on that axis: a point's far
+/// side when there is room past it, else its near side; a box's start, slid inside the window.
+fn along(start: f32, size: f32, length: f32, window: f32) -> f32 {
+    let margin = t::POPOVER_WINDOW_MARGIN;
+    if size == 0.0 && start + length > window - margin {
+        return (start - length).max(margin);
+    }
+    slide(start, length, window)
 }
 
 /// Where along one axis a popover of `length` starting at `start` stays inside `0..window` with the margin: moved
@@ -494,10 +506,12 @@ mod tests {
 
     #[test]
     fn a_right_click_in_the_bottom_right_corner_opens_up_and_left() {
-        // The point 1170, 760; the menu 236 x 140 fits neither below (800 - 8 - 764 = 28) nor right of it.
+        // The point 1170, 760; the menu 236 x 140 fits neither below (800 - 8 - 764 = 28) nor right of it
+        // (1170 + 236 > 1200 - 8), so it ends at the point: 1170 - 236 = 934, 760 - 4 - 140 = 616.
         let (x, y, side) = place(area(1170.0, 760.0, 0.0, 0.0), (236.0, 140.0), WINDOW);
-        assert_eq!((x, y, side), (956.0, 616.0, Side::Above));
+        assert_eq!((x, y, side), (934.0, 616.0, Side::Above));
         assert!(y + 140.0 <= 760.0, "clear of the point it opened at");
+        assert!(x + 236.0 <= 1170.0, "left of the point it opened at");
     }
 
     #[test]

@@ -305,7 +305,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         blink: Blink::from_config(&config, clanky_state::platform::gnome_cursor_blink()),
         kit: Kit::new(record, colors.clone(), config.animations),
         colors,
-        post_ai: args.overrides.post_ai,
+        post_ai: args.overrides.post_ai || config.post_ai,
         // A pane started with --exec stays open after its command ends; a shell's pane closes when its shell exits.
         exec_tab: args.exec.is_some().then_some(tab),
         tools_open: config.tools_panel,

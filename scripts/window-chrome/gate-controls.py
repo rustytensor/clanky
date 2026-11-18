@@ -297,9 +297,9 @@ def close_with_escape(win):
     win.key("Escape")
 
 
-# G3's screens. TODO(G3): every open key and harmless control below is a guess until G3's key bindings exist, except
-# the palette's, which are the real ones (Ctrl+Shift+P opens it; New tab changes nothing the run depends on).
-
+# G3's screens. The context menu opens as the window opens it, on a right-click in a pane. TODO(G3): every other open
+# key and harmless control below is a guess until G3's key bindings exist, except the palette's, which are the real
+# ones (Ctrl+Shift+P opens it; New tab changes nothing the run depends on).
 
 def ranked_matches(labels, query):
     """The palette's matching rule, written apart from the program (clanky_state::command_palette's comment): case
@@ -332,7 +332,7 @@ def open_completion(win):
 
 
 FLOATING_SCREENS = {
-    # The pane's context menu is G3's (a popover); the menu opens on a right-click at the harness's menu point; check it lands on a pane in G2's layout.
+    # The pane's menu opens on a right-click at the harness's menu point, inside the first pane.
     "context-menu": dict(
         open=open_context_menu,
         close=close_with_escape,
@@ -679,6 +679,15 @@ def rect_distance(a, b):
     return math.hypot(dx, dy)
 
 
+def covers(box, opener):
+    """Whether a popover's box covers its opener: overlaps a control's box, or holds the point of a right-click (an
+    opener of no size), counting the box's top and left edges as inside it."""
+    x, y, w, h = opener
+    if w == 0 and h == 0:
+        return box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
+    return overlaps(box, opener)
+
+
 def overlaps(a, b):
     return (
         a[0] < b[0] + b[2]
@@ -1009,7 +1018,7 @@ class Screen:
             )
             self.ok(
                 "popover",
-                not overlaps(b, pop["opener"]),
+                not covers(b, pop["opener"]),
                 "popover",
                 f"clear of its opener {pop['opener']}",
                 b,
@@ -1688,7 +1697,11 @@ class Screen:
 
     def focus_return_checks(self):
         """Esc closes the popover and the focus is back on the control that had it when the popover opened."""
-        if not self.record.get("popover"):
+        pop = self.record.get("popover")
+        if not pop:
+            return
+        if pop.get("opener_id") is None and pop.get("opener_pane"):
+            self.pane_focus_return()
             return
         self.close()
         self.win.key("ctrl+u")  # clears any line typed to open the popover
@@ -1719,6 +1732,42 @@ class Screen:
             "Esc",
             f"the focus back on control {before}",
             f"control {after}",
+        )
+
+    def pane_focus_return(self):
+        """A popover opened by a press in a pane, which takes the keyboard before the popover opens: Esc gives the
+        keyboard back to that pane, so a command typed after it runs there (its line and its output both show). A
+        popover that cannot be opened for the check fails it: a window that lost the keyboard on an earlier Esc no
+        longer opens its popovers from a key."""
+        if not self.is_open() and not self.reopen():
+            self.ok(
+                "focus-return",
+                False,
+                "Esc",
+                "the popover opens again for the check",
+                "it did not open",
+            )
+            return
+        pane = self.current()["popover"]["opener_pane"]
+        self.win.key("Escape")
+        try:
+            until(lambda: not self.is_open(), "", 2)
+        except Fail:
+            pass
+        mark = f"zq-back-{self.s:g}".replace(".", "-")
+        self.win.type(f"echo {mark}")
+        self.win.key("Return")
+        try:
+            until(lambda: self.win.pane_text(pane).count(mark) >= 2, "", 4)
+            got = True
+        except Fail:
+            got = False
+        self.ok(
+            "focus-return",
+            got,
+            "Esc",
+            f"typing reaches the opener pane {pane}",
+            got,
         )
 
     def tab_inside_checks(self):
@@ -1995,7 +2044,7 @@ class Screen:
         )
         self.ok(
             "popover",
-            not overlaps(b, opener),
+            not covers(b, opener),
             f"opened by the bottom-right corner at {at}",
             f"clear of its opener {opener}",
             b,

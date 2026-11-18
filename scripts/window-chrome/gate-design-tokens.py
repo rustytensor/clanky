@@ -676,8 +676,9 @@ def selection_check(win, e):
 
 # ---------------------------------------------------------------- G3: the floating screens
 
-# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist, except the
-# palette's (Ctrl+Shift+P) and the find bar's (Ctrl+Shift+F, today's: see find_bar_checks), the real ones.
+# How each popover opens. The context menu's right-click is the window's own; the palette's (Ctrl+Shift+P) and the
+# find bar's (Ctrl+Shift+F, today's: see find_bar_checks) keys are the real ones. TODO(G3): the others are guesses
+# until G3's key bindings exist.
 
 
 def type_completion(win):

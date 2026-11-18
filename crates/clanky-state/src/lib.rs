@@ -9,6 +9,7 @@ pub mod command_palette;
 pub mod command_input;
 pub mod config;
 pub mod config_xml;
+pub mod context_menu;
 pub mod files_tree;
 pub mod cursor_blink;
 pub mod layout_store;

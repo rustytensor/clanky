@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 mod command_bar;
 mod completion_list;
 mod command_palette;
+mod context_menu;
 mod drag;
 mod find_bar;
 mod floating;
@@ -138,6 +139,7 @@ pub struct MainWindow {
     /// The pane's find bar while it is open.
     find: Option<find_bar::FindBar>,
     palette_state: command_palette::PaletteState,
+    pane_menu: context_menu::PaneMenu,
     _status: Task<()>,
 }
 
@@ -211,6 +213,7 @@ impl MainWindow {
             popover: Popover::default(),
             find: None,
             palette_state: command_palette::PaletteState::default(),
+            pane_menu: context_menu::PaneMenu::default(),
             _status: status,
         };
         this.after_change(window, cx);
@@ -285,6 +288,7 @@ impl MainWindow {
                 window,
                 move |this, _, event, window, cx| match event {
                     PaneEvent::Finished => this.pane_finished(&tab, window, cx),
+                    PaneEvent::Menu(at) => this.open_pane_menu(&tab, *at, window, cx),
                 },
             );
         Ok((pane, subscription))

@@ -13,12 +13,16 @@ use clanky::config::Zoom;
 use clanky::mouse::{self, Clicks, Kind, Mods, Pos, Selection};
 use clanky_api::Client;
 use clanky_core::{MODE_BRACKETED_PASTE, TerminalSnapshot};
-use clanky_state::{cursor_blink::Blink, themes::Colors};
+use clanky_state::{
+    context_menu::{Block, Context as MenuContext},
+    cursor_blink::Blink,
+    themes::Colors,
+};
 use gpui::{
     App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent,
-    Styled, Subscription, Task, UTF16Selection, Window, div, point, px, size,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, ScrollDelta,
+    ScrollWheelEvent, Styled, Subscription, Task, UTF16Selection, Window, div, point, px, size,
 };
 use serde_json::Value;
 
@@ -132,6 +136,8 @@ pub type SharedTrace = Rc<RefCell<clanky::frame_trace::FrameTrace>>;
 pub enum PaneEvent {
     /// The shell the window started in the pane has exited.
     Finished,
+    /// A right-click the program does not take asks for the pane's menu, at this point in the window.
+    Menu(Point<Pixels>),
 }
 
 impl EventEmitter<PaneEvent> for TerminalPane {}
@@ -306,7 +312,11 @@ impl TerminalPane {
             return;
         }
         let bracketed = self.modes().0 & MODE_BRACKETED_PASTE != 0;
+        // A paste keeps the selection, as today's window does: only typing ends it, and a middle-click paste of the
+        // primary selection must not drop the very selection it pasted.
+        let kept = self.selection.take();
         self.send(&mouse::pastify(text, bracketed));
+        self.selection = kept;
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -318,18 +328,13 @@ impl TerminalPane {
         if m.control && m.shift && !m.alt {
             match keystroke.key.as_str() {
                 "c" => {
-                    if let (Some(selection), Some(snapshot)) = (&self.selection, &self.snapshot) {
-                        cx.write_to_clipboard(ClipboardItem::new_string(selection.text(snapshot)));
-                    }
+                    self.copy_selection(cx);
                     cx.stop_propagation();
                     return;
                 }
                 "v" => {
-                    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        self.paste(&text, cx);
-                    }
+                    self.paste_clipboard(cx);
                     cx.stop_propagation();
-                    cx.notify();
                     return;
                 }
                 _ => {}
@@ -443,7 +448,85 @@ impl TerminalPane {
                     self.paste(&text, cx);
                 }
             }
-            _ => {}
+            _ => cx.emit(PaneEvent::Menu(event.position)),
+        }
+    }
+
+    /// Ctrl+Shift+C: the selection to the clipboard.
+    pub fn copy_selection(&self, cx: &mut App) {
+        if let (Some(selection), Some(snapshot)) = (&self.selection, &self.snapshot) {
+            cx.write_to_clipboard(ClipboardItem::new_string(selection.text(snapshot)));
+        }
+    }
+
+    /// Ctrl+Shift+V: the clipboard to the program, or to the command input while it takes keys.
+    pub fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.paste(&text, cx);
+        }
+        cx.notify();
+    }
+
+    /// Selects the whole screen and makes it the primary selection, as a drag over it would.
+    pub fn select_all(&mut self, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.snapshot.clone() else {
+            return;
+        };
+        if snapshot.rows == 0 || snapshot.cols == 0 {
+            return;
+        }
+        let top = self.top_line();
+        let mut selection = Selection::new(
+            Kind::Char,
+            false,
+            Pos {
+                line: top,
+                col: 0,
+                right: false,
+            },
+        );
+        selection.head = Pos {
+            line: top + snapshot.rows as i64 - 1,
+            col: snapshot.cols - 1,
+            right: true,
+        };
+        cx.write_to_primary(ClipboardItem::new_string(selection.text(&snapshot)));
+        self.selection = Some(selection);
+        cx.notify();
+    }
+
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        self.selection = None;
+        cx.notify();
+    }
+
+    /// What the pane's menu offers for a point in the window: the web address under it, the finished command block
+    /// under it, and whether the pane holds a selection with text in it.
+    pub fn menu_context(&self, at: Point<Pixels>) -> MenuContext {
+        let has_text = |snapshot: &TerminalSnapshot| {
+            self.selection
+                .as_ref()
+                .is_some_and(|selection| !selection.text(snapshot).is_empty())
+        };
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return MenuContext::default();
+        };
+        let (_, row, col) = self.pos_at(at.x, at.y);
+        let link = clanky::window_tools::url_at(snapshot, row, col)
+            .map(|hit| hit.url)
+            .filter(|url| clanky::window_tools::valid_url(url));
+        let block = clanky_state::blocks::matched_blocks(snapshot, &self.blocks)
+            .into_iter()
+            .find(|card| !card.running && card.first_row <= row && row <= card.last_row)
+            .map(|card| Block {
+                id: card.id,
+                command: card.command.trim().to_owned(),
+            });
+        MenuContext {
+            link,
+            block,
+            selection: has_text(snapshot),
+            ..MenuContext::default()
         }
     }
 
