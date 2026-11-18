@@ -127,11 +127,7 @@ pub fn git_branch(dir: &Path) -> Option<String> {
         } else if git.is_file() {
             std::fs::read_to_string(&git)
                 .ok()
-                .and_then(|text| {
-                    text.trim()
-                        .strip_prefix("gitdir:")
-                        .map(|d| folder.join(d.trim()))
-                })
+                .and_then(|text| text.trim().strip_prefix("gitdir:").map(|d| folder.join(d.trim())))
                 .and_then(|linked| std::fs::read_to_string(linked.join("HEAD")).ok())
         } else {
             None
@@ -545,11 +541,9 @@ mod tests {
         let inner = root.join("repo/src/deep");
         std::fs::create_dir_all(&inner).expect("a scratch folder in the temp dir");
         std::fs::create_dir_all(root.join("repo/.git")).expect("a scratch folder in the temp dir");
-        std::fs::write(root.join("repo/.git/HEAD"), "ref: refs/heads/gpui-g2\n")
-            .expect("writing a scratch file");
+        std::fs::write(root.join("repo/.git/HEAD"), "ref: refs/heads/gpui-g2\n").expect("writing a scratch file");
         assert_eq!(git_branch(&inner).as_deref(), Some("gpui-g2"));
-        std::fs::write(root.join("repo/.git/HEAD"), "9983a68f00d1\n")
-            .expect("writing a scratch file");
+        std::fs::write(root.join("repo/.git/HEAD"), "9983a68f00d1\n").expect("writing a scratch file");
         assert_eq!(git_branch(&inner).as_deref(), Some("9983a68"));
         std::fs::remove_dir_all(&root).expect("removing the scratch folder");
     }

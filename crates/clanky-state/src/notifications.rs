@@ -50,40 +50,25 @@ impl NotificationTracker {
 
     /// The latest completed retained block; active blocks must be queried again.
     pub fn cursor(&self, tab_id: &str) -> Option<String> {
-        self.tabs
-            .get(tab_id)
-            .filter(|state| state.initialized && state.completed_through > 0)
+        self.tabs.get(tab_id).filter(|state| state.initialized && state.completed_through > 0)
             .map(|state| format!("b{}", state.completed_through))
     }
 
     /// Discard a cursor after eviction or when a terminal closes.
-    pub fn forget(&mut self, tab_id: &str) {
-        self.tabs.remove(tab_id);
-    }
+    pub fn forget(&mut self, tab_id: &str) { self.tabs.remove(tab_id); }
 
     pub fn retain(&mut self, ids: &[String]) {
         self.tabs.retain(|id, _| ids.contains(id));
     }
 
     /// Poll owner-only metadata, without transferring terminal text or output.
-    pub fn poll_client(
-        &mut self,
-        client: &clanky_api::Client,
-        ids: &[String],
-        threshold: u64,
-        window_focused: bool,
-        focused: Option<&str>,
-    ) -> Result<(), String> {
+    pub fn poll_client(&mut self, client: &clanky_api::Client, ids: &[String], threshold: u64, window_focused: bool, focused: Option<&str>) -> Result<(), String> {
         self.retain(ids);
         for id in ids {
             let mut after = self.cursor(id);
             let mut reset = false;
             for _ in 0..=1024 {
-                let result = client.request(
-                    "v3.block_events",
-                    &serde_json::json!({"tab_id":id,"after":after,"limit":64}),
-                    true,
-                );
+                let result = client.request("v3.block_events", &serde_json::json!({"tab_id":id,"after":after,"limit":64}), true);
                 let page = match result {
                     Ok(page) => page,
                     Err(e) if e.code == "not_found" && after.is_some() && !reset => {
@@ -95,22 +80,11 @@ impl NotificationTracker {
                     Err(e) if e.code == "not_found" => break,
                     Err(e) => return Err(e.message),
                 };
-                let more = page["has_more"]
-                    .as_bool()
-                    .ok_or("invalid block event page")?;
-                for notice in self.poll(id, &page, threshold, window_focused, focused) {
-                    notice.send();
-                }
-                if !more {
-                    break;
-                }
-                let next = page["next_after"]
-                    .as_str()
-                    .ok_or("missing block event cursor")?
-                    .to_owned();
-                if after.as_deref() == Some(&next) {
-                    return Err("block event cursor did not advance".into());
-                }
+                let more = page["has_more"].as_bool().ok_or("invalid block event page")?;
+                for notice in self.poll(id, &page, threshold, window_focused, focused) { notice.send(); }
+                if !more { break; }
+                let next = page["next_after"].as_str().ok_or("missing block event cursor")?.to_owned();
+                if after.as_deref() == Some(&next) { return Err("block event cursor did not advance".into()); }
                 after = Some(next);
             }
         }
@@ -135,17 +109,14 @@ impl NotificationTracker {
             return Vec::new();
         };
         // Retain references/metadata only; never clone command or output bytes.
-        let mut completed: Vec<_> = blocks
-            .iter()
-            .filter_map(|block| {
-                if block.get("complete").and_then(Value::as_bool) != Some(true) {
-                    return None;
-                }
-                let id = block.get("block_id")?.as_str()?;
-                let sequence = id.strip_prefix('b')?.parse::<u64>().ok()?;
-                Some((sequence, id, block))
-            })
-            .collect();
+        let mut completed: Vec<_> = blocks.iter().filter_map(|block| {
+            if block.get("complete").and_then(Value::as_bool) != Some(true) {
+                return None;
+            }
+            let id = block.get("block_id")?.as_str()?;
+            let sequence = id.strip_prefix('b')?.parse::<u64>().ok()?;
+            Some((sequence, id, block))
+        }).collect();
         completed.sort_unstable_by_key(|(sequence, _, _)| *sequence);
 
         let state = self.tabs.entry(tab_id.to_owned()).or_default();
@@ -160,16 +131,13 @@ impl NotificationTracker {
             let focus = block.get("focused_tab_at_completion");
             if !matches!(focus, Some(Value::Null) | Some(Value::String(_)))
                 || focus.and_then(Value::as_str) == Some(tab_id)
-                || !eligible
-                || !block
-                    .get("duration_ms")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|ms| u128::from(ms) >= threshold_ms)
+                || !eligible || !block.get("duration_ms")
+                .and_then(Value::as_u64)
+                .is_some_and(|ms| u128::from(ms) >= threshold_ms)
             {
                 continue;
             }
-            let exit_code = block
-                .get("exit_code")
+            let exit_code = block.get("exit_code")
                 .and_then(Value::as_i64)
                 .and_then(|code| i32::try_from(code).ok());
             notifications.push(Notification {

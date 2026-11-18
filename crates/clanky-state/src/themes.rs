@@ -161,9 +161,9 @@ impl Theme {
         };
         let selection = match object.get("selection") {
             None | Some(Value::Null) => None,
-            Some(Value::String(text)) => Some(
-                parse_color(text).map_err(|_| "theme selection must be #rrggbb or #rrggbbaa")?,
-            ),
+            Some(Value::String(text)) => {
+                Some(parse_color(text).map_err(|_| "theme selection must be #rrggbb or #rrggbbaa")?)
+            }
             _ => return Err("theme selection must be a color".into()),
         };
         let theme = Self {
@@ -312,75 +312,51 @@ pub const BUILTINS: &[Builtin] = &[
         source: include_str!("../../../assets/themes/stone-light.json"),
     },
     Builtin {
-        id: "paper-dark",
-        name: "Paper",
-        appearance: Appearance::Dark,
+        id: "paper-dark", name: "Paper", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/paper-dark.json"),
     },
     Builtin {
-        id: "paper-light",
-        name: "Paper",
-        appearance: Appearance::Light,
+        id: "paper-light", name: "Paper", appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/paper-light.json"),
     },
     Builtin {
-        id: "graphite-dark",
-        name: "Graphite",
-        appearance: Appearance::Dark,
+        id: "graphite-dark", name: "Graphite", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/graphite-dark.json"),
     },
     Builtin {
-        id: "graphite-light",
-        name: "Graphite",
-        appearance: Appearance::Light,
+        id: "graphite-light", name: "Graphite", appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/graphite-light.json"),
     },
     Builtin {
-        id: "ink",
-        name: "Ink",
-        appearance: Appearance::Dark,
+        id: "ink", name: "Ink", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/ink.json"),
     },
     Builtin {
-        id: "catppuccin-latte",
-        name: "Catppuccin Latte",
-        appearance: Appearance::Light,
+        id: "catppuccin-latte", name: "Catppuccin Latte", appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/catppuccin-latte.json"),
     },
     Builtin {
-        id: "catppuccin-frappe",
-        name: "Catppuccin Frappé",
-        appearance: Appearance::Dark,
+        id: "catppuccin-frappe", name: "Catppuccin Frappé", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/catppuccin-frappe.json"),
     },
     Builtin {
-        id: "catppuccin-macchiato",
-        name: "Catppuccin Macchiato",
-        appearance: Appearance::Dark,
+        id: "catppuccin-macchiato", name: "Catppuccin Macchiato", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/catppuccin-macchiato.json"),
     },
     Builtin {
-        id: "catppuccin-mocha",
-        name: "Catppuccin Mocha",
-        appearance: Appearance::Dark,
+        id: "catppuccin-mocha", name: "Catppuccin Mocha", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/catppuccin-mocha.json"),
     },
     Builtin {
-        id: "ai-bedazzled",
-        name: "AI Bedazzled",
-        appearance: Appearance::Dark,
+        id: "ai-bedazzled", name: "AI Bedazzled", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/ai-bedazzled.json"),
     },
     Builtin {
-        id: "unicorn-tears",
-        name: "Unicorn Tears",
-        appearance: Appearance::Light,
+        id: "unicorn-tears", name: "Unicorn Tears", appearance: Appearance::Light,
         source: include_str!("../../../assets/themes/unicorn-tears.json"),
     },
     Builtin {
-        id: "unicorn-vomit",
-        name: "Unicorn Vomit",
-        appearance: Appearance::Dark,
+        id: "unicorn-vomit", name: "Unicorn Vomit", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/unicorn-vomit.json"),
     },
 ];
@@ -407,25 +383,12 @@ mod tests {
     #[test]
     fn builtin_documents() {
         let expected_ids = [
-            "stone-dark",
-            "stone-light",
-            "paper-dark",
-            "paper-light",
-            "graphite-dark",
-            "graphite-light",
-            "ink",
-            "catppuccin-latte",
-            "catppuccin-frappe",
-            "catppuccin-macchiato",
-            "catppuccin-mocha",
-            "ai-bedazzled",
-            "unicorn-tears",
-            "unicorn-vomit",
+            "stone-dark", "stone-light", "paper-dark", "paper-light",
+            "graphite-dark", "graphite-light", "ink", "catppuccin-latte",
+            "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+            "ai-bedazzled", "unicorn-tears", "unicorn-vomit",
         ];
-        assert_eq!(
-            BUILTINS.iter().map(|b| b.id).collect::<Vec<_>>(),
-            expected_ids
-        );
+        assert_eq!(BUILTINS.iter().map(|b| b.id).collect::<Vec<_>>(), expected_ids);
         for entry in BUILTINS {
             let theme = entry.load().unwrap();
             assert_eq!(theme.name, entry.name);
@@ -435,29 +398,16 @@ mod tests {
         }
         let palette: Value = serde_json::from_str(include_str!(
             "../../../assets/themes/upstream/catppuccin-palette.json"
-        ))
-        .unwrap();
+        )).unwrap();
         assert_eq!(palette["version"], "1.8.0");
         let mapping = [
-            ("sidebar", "crust"),
-            ("background", "base"),
-            ("card", "mantle"),
-            ("muted", "surface0"),
-            ("foreground", "text"),
-            ("muted_foreground", "subtext1"),
-            ("accent", "surface0"),
-            ("pressed", "surface1"),
-            ("border", "surface1"),
-            ("input", "surface2"),
-            ("ring", "overlay1"),
-            ("primary", "text"),
-            ("primary_foreground", "base"),
-            ("sidebar_accent", "surface0"),
-            ("ok", "green"),
-            ("err", "red"),
-            ("agent", "peach"),
-            ("robot_paint", "peach"),
-            ("primary_pressed", "subtext1"),
+            ("sidebar", "crust"), ("background", "base"), ("card", "mantle"),
+            ("muted", "surface0"), ("foreground", "text"),
+            ("muted_foreground", "subtext1"), ("accent", "surface0"),
+            ("pressed", "surface1"), ("border", "surface1"), ("input", "surface2"),
+            ("ring", "overlay1"), ("primary", "text"), ("primary_foreground", "base"),
+            ("sidebar_accent", "surface0"), ("ok", "green"), ("err", "red"),
+            ("agent", "peach"), ("robot_paint", "peach"), ("primary_pressed", "subtext1"),
         ];
         for flavour in ["latte", "frappe", "macchiato", "mocha"] {
             let mut theme = builtin(&format!("catppuccin-{flavour}")).unwrap();
@@ -466,54 +416,34 @@ mod tests {
             }
             let upstream = &palette[flavour];
             for (token, name) in mapping {
-                assert_eq!(
-                    theme.colors.get(token).unwrap(),
+                assert_eq!(theme.colors.get(token).unwrap(),
                     parse_color(upstream["colors"][name]["hex"].as_str().unwrap()).unwrap(),
-                    "{flavour} {token}"
-                );
+                    "{flavour} {token}");
             }
             for pair in upstream["ansiColors"].as_object().unwrap().values() {
                 for variant in ["normal", "bright"] {
                     let color = &pair[variant];
-                    assert_eq!(
-                        theme.ansi[color["code"].as_u64().unwrap() as usize],
-                        parse_color(color["hex"].as_str().unwrap()).unwrap()
-                    );
+                    assert_eq!(theme.ansi[color["code"].as_u64().unwrap() as usize],
+                        parse_color(color["hex"].as_str().unwrap()).unwrap());
                 }
             }
         }
         for (id, stops) in [
             ("ai-bedazzled", vec!["#4c1d95", "#1e3a8a"]),
             ("unicorn-tears", vec!["#fde2f3", "#e4dcff"]),
-            (
-                "unicorn-vomit",
-                vec![
-                    "#7a0019", "#7a3000", "#524000", "#005522", "#002a7a", "#4a0088",
-                ],
-            ),
+            ("unicorn-vomit", vec!["#7a0019", "#7a3000", "#524000", "#005522", "#002a7a", "#4a0088"]),
         ] {
             let theme = builtin(id).unwrap();
             assert!(theme.glow);
-            assert_eq!(
-                theme.window_gradient.unwrap(),
-                stops
-                    .into_iter()
-                    .map(|c| parse_color(c).unwrap())
-                    .collect::<Vec<_>>()
-            );
+            assert_eq!(theme.window_gradient.unwrap(), stops.into_iter().map(|c| parse_color(c).unwrap()).collect::<Vec<_>>());
         }
-        assert_eq!(
-            builtin("unicorn-tears").unwrap().colors.foreground,
-            [59, 42, 77, 255]
-        );
+        assert_eq!(builtin("unicorn-tears").unwrap().colors.foreground, [59, 42, 77, 255]);
         for entry in BUILTINS.iter().take(11) {
             let theme = entry.load().unwrap();
             assert!(!theme.glow);
             assert!(theme.window_gradient.is_none());
         }
-        println!(
-            "PASS: 14 built-ins load, complete ANSI palettes round-trip, four Catppuccin palettes match upstream, three joke gradients match design"
-        );
+        println!("PASS: 14 built-ins load, complete ANSI palettes round-trip, four Catppuccin palettes match upstream, three joke gradients match design");
     }
 
     // Literal expected channels are transcribed from the approved component
@@ -544,7 +474,7 @@ mod tests {
             [134, 190, 142, 255],
             [228, 132, 114, 255],
             [220, 164, 104, 255],
-            [107, 82, 54, 255],   // robot6, Stone dark #6b5236
+            [107, 82, 54, 255], // robot6, Stone dark #6b5236
             [214, 208, 200, 255], // approved primary_pressed #d6d0c8
         ];
         let expected_light = [
@@ -566,7 +496,7 @@ mod tests {
             [161, 73, 56, 255],
             [140, 89, 37, 255],
             [227, 192, 142, 255], // robot6, Stone light #e3c08e
-            [61, 56, 50, 255],    // approved primary_pressed #3d3832
+            [61, 56, 50, 255], // approved primary_pressed #3d3832
         ];
         for (theme, expected) in [(&dark, expected_dark), (&light, expected_light)] {
             for (token, rgba) in COLOR_TOKENS.iter().zip(expected) {
