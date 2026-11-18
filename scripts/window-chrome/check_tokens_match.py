@@ -81,7 +81,6 @@ def rulebook_pairs(book):
         ("radius_sm", "SMALL"),
         ("radius_md", "MEDIUM"),
         ("radius_lg", "LARGE"),
-        ("radius_xl", "PANE"),
         ("window", "WINDOW"),
     ):
         pairs.append(
@@ -155,10 +154,8 @@ def rulebook_pairs(book):
     ]
     pane = book["pane"]
     pairs += [
-        ("pane gap", pane["gap"]["px"], pane["gap"]["src"], "PANE_GAP"),
+        # Panes are flush: no gap, margin or radius token is left to compare; the divider is a hairline.
         ("pane padding", pane["padding"]["px"], pane["padding"]["src"], "PANE_PADDING"),
-        # The token module has one constant for the gap between panes and the window's edge too.
-        ("pane margin", pane["margin"]["px"], pane["margin"]["src"], "PANE_GAP"),
         (
             "side column width",
             pane["side_column_width"]["px"],

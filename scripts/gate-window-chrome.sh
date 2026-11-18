@@ -28,6 +28,7 @@ FAULTS=(
   "gate-controls.py:selected-segment-hover:hover-colour"
   "gate-design-tokens.py:tab-too-tall:tab-height"
   "gate-design-tokens.py:loose-literal:loose-numbers"
+  "gate-design-tokens.py:pane-rounded:pane-radius"
 )
 failed=0
 scratch=$(mktemp -d /srv/devops/build/window-chrome-gate.XXXXXX)

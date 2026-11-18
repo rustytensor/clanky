@@ -125,6 +125,8 @@ sys.argv = _argv
 q1, gm, t2 = q2.q1, q2.gm, q2.t2
 Fail, require, until, near = q1.Fail, q1.require, q1.until, q1.near
 W, H = 1400, 900
+# The meta row's right end: today's window's pane ends at the window's edge and its blocks pad 18 px [M].
+RIGHT, RIGHT_INSET = W, 18
 BG, LINE_BG, FAIL_LINE, ERR = (17, 17, 17), (41, 41, 41), (116, 72, 65), (236, 138, 124)
 MAG, CYAN, YEL, GRN = (255, 0, 255), (0, 255, 255), (255, 255, 0), (0, 255, 0)
 CW, CH = 9, 26
@@ -144,10 +146,13 @@ if GPUI:
     BG, ERR = _rgb(_theme['background']), _rgb(_theme['err'])
     LINE_BG = _over(BG, _rgb(_theme['foreground']), _block['divider_foreground_alpha']['value'])
     FAIL_LINE = _over(BG, ERR, _block['divider_failed_err_alpha']['value'])
-    # The pane's inside starts under the 40 px title bar, the 8 px margin and its one-pixel edge (the rulebook's
-    # h_title_bar and pane margin): the rows above it are the window's frame.
+    # Panes are flush (rulebook, "R1 flush"): the pane's inside starts under the 40 px title bar and the one-device-pixel
+    # divider below it; the rows above it are the window's frame. The pane reaches the window's right edge, and the
+    # meta row ends the pane padding (12) inside it.
     _tokens = json.loads((q2.REPO / 'scripts/window-chrome/rulebook-tokens.json').read_text())
-    TOP = _tokens['heights']['h_title_bar']['px'] + _tokens['pane']['margin']['px'] + 1
+    TOP = _tokens['heights']['h_title_bar']['px'] + _tokens['pane']['margin']['px'] + _tokens['pane']['divider']['device_px']
+    RIGHT = W - _tokens['pane']['margin']['px']
+    RIGHT_INSET = _tokens['pane']['padding']['px']
 MID = (236 + W) // 2
 E = '\x1b'
 BASE = dict(q1.BASE, theme='dark', theme_dark='graphite-dark')
@@ -328,7 +333,7 @@ def meta_fails(words, x1col, stamps, exit_code, dur):
         bad.add('folder')
     if not any(any(s in w[0] for s in stamps) and (not folder or w[1] > folder[1]) and w[3] < MID for w in words):
         bad.add('time')
-    if not (W - 18 - 10 <= max(w[3] for w in words) <= W - 18 + 3):
+    if not (RIGHT - RIGHT_INSET - 10 <= max(w[3] for w in words) <= RIGHT - RIGHT_INSET + 3):
         bad.add('right edge')
     right = ' '.join(w[0] for w in words if w[1] > MID)
     if exit_code is None:
@@ -356,7 +361,7 @@ def meta_check(im, box, x1col, stamps, exit_code, dur, label):
     require(meta_ok(reads, x1col, stamps, exit_code, dur),
             f'M1 {label} meta row: folder alpha and {"/".join(sorted(stamps))} on the left, '
             f'{"exit " + str(exit_code) + " then " if exit_code else ""}duration'
-            f'{" %.1f-%.1f s" % dur if dur else ""} on the right edge (x 1372-1385) '
+            f'{" %.1f-%.1f s" % dur if dur else ""} on the right edge (x {RIGHT - RIGHT_INSET - 10}-{RIGHT - RIGHT_INSET + 3}) '
             f'(read {[" ".join(f"{w[0]}@{int(w[1])}-{int(w[3])}" for w in sorted(r, key=lambda w: w[1])) for r in reads]!r})')
 
 
