@@ -9,7 +9,6 @@ chrome_harness.py), with the theme named in its settings file. Writes DIR/<theme
 """
 
 import argparse
-import os
 import shutil
 import sys
 from pathlib import Path
