@@ -55,7 +55,7 @@
     "radius_sm": {"px": 6, "use": "menu items, chips inside a bar, swatches", "src": "rulebook:77"},
     "radius_md": {"px": 8, "use": "tabs, buttons in bars, fields, the block toolbar", "src": "rulebook:78"},
     "radius_lg": {"px": 10, "use": "menus, palette, settings cards, dialogs", "src": "rulebook:79"},
-    "radius_xl": {"px": 14, "use": "panes", "src": "rulebook:80"},
+    "radius_xl": {"px": 14, "use": "none since panes are flush (rulebook:266-268)", "src": "rulebook:80"},
     "window": {"px": 12, "use": "the window itself", "src": "rulebook:81"}
   },
   "spacing_steps": {"px": [2, 4, 6, 8, 12, 16, 24, 32], "src": "rulebook:87"},
@@ -76,10 +76,11 @@
     "h_dialog_header": {"px": 44, "src": "rulebook:101"}
   },
   "pane": {
-    "gap": {"px": 8, "src": "rulebook:103"},
-    "margin": {"px": 8, "src": "rulebook:228"},
-    "padding": {"px": 12, "src": "rulebook:103"},
-    "radius": {"px": 14, "src": "rulebook:80"},
+    "gap": {"px": 0, "use": "panes are flush: no gap between panes", "src": "rulebook:266-268"},
+    "margin": {"px": 0, "use": "panes are flush: no margin at the window's edge", "src": "rulebook:266-268"},
+    "padding": {"px": 12, "src": "rulebook:103,268"},
+    "radius": {"px": 0, "use": "panes are flush: square corners; only the window keeps its radius", "src": "rulebook:266-268"},
+    "divider": {"device_px": 1, "use": "one hairline in the border colour between flush neighbours", "src": "rulebook:266-267"},
     "border_alpha": {"value": 0.09, "src": "rulebook:46"},
     "border_width": {"device_px": 1, "src": "rulebook:107,160-161,242-243"},
     "side_column_width": {"px": 236, "src": "rulebook:103"}

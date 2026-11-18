@@ -179,9 +179,10 @@ INPUT_MIN_INK_PIXELS = (
     30  # a chevron alone is about 14; a caret block or placeholder text is far more
 )
 INK_SEARCH_COLUMNS = (
-    0.2,
+    0.19,
     0.95,
-)  # the share of the window's width the hairline and bands are read across
+)  # the share of the window's width the hairline and bands are read across: from 243 px at 1280, right of the tools
+# panel and its divider (237) and left of the flush pane's text (249)
 
 
 def tokens():
@@ -189,10 +190,11 @@ def tokens():
 
 
 def inside_bottom(shot):
-    """The lower pane's inside bottom row: the window height minus the status line, the pane margin and its border."""
+    """The row under the lower pane's inside: the window height minus the status line and the pane margin. Panes are
+    flush (rulebook, "R1 flush"): the margin is 0 and a pane has no border of its own."""
     book = tokens()
     chrome = book["heights"]["h_status"]["px"] + book["pane"]["margin"]["px"]
-    return shot.height - chrome * SCALE - book["pane"]["border_width"]["device_px"]
+    return shot.height - chrome * SCALE
 
 
 def hairline_colour(background):
@@ -433,11 +435,10 @@ def command_draw(arguments):
 
 APP_ID = "clanky"  # the window's application id: the desktop file's StartupWMClass and the icon name
 DEFAULT_WINDOW_SIZE = (1280, 720)
-PANE_LEFT, PANE_RIGHT = (
-    245,
-    1271,
-)  # the default window's panes beside the tools panel, at 1280 px wide
-PANE_TOPS = (49, 369)  # logical px: the upper and lower pane's top edge
+# The default window's flush panes beside the tools panel (236 px and its divider), at 1280 x 720: the title bar
+# (40) and its divider above, the status line (32) below, one divider row between the two 323 px panes.
+PANE_LEFT, PANE_RIGHT = (237, 1279)
+PANE_TOPS = (41, 365)  # logical px: the upper and lower pane's top edge
 FRAME_GREY = 29
 
 
@@ -454,7 +455,7 @@ def command_draw_default(arguments):
     )
     ascender = check_cells.Font(SCALE).ascender
     bottom = inside_bottom(Image_shot(image, background))
-    pane_bottoms = (PANE_TOPS[1] - 10, bottom + 1)
+    pane_bottoms = (PANE_TOPS[1] - 2, bottom - 1)
     line = tuple(round(c) for c in hairline_colour(background))
     for top, end in zip(PANE_TOPS, pane_bottoms):
         draw.rectangle((PANE_LEFT, top, PANE_RIGHT, end), fill=background)
@@ -483,16 +484,16 @@ def command_draw_default(arguments):
     input_top = hair + 44
     typed = arguments.stage == "typed" or arguments.fault == "typed-not-sent"
     draw.polygon(
-        [(262, input_top + 4), (268, input_top + 10), (262, input_top + 16)],
+        [(254, input_top + 4), (260, input_top + 10), (254, input_top + 16)],
         fill=(70, 110, 220),
     )
     if typed:
-        write(f"echo {WORD}", 279, input_top)
+        write(f"echo {WORD}", 271, input_top)
     else:
-        draw.rectangle((279, input_top, 289, input_top + 18), fill=foreground)
+        draw.rectangle((271, input_top, 281, input_top + 18), fill=foreground)
     if arguments.stage == "output" and arguments.fault != "typed-not-sent":
-        write(f"echo {WORD}", 257, hair - 160)
-        write(WORD, 257, hair - 160 + geometry["line_height"])
+        write(f"echo {WORD}", 249, hair - 160)
+        write(WORD, 249, hair - 160 + geometry["line_height"])
     image.save(arguments.out)
     return 0
 
