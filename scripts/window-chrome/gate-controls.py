@@ -87,6 +87,13 @@ FAULTS = {
     "page-control-out-of-tab-order": "tab-order",
 }
 SIMULATE = "--simulate" in ARGS
+if (
+    SIMULATE
+):  # a simulated window answers at once: pauses move a clock, they do not wait
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import virtual_clock
+
+    virtual_clock.install()
 SETTINGS = "--settings" in ARGS  # the simulation includes G4's Settings window
 FLOATING = "--floating" in ARGS  # the simulation includes G3's floating screens
 SCALES = [float(v) for v in arg("--scales", "1,1.5").split(",")]
@@ -1110,7 +1117,9 @@ class Screen:
                     gi, go = grey(a, ix, iy), grey(a, ox, oy)
                     edge = border_blend(c, want)
                     if side in ("left", "right"):
-                        edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (edge - bg)
+                        edge = bg + side_coverage((x, y, w, h), exact, ix, iy) * (
+                            edge - bg
+                        )
                     self.ok(
                         "whole-pixels",
                         near(gi, edge) and near(go, bg),

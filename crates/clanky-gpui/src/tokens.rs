@@ -43,8 +43,6 @@ pub const RADIUS_SMALL: f32 = 6.0;
 pub const RADIUS_MEDIUM: f32 = 8.0;
 /// Menus, the palette, settings cards, dialogs.
 pub const RADIUS_LARGE: f32 = 10.0;
-/// Panes.
-pub const RADIUS_PANE: f32 = 14.0;
 /// The window itself, where Clanky draws its own frame.
 pub const RADIUS_WINDOW: f32 = 12.0;
 /// Each control's corner, by the containment rule: buttons and icon buttons at every size, fields, list rows and
@@ -130,10 +128,11 @@ pub const SWITCH_CONTROL_WIDTH: f32 = 40.0;
 pub const SIDE_COLUMN_WIDTH: f32 = 236.0;
 /// The command palette.
 pub const PALETTE_WIDTH: f32 = 560.0;
-/// The window colour between panes, and between the side column and the panes.
-pub const PANE_GAP: f32 = SPACE_8;
-/// Between the panes and the window's edge: the pane gap too.
-pub const PANE_MARGIN: f32 = PANE_GAP;
+/// Panes sit flush, square-cornered, edge to edge with each other and with the panels around them; one hairline in
+/// the border colour divides each from the next. The pointer grabs a divider anywhere in this width around it.
+pub const DIVIDER_HIT_WIDTH: f32 = SPACE_8;
+/// Inside the side column, around its header and list.
+pub const SIDE_COLUMN_PADDING: f32 = SPACE_8;
 /// Inside each pane, around the terminal grid.
 pub const PANE_PADDING: f32 = SPACE_12;
 /// A list row: indent per level, chevron, icon, and the gap between them.

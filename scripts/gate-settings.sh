@@ -11,6 +11,8 @@
 #   CLANKY_GPUI_BIN=PATH or target/release/clanky-gpui, under the gate lock.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=parallel-jobs.sh
+source scripts/parallel-jobs.sh
 
 CHROME=scripts/window-chrome
 FLOATING=scripts/floating
@@ -36,12 +38,12 @@ trap 'rm -rf -- "${scratch:?}"' EXIT
 ok() { echo "ok: $*"; }
 fail() { echo "FAIL: $*"; failed=1; }
 
-# run_gate GATE ARGS...: runs one gate script on the simulated Settings window; sets output and status.
-run_gate() {
-  local gate=$1
-  shift
-  status=0
-  output=$(python3 "$CHROME/$gate" --simulate --settings --scales "$SCALES" "$@" 2>&1) || status=$?
+# queue_gate NAME GATE ARGS...: starts one gate script on the simulated Settings window in the background; take_job NAME
+# then sets output and status from it.
+queue_gate() {
+  local name=$1 gate=$2
+  shift 2
+  start_job "$name" python3 "$CHROME/$gate" --simulate --settings --scales "${JOB_SCALES:-$SCALES}" "$@"
 }
 
 if [[ ${1:-} == --faults ]]; then
@@ -54,17 +56,31 @@ if [[ ${1:-} == --faults ]]; then
       if python3 "$SETTINGS/expected_settings.py" --scale "$scale" --theme "$theme" >/dev/null; then ok "expected values for $theme at scale $scale"; else fail "expected values for $theme at scale $scale"; fi
     done
   done
-  run_gate gate-controls.py --screens "$SCREENS"
+  JOB_DIR=$scratch
+  good_jobs=()
+  IFS=, read -r -a good_screens <<<"$SCREENS"
+  for scale in 1 1.5; do
+    for screen in "${good_screens[@]}"; do
+      good_jobs+=("controls-$scale-$screen")
+      JOB_SCALES=$scale queue_gate "controls-$scale-$screen" gate-controls.py --screens "$screen"
+    done
+  done
+  queue_gate design gate-design-tokens.py --sources "$CHROME/fixtures/clean.rs"
+  for index in "${!FAULTS[@]}"; do
+    IFS=: read -r gate fault screens check <<<"${FAULTS[$index]}"
+    extra=(--fault "$fault")
+    if [[ $gate == gate-controls.py ]]; then extra+=(--screens "$screens"); else extra+=(--sources "$CHROME/fixtures/clean.rs"); fi
+    queue_gate "fault-$index" "$gate" "${extra[@]}"
+  done
+  take_jobs "${good_jobs[@]}"
   if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate passes the simulated Settings pages"; else fail "controls gate on the good window: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
-  run_gate gate-design-tokens.py --sources "$CHROME/fixtures/clean.rs"
+  take_job design
   if ((status == 0)) && [[ $output == *"PASS: design tokens"* ]]; then ok "design gate passes the simulated Settings window"; else fail "design gate on the good window: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
   caught=0
   extra_faults=0
-  for entry in "${FAULTS[@]}"; do
-    IFS=: read -r gate fault screens check <<<"$entry"
-    extra=(--fault "$fault")
-    if [[ $gate == gate-controls.py ]]; then extra+=(--screens "$screens"); else extra+=(--sources "$CHROME/fixtures/clean.rs"); fi
-    run_gate "$gate" "${extra[@]}"
+  for index in "${!FAULTS[@]}"; do
+    IFS=: read -r gate fault screens check <<<"${FAULTS[$index]}"
+    take_job "fault-$index"
     if ((status != 0)) && grep -q "^FAIL: $check " <<<"$output"; then
       echo "CAUGHT: $fault by $check ($gate)"
       caught=$((caught + 1))

@@ -2,7 +2,7 @@
 """T1 gate: darker dark themes, a new Ink theme, readable joke themes (Marc approved 2026-11-12).
 
 Input: clanky-theme-gate --palettes (the real built-in loader). Expected values, fixed before the work:
-- Built-in IDs, in this order: EXPECTED_IDS (14 themes, Ink after Graphite).
+- Built-in IDs, in this order: EXPECTED_IDS (18 themes: Neutral and Zinc after Graphite, then Ink).
 - Pane backgrounds: APPROVED_BACKGROUNDS, the values on the approved mockup.
 - Gradients: APPROVED_GRADIENTS for the two joke themes.
 - Every theme except Catppuccin (upstream colours, kept exactly): every interface text pair of the M12
@@ -22,12 +22,14 @@ m12 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m12)
 
 EXPECTED_IDS = [
-    'stone-dark', 'stone-light', 'paper-dark', 'paper-light', 'graphite-dark', 'graphite-light', 'ink',
+    'stone-dark', 'stone-light', 'paper-dark', 'paper-light', 'graphite-dark', 'graphite-light',
+    'neutral-dark', 'neutral-light', 'zinc-dark', 'zinc-light', 'ink',
     'catppuccin-latte', 'catppuccin-frappe', 'catppuccin-macchiato', 'catppuccin-mocha',
     'ai-bedazzled', 'unicorn-tears', 'unicorn-vomit',
 ]
 APPROVED_BACKGROUNDS = {
     'ink': '#121212', 'stone-dark': '#141210', 'paper-dark': '#1f1c17', 'graphite-dark': '#111111',
+    'neutral-dark': '#0a0a0a', 'zinc-dark': '#09090b',
 }
 APPROVED_GRADIENTS = {
     'unicorn-vomit': ['#7a0019', '#7a3000', '#524000', '#005522', '#002a7a', '#4a0088'],
