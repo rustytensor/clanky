@@ -444,6 +444,28 @@ def run_first_command(win):
     time.sleep(0.5)
 
 
+def first_word(a, box, bg, scale):
+    """The part of box up to the end of its first word: the meta row starts with the folder ("~/HIH", flat-topped
+    capitals), and its clock and duration digits that follow change from run to run. Round digits (0, 3, 5, 8) rise
+    above the cap height, so measured with them the height depended on the time of day. Letters in a word stand at
+    most 2 px apart at 10 px; the meta row's words stand 4 or 8 px apart, so a gap of 3 logical px ends the word."""
+    import numpy as np
+
+    x0, y0, x1, y1 = box
+    d = np.abs(a[y0 : y1 + 1, x0 : x1 + 1] - np.array(bg)).max(axis=2)
+    inked = d.max(axis=0) >= max(12, 0.25 * d.max())
+    columns = np.where(inked)[0]
+    if columns.size == 0:
+        return box
+    gap = round(3 * scale)
+    end = columns[0]
+    for c in columns[1:]:
+        if c - end > gap:
+            break
+        end = c
+    return (x0, y0, x0 + int(end) + 1, y1)
+
+
 def window_checks(win, e):
     run_first_command(win)
     a = win.shot("main")
@@ -562,13 +584,16 @@ def window_checks(win, e):
 
     def meta():
         box = landmark(win, "meta-text")
+        bg = e_rgb(e, "background")
         text_check(
             "text-meta-cap-height",
             e["cap_heights"]["text_meta"]["device"],
             pixels.ink_height(
                 a,
-                (box[0], box[1], box[0] + box[2], box[1] + box[3]),
-                e_rgb(e, "background"),
+                first_word(
+                    a, (box[0], box[1], box[0] + box[2], box[1] + box[3]), bg, win.scale
+                ),
+                bg,
             ),
             e["cap_heights"]["text_meta"]["tolerance_px"],
         )
