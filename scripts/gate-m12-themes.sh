@@ -11,7 +11,7 @@ export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}
 mkdir -p "$CARGO_TARGET_DIR"
 export CARGO_TARGET_DIR=$(realpath "$CARGO_TARGET_DIR")
 flock "${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}" \
-    cargo build --offline --locked -j 8 -p clanky --bin clanky-theme-gate
+    cargo build --offline --locked -j 8 -p clanky-gate-tools --bin clanky-theme-gate
 status=0
 if [[ $mode != --storage-only ]]; then
     "$CARGO_TARGET_DIR/debug/clanky-theme-gate" --palettes | python3 scripts/gate-m12-theme-contrast.py || status=1

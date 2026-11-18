@@ -1,5 +1,5 @@
 # stem<TAB>why gate-parity.sh does not run it on its own: another gate runs it, it is a step of gate-parity, or it is a helper.
-gate-m3	Run by gate-m5 (through gate-m4). It starts the headless server and checks real PTY observations, which apply; its last step, gate-m2, retires
+gate-m3	Run by gate-m5 (through gate-m4). It starts the headless server and checks real PTY observations
 gate-m4	Run by gate-m5
 gate-m6-masking	Run by gate-m5
 gate-m7-core	Run by gate-m5

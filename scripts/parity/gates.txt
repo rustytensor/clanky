@@ -3,13 +3,13 @@ gate-terminal-pane	CLANKY_GATE_SPEED_PENDING=1 scripts/gate-terminal-pane.sh	G1:
 gate-window-chrome	scripts/gate-window-chrome.sh	G2: the design tokens and the controls on the main window; also runs gate-c5-panes, gate-mouse, gate-q2-input, gate-q4-blocks and gate-m12-clicks' chrome steps on the new window
 gate-floating	scripts/gate-floating.sh	G3: command palette, agent picker, completion list and find bar
 gate-settings	scripts/gate-settings.sh	G4: Settings pages, their controls and the config round trip
-gate-m5	scripts/gate-m5.sh	M5 milestone: the API, screen reading, events and the MCP server; runs M4 first (which runs M3, then M2 and M1), then the masker, editor-core and Linux packaging gates
+gate-m5	scripts/gate-m5.sh	M5 milestone: the API, screen reading, events and the MCP server; runs M4 first (which runs M3), then the masker, editor-core and Linux packaging gates
 gate-m9	scripts/gate-m9.sh	The text-mode editor through a PTY
 gate-m12-postai	scripts/gate-m12-postai.sh	Post-AI mode through the server and the owner API
 gate-h1-history	scripts/gate-h1-history.sh	Saved command history through a real server and shell
 gate-polish-session	scripts/gate-polish-session.sh	Session behaviour on a private bus and a fresh server
-gate-terminal-cwd	scripts/gate-terminal-cwd.sh	The shell integration that reports the working folder
-gate-m12-themes	scripts/gate-m12-themes.sh	Theme storage round trips and text contrast of every built-in theme (builds clanky-theme-gate from the old crate, which has to move before that crate goes)
-gate-t1-themes	scripts/gate-t1-themes.sh	The built-in theme list, the pane backgrounds, the gradients and the contrast of every theme but Catppuccin (no window; it builds clanky-theme-gate from the old crate, which has to move before that crate goes)
-gate-m11-look	scripts/gate-m11-look.sh	Opacity and the invalid-value error through the config loader (its layout parts retire with the old window)
+gate-terminal-cwd	scripts/gate-terminal-cwd.sh	The shell integration that reports the working folder (its helper, clanky-cwd-gate, stays in the old crate: it runs the session server through clanky::session::run_server, which moves with the server)
+gate-m12-themes	scripts/gate-m12-themes.sh	Theme storage round trips and text contrast of every built-in theme (clanky-theme-gate is built from clanky-gate-tools)
+gate-t1-themes	scripts/gate-t1-themes.sh	The built-in theme list, the pane backgrounds, the gradients and the contrast of every theme but Catppuccin (no window; clanky-theme-gate is built from clanky-gate-tools)
+gate-m11-look	scripts/gate-m11-look.sh	Opacity and the invalid-value error through the config loader (its layout parts retire with the old window; its helper, clanky-look-gate, draws the old window's scene and stays in the old crate until it goes)
 gate-bump-version	scripts/gate-bump-version.sh	The version bump script on a scratch clone

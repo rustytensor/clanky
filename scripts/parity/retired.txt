@@ -1,6 +1,6 @@
 # stem<TAB>why it is retired. These gates drive the old window or the old renderer; the gate that replaces each is named.
 gate-m1	Pixels of the old wgpu renderer; replaced by the cells checks of gate-terminal-pane
-gate-m2	Pixels of the old wgpu renderer (it includes M1); replaced by gate-terminal-pane. gate-m3.py:280 still calls it and must stop
+gate-m2	Pixels of the old wgpu renderer (it includes M1); replaced by gate-terminal-pane. No gate calls it any more
 gate-m12-calm	Declares itself partial and measures the old window's calm scene; replaced by gate-window-chrome and gate-floating
 gate-m12-copy	Fixed pixel coordinates of the old window; replaced by the controls gate of gate-window-chrome
 gate-m12-settings	Geometry of the old Settings panel; replaced by gate-settings

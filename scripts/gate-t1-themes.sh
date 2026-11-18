@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 export CARGO_HOME=${CARGO_HOME:-/srv/devops/cache/clanky-cargo}
 export CARGO_TARGET_DIR=$(realpath -m "${CARGO_TARGET_DIR:-$PWD/target}")
 flock "${CLANKY_BUILD_LOCK:-/srv/devops/build/clanky/.build.lock}" \
-    cargo build -q --offline --locked -j 8 -p clanky --bin clanky-theme-gate
+    cargo build -q --offline --locked -j 8 -p clanky-gate-tools --bin clanky-theme-gate
 palettes=$("$CARGO_TARGET_DIR/debug/clanky-theme-gate" --palettes)
 if [[ ${1:-} == --faults ]]; then
     caught=0
