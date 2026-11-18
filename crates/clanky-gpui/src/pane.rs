@@ -24,6 +24,7 @@ use serde_json::Value;
 
 mod blocks;
 mod command;
+mod find;
 
 pub use command::SharedInput;
 
@@ -81,6 +82,8 @@ pub struct TerminalPane {
     /// The size last sent to the server, so a resize is sent once per change.
     size_sent: (usize, usize),
     selection: Option<Selection>,
+    /// The find bar's matches on the grid.
+    found: Vec<clanky_state::pane_find::Run>,
     selecting: bool,
     clicks: Clicks,
     /// The button held while the program receives mouse reports, and the cell last reported.
@@ -177,6 +180,7 @@ impl TerminalPane {
             metrics: Rc::new(Shared::new(Metrics::default())),
             size_sent: setup.size_sent,
             selection: None,
+            found: Vec::new(),
             selecting: false,
             clicks: Clicks::default(),
             reporting_button: None,
@@ -633,6 +637,7 @@ impl Render for TerminalPane {
             palette: self.palette.clone(),
             text: self.text.clone(),
             selection,
+            found: self.found_fills(),
             focus: self.focus.clone(),
             metrics: self.metrics.clone(),
             // The command input has the caret while it takes keys; the shell's empty prompt shows none.
@@ -655,6 +660,7 @@ impl Render for TerminalPane {
             .child(grid)
             .children(drawn.overlay)
             .children(self.text_landmark(window))
+            .children(self.found_landmark())
             .children(self.notice.clone().map(|notice| {
                 div()
                     .absolute()

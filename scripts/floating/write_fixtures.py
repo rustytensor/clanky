@@ -23,7 +23,7 @@ OPENERS = {
     "palette": lambda win: win.key("ctrl+shift+p"),
     "agent-picker": lambda win: win.key("ctrl+shift+g"),
     "completion-list": lambda win: (win.type("ls scripts/gate-m"), win.key("Tab")),
-    "find-bar": lambda win: (win.key("ctrl+f"), win.type("g1")),
+    "find-bar": lambda win: (win.key("ctrl+shift+f"), win.type("g1")),
     "context-menu": lambda win: win.x("click", "3"),
 }
 

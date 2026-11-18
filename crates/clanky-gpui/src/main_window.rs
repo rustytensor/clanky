@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 
 mod command_bar;
 mod drag;
+mod find_bar;
 mod floating;
 #[cfg(feature = "test-popover")]
 mod test_popover;
@@ -132,6 +133,8 @@ pub struct MainWindow {
     inputs: Option<SharedInput>,
     /// The floating screen open above the panes, if any.
     popover: Popover,
+    /// The pane's find bar while it is open.
+    find: Option<find_bar::FindBar>,
     _status: Task<()>,
 }
 
@@ -203,6 +206,7 @@ impl MainWindow {
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
             popover: Popover::default(),
+            find: None,
             _status: status,
         };
         this.after_change(window, cx);

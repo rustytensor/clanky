@@ -337,6 +337,13 @@ class RealWindow:
             line if isinstance(line, str) else line.get("text", "") for line in lines
         )
 
+    def text_count(self, text):
+        """How many times `text` stands in the pane that holds it most, from the server's copy of every pane's text
+        (history and screen), independent of the window's find bar."""
+        tabs = self.owner.call(1, "list_tabs")["tabs"]
+        ids = [t.get("tab_id", t.get("id")) if isinstance(t, dict) else t for t in tabs]
+        return max((self.pane_text(pane).count(text) for pane in ids), default=0)
+
     def close(self):
         if self.server:
             try:

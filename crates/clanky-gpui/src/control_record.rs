@@ -213,6 +213,8 @@ struct Frame {
     controls: Vec<Entry>,
     parts: BTreeMap<(&'static str, u32, Part), DeviceBox>,
     landmarks: BTreeMap<(&'static str, u32), DeviceBox>,
+    /// The words a landmark shows, for the landmarks that carry text.
+    landmark_texts: BTreeMap<(&'static str, u32), String>,
     /// Each open popover's `popover` object, by the screen it belongs to.
     popovers: BTreeMap<&'static str, Value>,
     keyboard: bool,
@@ -377,6 +379,30 @@ impl ControlRecord {
             .size_full()
             .child(overlay)
             .into_any_element()
+    }
+
+    /// A landmark that also records the words it shows (`text` in its line).
+    pub fn landmark_with_text(&self, name: &'static str, index: u32, text: String) -> AnyElement {
+        if let Some(writer) = &self.0 {
+            writer
+                .borrow_mut()
+                .frame
+                .landmark_texts
+                .insert((name, index), text);
+        }
+        self.landmark(name, index)
+    }
+
+    /// A landmark not on screen in this frame: written as an empty box at the window's corner, unless something drawn
+    /// later in the frame measures it.
+    pub fn landmark_absent(&self, name: &'static str, index: u32) {
+        if let Some(writer) = &self.0 {
+            writer
+                .borrow_mut()
+                .frame
+                .landmarks
+                .insert((name, index), [0, 0, 0, 0]);
+        }
     }
 
     /// A measuring child for a popover: place it, absolute and full size, inside the element that holds the popover's
@@ -550,10 +576,12 @@ impl Writer {
             .landmarks
             .iter()
             .map(|((name, index), measured)| {
-                (
-                    format!("landmark {name} {index}"),
-                    json!({"record": "landmark", "name": name, "index": index, "box": measured}),
-                )
+                let mut line =
+                    json!({"record": "landmark", "name": name, "index": index, "box": measured});
+                if let Some(text) = self.frame.landmark_texts.get(&(*name, *index)) {
+                    line["text"] = json!(text);
+                }
+                (format!("landmark {name} {index}"), line)
             })
             .collect();
         let screens: Vec<(String, Value)> = self
