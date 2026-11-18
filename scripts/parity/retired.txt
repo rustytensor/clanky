@@ -1,0 +1,18 @@
+# stem<TAB>why it is retired. These gates drive the old window or the old renderer; the gate that replaces each is named.
+gate-m1	Pixels of the old wgpu renderer; replaced by the cells checks of gate-terminal-pane
+gate-m2	Pixels of the old wgpu renderer (it includes M1); replaced by gate-terminal-pane. gate-m3.py:280 still calls it and must stop
+gate-m12-calm	Declares itself partial and measures the old window's calm scene; replaced by gate-window-chrome and gate-floating
+gate-m12-copy	Fixed pixel coordinates of the old window; replaced by the controls gate of gate-window-chrome
+gate-m12-settings	Geometry of the old Settings panel; replaced by gate-settings
+gate-q1-look	Quiet look and the theme picker by OCR on the old window; replaced by the design gates and gate-settings
+gate-q3-syntax	Syntax colours in editor panes on the old window; returns with the editor pane milestone
+gate-menu	The right-click menu on the old window; replaced by gate-floating
+gate-a1-agent-pane	Drives the old window by screenshots; its expected results are rewritten on the control record
+gate-c1-config	Drives the old Settings by OCR; replaced by the config round trip in gate-settings
+gate-c3-sizes	Window and Settings sizes of the old window; moved to the design gate
+gate-polish-window	Builds the whole workspace and drives the old panels; returns with the editor and compose milestones
+gate-m7-panel	Old editor panel; returns with the editor pane milestone
+gate-m8-compose	Old compose box; returns with the compose milestone
+check-settings-clicks	Old Settings clicks at fixed points and by OCR; replaced by gate-settings
+gate-docs	Parses the old window's source for key handlers; the keys table in clanky-state is read instead
+gate-rc	Builds the old binaries and runs the old list; gate-parity replaces it

@@ -1,0 +1,23 @@
+# stem<TAB>why gate-parity.sh does not run it on its own: another gate runs it, it is a step of gate-parity, or it is a helper.
+gate-m3	Run by gate-m5 (through gate-m4). It starts the headless server and checks real PTY observations, which apply; its last step, gate-m2, retires
+gate-m4	Run by gate-m5
+gate-m6-masking	Run by gate-m5
+gate-m7-core	Run by gate-m5
+gate-linux-packaging	Run by gate-m5 (builds the .rpm)
+gate-p1-packages	The packages step of gate-parity (--packages)
+gate-c2-schemes	Run by gate-terminal-pane on the new window
+gate-c5-panes	Run by gate-window-chrome on the new window
+gate-exit	Run by gate-terminal-pane on the new window (X1 and X2 left out for one pane)
+gate-m12-clicks	Run by gate-window-chrome (its chrome steps)
+gate-m12-idle	Run by gate-terminal-pane on the new window
+gate-m12-post-ai	The Python half of gate-m12-postai
+gate-m12-theme-contrast	The contrast reader of gate-m12-themes and gate-t1-themes
+gate-mouse	Run by gate-terminal-pane and gate-window-chrome on the new window
+gate-q2-input	Run by gate-window-chrome on the new window
+gate-q4-blocks	Run by gate-window-chrome on the new window
+gate-t2-terminal	Run by gate-terminal-pane on the new window
+check-robot-startup	Run by gate-terminal-pane on the new window (the robot greeting itself returns in G5's robot port)
+check-robot-window	Run by gate-terminal-pane on the new window
+check-gpui-ce-bundle	The bundle step of gate-parity
+gate-parity	This script
+gate-render-env	A helper: the software Vulkan environment the window gates source
