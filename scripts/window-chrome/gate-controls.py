@@ -27,7 +27,8 @@ Checks, for each screen and scale (the check's name is the first word after FAIL
                 inside it is the focus fill, outside it the 2 px ring (round(2 x scale) device px) at 25 %.
   text-centring the label's baseline, fitted to the label's own ink rows against the Inter file at 100 x size, sits
                 where the cap height's middle falls on the box's middle, +-0.5 device px.
-  icon-centring the icon's ink is centred in the box +-0.5 device px, and its box is 16 or 14 px x the scale.
+  icon-centring the icon's ink is centred in the box +-0.5 logical px (0.5 x the scale in device px), and its box is
+                16 or 14 px x the scale.
   rest-colour, hover-colour, pressed-colour, focus-colour  the fill per state (a field and a switch keep their look).
   disabled      a disabled control takes no hover fill and its label's ink is at most halfway to the foreground.
   hit-box       the record's hit box is its drawn box and at least 24 x 24 logical px; the pointer 1 device px inside
@@ -82,6 +83,7 @@ FAULTS = {
     "find-count-off": "find-count",
     "find-mark-accent": "find-highlight",
     "shift-enter-next": "find-previous",
+    "icon-off": "icon-centring",
     "tab-traps-completion": "tab-completes",
     "click-takes-focus": "click-focus",
     "active-tab-grows": "tab-stable",
@@ -1168,16 +1170,20 @@ class Screen:
                 )
                 off = icon_centre_offset(a, c, fill)
                 across = c["kind"] == "icon-button"
+                # The rulebook's +-0.5 px, in logical px as every size it gives: a 14 px icon in a 28 px button is
+                # 21 device px in 42 at 1.5, whose edges on whole pixels leave it exactly half a device pixel off
+                # centre, so a device-pixel tolerance of 0.5 left no room for the ink's antialiased edges.
+                tol = CENTRE_TOL * self.s
                 good = (
                     off is not None
-                    and abs(off[1]) <= CENTRE_TOL
-                    and (not across or abs(off[0]) <= CENTRE_TOL)
+                    and abs(off[1]) <= tol
+                    and (not across or abs(off[0]) <= tol)
                 )
                 self.ok(
                     "icon-centring",
                     good,
                     name_of(c),
-                    f"within {CENTRE_TOL} px of the middle",
+                    f"within {tol:g} px of the middle",
                     "no ink" if off is None else f"{off[0]:+.2f}, {off[1]:+.2f} px",
                 )
             if not c["enabled"] and c.get("label_box"):
@@ -2444,6 +2450,7 @@ class Screen:
                 "find-count-off": [self.find_checks],
                 "find-mark-accent": [self.find_checks],
                 "shift-enter-next": [self.find_checks],
+                "icon-off": [self.rest_checks],
                 "tab-traps-completion": [self.tab_complete_checks],
                 "click-takes-focus": [self.click_focus_checks],
                 "active-tab-grows": [self.tab_stable_checks],

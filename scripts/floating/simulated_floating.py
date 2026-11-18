@@ -34,6 +34,7 @@ FLOATING_FAULTS = (
     "find-mark-accent",
     "shift-enter-next",
     "find-field-short",
+    "icon-off",
     "tab-traps-completion",
 )
 POPOVER_SCREENS = (
@@ -161,6 +162,11 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         popover["master"] = None
         if self.float_fault == "find-field-short":
             popover["items"][0]["box"][3] -= 2
+        if self.float_fault == "icon-off":  # the find bar's icons one logical pixel right of and below centre
+            for item in popover["items"]:
+                if item.get("icon"):
+                    item["icon"][0] += round(self.scale)
+                    item["icon"][1] += round(self.scale)
         self._open(popover)
 
     def _open_menu(self):

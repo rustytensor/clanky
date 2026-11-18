@@ -165,7 +165,7 @@
   "geometry_rules": {
     "edges_on_whole_device_pixels_at_scales": {"scales": [1, 1.25, 1.5, 2], "src": "rulebook:160-161"},
     "label_centring_px": {"tolerance": 0.5, "src": "rulebook:162"},
-    "icon_centring_px": {"tolerance": 0.5, "src": "rulebook:162"},
+    "icon_centring_px": {"tolerance": 0.5, "unit": "logical px", "src": "rulebook:162"},
     "hit_box_min_px": {"value": 24, "src": "rulebook:167"}
   },
   "tolerance": {

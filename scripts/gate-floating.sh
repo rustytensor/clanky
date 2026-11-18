@@ -39,6 +39,7 @@ FAULTS=(
   "gate-controls.py:find-count-off:find-bar:find-count"
   "gate-controls.py:find-mark-accent:find-bar:find-highlight"
   "gate-controls.py:shift-enter-next:find-bar:find-previous"
+  "gate-controls.py:icon-off:find-bar:icon-centring"
   "gate-design-tokens.py:find-field-short:-:find-bar-field-height"
 )
 SPEED_RUNS=3
