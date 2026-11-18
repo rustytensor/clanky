@@ -80,6 +80,7 @@ pub enum Faults {
     BorderTwoPixels,
     PopoverOverOpener,
     EscLosesFocus,
+    PaletteNoRun,
 }
 
 impl Faults {
@@ -92,6 +93,7 @@ impl Faults {
             "border-2px" => Self::BorderTwoPixels,
             "popover-over-opener" => Self::PopoverOverOpener,
             "esc-loses-focus" => Self::EscLosesFocus,
+            "palette-no-run" => Self::PaletteNoRun,
             _ => Self::None,
         }
     }
@@ -135,6 +137,11 @@ impl Faults {
     /// Esc closes a popover without giving the focus back to what had it.
     pub fn esc_loses_focus(self) -> bool {
         self == Self::EscLosesFocus
+    }
+
+    /// The palette leaves out its last row, the offer to run what was typed in the pane.
+    pub fn palette_no_run(self) -> bool {
+        self == Self::PaletteNoRun
     }
 
     fn hit(self, painted: DeviceBox) -> DeviceBox {

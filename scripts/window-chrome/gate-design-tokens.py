@@ -83,6 +83,8 @@ if (
 
     virtual_clock.install()
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
+# --screens a,b measures only those floating screens, for a part that brings one screen before the rest exist.
+FLOATING_ONLY = set(arg("--screens", "").split(",")) - {""}
 SETTINGS = "--settings" in ARGS  # G4: also measure the Settings window
 KEEP = "--keep" in ARGS
 SCALES = [float(v) for v in arg("--scales", "1").split(",")]
@@ -674,8 +676,8 @@ def selection_check(win, e):
 
 # ---------------------------------------------------------------- G3: the floating screens
 
-# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist (the find bar's,
-# Ctrl+Shift+F, is today's: see find_bar_checks).
+# How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist, except the
+# palette's (Ctrl+Shift+P) and the find bar's (Ctrl+Shift+F, today's: see find_bar_checks), the real ones.
 
 
 def type_completion(win):
@@ -887,6 +889,8 @@ def floating_screen_checks(win, e, screen, spec):
     win.key("Escape")
     win.key("ctrl+u")
     time.sleep(0.3)
+    if spec.get("cleanup"):
+        spec["cleanup"](win)
 
 
 def palette_text_checks(win, e, screen):
@@ -990,6 +994,8 @@ def find_bar_checks(win, e):
 
 def floating_checks(win, e):
     for screen, spec in FLOATING_SCREENS.items():
+        if FLOATING_ONLY and screen not in FLOATING_ONLY:
+            continue
         guarded(
             f"{screen}-row-height",
             lambda s=screen, p=spec: floating_screen_checks(win, e, s, p),

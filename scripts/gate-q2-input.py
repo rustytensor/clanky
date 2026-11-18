@@ -130,7 +130,7 @@ rulebook's spacing steps, rulebook:87), the text line of the cell height 18 (IBM
 file) and the pane padding 12 (rulebook:103; today's 10). A2: the hairline at 859 - 75 = 784 (+-3). K1: chips are
 outlined, no fill, a border in the input role, white at 13 % over the background (51,51,51) +-6 (rulebook:47, 232);
 28 px tall (+-2), top 9 px below the hairline, left edge at 236 + 8 + 1 + 12 = 257 (side column, pane margin, edge,
-pane padding). K3 splits with Ctrl+Shift+D (Split right; the palette comes in G3). M1: the input gives back 63..75
+pane padding). K3 splits through the palette (Ctrl+Shift+P, "Split right") in both windows. M1: the input gives back 63..75
 px (its 75 less the pane's bottom padding of 12 it replaces) of 18 px rows, so classic has 3..5 more rows. Moved: K4
 (the agent picker) to G3, M2 (Settings) to G4; N1 is still checked, at the end of the main story.
 Planted faults: colours (expects `wc` as a string), ghost (Left instead of Right in G1), aside (the logger is told to
@@ -809,13 +809,10 @@ def aside_step(win):
 
 
 def panes_step(win):
-    if GPUI:
-        win.key('ctrl+shift+d')
-    else:
-        win.key('ctrl+shift+p')
-        time.sleep(.8)
-        win.type('Split right')
-        win.key('Return')
+    win.key('ctrl+shift+p')
+    time.sleep(.8)
+    win.type('Split right')
+    win.key('Return')
     until(lambda: len(win.terminals()) == 2, 'K3 "Split right" adds a pane')
     time.sleep(3)
     other = next(t for t in win.terminals() if t != win.tab)

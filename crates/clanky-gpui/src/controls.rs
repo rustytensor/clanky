@@ -514,7 +514,9 @@ impl Kit {
             (_, Some(width)) => body.w(px(width)),
             (Kind::Switch, None) => body.w(px(t::SWITCH_CONTROL_WIDTH)),
             (Kind::IconButton | Kind::IconButtonInline, None) => body.w(px(height)),
-            (Kind::MenuItem | Kind::ListRow | Kind::Field, None) => body.w_full(),
+            (Kind::MenuItem | Kind::ListRow | Kind::PaletteRow | Kind::Field, None) => {
+                body.w_full()
+            }
             _ => body,
         };
         if let Some(fill) = fill(kind, state, control.primary, control.checked, colors) {
@@ -656,11 +658,13 @@ impl Kit {
     /// A control's label text, with its measuring child.
     fn label(&self, screen: &'static str, control: &Control, ink: Color, scale: f32) -> AnyElement {
         let kind = control.kind;
-        let weight = if kind == Kind::Tab && control.checked == Some(true) {
-            t::WEIGHT_MEDIUM
-        } else {
-            t::WEIGHT_REGULAR
-        };
+        // The active tab and the palette's rows (text_title) are set in the medium weight.
+        let weight =
+            if (kind == Kind::Tab && control.checked == Some(true)) || kind == Kind::PaletteRow {
+                t::WEIGHT_MEDIUM
+            } else {
+                t::WEIGHT_REGULAR
+            };
         let text = |weight: u16| {
             div()
                 .min_w_0()
@@ -698,11 +702,19 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
-        } else if kind == Kind::MenuItem {
-            // A menu item's line fills the item, as a tab's does: inside a popover the item's top is a whole device
-            // pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off at 1.5.
+        } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow) {
+            // A menu item's or palette row's line fills the row, as a tab's does: inside a popover the row's top is a
+            // whole device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off
+            // at 1.5.
             text(weight)
                 .line_height(px(kind.height()))
+                .relative()
+                .child(self.record.part(screen, control.id, Part::Label))
+        } else if kind == Kind::Field {
+            // A field's line fills the field inside its two one-device-pixel edges, as a tab's does, so the line's
+            // top, and so the baseline, is not left half a device pixel off at 1.5.
+            text(weight)
+                .line_height(px(kind.height() - 2.0 * t::hairline(scale)))
                 .relative()
                 .child(self.record.part(screen, control.id, Part::Label))
         } else {
@@ -768,10 +780,20 @@ impl Kit {
         }
         if let Some(icon) = control.icon {
             let size = kind.icon_size();
+            // In a field whose inside is an odd number of device pixels taller than its icon (32 and 14 at 1.5), the
+            // icon can only sit half a pixel off centre, and gpui rounds it up, where the ink's soft lower edge adds
+            // to the offset. A one-device-pixel top margin puts it the half pixel low instead.
+            let inside = (kind.height() - 2.0 * t::hairline(scale)) * scale;
+            let nudge = if kind == Kind::Field && (inside - size * scale).round() % 2.0 != 0.0 {
+                t::hairline(scale)
+            } else {
+                0.0
+            };
             inner = inner.child(
                 div()
                     .relative()
                     .flex_none()
+                    .mt(px(nudge))
                     .size(px(size))
                     .child(svg().data(icon.svg()).size(px(size)).text_color(paint(
                         if lit || control.primary {

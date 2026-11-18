@@ -13,6 +13,10 @@
 #   (placement inside the window and clear of the opener, beside it and from the bottom-right corner; Esc closing it and
 #   giving the keyboard back; Tab kept inside; arrows; no idle frames), then the planted faults popover-over-opener and
 #   esc-loses-focus, each of which must fail the check aimed at it.
+# --palette checks the command palette alone on a clanky-gpui built with `--features control-faults`
+#   (CLANKY_GPUI_BIN=PATH): the controls gate's palette screen at both scales, the design gate's palette rows, its behaviour
+#   (floating/palette_steps.py: today's q1 T3 and q2 K3 steps on the control record), then the planted fault
+#   palette-no-run, which must fail the controls gate's filter check and the steps' P4.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=parallel-jobs.sh
@@ -155,6 +159,36 @@ if [[ ${1:-} == --popover ]]; then
   exit 1
 fi
 
+if [[ ${1:-} == --palette ]]; then
+  binary=${CLANKY_GPUI_BIN:-target/release/clanky-gpui}
+  # in_lock CMD...: a window run under the gate lock, with no desktop session reachable.
+  in_lock() { env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" "$@"; }
+  status=0
+  output=$(in_lock python3 "$CHROME/gate-controls.py" --floating --app "$binary" --scales "$SCALES" --screens palette 2>&1) || status=$?
+  if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate passes the palette"; else fail "controls gate on the palette: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+  status=0
+  output=$(in_lock python3 "$CHROME/gate-design-tokens.py" --floating --app "$binary" --screens palette 2>&1) || status=$?
+  grep -E '^(ok|FAIL): palette' <<<"$output" || true
+  if ((status == 0)); then ok "design gate passes the palette"; else fail "design gate on the palette: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+  status=0
+  output=$(in_lock python3 "$FLOATING/palette_steps.py" --app "$binary" 2>&1) || status=$?
+  grep -E '^(ok|FAIL):' <<<"$output" || true
+  if ((status == 0)); then ok "palette steps"; else fail "palette steps"; fi
+  caught=0
+  status=0
+  output=$(in_lock python3 "$CHROME/gate-controls.py" --floating --app "$binary" --scales 1 --screens palette --fault palette-no-run 2>&1) || status=$?
+  if ((status != 0)) && grep -q "^FAIL: filter " <<<"$output"; then echo "CAUGHT: palette-no-run by filter (gate-controls.py)"; caught=$((caught + 1)); else fail "planted fault palette-no-run was not caught by filter (exit $status)"; fi
+  status=0
+  output=$(in_lock python3 "$FLOATING/palette_steps.py" --app "$binary" --fault palette-no-run 2>&1) || status=$?
+  if ((status != 0)) && grep -q "^FAIL: P4 " <<<"$output"; then echo "CAUGHT: palette-no-run by P4 (palette_steps.py)"; caught=$((caught + 1)); else fail "planted fault palette-no-run was not caught by P4 (exit $status)"; fi
+  if ((failed == 0 && caught == 2)); then
+    echo "PASS: the palette"
+    exit 0
+  fi
+  echo "FAIL: the palette"
+  exit 1
+fi
+
 if ! grep -rqs '"find-bar"' crates/clanky-gpui/src; then
   echo "FAIL: clanky-gpui has no floating screens yet"
   exit 1
@@ -167,6 +201,10 @@ for gate in gate-controls.py gate-design-tokens.py; do
   output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/$gate" "${args[@]}" 2>&1) || status=$?
   if ((status == 0)); then ok "$gate: $(tail -n 1 <<<"$output")"; else fail "$gate: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 done
+# Check 4, the palette's part: today's q1 T3 and q2 K3 steps on the control record.
+status=0
+output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$FLOATING/palette_steps.py" --app "$binary" 2>&1) || status=$?
+if ((status == 0)); then ok "palette steps: $(tail -n 1 <<<"$output")"; else fail "palette steps: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 # Check 5: speed with two tabs, four panes and the palette open (the old window's numbers are in baseline.json).
 if bash scripts/terminal-pane/speed.sh "$binary" --scene palette --runs "$SPEED_RUNS" --out "$scratch/speed.json" >"$scratch/speed.log" 2>&1; then
   if verdict=$(python3 "$FLOATING/speed_verdict.py" "$scratch/speed.json" "$BASELINE"); then ok "speed: $verdict"; else fail "speed: $verdict"; fi

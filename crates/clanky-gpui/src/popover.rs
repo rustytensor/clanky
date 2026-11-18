@@ -218,6 +218,13 @@ impl Popover {
         }
     }
 
+    /// Selects a row of the open popover's list, as the pointer resting on it does in a search-and-pick list.
+    pub fn select_row(&mut self, row: usize) {
+        if let Some(open) = self.open.as_mut() {
+            open.list.select(row);
+        }
+    }
+
     /// The selected row of the open popover's list.
     pub fn selected_row(&self) -> Option<usize> {
         self.open.as_ref().and_then(|open| open.list.selected())

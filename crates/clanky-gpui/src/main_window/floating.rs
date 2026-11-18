@@ -30,6 +30,9 @@ impl MainWindow {
         if self.find_bar_key(chord, window, cx) {
             return true;
         }
+        if self.palette_key(chord, window, cx) {
+            return true;
+        }
         false
     }
 
@@ -57,6 +60,9 @@ impl MainWindow {
         }
         if screen == super::completion_list::LIST_SCREEN {
             return self.completion_list(window, cx);
+        }
+        if screen == "palette" {
+            return self.command_palette(window, cx);
         }
         // A screen with no content here would hold the keyboard with nothing drawn: it is closed instead.
         eprintln!("the popover {screen} has nothing to draw; closing it");
