@@ -249,6 +249,11 @@ impl Popover {
         self.open.as_ref().map(|open| open.screen)
     }
 
+    /// What opened the open popover.
+    pub fn opener(&self) -> Option<&Opener> {
+        self.open.as_ref().map(|open| &open.opener)
+    }
+
     pub fn is_open(&self) -> bool {
         self.open.is_some()
     }

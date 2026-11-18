@@ -375,6 +375,35 @@ impl PaneInput {
         }
     }
 
+    /// Puts row `index` of the completion list in place of the word and closes the list, as Tab does on the
+    /// highlighted row (a click on a row, or Enter on a row that has the keyboard). False when no list is open or it
+    /// has no such row; the list stays as it was then.
+    pub fn pick(&mut self, index: usize) -> bool {
+        let Some(item) = self.popup.as_ref().and_then(|popup| {
+            popup
+                .items
+                .get(index)
+                .map(|item| (popup.word.clone(), item.insert.clone()))
+        }) else {
+            return false;
+        };
+        let (word, insert) = item;
+        self.popup = None;
+        self.edit.replace(word.start..word.end, &insert);
+        self.edited();
+        true
+    }
+
+    /// Whether the completion list is open.
+    pub fn popup_open(&self) -> bool {
+        self.popup.is_some()
+    }
+
+    /// Closes the completion list and leaves the text as typed, as Escape does. False when none was open.
+    pub fn close_popup(&mut self) -> bool {
+        self.popup.take().is_some()
+    }
+
     /// A click or drag in the text: the caret to that line and column.
     pub fn click(&mut self, line: usize, col: usize, extend: bool) {
         self.popup = None;
@@ -533,6 +562,48 @@ mod tests {
             press(&mut input, Mods::CTRL, Key::Char('d'), &history),
             Step::Shell(b"\x04")
         );
+    }
+
+    /// A picked row replaces the word with that candidate's text (readline's for a file: the path and a space) and
+    /// closes the list; closing leaves the text as typed. Expected texts come from the files the test makes.
+    #[test]
+    fn a_picked_row_goes_in_and_closing_keeps_the_text() {
+        let root = std::env::temp_dir().join(format!("clanky-pick-test-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("scripts")).expect("a scratch folder in the temp dir");
+        for name in ["gate-menu.sh", "gate-mouse.sh", "gate-exit.sh"] {
+            std::fs::write(root.join("scripts").join(name), "").expect("writing a scratch file");
+        }
+        let history = History::default();
+        let text = |input: &PaneInput| {
+            input.view(&history, None).lines[0]
+                .iter()
+                .map(|c| c.0)
+                .collect::<String>()
+        };
+        let mut input = PaneInput::default();
+        typed(&mut input, "ls scripts/gate-m", &history);
+        input.complete(&root, None, None);
+        let rows: Vec<String> = input
+            .view(&history, None)
+            .popup
+            .expect("two candidates open the list")
+            .0
+            .into_iter()
+            .map(|row| row.0)
+            .collect();
+        assert_eq!(rows, ["scripts/gate-menu.sh", "scripts/gate-mouse.sh"]);
+        assert!(!input.pick(2), "no third row");
+        assert!(input.pick(1));
+        assert_eq!(text(&input), "ls scripts/gate-mouse.sh ");
+        assert_eq!(input.view(&history, None).popup, None);
+        assert!(!input.pick(0), "the list is closed");
+        let mut closing = PaneInput::default();
+        typed(&mut closing, "ls scripts/gate-m", &history);
+        closing.complete(&root, None, None);
+        assert!(closing.close_popup());
+        assert!(!closing.close_popup());
+        assert_eq!(text(&closing), "ls scripts/gate-m");
+        std::fs::remove_dir_all(&root).expect("removing the scratch folder");
     }
 
     #[test]

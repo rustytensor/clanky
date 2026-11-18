@@ -16,6 +16,9 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if let Some(taken) = self.completion_list_key(chord, window, cx) {
+            return taken;
+        }
         if self.popover.key(chord, &self.kit, window, cx) {
             cx.notify();
             return true;
@@ -51,6 +54,9 @@ impl MainWindow {
         }
         if screen == "find-bar" {
             return self.find_bar(window, cx);
+        }
+        if screen == super::completion_list::LIST_SCREEN {
+            return self.completion_list(window, cx);
         }
         // A screen with no content here would hold the keyboard with nothing drawn: it is closed instead.
         eprintln!("the popover {screen} has nothing to draw; closing it");

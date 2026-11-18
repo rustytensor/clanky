@@ -188,6 +188,33 @@ impl TerminalPane {
         input.model.complete(&cwd, home.as_deref(), path.as_deref());
     }
 
+    /// Whether the input shows its completion list now (it takes keys and the list is open).
+    pub fn completion_listed(&self) -> bool {
+        self.input_takes_keys()
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.model.popup_open())
+    }
+
+    /// Row `index` of the completion list goes in place of the word, and the list closes.
+    pub fn pick_completion(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(input) = self.input.as_mut()
+            && input.model.pick(index)
+        {
+            cx.notify();
+        }
+    }
+
+    /// Closes the completion list, leaving the text as typed.
+    pub fn close_completion(&mut self, cx: &mut Context<Self>) {
+        if let Some(input) = self.input.as_mut()
+            && input.model.close_popup()
+        {
+            cx.notify();
+        }
+    }
+
     /// A press in the input's text: the caret to that line and column (Shift extends the selection), and a drag
     /// from here selects.
     pub fn input_press(&mut self, line: usize, col: usize, extend: bool, cx: &mut Context<Self>) {

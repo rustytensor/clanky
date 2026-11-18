@@ -29,6 +29,7 @@ FAULTS=(
   "gate-controls.py:popover-over-opener:completion-list:popover"
   "gate-controls.py:esc-loses-focus:palette:focus-return"
   "gate-controls.py:idle-draw:completion-list:idle-frames"
+  "gate-controls.py:tab-traps-completion:completion-list:tab-completes"
   "gate-design-tokens.py:palette-row-short:-:palette-row-height"
   "gate-design-tokens.py:palette-text-big:-:palette-row-cap-height"
   "gate-controls.py:find-count-off:find-bar:find-count"
