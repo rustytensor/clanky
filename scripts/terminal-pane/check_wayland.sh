@@ -11,6 +11,8 @@
 # Check 10: the same start with a runtime folder that has the setgid bit either opens a window that takes the same
 #   typing (g1-ok twice, as in check 9), or exits 1 with one line that names the folder and the fix.
 # Prints "ok: ..." or "FAIL: ..." per check, then PASS or FAIL; exit 1 on any failure.
+# Every wait ends when its condition holds, with a deadline of 30 s for a busy machine; keys are sent once, after the window
+#   has drawn its prompt row or command input, and a failure to show them reports when they were sent.
 # --faults needs no binary and no sway: it shows the screenshot reader accepting a window drawn as it should look and
 #   rejecting one whose prompt row shows only the cursor (a prompt row with no prompt drawn, as the editor input would
 #   show), and the default window's reader accepting each stage and rejecting typed text that never reached the shell.
@@ -25,8 +27,12 @@ CHECK_DIR=scripts/terminal-pane
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$PWD/target}
 binary=${CLANKY_GPUI_BIN:-$CARGO_TARGET_DIR/release/clanky-gpui}
 WINDOW_SECONDS=2      # check 9: the window must be mapped this soon after the start
-SETTLE_SECONDS=10     # check 10 and the first frame: the longest we wait for a window or its ink
-TYPE_SECONDS=5        # the typed text must show within this long
+# The deadlines are long because a busy machine can take many seconds to draw the window's layout; each wait ends as
+# soon as its condition holds. Typing starts only after the window has shown that it is ready (the prompt row's ink, or
+# the command input's), and is sent once: text lost after that point is a fault of the window, and the failure says
+# how long after the start the keys were sent.
+SETTLE_SECONDS=30     # the longest we wait for a window, its first ink or its command bar
+TYPE_SECONDS=30       # the typed text must show within this long
 STAGE_MS=6000         # the default window: the typed line waits this long in the input before Return
 SETGID_FOLDER_MODE=2700
 RUNTIME_PARENT=/run/user/$(id -u)
@@ -275,6 +281,11 @@ keep_shot() {
   [[ -z ${CLANKY_WAYLAND_SHOTS:-} || ! -f $scratch/screen.png ]] || { mkdir -p "$CLANKY_WAYLAND_SHOTS"; cp "$scratch/screen.png" "$CLANKY_WAYLAND_SHOTS/$1.png"; }
 }
 
+# since_start: seconds since the app was started, for the failures that report when the keys were sent.
+since_start() {
+  python3 -c "import time,sys; print(f'{time.time()-float(sys.argv[1]):.1f}')" "$app_start"
+}
+
 stop_app() {
   kill "$app_pid" 2>/dev/null || true
   wait "$app_pid" 2>/dev/null || true
@@ -282,7 +293,7 @@ stop_app() {
 
 # ----------------------------------------------------------------------------------------------- check 9
 check_9() {
-  local line
+  local line keys_at
   launch "$sway_runtime" "$(basename "$wayland_socket")"
   if ! wait_window "$SETTLE_SECONDS"; then
     fail "wayland (check 9): no window within ${SETTLE_SECONDS}s; the app said: $(tail -n 2 "$scratch/app.err" | tr '\n' ' ')"
@@ -299,8 +310,9 @@ check_9() {
   if line=$(swaymsg -t get_tree | python3 "$CHECK_DIR/check_wayland.py" app-id); then ok "${line#ok: }"; else fail "${line#FAIL: }"; fi
   if line=$(wait_screen "$SETTLE_SECONDS" prompt); then ok "${line#ok: }"; else fail "${line#FAIL: }"; fi
   keep_shot "check-9-start"
+  keys_at=$(since_start)
   type_echo
-  if line=$(wait_screen "$TYPE_SECONDS" text 2 --exactly); then ok "${line#ok: }"; else fail "${line#FAIL: }"; fi
+  if line=$(wait_screen "$TYPE_SECONDS" text 2 --exactly); then ok "${line#ok: }"; else fail "${line#FAIL: } (keys sent ${keys_at}s after the start, window ready)"; fi
   keep_shot "check-9-typed"
   stop_app
   stop_server "$sway_runtime"
@@ -311,7 +323,7 @@ check_9() {
 # twice in the focused pane, the lower one: the command in its block's command row and the output. The expected count
 # is read off the block layout in a screenshot of clanky-gpui: a block is a meta row, the command row, then the output.
 check_9_default() {
-  local line
+  local line keys_at
   launch "$sway_runtime" "$(basename "$wayland_socket")" "$default_config"
   if ! wait_window "$SETTLE_SECONDS"; then
     fail "wayland (check 9, defaults): no window within ${SETTLE_SECONDS}s; the app said: $(tail -n 2 "$scratch/app.err" | tr '\n' ' ')"
@@ -320,8 +332,9 @@ check_9_default() {
   fi
   if line=$(wait_screen "$SETTLE_SECONDS" input); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
   keep_shot "check-9-default-start"
+  keys_at=$(since_start)
   type_echo_staged
-  if line=$(wait_screen "$TYPE_SECONDS" typed); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
+  if line=$(wait_screen "$TYPE_SECONDS" typed); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults; keys sent ${keys_at}s after the start, window ready)"; fi
   keep_shot "check-9-default-typed"
   if line=$(wait_screen "$((STAGE_MS / 1000 + TYPE_SECONDS))" output); then ok "${line#ok: } (defaults)"; else fail "${line#FAIL: } (defaults)"; fi
   keep_shot "check-9-default-output"
@@ -350,16 +363,23 @@ check_11() {
 
 # ----------------------------------------------------------------------------------------------- check 10
 check_10() {
-  local line status message
+  local line status message keys_at
   setgid_runtime=$(mktemp -d "$RUNTIME_PARENT/clanky-setgid-check.XXXXXX")
   private_folder "$setgid_runtime" "$SETGID_FOLDER_MODE"
   launch "$setgid_runtime" "$wayland_socket"
   if wait_window "$SETTLE_SECONDS"; then
+    if ! wait_screen "$SETTLE_SECONDS" prompt >/dev/null; then
+      fail "wayland (check 10): setgid runtime folder, window opened but its prompt row stayed empty for ${SETTLE_SECONDS}s"
+      stop_app
+      stop_server "$setgid_runtime"
+      return
+    fi
+    keys_at=$(since_start)
     type_echo
     if line=$(wait_screen "$TYPE_SECONDS" text 2 --exactly); then
       ok "wayland (check 10): setgid runtime folder, window opened and took typing: ${line#ok: }"
     else
-      fail "wayland (check 10): setgid runtime folder, window opened but typing did not show: ${line#FAIL: }"
+      fail "wayland (check 10): setgid runtime folder, window opened but typing did not show: ${line#FAIL: } (keys sent ${keys_at}s after the start, window ready)"
     fi
     keep_shot "check-10-typed"
     stop_app

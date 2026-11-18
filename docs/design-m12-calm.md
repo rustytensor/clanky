@@ -1,8 +1,8 @@
 # M12: the calm look, themes, Post-AI mode
 
 Marc rejected v0.6.1's look on 2026-11-04: buttons did not click, some text was too small, and it felt "odd". The
-terminal was sluggish: the window redrew nonstop (fixed on branch m11-idle). He then chose shadcn/ui's structure and
-components, in warm stone colours, with this rule: calm, friendly, hand-crafted; never purple, never purple-blue
+terminal was sluggish: the window redrew nonstop (fixed on branch m11-idle). He then chose a web-style component kit's structure and
+components (an inset sidebar, cards, small controls), in warm stone colours, with this rule: calm, friendly, hand-crafted; never purple, never purple-blue
 gradients, no glows. Approved mockups:
 - "Clanky, calm" (/srv/devops/build/clanky/mockups/calm.html);
 - the component sheets (/srv/devops/build/clanky/mockups/sheets.html), which are the specification for every
@@ -12,7 +12,7 @@ Where this document and the sheets disagree, the sheets win; say so.
 
 ## What changes for the person
 
-- **Layout (shadcn "inset").** A 256 px sidebar on the left: brand, Sessions (window tabs), Agents, Files, and a
+- **Layout (inset sidebar).** A 256 px sidebar on the left: brand, Sessions (window tabs), Agents, Files, and a
   footer with Settings and the masking state. The main area floats beside it as one rounded card, with:
   - a 56 px top bar: sidebar toggle, path, a "Search or run a command" field, and Split and New tab buttons;
   - the panes;
@@ -53,7 +53,12 @@ A theme is a JSON file. Built-in themes ship inside the binary; user themes live
     4.50939641, 4.55863803 and 4.52410773:1 respectively, including pressed surfaces and
     10% status-badge tints. The requirement is 4.5:1; 4.55 was only a rounding margin.
   - **Paper:** warmer, with softer contrast, dark and light.
-  - **Graphite:** cool neutral, shadcn's own neutral greys, dark and light.
+  - **Graphite:** cool neutral greys, dark and light.
+  - **Neutral and Zinc** (Marc, 2026-11-17: "I want Graphite, Neutral, and Zinc"), dark and light each: Neutral is pure
+    grey (red, green and blue equal), Zinc keeps a slight blue lean. Their starting greys are Tailwind's neutral and
+    zinc scales (MIT), retuned until `scripts/themes/check_contrast.py` passes: text 4.5:1 on every surface and on the
+    selection, secondary text 4.5:1 on the pressed fill, hover fill 1.2:1 against the page, focus ring 3:1, selection
+    1.5:1 against the page, status colours 4.5:1, ANSI 1-6 and 9-14 3:1 on the terminal background.
   - **Catppuccin** (Marc's yes, 2026-11-04): Latte (light), Frappé, Macchiato and Mocha (dark). MIT. Colours are taken from the upstream
     `catppuccin/palette` palette.json, and the gate checks them against that file. Agent colour = peach.
   - **AI Bedazzled** (dark): the joke theme, every AI cliché in one place.

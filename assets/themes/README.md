@@ -30,9 +30,12 @@ all 7 own themes with 0 failing pairs; the 6 approved exemptions remain explicit
 
 ## Remaining built-ins
 
-Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`, `ink`,
+Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`, `neutral-dark`, `neutral-light`,
+`zinc-dark`, `zinc-light`, `ink`,
 `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`,
 `ai-bedazzled`, `unicorn-tears`, `unicorn-vomit`. Graphite is the default, dark and light.
+Neutral (pure grey) and Zinc (a slight blue lean) start from Tailwind's neutral and zinc scales (MIT). Some steps
+were moved until `scripts/themes/check_contrast.py` passed; it prints every pair it checks.
 Paper uses warm parchment colours. Graphite uses the neutral greys of the calm design tokens
 (background, card, accent, foreground, muted foreground; borders as black or white at 9 %).
 The three joke themes alone enable gradients and glow. Their descriptions and gradient
