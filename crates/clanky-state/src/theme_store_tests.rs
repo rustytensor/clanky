@@ -36,7 +36,7 @@ fn theme_store_round_trip() {
     let folder = root.join("themes");
     let mut store = ThemeStore::open(&folder).unwrap();
     assert!(!folder.exists());
-    assert_eq!(store.picker(None).unwrap().len(), 14);
+    assert_eq!(store.picker(None).unwrap().len(), 18);
     assert!(store.issues().is_empty());
 
     // Input is the literal approved Stone document, with three explicit edits.
@@ -126,6 +126,13 @@ fn theme_store_round_trip() {
         "post_ai must be a boolean"
     );
     assert!(Config::from_json(r#"{"theme_dark":"paper-light"}"#).is_err());
+    for (key, id) in [("theme_dark", "neutral-dark"), ("theme_dark", "zinc-dark"), ("theme_light", "neutral-light"), ("theme_light", "zinc-light")] {
+        let config = Config::from_json(&format!(r#"{{"{key}":"{id}"}}"#)).unwrap();
+        let saved = if key == "theme_dark" { &config.theme_dark } else { &config.theme_light };
+        assert_eq!(saved, id);
+    }
+    assert!(Config::from_json(r#"{"theme_dark":"zinc-light"}"#).is_err());
+    assert!(Config::from_json(r#"{"theme_light":"neutral-dark"}"#).is_err());
     assert!(Config::from_json(r#"{"theme_dark":"user:../bad"}"#).is_err());
     let mut flags = StartupOverrides::default();
     assert!(!flags.parse_flag("--post-aix"));

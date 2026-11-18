@@ -26,6 +26,7 @@ FAULTS = (
     "click-takes-focus",
     "active-tab-grows",
     "selected-segment-hover",
+    "pane-rounded",
 )
 FOCUS_ON_CLICK = (
     "field",
