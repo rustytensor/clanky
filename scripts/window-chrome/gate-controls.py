@@ -299,6 +299,24 @@ def open_by_keys(*keys):
     return run
 
 
+def settle_tabs(win, before):
+    """Waits until the window holds the terminals it held before a control fired: the agent picker's Fake Tool
+    starts a pane whose shell ends itself a moment later, and a check that types into a pane must not pick that one."""
+    if not hasattr(win, "owner"):
+        return
+    until(
+        lambda: {t["tab_id"] for t in win.owner.call(1, "list_tabs")["tabs"]} == before,
+        "the started pane closed again",
+        8,
+    )
+
+
+def tab_ids(win):
+    if not hasattr(win, "owner"):
+        return set()
+    return {t["tab_id"] for t in win.owner.call(1, "list_tabs")["tabs"]}
+
+
 def open_completion(win):
     win.type("ls scripts/gate-m")
     win.key("Tab")
@@ -328,6 +346,7 @@ FLOATING_SCREENS = {
         close=close_with_escape,
         container="card",
         harmless="Fake Tool",
+        settle=settle_tabs,
         adjacent=False,
         filter=True,
     ),
@@ -801,6 +820,16 @@ class Screen:
         if (self.current() or {}).get("focus") is not None:
             self.win.key("Escape")
             time.sleep(0.3)
+
+    def settle(self, terminals):
+        """Lets what a fired control started finish, when the screen says how to wait for it."""
+        if self.spec.get("settle"):
+            try:
+                self.spec["settle"](self.win, terminals)
+            except Fail as error:
+                self.ok(
+                    "settle", False, "after firing", "the window back as it was", error
+                )
 
     def reopen(self, **kw):
         self.close()
@@ -1434,9 +1463,11 @@ class Screen:
                 )
                 continue
             fired = len(self.win.activations(self.record_name))
+            terminals = tab_ids(self.win)
             self.win.key(key)
             time.sleep(0.6)
             new = self.win.activations(self.record_name)[fired:]
+            self.settle(terminals)
             good = (
                 len(new) == 1
                 and new[0]["id"] == h["id"]
@@ -1457,12 +1488,14 @@ class Screen:
         self.win.move(cx, cy)
         self.wait_state(h["id"], "hover", 1.5)
         fired = len(self.win.activations(self.record_name))
+        terminals = tab_ids(self.win)
         self.win.x("mousedown", "1")
         time.sleep(0.4)
         on_press = len(self.win.activations(self.record_name)) - fired
         self.win.x("mouseup", "1")
         time.sleep(0.6)
         new = self.win.activations(self.record_name)[fired:]
+        self.settle(terminals)
         good = (
             on_press == 0
             and len(new) == 1

@@ -278,6 +278,18 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         args.config.as_deref(),
         args.overrides,
     )?;
+    // Post-AI comes from the config or --post-ai, and the session server has the last word, as behind today's window:
+    // a server already in Post-AI keeps every window it serves there.
+    let policy = client
+        .exchange(
+            4,
+            "post_ai",
+            &json!({"enabled": config.post_ai || args.overrides.post_ai, "force": args.overrides.post_ai}),
+        )
+        .map_err(|e| format!("asking the session server for its Post-AI mode: {}", e.message))?;
+    let post_ai = policy["post_ai"]
+        .as_bool()
+        .ok_or("the session server's Post-AI reply has no post_ai flag")?;
     // Grayscale anti-aliasing, as today's window draws text: sub-pixel colour fringes would tint every glyph edge.
     cx.set_text_rendering_mode(TextRenderingMode::Grayscale);
     cx.text_system()
@@ -305,7 +317,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         blink: Blink::from_config(&config, clanky_state::platform::gnome_cursor_blink()),
         kit: Kit::new(record, colors.clone(), config.animations),
         colors,
-        post_ai: args.overrides.post_ai,
+        post_ai,
         // A pane started with --exec stays open after its command ends; a shell's pane closes when its shell exits.
         exec_tab: args.exec.is_some().then_some(tab),
         tools_open: config.tools_panel,
