@@ -481,6 +481,7 @@ impl Render for EditorView {
             palette: self.palette.clone(),
             text: self.text.clone(),
             selection: Vec::new(),
+            found: Vec::new(),
             focus: self.focus.clone(),
             metrics: self.metrics.clone(),
             show_cursor: true,

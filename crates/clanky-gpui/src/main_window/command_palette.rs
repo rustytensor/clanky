@@ -353,7 +353,7 @@ impl MainWindow {
             div()
                 .flex_none()
                 .w(px(t::CARET_WIDTH))
-                .h(px(t::CARET_HEIGHT))
+                .h(px(t::PALETTE_CARET_HEIGHT))
                 .bg(paint(colors.foreground, 1.0))
         });
         let mut row = div()

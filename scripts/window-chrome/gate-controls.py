@@ -308,6 +308,7 @@ def close_with_escape(win):
 # key and harmless control below is a guess until G3's key bindings exist, except the palette's, which are the real
 # ones (Ctrl+Shift+P opens it; New tab changes nothing the run depends on).
 
+
 def ranked_matches(labels, query):
     """The palette's matching rule, written apart from the program (clanky_state::command_palette's comment): case
     folded and trimmed; labels starting with the query first, then those with a word starting with it, then those

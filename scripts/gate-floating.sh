@@ -206,7 +206,13 @@ status=0
 output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$FLOATING/palette_steps.py" --app "$binary" 2>&1) || status=$?
 if ((status == 0)); then ok "palette steps: $(tail -n 1 <<<"$output")"; else fail "palette steps: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 # Check 5: speed with two tabs, four panes and the palette open (the old window's numbers are in baseline.json).
-if bash scripts/terminal-pane/speed.sh "$binary" --scene palette --runs "$SPEED_RUNS" --out "$scratch/speed.json" >"$scratch/speed.log" 2>&1; then
+# CLANKY_GATE_SPEED_PENDING=1 leaves it out when the machine is too busy to measure, as G1's gate does; the gate then
+# ends in "PASS: floating screens, speed pending", never a plain PASS.
+speed_pending=0
+if [[ ${CLANKY_GATE_SPEED_PENDING:-} == 1 ]]; then
+  speed_pending=1
+  echo "pending: speed (check 5) left out, load $(cut -d' ' -f1 /proc/loadavg)"
+elif bash scripts/terminal-pane/speed.sh "$binary" --scene palette --runs "$SPEED_RUNS" --out "$scratch/speed.json" >"$scratch/speed.log" 2>&1; then
   if verdict=$(python3 "$FLOATING/speed_verdict.py" "$scratch/speed.json" "$BASELINE"); then ok "speed: $verdict"; else fail "speed: $verdict"; fi
 else
   fail "speed harness failed: $(tail -n 1 "$scratch/speed.log")"
@@ -217,4 +223,8 @@ if ((failed)); then
   echo "FAIL: floating screens"
   exit 1
 fi
-echo "PASS: floating screens"
+if ((speed_pending)); then
+  echo "PASS: floating screens, speed pending"
+else
+  echo "PASS: floating screens"
+fi

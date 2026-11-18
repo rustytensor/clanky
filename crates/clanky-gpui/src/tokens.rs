@@ -138,7 +138,7 @@ pub const PALETTE_TOP: f32 = TITLE_BAR_HEIGHT + SPACE_24;
 pub const PALETTE_VISIBLE_ROWS: usize = 10;
 /// The typing caret in the palette's search line: one logical pixel wide, as tall as today's.
 pub const CARET_WIDTH: f32 = BORDER_WIDTH;
-pub const CARET_HEIGHT: f32 = 16.0;
+pub const PALETTE_CARET_HEIGHT: f32 = 16.0;
 /// The title bar's search box, which opens the palette: today's width, at the field height.
 pub const SEARCH_BOX_WIDTH: f32 = 320.0;
 /// Panes sit flush, square-cornered, edge to edge with each other and with the panels around them; one hairline in

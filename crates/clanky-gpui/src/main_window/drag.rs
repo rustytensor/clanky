@@ -8,9 +8,9 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use clanky_core::layout::{Axis, Layout};
 use gpui::{
-    AnyElement, App, Bounds, Context, CursorStyle, DispatchPhase, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point,
-    Div, Styled, Window, canvas, deferred, div, px,
+    AnyElement, App, Bounds, Context, CursorStyle, DispatchPhase, Div, InteractiveElement,
+    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels,
+    Point, Styled, Window, canvas, deferred, div, px,
 };
 
 use super::MainWindow;
@@ -86,7 +86,13 @@ fn measure(store: impl Fn(Bounds<Pixels>) + 'static) -> AnyElement {
 
 /// The ratio that puts a divider under the pointer: the first child's share of the split's room once the divider's own
 /// width is taken out, kept so each side has at least its least room.
-pub(super) fn ratio_at(pointer: f32, start: f32, length: f32, least: (f32, f32), divider: f32) -> f64 {
+pub(super) fn ratio_at(
+    pointer: f32,
+    start: f32,
+    length: f32,
+    least: (f32, f32),
+    divider: f32,
+) -> f64 {
     let room = (length - divider).max(1.0);
     let first = (pointer - start - divider / 2.0)
         .min(room - least.1)
@@ -158,7 +164,13 @@ impl MainWindow {
 
     /// The divider between a split's two children: a hairline, which the pointer drags anywhere within the hit width
     /// around it. The hit strip is drawn last, over the panes on either side, so it takes the press before they do.
-    pub(super) fn divider(&self, path: Vec<bool>, axis: Axis, scale: f32, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn divider(
+        &self,
+        path: Vec<bool>,
+        axis: Axis,
+        scale: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let line = t::hairline(scale);
         let overhang = px(-(t::DIVIDER_HIT_WIDTH - line) / 2.0);
         let hit = match axis {

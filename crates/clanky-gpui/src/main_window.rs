@@ -32,12 +32,12 @@ use serde_json::{Value, json};
 
 mod agent_picker;
 mod command_bar;
-mod completion_list;
 mod command_palette;
+mod completion_list;
 mod context_menu;
 mod drag;
-mod find_bar;
 mod editors;
+mod find_bar;
 mod floating;
 #[cfg(feature = "test-popover")]
 mod test_popover;
@@ -679,11 +679,7 @@ impl MainWindow {
     /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, a
     /// hairline divider between them.
     fn panes_area(&self, scale: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let area = div()
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .min_h_0();
+        let area = div().flex().flex_1().min_w_0().min_h_0();
         let Some(group) = self.workspace.groups.get(self.workspace.active) else {
             return area.into_any_element();
         };
@@ -1018,20 +1014,36 @@ mod tests {
 
     #[test]
     fn the_interface_theme_follows_the_saved_preference() {
-        let named = |config: &Config| interface_theme(config, &|_| true).expect("a built-in theme").name;
+        let named = |config: &Config| {
+            interface_theme(config, &|_| true)
+                .expect("a built-in theme")
+                .name
+        };
         let unset = Config::window_from_json("{}").expect("an empty config is valid");
-        assert_eq!(interface_theme(&unset, &|_| false).expect("graphite").name, "Graphite");
-        let light = Config::window_from_json(r#"{"theme":"light","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
-            .expect("the config is valid");
+        assert_eq!(
+            interface_theme(&unset, &|_| false).expect("graphite").name,
+            "Graphite"
+        );
+        let light = Config::window_from_json(
+            r#"{"theme":"light","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#,
+        )
+        .expect("the config is valid");
         assert_eq!(named(&light), "Zinc");
-        let dark = Config::window_from_json(r#"{"theme":"dark","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
-            .expect("the config is valid");
+        let dark = Config::window_from_json(
+            r#"{"theme":"dark","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#,
+        )
+        .expect("the config is valid");
         assert_eq!(named(&dark), "Neutral");
-        let system = Config::window_from_json(r#"{"theme":"system","theme_dark":"zinc-dark"}"#).expect("the config is valid");
+        let system = Config::window_from_json(r#"{"theme":"system","theme_dark":"zinc-dark"}"#)
+            .expect("the config is valid");
         assert_eq!(named(&system), "Zinc");
-        let light_default = Config::window_from_json(r#"{"theme":"light"}"#).expect("the config is valid");
+        let light_default =
+            Config::window_from_json(r#"{"theme":"light"}"#).expect("the config is valid");
         let theme = interface_theme(&light_default, &|_| false).expect("graphite light");
-        assert_eq!((theme.name.as_str(), theme.appearance), ("Graphite", clanky_state::themes::Appearance::Light));
+        assert_eq!(
+            (theme.name.as_str(), theme.appearance),
+            ("Graphite", clanky_state::themes::Appearance::Light)
+        );
     }
 
     #[test]
