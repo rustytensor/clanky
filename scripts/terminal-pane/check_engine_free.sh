@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Terminal pane gate, engine check: the engine crates and the window-side state (clanky-state) must not depend on
-# gpui-ce, directly or through anything else.
+# Terminal pane gate, engine check: the engine crates, the editor core (clanky-edit) and the window-side state
+# (clanky-state) must not depend on gpui-ce, directly or through anything else.
 # Prints "ok: engine-free <crate count> crates, no gpui" or "FAIL: engine-free <crate> depends on <gpui crate>"; exit 1 on failure.
 # --fault [CRATE] plants the failure: it copies the workspace to a scratch folder, adds gpui-ce to CRATE (default
 # clanky-core; the window chrome gate plants it in clanky-state), and runs the same check there.
 # Only dependency resolution runs, no build. The fault needs one git fetch (over ssh, as the copy check does).
 set -euo pipefail
 
-ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api clanky-state)
+ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api clanky-edit clanky-state)
 # The pin and package name are the copy check's own (scripts/copy-check/Cargo.toml in servorra/gpui-ce, branch clanky).
 GPUI_DEPENDENCY='gpui_ce = { git = "https://git.servorra.com/servorra/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui-ce" }'
 

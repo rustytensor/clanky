@@ -37,6 +37,7 @@ mod command_palette;
 mod context_menu;
 mod drag;
 mod find_bar;
+mod editors;
 mod floating;
 #[cfg(feature = "test-popover")]
 mod test_popover;
@@ -56,6 +57,7 @@ use crate::{
 use agent_picker::AgentTools;
 use command_bar::{Chips, read_chips};
 use drag::{Drag, Places};
+use editors::Editors;
 use tools::{Tools, ToolsData, ToolsQuery, read_tools};
 
 /// The main window's name in the control record.
@@ -111,6 +113,8 @@ pub struct WindowSetup {
     pub opens_with: u8,
     /// With restore_layout on: the saved layout's file and the session socket, whose startup lock guards each save.
     pub layout_file: Option<(PathBuf, PathBuf)>,
+    /// The editor panes' token colours, from the interface theme.
+    pub syntax: clanky::editor::SyntaxColors,
 }
 
 pub struct MainWindow {
@@ -146,6 +150,7 @@ pub struct MainWindow {
     pane_menu: context_menu::PaneMenu,
     /// The agent tools the picker offers, and the one being started.
     agent_tools: AgentTools,
+    editors: Editors,
     _status: Task<()>,
 }
 
@@ -221,6 +226,7 @@ impl MainWindow {
             find: None,
             palette_state: command_palette::PaletteState::default(),
             pane_menu: context_menu::PaneMenu::default(),
+            editors: Editors::new(setup.syntax),
             _status: status,
         };
         this.after_change(window, cx);
@@ -307,6 +313,7 @@ impl MainWindow {
         if let Err(message) = self.sync(window, cx) {
             self.notice = Some(message);
         }
+        self.rehome_editors();
         if let Err(message) = self.save_layout() {
             self.notice = Some(message);
         }
@@ -564,7 +571,11 @@ impl MainWindow {
             Action::SplitDown => self.act(window, cx, |this, window, cx| {
                 this.split(Axis::Rows, window, cx)
             }),
-            Action::ClosePane => self.act(window, cx, Self::close_pane),
+            Action::ClosePane => {
+                if !self.close_focused_editor(window, cx) {
+                    self.act(window, cx, Self::close_pane);
+                }
+            }
             Action::ToggleToolsPanel => self.toggle_tools(cx),
             _ => return,
         }
@@ -727,7 +738,7 @@ impl MainWindow {
                     )
                     .child(self.kit.record().landmark("pane", *index));
                 *index += 1;
-                pane.into_any_element()
+                self.editors_beside(id, share, pane.into_any_element(), scale)
             }
             Layout::Split {
                 axis,

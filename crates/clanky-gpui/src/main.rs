@@ -27,6 +27,7 @@ mod control_look;
 mod control_record;
 #[allow(dead_code)]
 mod controls;
+mod editor_pane;
 mod glyphs;
 mod grid_element;
 #[allow(dead_code)]
@@ -328,6 +329,7 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         // Today's new window: one tab split in two, one pane above the other, unless the config says one pane.
         opens_with: if opened { config.new_window_panes } else { 1 },
         layout_file: layout_file.map(|file| (file, socket.clone())),
+        syntax: editor_pane::syntax_colors(&theme),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

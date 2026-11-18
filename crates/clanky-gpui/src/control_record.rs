@@ -81,6 +81,10 @@ pub enum Faults {
     PopoverOverOpener,
     EscLosesFocus,
     PaletteNoRun,
+    SaveNotWritten,
+    MarkerStays,
+    SyntaxOffByOne,
+    CloseDropsPending,
 }
 
 impl Faults {
@@ -94,6 +98,10 @@ impl Faults {
             "popover-over-opener" => Self::PopoverOverOpener,
             "esc-loses-focus" => Self::EscLosesFocus,
             "palette-no-run" => Self::PaletteNoRun,
+            "save-not-written" => Self::SaveNotWritten,
+            "marker-stays" => Self::MarkerStays,
+            "syntax-off-by-one" => Self::SyntaxOffByOne,
+            "close-drops-pending" => Self::CloseDropsPending,
             _ => Self::None,
         }
     }
@@ -142,6 +150,26 @@ impl Faults {
     /// The palette leaves out its last row, the offer to run what was typed in the pane.
     pub fn palette_no_run(self) -> bool {
         self == Self::PaletteNoRun
+    }
+
+    /// Ctrl+S in an editor pane that writes nothing to the file.
+    pub fn save_not_written(self) -> bool {
+        self == Self::SaveNotWritten
+    }
+
+    /// An editor pane's pending-change marker that stays once it has shown, after a save too.
+    pub fn marker_stays(self) -> bool {
+        self == Self::MarkerStays
+    }
+
+    /// Editor keywords drawn one ANSI colour along from the theme's (ANSI 6 instead of 5).
+    pub fn syntax_off_by_one(self) -> bool {
+        self == Self::SyntaxOffByOne
+    }
+
+    /// An editor pane that closes with its pending changes, which are lost.
+    pub fn close_drops_pending(self) -> bool {
+        self == Self::CloseDropsPending
     }
 
     fn hit(self, painted: DeviceBox) -> DeviceBox {

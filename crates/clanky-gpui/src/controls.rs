@@ -702,10 +702,10 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
-        } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow) {
-            // A menu item's or popover row's line fills the row, as a tab's does: inside a popover the row's top is a
-            // whole device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off
-            // at 1.5.
+        } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow | Kind::ButtonBar) {
+            // A menu item's, popover row's or bar button's line fills the control, as a tab's does: the control's top
+            // is a whole device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel
+            // off at 1.5.
             text(weight)
                 .line_height(px(kind.height()))
                 .relative()
@@ -784,7 +784,19 @@ impl Kit {
             // icon can only sit half a pixel off centre, and gpui rounds it up, where the ink's soft lower edge adds
             // to the offset. A one-device-pixel top margin puts it the half pixel low instead.
             let inside = (kind.height() - 2.0 * t::hairline(scale)) * scale;
-            let nudge = if kind == Kind::Field && (inside - size * scale).round() % 2.0 != 0.0 {
+            let field_nudge = kind == Kind::Field && (inside - size * scale).round() % 2.0 != 0.0;
+            // An icon-only control whose spare room is an odd count of device pixels (a 14 px icon in 28 at 1.5) cannot
+            // centre its icon on whole pixels. Layout rounds the half pixel toward the top left, where the icon's
+            // antialiased edges already lean, which tips it past half a pixel off; one device pixel of margin before
+            // the icon puts the spare pixel there instead, half a pixel the other way.
+            let spare = ((kind.height() - size) * scale).round();
+            let button_nudge = kind.is_icon_only() && spare.rem_euclid(2.0) > 0.5;
+            let top = if field_nudge || button_nudge {
+                t::hairline(scale)
+            } else {
+                0.0
+            };
+            let left = if button_nudge {
                 t::hairline(scale)
             } else {
                 0.0
@@ -793,8 +805,9 @@ impl Kit {
                 div()
                     .relative()
                     .flex_none()
-                    .mt(px(nudge))
                     .size(px(size))
+                    .mt(px(top))
+                    .ml(px(left))
                     .child(svg().data(icon.svg()).size(px(size)).text_color(paint(
                         if lit || control.primary {
                             ink

@@ -34,7 +34,7 @@ pub use command::SharedInput;
 
 use crate::{
     control_record::ControlRecord,
-    grid_element::{GridElement, Metrics, TextSettings, colour},
+    grid_element::{GridElement, GridOwner, Metrics, TextSettings, colour},
     keys,
     link::{Link, Update},
     palette::Palette,
@@ -843,6 +843,12 @@ impl EntityInputHandler for TerminalPane {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         None
+    }
+}
+
+impl GridOwner for TerminalPane {
+    fn fit(&mut self, rows: usize, cols: usize, _cx: &mut Context<Self>) {
+        TerminalPane::fit(self, rows, cols);
     }
 }
 
