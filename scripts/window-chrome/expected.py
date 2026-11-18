@@ -140,12 +140,17 @@ def theme_colours(theme):
         "alpha": theme["input"]["alpha"],
         "src": theme["input"]["src"],
     }
+    frame = blend(card, foreground, theme["frame"]["mix_card_toward_foreground"])
     colours["frame"] = {
-        "hex": rgb_to_hex(
-            blend(card, foreground, theme["frame"]["mix_card_toward_foreground"])
-        ),
+        "hex": rgb_to_hex(frame),
         "rule": "card moved toward foreground",
         "src": theme["frame"]["src"],
+    }
+    # The dividers between flush neighbours lie over the window's frame colour.
+    colours["border_over_frame"] = {
+        "hex": rgb_to_hex(blend(frame, hex_to_rgb(border["over"]), border["alpha"])),
+        "rule": f"frame with {border['over']} at {border['alpha']:.0%}",
+        "src": border["src"],
     }
     return colours
 

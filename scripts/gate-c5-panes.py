@@ -99,11 +99,21 @@ INPUT_H = 1 + 8 + 32 + 7 + 10  # command input without its text line (command_ba
 EDGE = 0  # today's pane region has no edge of its own
 GPUI = t2.gate_app.override() is not None
 if GPUI:
-    # clanky-gpui: the rulebook's pane gap, padding and edge, and its command input (see the docstring).
+    # clanky-gpui: flush panes, one divider row between them and no edge of their own, the rulebook's padding, and
+    # its command input (see the docstring).
     _tokens = json.loads((Path(__file__).with_name('window-chrome') / 'rulebook-tokens.json').read_text())
-    GAP, PAD = _tokens['pane']['gap']['px'], _tokens['pane']['padding']['px']
+    GAP, PAD = _tokens['pane']['divider']['device_px'], _tokens['pane']['padding']['px']
     INPUT_H = 1 + 8 + _tokens['heights']['h_chip']['px'] + 8 + PAD
-    EDGE = _tokens['pane']['border_width']['device_px']
+    EDGE = 0
+    # The divider between flush panes: the theme's border over the window's frame (the card moved toward the
+    # foreground), the default Graphite dark theme's values from the token table.
+    _dark = _tokens['themes']['graphite-dark']
+    _hex = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    _mix = lambda a, b, t: tuple(x + (y - x) * t for x, y in zip(a, b))
+    _frame = _mix(_hex(_dark['card']['hex']), _hex(_dark['foreground']['hex']), _dark['frame']['mix_card_toward_foreground'])
+    DIVIDER = tuple(round(v) for v in _mix(_frame, _hex(_dark['border']['over']), _dark['border']['alpha']))
+else:
+    DIVIDER = None
 MAG = (255, 0, 255)
 PROG = r'''#!/usr/bin/python3 -I
 # c5prog: alternate screen, cursor hidden; magenta cells at (1,1) and at the last cell; quits on "q".
@@ -226,9 +236,17 @@ def pixel_panes(win, name):
         if w >= 200 and h >= 20 and (lab[sl] == i).sum() >= .6 * w * h:
             parts.append((xs.start, ys.start, xs.stop - 1, ys.stop - 1))
     out = []
+
+    def divider_between(o, r):
+        # flush panes: the rows between two parts are the panes' divider, not a pane's own hairline
+        x = (r[0] + r[2]) // 2
+        return DIVIDER is not None and all(
+            np.abs(a[y, x] - np.array(DIVIDER)).max() <= 4 for y in range(o[3] + 1, r[1]))
+
     for r in sorted(parts, key=lambda r: (r[1], r[0])):
         # a pane's own hairline (the command input's, 1-3 rows) splits its region; the parts are one pane
-        j = next((k for k, o in enumerate(out) if near(o[0], r[0]) and near(o[2], r[2]) and 0 < r[1] - o[3] <= 4),
+        j = next((k for k, o in enumerate(out) if near(o[0], r[0]) and near(o[2], r[2]) and 0 < r[1] - o[3] <= 4
+                  and not divider_between(o, r)),
                  None)
         if j is None:
             out.append(r)

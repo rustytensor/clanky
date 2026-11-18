@@ -344,8 +344,7 @@ impl MainWindow {
                 .flex_none()
                 .w(px(t::SIDE_COLUMN_WIDTH))
                 .min_h_0()
-                .py(px(t::PANE_MARGIN))
-                .pl(px(t::PANE_MARGIN))
+                .p(px(t::SIDE_COLUMN_PADDING))
                 .gap(px(t::SPACE_8))
                 .child(
                     div()
