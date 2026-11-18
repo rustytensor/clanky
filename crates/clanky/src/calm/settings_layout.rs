@@ -5,8 +5,8 @@ use crate::{config::{BlockStyle,CommandInput,Config,TabStyle,TerminalColors,Them
 
 fn r(x:f32,y:f32,w:f32,h:f32)->PixelRect{PixelRect{x,y,w:w.max(0.0),h:h.max(0.0)}}
 /// Display order of the built-in themes in the picker (the mockup's columns).
-pub const PICKER_DARK:[&str;9]=["graphite-dark","ink","stone-dark","paper-dark","catppuccin-mocha","catppuccin-macchiato","catppuccin-frappe","ai-bedazzled","unicorn-vomit"];
-pub const PICKER_LIGHT:[&str;5]=["graphite-light","stone-light","paper-light","catppuccin-latte","unicorn-tears"];
+pub const PICKER_DARK:[&str;11]=["graphite-dark","neutral-dark","zinc-dark","ink","stone-dark","paper-dark","catppuccin-mocha","catppuccin-macchiato","catppuccin-frappe","ai-bedazzled","unicorn-vomit"];
+pub const PICKER_LIGHT:[&str;7]=["graphite-light","neutral-light","zinc-light","stone-light","paper-light","catppuccin-latte","unicorn-tears"];
 
 #[derive(Clone)]
 pub enum PickKind{Theme{id:String,appearance:Appearance,theme:Box<Theme>},Palette{name:String,value:serde_json::Value,colors:TerminalColors}}

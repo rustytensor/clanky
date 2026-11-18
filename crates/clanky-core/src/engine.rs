@@ -480,9 +480,8 @@ impl Engine {
     }
     pub fn snapshot(&self, tab_id: &str) -> Result<TerminalSnapshot, CoreError> {
         let tab = self.tab(tab_id, true)?;
-        let terminal = tab.terminal.lock().unwrap();
-        let lines = self.0.1.policy.display_lines(&terminal)?;
-        Ok(terminal.masked_snapshot(&lines))
+        let (text, screen) = tab.terminal.lock().unwrap().display_copy();
+        Ok(screen.masked(&self.0.1.policy.display_text(text)?))
     }
     pub fn input(&self, tab_id: &str, bytes: &[u8]) -> Result<(), CoreError> {
         if bytes.len() > 1024 * 1024 {
@@ -709,12 +708,13 @@ impl Engine {
                 if known_generation == Some(generation) {
                     return Ok(json!({"generation":generation,"unchanged":true}));
                 }
-                // Owner live view only: show provisional text, hide recognized secrets.
-                // Placements clone only Arc headers, never their RGBA buffers.
-                let lines = self.0.1.policy.display_lines(&terminal)?;
-                let snapshot = terminal.masked_snapshot(&lines);
+                // Owner live view only: show provisional text, hide recognized secrets. The copies are masked
+                // after the lock is released, so the PTY feed runs while the masker works; nothing unmasked
+                // leaves this function. Placements clone only Arc headers, never their RGBA buffers.
+                let (text, screen) = terminal.display_copy();
                 let block_anchors = terminal.card_metadata();
                 drop(terminal);
+                let snapshot = screen.masked(&self.0.1.policy.display_text(text)?);
                 let mut pixels = Vec::new();
                 for image in &snapshot.images {
                     if known.insert(image.image_key) {

@@ -131,7 +131,7 @@ Graphite err equals the mockup's --g-err, so the failed-block hairline rgba(236,
      with Settings closed (1300,450) is Paper's background (31,28,23) +-2 [T].
   K2 Follow the system On writes theme "system" and keeps theme_dark "paper-dark" and theme_light "paper-light";
      the page then reads "dark mode" and "light mode".
-  K3 colour dots [M .th i, T]: on every row (14 built-in themes in their columns, and the gate's Ptyxis palette
+  K3 colour dots [M .th i, T]: on every row (18 built-in themes in their columns, and the gate's Ptyxis palette
      "Harbor Quiet"), along the row's middle there are four dots of ansi[1], ansi[2], ansi[4], ansi[3] (+-6) in
      that order from left to right, each 6-12 px wide, centres 14 px apart (+-2) [M: 5.5, 19.5, 33.5, 47.5], with the
      chip colour (the theme's own background, or the palette's Background) between the first two (+-4).
@@ -173,10 +173,10 @@ HARBOR_FILE = ('[Palette]\nName=Harbor Quiet\nPrimary=false\n\n[Dark]\nBackgroun
                'Cursor=#f0f0f0\n' + ''.join(f'Color{i}={c}\n' for i, c in enumerate(HARBOR['ansi'])) +
                '\n[Light]\nBackground=#f0f0f0\nForeground=#102030\nCursor=#102030\n' +
                ''.join(f'Color{i}={c}\n' for i, c in enumerate(HARBOR['ansi'])))
-DARK_ROWS = [('graphite', 'graphite-dark'), ('ink', 'ink'), ('stone', 'stone-dark'), ('paper', 'paper-dark'),
+DARK_ROWS = [('graphite', 'graphite-dark'), ('neutral', 'neutral-dark'), ('zinc', 'zinc-dark'), ('ink', 'ink'), ('stone', 'stone-dark'), ('paper', 'paper-dark'),
              ('mocha', 'catppuccin-mocha'), ('macchiato', 'catppuccin-macchiato'), ('frapp', 'catppuccin-frappe'),
              ('bedazzled', 'ai-bedazzled'), ('vomit', 'unicorn-vomit')]
-LIGHT_ROWS = [('graphite', 'graphite-light'), ('stone', 'stone-light'), ('paper', 'paper-light'),
+LIGHT_ROWS = [('graphite', 'graphite-light'), ('neutral', 'neutral-light'), ('zinc', 'zinc-light'), ('stone', 'stone-light'), ('paper', 'paper-light'),
               ('latte', 'catppuccin-latte'), ('tears', 'unicorn-tears')]
 
 

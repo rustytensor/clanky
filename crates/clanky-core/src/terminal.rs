@@ -822,34 +822,38 @@ impl Terminal {
     /// Replace secret-bearing cells using full masked logical context. Keep the
     /// raw grid, widths, colours and cursor intact; never parse replacement stars.
     pub(crate) fn masked_snapshot(&self, lines: &[String]) -> TerminalSnapshot {
-        let mut snapshot = self.snapshot();
+        self.screen_copy().masked(lines)
+    }
+    /// The owner's live view as two copies taken at one instant: the text context for the masker and the screen
+    /// it will be applied to. Masking the whole history is slow, so it runs on these copies after the terminal's
+    /// lock is released, and the PTY feed is not held up by it.
+    pub(crate) fn display_copy(&self) -> (TextCopy, ScreenCopy) {
+        let (_, _, lines, wraps, truncated) = self.text_context();
+        let text = TextCopy { lines, wraps, truncated, cursor: self.text_cursor() };
+        (text, self.screen_copy())
+    }
+    fn screen_copy(&self) -> ScreenCopy {
         let grid = self.term.grid();
-        let history = grid.history_size();
         let offset = grid.display_offset();
-        for row in 0..self.size.0 {
-            let safe = lines[history - offset + row].as_bytes();
-            let mut byte = 0;
-            for col in 0..self.size.1 {
-                let cell = &grid[Point::new(Line(row as i32 - offset as i32), Column(col))];
-                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
-                    continue;
-                }
-                let len = cell_text_len(cell);
-                let original: String = if cell.flags.contains(Flags::HIDDEN) {
-                    " ".into()
-                } else {
-                    std::iter::once(cell.c).chain(cell.zerowidth().into_iter().flatten().copied()).collect()
-                };
-                if safe.get(byte..byte + len) != Some(original.as_bytes()) {
-                    snapshot.cells[row * self.size.1 + col].ch = '*';
-                    if cell.flags.contains(Flags::WIDE_CHAR) && col + 1 < self.size.1 {
-                        snapshot.cells[row * self.size.1 + col + 1].ch = '*';
-                    }
-                }
-                byte += len;
-            }
-        }
-        snapshot
+        let rows = (0..self.size.0)
+            .map(|row| {
+                (0..self.size.1)
+                    .filter_map(|col| {
+                        let cell = &grid[Point::new(Line(row as i32 - offset as i32), Column(col))];
+                        if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                            return None;
+                        }
+                        let shown: String = if cell.flags.contains(Flags::HIDDEN) {
+                            " ".into()
+                        } else {
+                            std::iter::once(cell.c).chain(cell.zerowidth().into_iter().flatten().copied()).collect()
+                        };
+                        Some(ShownCell { col, wide: cell.flags.contains(Flags::WIDE_CHAR), text: shown })
+                    })
+                    .collect()
+            })
+            .collect();
+        ScreenCopy { snapshot: self.snapshot(), first_row: grid.history_size() - offset, cols: self.size.1, rows }
     }
     pub fn snapshot(&self) -> TerminalSnapshot {
         let mut cells = Vec::with_capacity(self.size.0 * self.size.1);
@@ -937,6 +941,49 @@ impl Terminal {
 fn cell_text_len(cell: &clanky_vt::term::cell::Cell) -> usize {
     if cell.flags.contains(Flags::HIDDEN) { 1 } else {
         cell.c.len_utf8() + cell.zerowidth().into_iter().flatten().map(|c| c.len_utf8()).sum::<usize>()
+    }
+}
+/// The terminal's logical text with what the masker needs beside it, copied out of the terminal.
+pub(crate) struct TextCopy {
+    pub(crate) lines: Vec<String>,
+    pub(crate) wraps: Vec<bool>,
+    pub(crate) truncated: bool,
+    pub(crate) cursor: Option<(usize, usize)>,
+}
+/// The visible screen, unmasked, with each visible cell's text, waiting for the masked lines.
+pub(crate) struct ScreenCopy {
+    snapshot: TerminalSnapshot,
+    /// The index in the text context of the first visible row.
+    first_row: usize,
+    cols: usize,
+    /// Each visible row's cells, wide-character spacers left out.
+    rows: Vec<Vec<ShownCell>>,
+}
+struct ShownCell {
+    col: usize,
+    wide: bool,
+    /// What the cell shows: its character and any zero-width ones, or a space when hidden.
+    text: String,
+}
+impl ScreenCopy {
+    /// The snapshot with a star in every cell whose text differs from the masked lines.
+    pub(crate) fn masked(self, lines: &[String]) -> TerminalSnapshot {
+        let mut snapshot = self.snapshot;
+        for (row, cells) in self.rows.iter().enumerate() {
+            let safe = lines[self.first_row + row].as_bytes();
+            let mut byte = 0;
+            for cell in cells {
+                let len = cell.text.len();
+                if safe.get(byte..byte + len) != Some(cell.text.as_bytes()) {
+                    snapshot.cells[row * self.cols + cell.col].ch = '*';
+                    if cell.wide && cell.col + 1 < self.cols {
+                        snapshot.cells[row * self.cols + cell.col + 1].ch = '*';
+                    }
+                }
+                byte += len;
+            }
+        }
+        snapshot
     }
 }
 fn color_source(color: Color) -> ColorSource {
