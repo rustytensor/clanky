@@ -898,6 +898,7 @@ impl Render for MainWindow {
             )
             .child(self.status_line(scale))
             .children(self.floating_layer(window, cx))
+            .child(crate::popover::shadow_warmup())
             .child(Self::drag_listener(cx))
             .child(self.frame_end())
             .child(self.kit.record().flush())

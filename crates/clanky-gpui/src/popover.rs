@@ -354,6 +354,26 @@ impl Popover {
     }
 }
 
+/// An invisible box with the popover's shadow, drawn in every frame of the window. The first shadow a window draws costs
+/// about 60 ms on a software renderer (llvmpipe builds the shadow shader's code on its first draw), so without this the
+/// first popover opened took 72 to 76 ms to show instead of 7 to 9; this moves that cost to the window's first frame.
+pub fn shadow_warmup() -> AnyElement {
+    let shadow = t::SHADOW_POPOVER;
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size(px(t::BORDER_WIDTH))
+        .shadow(vec![gpui::BoxShadow {
+            color: paint(shadow.color(), 0.0).into(),
+            offset: point(px(0.0), px(shadow.offset_y)),
+            blur_radius: px(shadow.sigma()),
+            spread_radius: px(0.0),
+            inset: false,
+        }])
+        .into_any_element()
+}
+
 /// Lays its child out at its own size, then moves it to where [`place`] (or the centred placement) puts it, on whole
 /// device pixels.
 struct Placed {
