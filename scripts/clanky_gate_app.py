@@ -26,6 +26,18 @@ def override():
     return path
 
 
+def abstract_x_displays():
+    """Display numbers whose X server listens on the abstract socket @/tmp/.X11-unix/XN. A server started in another
+    /tmp (a sandboxed session) has no lock or socket file in ours, but X clients connect to the abstract socket
+    first, so a second server on that number would get its clients and they would fail to connect."""
+    found = set()
+    for line in Path('/proc/net/unix').read_text().splitlines()[1:]:
+        name = line.split()[-1]
+        if name.startswith('@/tmp/.X11-unix/X') and name[17:].isdigit():
+            found.add(int(name[17:]))
+    return found
+
+
 def window_binary(bins):
     return override() or Path(bins) / 'clanky'
 
