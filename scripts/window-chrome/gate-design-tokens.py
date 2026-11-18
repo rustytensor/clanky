@@ -82,6 +82,8 @@ if (
 
     virtual_clock.install()
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
+# --screens a,b measures only those floating screens, for a part that brings one screen before the rest exist.
+FLOATING_ONLY = set(arg("--screens", "").split(",")) - {""}
 SETTINGS = "--settings" in ARGS  # G4: also measure the Settings window
 KEEP = "--keep" in ARGS
 SCALES = [float(v) for v in arg("--scales", "1").split(",")]
@@ -676,21 +678,6 @@ def selection_check(win, e):
 # How each popover opens. TODO(G3): the keys and the click are guesses until G3's key bindings exist, except the
 # palette's (Ctrl+Shift+P, the real one).
 
-TAB_SETTLE_S = 1.0  # a new or closed tab: the server answers and the window redraws well within this
-
-
-def open_second_tab(win):
-    """The palette lists "Go to" for every tab but the active one (clanky_state::command_palette), so a second tab,
-    which opens in the first one's HIH folder, makes "Go to HIH" one of its rows."""
-    win.key("ctrl+shift+t")
-    time.sleep(TAB_SETTLE_S)
-
-
-def close_second_tab(win):
-    """Closes the tab open_second_tab opened (the active one, whose pane has the keyboard again after Esc)."""
-    win.key("ctrl+shift+w")
-    time.sleep(TAB_SETTLE_S)
-
 
 def open_completion(win):
     win.type("ls scripts/gate-m")
@@ -710,8 +697,6 @@ FLOATING_SCREENS = {
         input="palette_input",
         footer="palette_footer",
         text=True,
-        prepare=open_second_tab,
-        cleanup=close_second_tab,
     ),
     "agent-picker": dict(
         open=lambda win: win.key("ctrl+shift+g"),
@@ -962,6 +947,8 @@ def palette_text_checks(win, e, screen):
 
 def floating_checks(win, e):
     for screen, spec in FLOATING_SCREENS.items():
+        if FLOATING_ONLY and screen not in FLOATING_ONLY:
+            continue
         guarded(
             f"{screen}-row-height",
             lambda s=screen, p=spec: floating_screen_checks(win, e, s, p),

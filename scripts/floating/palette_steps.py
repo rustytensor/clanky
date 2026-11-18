@@ -15,7 +15,8 @@ control-faults feature); palette-no-run must fail P4.
   P3 Ctrl+Shift+P again while it is open closes it.
   P4 a typed line that names no command: the one row is "Run “echo zq-palette-run” in this pane", and Enter runs it
      in the pane the palette opened over (the pane's text holds zq-palette-run twice: the command and its output).
-  P5 with a second tab, "Go to HIH" lists the first tab (both are in the HIH folder), and Enter makes it active.
+  P5 with the second tab active, "Go to HIH" lists the first tab (both are in the HIH folder), and Enter makes it
+     active.
 """
 
 import os
@@ -172,8 +173,9 @@ def run_step(win):
 
 
 def go_to_step(win):
-    win.key("ctrl+shift+t")
-    soft_until(lambda: len(tabs(win)) == 2 and tabs(win)[1]["checked"])
+    # The harness opens a second tab and keeps the first active; the second is made active here.
+    win.key("ctrl+Tab")
+    soft_until(lambda: [t["checked"] for t in tabs(win)] == [False, True])
     win.key("ctrl+shift+p")
     soft_until(lambda: is_open(win))
     listed = type_and_pick(win, "Go to", "Go to HIH")

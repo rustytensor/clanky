@@ -14,7 +14,7 @@
 #   giving the keyboard back; Tab kept inside; arrows; no idle frames), then the planted faults popover-over-opener and
 #   esc-loses-focus, each of which must fail the check aimed at it.
 # --palette checks the command palette alone on a clanky-gpui built with `--features control-faults`
-#   (CLANKY_GPUI_BIN=PATH): the controls gate's palette screen at both scales, the palette's behaviour
+#   (CLANKY_GPUI_BIN=PATH): the controls gate's palette screen at both scales, the design gate's palette rows, its behaviour
 #   (floating/palette_steps.py: today's q1 T3 and q2 K3 steps on the control record), then the planted fault
 #   palette-no-run, which must fail the controls gate's filter check and the steps' P4.
 set -euo pipefail
@@ -161,6 +161,10 @@ if [[ ${1:-} == --palette ]]; then
   status=0
   output=$(in_lock python3 "$CHROME/gate-controls.py" --floating --app "$binary" --scales "$SCALES" --screens palette 2>&1) || status=$?
   if ((status == 0)) && [[ $output == *"PASS: controls"* ]]; then ok "controls gate passes the palette"; else fail "controls gate on the palette: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+  status=0
+  output=$(in_lock python3 "$CHROME/gate-design-tokens.py" --floating --app "$binary" --screens palette 2>&1) || status=$?
+  grep -E '^(ok|FAIL): palette' <<<"$output" || true
+  if ((status == 0)); then ok "design gate passes the palette"; else fail "design gate on the palette: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
   status=0
   output=$(in_lock python3 "$FLOATING/palette_steps.py" --app "$binary" 2>&1) || status=$?
   grep -E '^(ok|FAIL):' <<<"$output" || true
