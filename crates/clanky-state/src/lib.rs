@@ -3,6 +3,7 @@
 //! notifications, cursor blink, the clipboard bridge, the saved layout and the key bindings. Tabs, panes and their
 //! split tree live in `clanky-core`. The selection of a list the arrow keys move through is here too, with the find
 //! bar's model and the command palette's list and its matching rule.
+pub mod agent_picker;
 pub mod blocks;
 pub mod clipboard;
 pub mod command_palette;

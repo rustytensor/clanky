@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """A1 gate: start an agent's own command-line tool in a new pane (mockup approved by Marc 2026-11-12).
 
-Usage: gate-a1-agent-pane.py [--fault missing|access|post-ai|network]
-A fault tampers with the run on purpose; the gate must then FAIL.
+Usage: gate-a1-agent-pane.py [--fault missing|access|post-ai|network|picker|window-post-ai]
+A fault tampers with the run on purpose; the gate must then FAIL. picker and window-post-ai run only A8, on
+clanky-gpui: picker lists the window's agents in reverse order, window-post-ai starts the Post-AI window without
+Post-AI.
 
 Interface fixed by this gate (the work must provide it):
   clanky agent [--socket PATH] [--config PATH] [--tab] NAME [DIR]
@@ -30,6 +32,12 @@ Expected results, fixed before the work:
      "FAKE-AGENT"; in a Post-AI window Ctrl+Shift+G opens nothing within 3 s.
   A9 `cargo test -p clanky --lib recent_credits_agent` runs at least 1 test and passes: a command block run by
      the agent "rusty" is shown in Recent as rusty's, not the pane's.
+On clanky-gpui (CLANKY_BIN): the servers and the windows are CLANKY_BIN (`--server --socket PATH` for the servers);
+the `clanky agent` command line stays today's clanky, as it is not part of the window. A8 also reads the window's
+control record (scripts/window-chrome/RECORD.md) after Ctrl+Shift+G: the screen "agent-picker" holds exactly the rows
+"Fake" (enabled, checked: the first found tool is the highlighted one) and "Missing" (disabled: not installed), in
+the config's order, and a popover object. In the Post-AI window no "agent-picker" screen line with controls is
+written within 3 s. Each run's runtime folder is exactly 0700, and the window gets no desktop session variables.
 """
 import base64, json, os, re, shutil, socket, subprocess, sys, time
 from pathlib import Path
@@ -38,8 +46,15 @@ _config_xml_spec = _config_xml_util.spec_from_file_location('clanky_config_xml',
 config_xml = _config_xml_util.module_from_spec(_config_xml_spec)
 _config_xml_spec.loader.exec_module(config_xml)  # config.xml writer and reader shared by the gate harnesses
 
+_gate_app_spec = _config_xml_util.spec_from_file_location('clanky_gate_app', Path(__file__).with_name('clanky_gate_app.py'))
+gate_app = _config_xml_util.module_from_spec(_gate_app_spec)
+_gate_app_spec.loader.exec_module(gate_app)  # which window binary the gate drives (CLANKY_BIN)
+
 TARGET = Path(os.environ['CARGO_TARGET_DIR'])
 APP = TARGET / 'debug/clanky'
+GPUI = gate_app.override()
+WINDOW_APP = GPUI or APP  # the servers and windows; the `clanky agent` command line is always today's clanky
+PICKER_ROWS = [('Fake', True, True), ('Missing', False, False)]  # A8: (label, enabled, checked) in config order
 FAULT = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == '--fault' else None
 ROOT = Path(os.environ.get('CLANKY_A1_WORK', '/srv/devops/build/clanky-a1-gate'))
 FAKE = '#!/bin/sh\nprintf "FAKE-AGENT cwd=%s args=%s\\n" "$PWD" "$*"\n'
@@ -56,9 +71,10 @@ def free_display():
     """A display number no X server uses: 100 and up, with no lock file and no socket file. Never :0: Marc's
     desktop Xwayland listens there under the socket name X0_, so Xvfb took :0, replaced /tmp/.X11-unix/X0 and
     deleted it on exit, cutting new X11 apps off his desktop (2026-11-13)."""
+    taken = gate_app.abstract_x_displays()
     for n in range(100, 200):
         if not os.path.exists(f'/tmp/.X{n}-lock') and not os.path.lexists(f'/tmp/.X11-unix/X{n}') \
-                and not os.path.lexists(f'/tmp/.X11-unix/X{n}_'):
+                and not os.path.lexists(f'/tmp/.X11-unix/X{n}_') and n not in taken:
             return str(n)
     raise Fail('no free X display between :100 and :199')
 
@@ -123,10 +139,11 @@ def setup(name, stubs=('fake-agent',), **cfg):
     w.mkdir(mode=0o700)
     for d in ('home', 'config', 'data', 'state', 'runtime', 'bin', 'project'):
         (w / d).mkdir(mode=0o700)
+        os.chmod(w / d, 0o700)  # no set-group-ID bit inherited from the build folder: the runtime folder is exactly 0700
     for stub in stubs:
         (w / 'bin' / stub).write_text(FAKE)
         (w / 'bin' / stub).chmod(0o755)
-    env = {k: v for k, v in os.environ.items() if not k.startswith(('XDG_', 'CLANKY', 'WAYLAND'))}
+    env = {k: v for k, v in gate_app.isolated_env().items() if not k.startswith(('XDG_', 'CLANKY', 'WAYLAND', 'DBUS'))}
     env.update(HOME=str(w / 'home'), XDG_CONFIG_HOME=str(w / 'config'), XDG_DATA_HOME=str(w / 'data'),
                XDG_STATE_HOME=str(w / 'state'), XDG_RUNTIME_DIR=str(w / 'runtime'), SHELL='/bin/sh',
                PATH=f'{w / "bin"}:/usr/bin:/bin')
@@ -137,7 +154,7 @@ def setup(name, stubs=('fake-agent',), **cfg):
 
 def server(w, env, config, trace=None):
     sock = w / 'server.sock'
-    cmd = [str(APP), '--server', '--socket', str(sock), '--config', str(config)]
+    cmd = [str(WINDOW_APP), '--server', '--socket', str(sock), '--config', str(config)]
     if trace:
         cmd = ['strace', '-f', '-qq', '-e', 'trace=connect', '-o', str(trace)] + cmd
     p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -220,7 +237,9 @@ def post_ai():
 
 
 def window(post):
-    w, env, config = setup('window-postai' if post else 'window', agents=AGENTS, post_ai=post)
+    agents = AGENTS[::-1] if FAULT == 'picker' else AGENTS
+    w, env, config = setup('window-postai' if post else 'window', agents=agents,
+                           post_ai=post and FAULT != 'window-post-ai')
     rd, wr = os.pipe()
     x = subprocess.Popen(['Xvfb', ':' + free_display(), '-displayfd', str(wr), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'],
                          pass_fds=(wr,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -230,18 +249,31 @@ def window(post):
                VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json')
     os.close(rd)
     sock = w / 'window.sock'
-    p = subprocess.Popen([str(APP), '--socket', str(sock), '--config', str(config)], env=env, cwd=str(w / 'project'),
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    record = w / 'controls.jsonl'
+    if GPUI:
+        env['CLANKY_CONTROL_RECORD'] = str(record)
+    p = subprocess.Popen([str(WINDOW_APP), '--socket', str(sock), '--config', str(config)], env=env,
+                         cwd=str(w / 'project'), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     PROCS.append(p)
     until(lambda: sock.exists() or require(p.poll() is None, 'A8 window startup'), 'A8 socket', 30)
-    wid = until(lambda: (subprocess.run(['xdotool', 'search', '--pid', str(p.pid)], env=env, capture_output=True,
+    # Only a mapped window takes the focus: clanky-gpui also owns an unmapped one, which xdotool lists first.
+    wid = until(lambda: (subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(p.pid)], env=env, capture_output=True,
                                         text=True).stdout.split() or [None])[0], 'A8 window', 30)
     subprocess.run(['xdotool', 'windowfocus', '--sync', wid], env=env, check=True)
     o = owner(sock)
     before = until(lambda: tabs(o) or None, 'A8 first terminal', 20)
     time.sleep(1)
-    for keys in (['key', 'ctrl+shift+g'], ['sleep', '0.8'], ['key', 'Return']):
-        subprocess.run(['xdotool', *keys], env=env, check=True)
+    subprocess.run(['xdotool', 'key', 'ctrl+shift+g'], env=env, check=True)
+    if GPUI and post:
+        time.sleep(3)
+        require(picker_screen(record) is None, 'A8 Post-AI window draws no agent picker')
+    elif GPUI:
+        screen = until(lambda: picker_screen(record), 'A8 Ctrl+Shift+G draws the agent picker in the record', 5)
+        rows = [(c['label'], c['enabled'], c['checked']) for c in screen['controls'] if c['kind'] == 'palette-row']
+        require(rows == PICKER_ROWS and screen.get('popover'),
+                f'A8 the picker lists {PICKER_ROWS}, Fake highlighted, in a popover (observed {rows})')
+    time.sleep(0.8)
+    subprocess.run(['xdotool', 'key', 'Return'], env=env, check=True)
     if post:
         time.sleep(3)
         require(len(tabs(o)) == len(before), 'A8 Post-AI window opens nothing')
@@ -252,8 +284,22 @@ def window(post):
     until(lambda: 'FAKE-AGENT' in text(o, new), 'A8 tool ran in the new pane')
 
 
+def picker_screen(record):
+    """The agent picker's latest screen line in the control record while it lists controls, else None. A line the
+    window is still writing is skipped."""
+    text = record.read_text() if record.exists() else ''
+    lines = text.splitlines()
+    if lines and not text.endswith('\n'):
+        lines = lines[:-1]
+    screens = [json.loads(l) for l in lines if '"agent-picker"' in l]
+    screens = [s for s in screens if s.get('record') == 'screen' and s.get('screen') == 'agent-picker']
+    return screens[-1] if screens and screens[-1].get('controls') else None
+
+
 def recent_test():
-    r = subprocess.run(['cargo', 'test', '-q', '--offline', '-j', '8', '-p', 'clanky', '--lib', 'recent_credits_agent'],
+    # A build in the shared target folder: one at a time, under the build lock.
+    lock = os.environ.get('CLANKY_BUILD_LOCK', '/srv/devops/build/clanky/.build.lock')
+    r = subprocess.run(['flock', lock, 'cargo', 'test', '-q', '--offline', '-j', '8', '-p', 'clanky', '--lib', 'recent_credits_agent'],
                        capture_output=True, text=True, timeout=1800)
     m = re.search(r'test result: ok\. (\d+) passed', r.stdout)
     require(r.returncode == 0 and m and int(m.group(1)) >= 1, 'A9 recent_credits_agent test exists and passes')
@@ -263,6 +309,10 @@ def main():
     shutil.rmtree(ROOT, ignore_errors=True)
     ROOT.mkdir(parents=True, mode=0o700)
     steps = [('main story', main_story), ('defaults', defaults), ('access off', access_off), ('post-ai', post_ai)]
+    if FAULT == 'picker':
+        steps = [('window', lambda: window(False))]
+    if FAULT == 'window-post-ai':
+        steps = [('window post-ai', lambda: window(True))]
     if FAULT is None:
         steps += [('window', lambda: window(False)), ('window post-ai', lambda: window(True)),
                   ('recent', recent_test)]

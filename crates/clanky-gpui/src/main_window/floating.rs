@@ -33,6 +33,9 @@ impl MainWindow {
         if self.palette_key(chord, window, cx) {
             return true;
         }
+        if self.agent_picker_key(chord, window, cx) {
+            return true;
+        }
         false
     }
 
@@ -66,6 +69,9 @@ impl MainWindow {
         }
         if screen == super::context_menu::SCREEN {
             return self.context_menu(window, cx);
+        }
+        if screen == "agent-picker" {
+            return self.agent_picker(window, cx);
         }
         // A screen with no content here would hold the keyboard with nothing drawn: it is closed instead.
         eprintln!("the popover {screen} has nothing to draw; closing it");

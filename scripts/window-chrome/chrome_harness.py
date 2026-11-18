@@ -42,9 +42,11 @@ def private_folder(path):
 
 
 def free_display():
-    """A display no X server uses, :100 and up (never :0, the user's desktop)."""
+    """A display no X server uses, :100 and up (never :0, the user's desktop). A server in another /tmp (a sandboxed
+    session) shows only as its abstract socket, which X clients try first, so those numbers are taken too."""
+    unix = Path("/proc/net/unix").read_text().split()
     for number in range(DISPLAY_FIRST, DISPLAY_LAST + 1):
-        if not any(
+        if f"@/tmp/.X11-unix/X{number}" not in unix and not any(
             os.path.lexists(p)
             for p in (f"/tmp/.X{number}-lock", f"/tmp/.X11-unix/X{number}")
         ):

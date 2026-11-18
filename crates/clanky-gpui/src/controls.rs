@@ -658,7 +658,7 @@ impl Kit {
     /// A control's label text, with its measuring child.
     fn label(&self, screen: &'static str, control: &Control, ink: Color, scale: f32) -> AnyElement {
         let kind = control.kind;
-        // The active tab and the palette's rows (text_title) are set in the medium weight.
+        // The active tab and the search-and-pick lists' rows (text_title) are set in the medium weight.
         let weight =
             if (kind == Kind::Tab && control.checked == Some(true)) || kind == Kind::PaletteRow {
                 t::WEIGHT_MEDIUM
@@ -703,7 +703,7 @@ impl Kit {
                         ))),
                 )
         } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow) {
-            // A menu item's or palette row's line fills the row, as a tab's does: inside a popover the row's top is a
+            // A menu item's or popover row's line fills the row, as a tab's does: inside a popover the row's top is a
             // whole device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel off
             // at 1.5.
             text(weight)

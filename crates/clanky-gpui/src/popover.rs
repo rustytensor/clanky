@@ -230,7 +230,8 @@ impl Popover {
         }
     }
 
-    /// Selects a row of the open popover's list, as the pointer resting on it does in a search-and-pick list.
+    /// Selects a row of the open popover's list: as the pointer resting on it does in a search-and-pick list, or for a
+    /// list that starts elsewhere than its first row. A row past the end selects nothing.
     pub fn select_row(&mut self, row: usize) {
         if let Some(open) = self.open.as_mut() {
             open.list.select(row);

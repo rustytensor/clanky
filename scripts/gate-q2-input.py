@@ -131,11 +131,14 @@ file) and the pane padding 12 (rulebook:103; today's 10). A2: the hairline at 85
 outlined, no fill, a border in the input role, white at 13 % over the background (51,51,51) +-6 (rulebook:47, 232);
 28 px tall (+-2), top 9 px below the hairline, left edge at 236 + 8 + 1 + 12 = 257 (side column, pane margin, edge,
 pane padding). K3 splits through the palette (Ctrl+Shift+P, "Split right") in both windows. M1: the input gives back 63..75
-px (its 75 less the pane's bottom padding of 12 it replaces) of 18 px rows, so classic has 3..5 more rows. Moved: K4
-(the agent picker) to G3, M2 (Settings) to G4; N1 is still checked, at the end of the main story.
+px (its 75 less the pane's bottom padding of 12 it replaces) of 18 px rows, so classic has 3..5 more rows. K4 reads the
+window's control record (scripts/window-chrome/RECORD.md) instead of the screen: the main window's segment "Agent"
+is clicked at its box's centre, and within 3 s the record holds an "agent-picker" screen with rows and a popover
+whose opener pane is the clicked pane; after Escape, within 2 s, the picker's screen lists no rows. N1 runs while the
+picker is open. Moved: M2 (Settings) to G4.
 Planted faults: colours (expects `wc` as a string), ghost (Left instead of Right in G1), aside (the logger is told to
 quit before the keys are sent in R1), complete (C1 runs from ~ instead of ~/alpha), idle (one key typed inside I1's
-quiet window), classic (M1's window is started with command_input "editor").
+quiet window), classic (M1's window is started with command_input "editor"), agent (K4 clicks "Shell", not "Agent").
 """
 import importlib.util, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
@@ -239,6 +242,9 @@ class Win(q1.Win):
                    LP_NUM_THREADS='8', VK_DRIVER_FILES='/usr/share/vulkan/icd.d/lvp_icd.x86_64.json',
                    CLANKY_FRAME_TRACE=str(self.w / 'frames.csv'), VTE_VERSION='8400',
                    PATH=str(self.home / 'bin') + ':' + os.environ.get('PATH', '/usr/bin:/bin'))
+        self.record = self.w / 'controls.jsonl'
+        if GPUI:
+            env['CLANKY_CONTROL_RECORD'] = str(self.record)
         self.config = self.w / 'config.xml'
         config_xml.write(self.config, cfg)
         rd, wr = os.pipe()
@@ -863,6 +869,40 @@ def agent_step(win):
     print('ok: K4 N1 agent picker, no network')
 
 
+def record_screen(win, name):
+    """The latest screen line named NAME in the window's control record, or None; a line still being written is
+    skipped."""
+    text = win.record.read_text() if win.record.exists() else ''
+    lines = text.splitlines()
+    if lines and not text.endswith('\n'):
+        lines = lines[:-1]
+    found = None
+    for line in lines:
+        if f'"{name}"' in line:
+            value = json.loads(line)
+            if value.get('record') == 'screen' and value.get('screen') == name:
+                found = value
+    return found
+
+
+def agent_step_gpui(win):
+    """K4 on clanky-gpui, from the control record (see the docstring)."""
+    label = 'Shell' if FAULT == 'agent' else 'Agent'
+    segment = until(lambda: next((c for c in (record_screen(win, 'main-window') or {}).get('controls', [])
+                                  if c['kind'] == 'segment' and c['label'] == label), None),
+                    f'K4 the Shell | Agent switch\'s "{label}" segment in the record', 3)
+    x, y, w, h = segment['box']
+    win.click(x + w // 2, y + h // 2)
+    picker = lambda: (s if (s := record_screen(win, 'agent-picker')) and s.get('controls') else None)
+    opened = until(picker, 'K4 "Agent" opens the agent picker (its rows in the record)', 3)
+    pane = (opened.get('popover') or {}).get('opener_pane')
+    require(pane == win.tab, f'K4 the picker opens from the clicked pane {win.tab} (observed {pane})')
+    no_network(win)
+    win.key('Escape')
+    until(lambda: not picker(), 'K4 Escape closes the agent picker', 2)
+    print('ok: K4 N1 agent picker, no network')
+
+
 def no_network(win):
     held = inet_sockets([win.p.pid, win.server])
     require(not held, f'N1 no TCP or UDP sockets in the window or server ({held})')
@@ -903,10 +943,11 @@ def main_story():
     try:
         steps = {None: [rc_step, chips_step, edit_step, colour_step, lambda w: idle(w, 'I1 at the empty prompt'),
                         ghost_step, history_step, complete_step, aside_step, panes_step]
-                 + ([editor_rows_step] if GPUI else [agent_step, switch_classic_step]),
+                 + ([agent_step_gpui, editor_rows_step] if GPUI else [agent_step, switch_classic_step]),
                  'colours': [colour_step], 'ghost': [ghost_step],
                  'idle': [lambda w: idle(w, 'I1 at the empty prompt', poke=True)],
-                 'aside': [rc_step, chips_step, aside_step], 'complete': [rc_step, complete_step]}[FAULT]
+                 'aside': [rc_step, chips_step, aside_step], 'complete': [rc_step, complete_step],
+                 'agent': [agent_step_gpui]}[FAULT]
         prompt_step(win)
         if FAULT not in (None, 'aside', 'complete'):
             expect(win, 'cd ~/alpha', 'cd ~/alpha', 'setup cd ~/alpha')
@@ -987,7 +1028,7 @@ def main():
 
 
 if __name__ == '__main__':
-    known = (None, 'colours', 'ghost', 'aside', 'complete', 'idle', 'classic')
+    known = (None, 'colours', 'ghost', 'aside', 'complete', 'idle', 'classic', 'agent')
     try:
         require(FAULT in known, f'known fault {FAULT}')
         main()

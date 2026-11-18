@@ -114,6 +114,13 @@ CONFIG = dict(
     animations=False,
     cursor_blink="off",
     theme="dark",
+    # The agent picker's tools: two found on PATH and one that is not installed. Fake Tool, which the controls gate
+    # fires, ends the shell of the pane it starts in, so the pane closes again and the window keeps one wide pane.
+    agents=[
+        dict(name="Fake Tool", command="sh -c 'kill -HUP $PPID'"),
+        dict(name="Other Tool", command="true"),
+        dict(name="Missing Tool", command="no-such-agent-t9"),
+    ],
 )
 RESULTS = []  # (check, ok, expected, observed)
 
@@ -699,6 +706,7 @@ FLOATING_SCREENS = {
         footer="palette_footer",
         text=True,
     ),
+    # The real key: Ctrl+Shift+G opens the picker with the config's three agent tools.
     "agent-picker": dict(
         open=lambda win: win.key("ctrl+shift+g"),
         row="agent_picker_row",

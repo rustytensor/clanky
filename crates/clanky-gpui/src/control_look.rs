@@ -23,7 +23,7 @@ pub enum Kind {
     Field,
     MenuItem,
     ListRow,
-    /// A row of a search-and-pick list: the palette's results.
+    /// A search-and-pick list's row: the palette's results, the agent picker's tools.
     PaletteRow,
     Segment,
 }
@@ -336,6 +336,10 @@ mod tests {
         assert_eq!(
             (Kind::MenuItem.text_size(), Kind::MenuItem.icon_size()),
             (12.0, 16.0)
+        );
+        assert_eq!(
+            (Kind::PaletteRow.text_size(), Kind::PaletteRow.icon_size()),
+            (12.5, 16.0)
         );
         assert_eq!(
             (Kind::ButtonSmall.text_size(), Kind::Chip.icon_size()),

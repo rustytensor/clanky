@@ -51,9 +51,23 @@ pub fn list(agents: &[AgentTool], path: Option<&OsStr>) -> String {
 /// configured, and type the tool's command into its shell. Returns the terminal ID.
 pub fn start(client: &Client, tool: &AgentTool, focused: Option<&str>, cwd: Option<&str>, allow_agent: bool,
     rows: usize, cols: usize) -> Result<String, String> {
+    let id = open(client, tool, focused, cwd, allow_agent, rows, cols)?;
+    type_command(client, &id, tool)?;
+    Ok(id)
+}
+
+/// The first half of `start`: the tool's terminal, running the shell, named for the tool. A window that must not
+/// wait for the shell's prompt opens it with this and types the command later with `type_command`.
+pub fn open(client: &Client, tool: &AgentTool, focused: Option<&str>, cwd: Option<&str>, allow_agent: bool,
+    rows: usize, cols: usize) -> Result<String, String> {
     let id = crate::window_tools::new_terminal_with(client, focused, cwd, allow_agent, rows, cols)?;
     // The window names the pane for the tool (title, amber edge) from this.
     let _ = client.exchange(3, "agent_tool_set", &json!({"tab_id":id,"name":tool.name}));
+    Ok(id)
+}
+
+/// The second half of `start`: types the tool's command into terminal `id`, closing the terminal when that fails.
+pub fn type_command(client: &Client, id: &str, tool: &AgentTool) -> Result<(), String> {
     // Typed as a person would, once the shell has drawn its prompt (up to 1.5 s), so the
     // terminal does not echo it twice. A slow shell still reads it when it is ready.
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
@@ -63,11 +77,11 @@ pub fn start(client: &Client, tool: &AgentTool, focused: Option<&str>, cwd: Opti
         if drawn { break; }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    if let Err(error) = client.input(&id, format!("{}\r", tool.command).as_bytes()) {
+    if let Err(error) = client.input(id, format!("{}\r", tool.command).as_bytes()) {
         let _ = client.request("close_tab", &json!({"tab_id":id}), true);
         return Err(error.message);
     }
-    Ok(id)
+    Ok(())
 }
 
 /// Move a terminal the server opened as its own tab into a split to the right of the

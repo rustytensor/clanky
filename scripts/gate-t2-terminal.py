@@ -108,9 +108,10 @@ def free_display():
     """A display number no X server uses: 100 and up, with no lock file and no socket file. Never :0: Marc's
     desktop Xwayland listens there under the socket name X0_, so Xvfb took :0, replaced /tmp/.X11-unix/X0 and
     deleted it on exit, cutting new X11 apps off his desktop (2026-11-13)."""
+    taken = gate_app.abstract_x_displays()
     for n in range(100, 200):
         if not os.path.exists(f'/tmp/.X{n}-lock') and not os.path.lexists(f'/tmp/.X11-unix/X{n}') \
-                and not os.path.lexists(f'/tmp/.X11-unix/X{n}_'):
+                and not os.path.lexists(f'/tmp/.X11-unix/X{n}_') and n not in taken:
             return str(n)
     raise Fail('no free X display between :100 and :199')
 
