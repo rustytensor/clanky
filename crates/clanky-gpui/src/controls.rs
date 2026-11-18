@@ -702,10 +702,13 @@ impl Kit {
                             Part::Label,
                         ))),
                 )
-        } else if matches!(kind, Kind::MenuItem | Kind::PaletteRow | Kind::ButtonBar) {
-            // A menu item's, popover row's or bar button's line fills the control, as a tab's does: the control's top
-            // is a whole device pixel, and a shorter centred line would put its top, and so the baseline, half a pixel
-            // off at 1.5.
+        } else if matches!(
+            kind,
+            Kind::MenuItem | Kind::PaletteRow | Kind::ButtonBar | Kind::ListRow
+        ) {
+            // A menu item's, list or popover row's or bar button's line fills the control, as a tab's does: the
+            // control's top is a whole device pixel, and a shorter centred line would put its top, and so the
+            // baseline, off by part of a pixel.
             text(weight)
                 .line_height(px(kind.height()))
                 .relative()

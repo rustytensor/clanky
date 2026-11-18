@@ -361,11 +361,15 @@ impl MainWindow {
                         .child(title),
                 )
                 .child(
+                    // The body clips what scrolls out of it, one focus ring's width outside its rows, so a focused
+                    // row's ring is drawn whole while the rows stay where they were.
                     div()
                         .flex()
                         .flex_col()
                         .flex_1()
                         .min_h_0()
+                        .m(px(-t::FOCUS_RING_WIDTH))
+                        .p(px(t::FOCUS_RING_WIDTH))
                         .overflow_hidden()
                         .child(body),
                 )
