@@ -494,10 +494,12 @@ mod tests {
 
     #[test]
     fn a_right_click_in_the_bottom_right_corner_opens_up_and_left() {
-        // The point 1170, 760; the menu 236 x 140 fits neither below (800 - 8 - 764 = 28) nor right of it.
+        // The point 1170, 760; the menu 236 x 140 fits neither below (800 - 8 - 764 = 28) nor right of it
+        // (1170 + 236 > 1200 - 8), so it ends at the point: 1170 - 236 = 934, 760 - 4 - 140 = 616.
         let (x, y, side) = place(area(1170.0, 760.0, 0.0, 0.0), (236.0, 140.0), WINDOW);
-        assert_eq!((x, y, side), (956.0, 616.0, Side::Above));
+        assert_eq!((x, y, side), (934.0, 616.0, Side::Above));
         assert!(y + 140.0 <= 760.0, "clear of the point it opened at");
+        assert!(x + 236.0 <= 1170.0, "left of the point it opened at");
     }
 
     #[test]
