@@ -28,7 +28,7 @@ EXPECTED_IDS = [
     'ai-bedazzled', 'unicorn-tears', 'unicorn-vomit',
 ]
 APPROVED_BACKGROUNDS = {
-    'ink': '#121212', 'stone-dark': '#141210', 'paper-dark': '#1f1c17', 'graphite-dark': '#111111',
+    'ink': '#121212', 'stone-dark': '#141210', 'paper-dark': '#1f1c17', 'graphite-dark': '#141414',
     'neutral-dark': '#0a0a0a', 'zinc-dark': '#09090b',
 }
 APPROVED_GRADIENTS = {
