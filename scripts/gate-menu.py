@@ -2,8 +2,15 @@
 """Menu gate: the right-click menu in a terminal pane, as in the mockup Marc approved on 2026-11-13
 (R1 yes: keep Clanky's rows; R2 yes: "has the mouse" chip).
 
-Usage: gate-menu.py [--fault copy|shift|link|reset|postai]
-A fault changes the run's input on purpose; the gate must then FAIL.
+Usage: gate-menu.py [--fault copy|shift|link|reset|postai|over]
+A fault changes the run's input on purpose; the gate must then FAIL. `over` needs CLANKY_BIN built with the
+control-faults feature: it plants the window's own fault that draws the menu over its opener.
+
+With CLANKY_BIN the same stories run against that window (clanky-gpui), which also writes its control record
+(scripts/window-chrome/RECORD.md): K1 and K19 then read the menu's box and its opener from the record's
+"context-menu" screen line instead of a screenshot difference, and K1 and K20 check the menu's rows by label. That
+window has no "has the mouse" chip yet, so K10 is skipped there, and it has one pane, so K19 uses that pane's
+bottom-right cell with nothing to hide first.
 
 Runs in a real Clanky window on a private Xvfb display (the mouse gate's harness). Rows are reached by keyboard and
 judged by what they do, not by how they are drawn.
@@ -22,7 +29,13 @@ Interface fixed by this gate:
 
 Expected results, fixed before the work:
   K1 a right-click opens the menu next to the pointer (the first changed pixel is within 40 px right of and below
-     it) and keeps the selection: PRIMARY stays "beta" and its highlight is unchanged.
+     it) and keeps the selection: PRIMARY stays "beta" and its highlight is unchanged. From the record: the opener
+     is the pointer (a zero-size box within 1 px of it), the menu's top-left is 0 to 40 px right of and below it and
+     the menu does not hold the pointer, and its rows are Copy, Paste, Select all, Find…, Split right, Split below,
+     Start an agent here…, Agent access, Reset terminal, Reset and clear, Close pane. That window's menu casts the
+     rulebook's floating shadow (0 12 32, black at 35 %), which reaches the "beta" row above it, so there the
+     highlight's fill must equal the earlier fill darkened by that shadow (scripts/floating/expected_floating.py's
+     model, within its 3 grey levels) instead of being unchanged.
   K2 Escape closes it and the window is pixel-for-pixel as before the right-click.
   K3 Copy (Down, Enter) puts "beta" on the CLIPBOARD.
   K4 Paste (Down x2, Enter) sends ESC[200~PASTE-ME ESC[201~ to a program with bracketed paste on.
@@ -46,19 +59,33 @@ Expected results, fixed before the work:
   K18 Close pane (Up, Enter) removes the pane it was opened on.
   K19 opened at the window's bottom-right corner (rails hidden with Ctrl+Shift+B, bottom-right cell of the bottom
       pane), the menu flips to stay in the window: every changed pixel is left of and above the pointer (+2 px).
-  K20 Post-AI window: Down x7, Enter is Reset and clear (the agent rows are gone), so the screen is cleared.
+      From the record: the menu's box ends at most 2 px right of and below the pointer and starts inside the window.
+  K20 Post-AI window: Down x7, Enter is Reset and clear (the agent rows are gone), so the screen is cleared. From
+      the record, its rows are those of K1 without Start an agent here… and Agent access (Copy greyed, no selection).
 """
-import importlib.util, os, re, shutil, subprocess, sys, time
+import importlib.util, json, os, re, shlex, shutil, subprocess, sys, time
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(os.environ.get('CLANKY_MENU_WORK', '/srv/devops/build/clanky-menu-gate-run'))
 os.environ['CLANKY_MOUSE_WORK'] = str(ROOT)
+FAULT = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == '--fault' else None
+# The harness gives the window none of the CLANKY_ variables, so a wrapper sets the control record (in the window's
+# own folder, its working directory) and, for the `over` fault, the window's planted fault.
+WINDOW_BIN = os.environ.get('CLANKY_BIN')
+WRAPPER = ROOT.with_name(ROOT.name + '-bin') / 'clanky-gpui'
+if WINDOW_BIN:
+    WRAPPER.parent.mkdir(parents=True, exist_ok=True)
+    planted = 'CLANKY_CONTROL_FAULT=popover-over-opener ' if FAULT == 'over' else ''
+    WRAPPER.write_text(f'#!/bin/sh\nCLANKY_CONTROL_RECORD="$PWD/controls.jsonl" {planted}'
+                       f'exec {shlex.quote(WINDOW_BIN)} "$@"\n')
+    WRAPPER.chmod(0o755)
+    os.environ['CLANKY_BIN'] = str(WRAPPER)
 spec = importlib.util.spec_from_file_location('gm', Path(__file__).with_name('gate-mouse.py'))
 gm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gm)
 Fail, require, until, Window, Pane = gm.Fail, gm.require, gm.until, gm.Window, gm.Pane
 primary, set_clip, LINE, E = gm.primary, gm.set_clip, gm.LINE, gm.E
-FAULT = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == '--fault' else None
 URL = 'https://example.invalid/clanky-menu'
 OPENED = ROOT / 'xdg-open.log'
 
@@ -77,6 +104,62 @@ Window.shot = _shot
 
 
 PANE = {}
+ROWS = ['Copy', 'Paste', 'Select all', 'Find…', 'Split right', 'Split below', 'Start an agent here…', 'Agent access',
+        'Reset terminal', 'Reset and clear', 'Close pane']
+POST_AI_ROWS = [row for row in ROWS if row not in ('Start an agent here…', 'Agent access')]
+
+
+def load_script(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def shadow_error(before, after, area, box):
+    """The largest difference, in grey levels over the three channels, between the highlight's fill in `area` (x0, y0,
+    x1, y1) after the menu opened and the same fill before it under the menu's shadow, as the rulebook's model draws
+    it. The fill is the colour most pixels of the area had before; the glyphs on it are left out, their edges being
+    drawn afresh with each frame."""
+    floating = load_script('expected_floating', Path(__file__).with_name('floating') / 'expected_floating.py')
+    shadow = floating.chrome.load_tokens()['shadows']['popover']
+    cells = [(x, y) for y in range(area[1], area[3]) for x in range(area[0], area[2])]
+    fill = Counter(before.getpixel(cell) for cell in cells).most_common(1)[0][0]
+    worst = 0
+    for x, y in (cell for cell in cells if before.getpixel(cell) == fill):
+        alpha = floating.shadow_alpha((x + .5, y + .5), box, shadow, 1)
+        worst = max(worst, *(abs(got - level * (1 - alpha)) for got, level in zip(after.getpixel((x, y)), fill)))
+    return worst, floating.SHADOW_TOLERANCE_LEVELS
+
+
+def menu_record(win):
+    """The last "context-menu" screen line of the window's control record while the menu is open, or None."""
+    path = win.w / 'controls.jsonl'
+    last = None
+    for line in path.read_text().splitlines() if path.exists() else []:
+        entry = json.loads(line)
+        if entry.get('record') == 'screen' and entry.get('screen') == 'context-menu':
+            last = entry
+    return last if last and last.get('popover') else None
+
+
+def open_menu_record(win, what):
+    return until(lambda: menu_record(win), f'{what}: the record shows the menu open', 3)
+
+
+def labels(entry):
+    return [c['label'] for c in entry['controls'] if c['kind'] == 'menu-item']
+
+
+def check_opened_at(entry, px, py):
+    """K1 from the record: opened by the pointer, beside it, not over it."""
+    box, opener = entry['popover']['box'], entry['popover']['opener']
+    require(opener[2:] == [0, 0] and abs(opener[0] - px) <= 1 and abs(opener[1] - py) <= 1,
+            f'K1 the menu\'s opener is the pointer ({px},{py}): {opener}')
+    covers = box[0] <= px < box[0] + box[2] and box[1] <= py < box[1] + box[3]
+    require(px <= box[0] <= px + 40 and py <= box[1] <= py + 40 and not covers,
+            f'K1 menu opens beside the pointer ({px},{py}), not over it: box {box}')
+    require(labels(entry) == ROWS, f'K1 the menu\'s rows: {labels(entry)}')
 
 
 def diff_box(a, b):
@@ -142,14 +225,24 @@ def selection_story(win, p):
     a = win.shot('k-before')
     menu(win, p, 13, 3)
     b = win.shot('k-open')
-    box = diff_box(a, b)
     px, py = p.at(13, 3)
-    require(box and px - 4 <= box[0] <= px + 40 and py - 4 <= box[1] <= py + 40,
-            f'K1 menu opens next to the pointer ({px},{py}): changed box {box}')
+    opened = None
+    if WINDOW_BIN:
+        opened = open_menu_record(win, 'K1')
+        check_opened_at(opened, px, py)
+    else:
+        box = diff_box(a, b)
+        require(box and px - 4 <= box[0] <= px + 40 and py - 4 <= box[1] <= py + 40,
+                f'K1 menu opens next to the pointer ({px},{py}): changed box {box}')
     require(primary(win) == 'beta', f'K1 right-click keeps the selection: PRIMARY {primary(win)!r}')
     bx0, by0 = p.at(7, 3, 0, 0); bx1, by1 = p.at(10, 3, 1, 1)
-    require(a.crop((bx0, by0, bx1, by1)).tobytes() == b.crop((bx0, by0, bx1, by1)).tobytes(),
-            'K1 the "beta" highlight is unchanged while the menu is open')
+    if opened:
+        worst, tolerance = shadow_error(a, b, (bx0, by0, bx1, by1), opened['popover']['box'])
+        require(worst <= tolerance, f'K1 the "beta" highlight is unchanged under the menu\'s shadow: worst {worst:.1f} '
+                                    f'grey levels off, at most {tolerance}')
+    else:
+        require(a.crop((bx0, by0, bx1, by1)).tobytes() == b.crop((bx0, by0, bx1, by1)).tobytes(),
+                'K1 the "beta" highlight is unchanged while the menu is open')
     t0 = time.time()
     time.sleep(4.5)
     late = [t for t in win.frames() if t0 + 1 < t < t0 + 4]
@@ -194,7 +287,10 @@ def mouse_mode_story(win, p):
     require(got == want, f'K9 plain right-click goes to the program: got {got!r}, want {want!r}')
     box = diff_box(a, win.shot('k9-after'))
     require(box is None, f'K9 no menu opens on a plain right-click: changed box {box}')
-    require('has the mouse' in bar_text(win, p), 'K10 the pane bar reads "has the mouse" while mc-like programs have it')
+    if WINDOW_BIN:
+        print('skipped: K10, this window has no "has the mouse" chip yet')
+    else:
+        require('has the mouse' in bar_text(win, p), 'K10 the pane bar reads "has the mouse" while mc-like programs have it')
     p.move(10, 5)
     a = win.shot('k11-before')
     menu(win, p, 10, 5, shift=FAULT != 'shift')
@@ -204,7 +300,8 @@ def mouse_mode_story(win, p):
     win.key('Escape')
     p.stop()
     time.sleep(.5)
-    require('has the mouse' not in bar_text(win, p), 'K10 the pane bar no longer says "has the mouse" after it exits')
+    if not WINDOW_BIN:
+        require('has the mouse' not in bar_text(win, p), 'K10 the pane bar no longer says "has the mouse" after it exits')
 
 
 def link_story(win, p):
@@ -257,6 +354,9 @@ def reset_story(win, p):
 def flip_story(win, p):
     """At the window's real bottom-right corner: rails hidden, the bottom-right cell of the bottom pane (the window
     starts with two stacked panes; the gate's pane is the top one)."""
+    if WINDOW_BIN:
+        flip_in_one_pane(win, p)
+        return
     win.key('ctrl+shift+b')
     time.sleep(.8)
     win.x('mousemove', '--window', win.wid, '700', '800', 'click', '1')
@@ -279,6 +379,19 @@ def flip_story(win, p):
         win.key('ctrl+shift+b')
         time.sleep(.8)
         p.click(40, 10)
+
+
+def flip_in_one_pane(win, p):
+    """K19 in a window of one pane, from the record: the menu opened at that pane's bottom-right cell."""
+    x, y = p.at(p.cols, p.rows)
+    require(x > 1400 - 252 and y > 900 - 300, f'setup: the corner cell {x},{y} leaves no room right or below')
+    p.move(p.cols, p.rows)
+    menu(win, p, p.cols, p.rows)
+    box = open_menu_record(win, 'K19')['popover']['box']
+    win.key('Escape')
+    time.sleep(.4)
+    require(box[0] >= 0 and box[1] >= 0 and box[0] + box[2] <= x + 2 and box[1] + box[3] <= y + 2,
+            f'K19 menu at the corner stays inside: box {box}, pointer {x},{y}')
 
 
 def layout_story(win, p):
@@ -310,6 +423,9 @@ def post_ai_story():
         win.type('clear; echo postai-$((1+1))marker\n')
         col, row = until(lambda: find_cell(win, 'postai-2marker'), 'K20 marker printed')
         menu(win, p, col + 30, row + 2)
+        if WINDOW_BIN:
+            got = labels(open_menu_record(win, 'K20'))
+            require(got == POST_AI_ROWS, f'K20 Post-AI menu rows: {got}')
         choose(win, 7)
         until(lambda: not any('postai-2marker' in l for l in screen_rows(win)), 'K20 Post-AI: Down x7 is Reset and clear', 5)
         win.key('Escape')
@@ -343,6 +459,8 @@ def main():
     finally:
         win.close()
     post_ai_story()
+    shutil.rmtree(ROOT)
+    shutil.rmtree(WRAPPER.parent, ignore_errors=True)
     print('PASS: menu')
 
 
