@@ -308,7 +308,11 @@ impl TerminalPane {
             return;
         }
         let bracketed = self.modes().0 & MODE_BRACKETED_PASTE != 0;
+        // A paste keeps the selection, as today's window does: only typing ends it, and a middle-click paste of the
+        // primary selection must not drop the very selection it pasted.
+        let kept = self.selection.take();
         self.send(&mouse::pastify(text, bracketed));
+        self.selection = kept;
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
