@@ -21,6 +21,7 @@ use super::{MainWindow, chord_of};
 use crate::{
     control_look::paint,
     controls::{Control, Group, Kind},
+    icons::Icon,
     popover::{Opener, Placement},
     tokens as t,
 };
@@ -36,6 +37,26 @@ const FIRST_ROW_ID: u32 = 1;
 pub(super) struct PaneMenu {
     open: Option<(String, Menu)>,
     links: UrlOpener,
+}
+
+/// Each row's icon: every menu item with a verb gets one (the design rulebook's icon rule).
+fn icon_of(item: Item) -> Icon {
+    match item {
+        Item::OpenLink => Icon::ExternalLink,
+        Item::CopyLink => Icon::Link,
+        Item::Copy | Item::CopyCommand | Item::CopyOutput => Icon::Copy,
+        Item::Paste => Icon::Paste,
+        Item::SelectAll => Icon::SelectAll,
+        Item::RunAgain => Icon::RunAgain,
+        Item::Find => Icon::Search,
+        Item::SplitRight => Icon::SplitRight,
+        Item::SplitBelow => Icon::SplitDown,
+        Item::StartAgent => Icon::Agent,
+        Item::AgentAccess => Icon::Shield,
+        Item::Reset => Icon::Reset,
+        Item::ResetClear => Icon::Eraser,
+        Item::ClosePane => Icon::Close,
+    }
 }
 
 impl MainWindow {
@@ -122,6 +143,7 @@ impl MainWindow {
                 let this = cx.entity();
                 let mut control =
                     Control::new(Kind::MenuItem, FIRST_ROW_ID + index as u32, row.label)
+                        .icon(icon_of(row.item))
                         .group(ROWS)
                         .enabled(row.enabled)
                         .checked(selected == Some(index))

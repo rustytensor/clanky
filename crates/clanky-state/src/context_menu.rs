@@ -216,11 +216,16 @@ impl Menu {
     }
 }
 
+/// The largest output the menu copies at once, as today's window: anything longer is copied by a byte range through the
+/// API, so one reply stays well inside the socket's line limit.
+const MAX_COPY_BYTES: usize = 64 * 1024;
+
 /// A finished block's output, as the server copies it (with secrets masked): it is selected whole on the server first,
-/// as the block's own Copy does. Large or cut-short output has to be copied by a byte range through the API instead.
+/// as the block's own Copy does, through the owner's palette requests. Large or cut-short output has to be copied by a
+/// byte range through the API instead.
 pub fn block_output(client: &Client, tab: &str, block: &str) -> Result<Vec<u8>, String> {
     let view = client
-        .exchange(3, "view", &json!({"tab_id": tab, "limit": 64}))
+        .palette_action("view", &json!({"tab_id": tab, "limit": 64}), true)
         .map_err(|e| format!("reading the command's output: {}", e.message))?;
     let listed = view["blocks"]
         .as_array()
@@ -234,7 +239,7 @@ pub fn block_output(client: &Client, tab: &str, block: &str) -> Result<Vec<u8>, 
         .as_str()
         .ok_or("the server sent no output for this command")?
         .len();
-    if listed["truncated"].as_bool().unwrap_or(false) {
+    if listed["truncated"].as_bool().unwrap_or(false) || len > MAX_COPY_BYTES {
         return Err(
             "this output is too long to copy from the menu; copy a byte range through the API"
                 .into(),
@@ -242,10 +247,10 @@ pub fn block_output(client: &Client, tab: &str, block: &str) -> Result<Vec<u8>, 
     }
     let args = json!({"tab_id": tab, "block_id": block, "start": 0, "end": len});
     client
-        .exchange(3, "select", &args)
+        .palette_action("select", &args, true)
         .map_err(|e| format!("selecting the command's output: {}", e.message))?;
     let copied = client
-        .exchange(3, "copy", &json!({"tab_id": tab, "block_id": block}))
+        .palette_action("copy", &json!({"tab_id": tab, "block_id": block}), true)
         .map_err(|e| format!("copying the command's output: {}", e.message))?;
     STANDARD
         .decode(

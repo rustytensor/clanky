@@ -88,9 +88,10 @@ pub const TAB_MAX_WIDTH: f32 = 200.0;
 pub const ROW_HEIGHT: f32 = 24.0;
 /// Context menu and dropdown items.
 pub const MENU_ITEM_HEIGHT: f32 = 28.0;
-/// A menu's width. The rulebook gives none; the pane's menu was 280 for 14 px labels, and at 12 px its longest row
-/// ("Start an agent here…" with "Ctrl+Shift+G") needs about 210 with the row's padding and gap.
-pub const MENU_WIDTH: f32 = 256.0;
+/// A menu's width. The rulebook gives none. The pane's longest row, "Start an agent here…" (Inter 12 px, 118.8 by the
+/// font file's advances) with its icon and "Ctrl+Shift+G" (JetBrains Mono 12 px, 86.4), needs 263 with the popover's
+/// padding and the row's padding and gaps; 272 is the next multiple of 8, so the label never ends in an ellipsis.
+pub const MENU_WIDTH: f32 = 272.0;
 /// Palette results.
 pub const PALETTE_ROW_HEIGHT: f32 = 36.0;
 /// The palette's search field.
