@@ -30,7 +30,7 @@
       "err": {"hex": "#a93229", "src": "rulebook:212"},
       "selection": {"hex": "#cecece", "src": "rulebook:214"},
       "pressed": {"hex": "#dadada", "src": "rulebook:217"},
-      "ring": {"hex": "#a3a3a3", "src": "rulebook:217"},
+      "ring": {"hex": "#8c8c8c", "src": "maintainer decision 2026-11-17: lightest pure grey with 3:1 on page and card; the rulebook (line 217) said #a3a3a3, 2.52:1"},
       "primary": {"hex": "#111111", "src": "rulebook:218"},
       "primary_pressed": {"hex": "#2a2a2a", "src": "rulebook:218"},
       "primary_foreground": {"hex": "#ffffff", "src": "rulebook:218"}
