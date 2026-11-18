@@ -460,11 +460,15 @@ impl MainWindow {
         } else {
             0.0
         };
-        let width = f32::from(viewport.width) - panel - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
+        // The hairlines under the title bar and beside an open side column take their own device pixel.
+        let hairline = t::hairline(window.scale_factor());
+        let panel = if panel > 0.0 { panel + hairline } else { 0.0 };
+        let width = f32::from(viewport.width) - panel - 2.0 * PANE_PADDING;
         let height = f32::from(viewport.height)
             - t::TITLE_BAR_HEIGHT
+            - hairline
             - t::STATUS_HEIGHT
-            - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
+            - 2.0 * PANE_PADDING;
         Rect {
             col: 0,
             row: 0,
@@ -633,15 +637,14 @@ impl MainWindow {
             .into_any_element()
     }
 
-    /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, the
-    /// pane gap between them.
+    /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, a
+    /// hairline divider between them.
     fn panes_area(&self, scale: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let area = div()
             .flex()
             .flex_1()
             .min_w_0()
-            .min_h_0()
-            .p(px(t::PANE_MARGIN));
+            .min_h_0();
         let Some(group) = self.workspace.groups.get(self.workspace.active) else {
             return area.into_any_element();
         };
@@ -675,7 +678,7 @@ impl MainWindow {
             .min_h_0();
         match layout {
             Layout::Leaf(id) => {
-                // The landmark measures the pane's outer box, border included, so the border is the inner element's.
+                // The landmark measures the pane's box; flush panes have no border of their own, the dividers do.
                 let pane = room
                     .relative()
                     .child(
@@ -683,9 +686,6 @@ impl MainWindow {
                             .flex()
                             .size_full()
                             .overflow_hidden()
-                            .rounded(px(t::RADIUS_PANE))
-                            .border(px(t::hairline(scale)))
-                            .border_color(paint(self.colors.border, 1.0))
                             .bg(crate::grid_element::colour(self.palette.background))
                             .flex_col()
                             .child(
@@ -728,7 +728,7 @@ impl MainWindow {
                 );
                 room.relative()
                     .child(first)
-                    .child(Self::divider(path.clone(), *axis, cx))
+                    .child(self.divider(path.clone(), *axis, scale, cx))
                     .child(second)
                     .child(self.places.split(path))
                     .into_any_element()
@@ -846,12 +846,19 @@ impl Render for MainWindow {
             .text_color(paint(self.colors.foreground, 1.0))
             .capture_key_down(cx.listener(Self::shortcut))
             .child(title_bar)
+            .child(self.hairline(Axis::Rows, scale))
             .child(
                 div()
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .children(self.tools_panel(window, cx))
+                    .children(self.tools_panel(window, cx).map(|panel| {
+                        div()
+                            .flex()
+                            .flex_none()
+                            .child(panel)
+                            .child(self.hairline(Axis::Columns, scale))
+                    }))
                     .child(self.panes_area(scale, window, cx)),
             )
             .child(self.status_line(scale))
