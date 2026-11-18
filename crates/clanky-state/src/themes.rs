@@ -328,6 +328,22 @@ pub const BUILTINS: &[Builtin] = &[
         source: include_str!("../../../assets/themes/graphite-light.json"),
     },
     Builtin {
+        id: "neutral-dark", name: "Neutral", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/neutral-dark.json"),
+    },
+    Builtin {
+        id: "neutral-light", name: "Neutral", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/neutral-light.json"),
+    },
+    Builtin {
+        id: "zinc-dark", name: "Zinc", appearance: Appearance::Dark,
+        source: include_str!("../../../assets/themes/zinc-dark.json"),
+    },
+    Builtin {
+        id: "zinc-light", name: "Zinc", appearance: Appearance::Light,
+        source: include_str!("../../../assets/themes/zinc-light.json"),
+    },
+    Builtin {
         id: "ink", name: "Ink", appearance: Appearance::Dark,
         source: include_str!("../../../assets/themes/ink.json"),
     },
@@ -384,7 +400,8 @@ mod tests {
     fn builtin_documents() {
         let expected_ids = [
             "stone-dark", "stone-light", "paper-dark", "paper-light",
-            "graphite-dark", "graphite-light", "ink", "catppuccin-latte",
+            "graphite-dark", "graphite-light", "neutral-dark", "neutral-light",
+            "zinc-dark", "zinc-light", "ink", "catppuccin-latte",
             "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
             "ai-bedazzled", "unicorn-tears", "unicorn-vomit",
         ];

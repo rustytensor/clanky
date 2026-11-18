@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use clanky::config::Config;
+use clanky::config::{Config, ThemePreference};
 use clanky_api::Client;
 use clanky_core::{
     Workspace,
@@ -470,11 +470,15 @@ impl MainWindow {
         } else {
             0.0
         };
-        let width = f32::from(viewport.width) - panel - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
+        // The hairlines under the title bar and beside an open side column take their own device pixel.
+        let hairline = t::hairline(window.scale_factor());
+        let panel = if panel > 0.0 { panel + hairline } else { 0.0 };
+        let width = f32::from(viewport.width) - panel - 2.0 * PANE_PADDING;
         let height = f32::from(viewport.height)
             - t::TITLE_BAR_HEIGHT
+            - hairline
             - t::STATUS_HEIGHT
-            - 2.0 * (t::PANE_MARGIN + PANE_PADDING);
+            - 2.0 * PANE_PADDING;
         Rect {
             col: 0,
             row: 0,
@@ -645,15 +649,14 @@ impl MainWindow {
             .into_any_element()
     }
 
-    /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, the
-    /// pane gap between them.
+    /// The active tab's split tree: panes and nested splits sharing their parent's room by the split's ratio, a
+    /// hairline divider between them.
     fn panes_area(&self, scale: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let area = div()
             .flex()
             .flex_1()
             .min_w_0()
-            .min_h_0()
-            .p(px(t::PANE_MARGIN));
+            .min_h_0();
         let Some(group) = self.workspace.groups.get(self.workspace.active) else {
             return area.into_any_element();
         };
@@ -687,7 +690,7 @@ impl MainWindow {
             .min_h_0();
         match layout {
             Layout::Leaf(id) => {
-                // The landmark measures the pane's outer box, border included, so the border is the inner element's.
+                // The landmark measures the pane's box; flush panes have no border of their own, the dividers do.
                 let pane = room
                     .relative()
                     .child(
@@ -695,9 +698,6 @@ impl MainWindow {
                             .flex()
                             .size_full()
                             .overflow_hidden()
-                            .rounded(px(t::RADIUS_PANE))
-                            .border(px(t::hairline(scale)))
-                            .border_color(paint(self.colors.border, 1.0))
                             .bg(crate::grid_element::colour(self.palette.background))
                             .flex_col()
                             .child(
@@ -740,7 +740,7 @@ impl MainWindow {
                 );
                 room.relative()
                     .child(first)
-                    .child(Self::divider(path.clone(), *axis, cx))
+                    .child(self.divider(path.clone(), *axis, scale, cx))
                     .child(second)
                     .child(self.places.split(path))
                     .into_any_element()
@@ -858,12 +858,19 @@ impl Render for MainWindow {
             .text_color(paint(self.colors.foreground, 1.0))
             .capture_key_down(cx.listener(Self::shortcut))
             .child(title_bar)
+            .child(self.hairline(Axis::Rows, scale))
             .child(
                 div()
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .children(self.tools_panel(window, cx))
+                    .children(self.tools_panel(window, cx).map(|panel| {
+                        div()
+                            .flex()
+                            .flex_none()
+                            .child(panel)
+                            .child(self.hairline(Axis::Columns, scale))
+                    }))
                     .child(self.panes_area(scale, window, cx)),
             )
             .child(self.status_line(scale))
@@ -913,16 +920,18 @@ pub fn chord_of(keystroke: &Keystroke) -> Option<Chord> {
     ))
 }
 
-/// The window's theme, for the interface and the terminal alike: the settings file's dark theme where it names one,
-/// else Graphite, the rulebook's default.
+/// The window's theme, for the interface and the terminal alike: the settings file's light theme when it asks for
+/// light, its dark theme otherwise (the window does not yet follow the desktop's mode), and Graphite, the rulebook's
+/// default, where the file names none.
 pub fn interface_theme(config: &Config, is_set: &dyn Fn(&str) -> bool) -> Result<Theme, String> {
-    let id = if is_set("theme_dark") {
-        config.theme_dark.as_str()
+    let (key, saved, default) = if config.theme == ThemePreference::Light {
+        ("theme_light", config.theme_light.as_str(), "graphite-light")
     } else {
-        "graphite-dark"
+        ("theme_dark", config.theme_dark.as_str(), "graphite-dark")
     };
+    let id = if is_set(key) { saved } else { default };
     clanky_state::themes::builtin(id)
-        .or_else(|_| clanky_state::themes::builtin("graphite-dark"))
+        .or_else(|_| clanky_state::themes::builtin(default))
         .map_err(|e| format!("loading the interface theme: {e}"))
 }
 
@@ -978,6 +987,24 @@ mod tests {
 
     fn stroke(text: &str) -> Keystroke {
         Keystroke::parse(text).expect("a valid keystroke")
+    }
+
+    #[test]
+    fn the_interface_theme_follows_the_saved_preference() {
+        let named = |config: &Config| interface_theme(config, &|_| true).expect("a built-in theme").name;
+        let unset = Config::window_from_json("{}").expect("an empty config is valid");
+        assert_eq!(interface_theme(&unset, &|_| false).expect("graphite").name, "Graphite");
+        let light = Config::window_from_json(r#"{"theme":"light","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
+            .expect("the config is valid");
+        assert_eq!(named(&light), "Zinc");
+        let dark = Config::window_from_json(r#"{"theme":"dark","theme_light":"zinc-light","theme_dark":"neutral-dark"}"#)
+            .expect("the config is valid");
+        assert_eq!(named(&dark), "Neutral");
+        let system = Config::window_from_json(r#"{"theme":"system","theme_dark":"zinc-dark"}"#).expect("the config is valid");
+        assert_eq!(named(&system), "Zinc");
+        let light_default = Config::window_from_json(r#"{"theme":"light"}"#).expect("the config is valid");
+        let theme = interface_theme(&light_default, &|_| false).expect("graphite light");
+        assert_eq!((theme.name.as_str(), theme.appearance), ("Graphite", clanky_state::themes::Appearance::Light));
     }
 
     #[test]

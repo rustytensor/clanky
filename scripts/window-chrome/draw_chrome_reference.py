@@ -12,6 +12,7 @@ exists. Nothing here reads the program under test.
 """
 
 import argparse
+import functools
 import json
 import math
 import sys
@@ -122,19 +123,7 @@ class Canvas:
 
     def text(self, left, baseline, text, weight, size_px, colour, alpha=1.0):
         """Text drawn large and reduced, so it carries no hinting; left and baseline are device pixels, fractions allowed."""
-        font = ImageFont.truetype(str(FONTS[weight]), round(size_px * SUPERSAMPLE))
-        advance = font.getlength(text) / SUPERSAMPLE
-        x0, y0 = math.floor(left) - 2, math.floor(baseline - size_px) - 2
-        width, height = math.ceil(advance) + 6, math.ceil(size_px * 1.6) + 4
-        canvas = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
-        ImageDraw.Draw(canvas).text(
-            ((left - x0) * SUPERSAMPLE, (baseline - y0) * SUPERSAMPLE),
-            text,
-            font=font,
-            fill=255,
-            anchor="ls",
-        )
-        mask = np.asarray(canvas.resize((width, height), Image.BOX), dtype=float) / 255
+        x0, y0, mask, advance = text_mask(left, baseline, text, weight, size_px)
         self.composite(x0, y0, mask, colour, alpha)
         return advance
 
@@ -160,7 +149,35 @@ class Canvas:
         )
 
 
-def rounded_mask(width, height, radius):
+@functools.lru_cache(maxsize=None)
+def font_at(weight, size_px):
+    """A font of the given weight at the supersampled size; the same few are asked for thousands of times."""
+    return ImageFont.truetype(str(FONTS[weight]), round(size_px * SUPERSAMPLE))
+
+
+@functools.lru_cache(maxsize=None)
+def text_mask(left, baseline, text, weight, size_px):
+    """(x0, y0, coverage mask, advance) of a text drawn large and reduced; the same text at the same place is
+    drawn many times, once per rendered frame, so the result is kept (the mask is shared and read-only)."""
+    font = font_at(weight, size_px)
+    advance = font.getlength(text) / SUPERSAMPLE
+    x0, y0 = math.floor(left) - 2, math.floor(baseline - size_px) - 2
+    width, height = math.ceil(advance) + 6, math.ceil(size_px * 1.6) + 4
+    canvas = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
+    ImageDraw.Draw(canvas).text(
+        ((left - x0) * SUPERSAMPLE, (baseline - y0) * SUPERSAMPLE),
+        text,
+        font=font,
+        fill=255,
+        anchor="ls",
+    )
+    mask = np.asarray(canvas.resize((width, height), Image.BOX), dtype=float) / 255
+    mask.setflags(write=False)
+    return x0, y0, mask, advance
+
+
+@functools.lru_cache(maxsize=None)
+def _rounded_mask(width, height, radius):
     mask = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
     ImageDraw.Draw(mask).rounded_rectangle(
         (0, 0, width * SUPERSAMPLE - 1, height * SUPERSAMPLE - 1),
@@ -168,6 +185,11 @@ def rounded_mask(width, height, radius):
         fill=255,
     )
     return np.asarray(mask.resize((width, height), Image.BOX), dtype=float) / 255
+
+
+def rounded_mask(width, height, radius):
+    """The coverage of a rounded rectangle; a copy of the kept one, as callers change the mask in place."""
+    return _rounded_mask(width, height, radius).copy()
 
 
 def blend(base, over, alpha):
@@ -185,8 +207,7 @@ def box_of(scale, left, top, width, height):
 
 
 def text_width(label, weight, px):
-    font = ImageFont.truetype(str(FONTS[weight]), round(px * SUPERSAMPLE))
-    return font.getlength(label) / SUPERSAMPLE
+    return font_at(weight, px).getlength(label) / SUPERSAMPLE
 
 
 class Layout:
@@ -249,7 +270,8 @@ class Layout:
             chrome["title_bar_height"]["logical"],
             chrome["status_height"]["logical"],
         )
-        margin, gap = chrome["pane_margin"]["logical"], chrome["pane_gap"]["logical"]
+        # Panes are flush: the panel and the panes sit edge to edge, a one-device-pixel divider between neighbours.
+        hair = 1 / s
         tab_top = (bar_h - self.kind_logical("tab")) / 2
         self.add(
             "icon-button",
@@ -281,17 +303,17 @@ class Layout:
             axis="horizontal",
         )
         self.add("icon-button", "", 296, (bar_h - 28) / 2, 28)
-        top = bar_h + gap
-        pane_h = LOGICAL_H - status_h - margin - top
-        self.panel = box_of(s, margin, top, PANEL_WIDTH, pane_h)
-        left = margin + PANEL_WIDTH + gap
+        top = bar_h + hair
+        pane_h = LOGICAL_H - status_h - top
+        self.panel = box_of(s, 0, top, PANEL_WIDTH, pane_h)
+        left = PANEL_WIDTH + hair
         self.content_left = left
-        pane_w = (LOGICAL_W - left - margin - gap) / 2
+        pane_w = (LOGICAL_W - left - hair) / 2
         self.panes = [
             box_of(s, left, top, pane_w, pane_h),
-            box_of(s, left + pane_w + gap, top, pane_w, pane_h),
+            box_of(s, left + pane_w + hair, top, pane_w, pane_h),
         ]
-        self._build_panel(margin, top, pane_h)
+        self._build_panel(0, top, pane_h)
         for index, label in enumerate(("Open", "Save", "Share", "Delete")):
             self.add(
                 "button",
@@ -611,24 +633,16 @@ def draw_window(
     states = states or {}
     frame, background = theme.rgb["frame"], theme.rgb["background"]
     canvas = Canvas(layout.width, layout.height, frame)
-    for box in layout.panes:
-        canvas.rounded(box, e["chrome"]["pane_radius"]["device"], background)
-        canvas.rounded(
-            box,
-            e["chrome"]["pane_radius"]["device"],
-            theme.border[0],
-            theme.border[1],
-            outline=1,
-        )
+    # Flush panes: square fills edge to edge; the dividers (under the title bar, after the panel, between the panes)
+    # are one device pixel of the border colour over the frame. The planted fault rounds the panes again.
+    radius = 14 * s if layout.fault == "pane-rounded" else e["chrome"]["pane_radius"]["device"]
     panel = layout.panel
-    canvas.rounded(panel, e["chrome"]["pane_radius"]["device"], background)
-    canvas.rounded(
-        panel,
-        e["chrome"]["pane_radius"]["device"],
-        theme.border[0],
-        theme.border[1],
-        outline=1,
-    )
+    canvas.rect(panel, background)
+    for box in layout.panes:
+        canvas.rounded(box, radius, background)
+    canvas.rect([0, panel[1] - 1, layout.width, 1], theme.border[0], theme.border[1])
+    for box in [panel, layout.panes[0]]:
+        canvas.rect([box[0] + box[2], box[1], 1, box[3]], theme.border[0], theme.border[1])
     canvas.rounded(
         layout.tray, e["controls"]["button"]["radius"]["device"], theme.rgb["card"]
     )
