@@ -256,6 +256,12 @@ impl ShadowToken {
     pub fn color(&self) -> Color {
         [0, 0, 0, (self.opacity * 255.0).round() as u8]
     }
+
+    /// The Gaussian's standard deviation, which is what gpui's `blur_radius` takes: a CSS blur radius, as the
+    /// rulebook writes shadows, is twice the standard deviation.
+    pub fn sigma(&self) -> f32 {
+        self.blur / 2.0
+    }
 }
 /// Menus, the palette, the completion list and dialogs.
 pub const SHADOW_POPOVER: ShadowToken = ShadowToken {
@@ -276,14 +282,14 @@ pub const SHADOW_TOOLBAR: ShadowToken = ShadowToken {
 /// The room between a popover and what opened it: next to it, never touching or covering it.
 pub const POPOVER_OPENER_GAP: f32 = SPACE_4;
 /// How close a popover may come to the window's edge.
-pub const POPOVER_WINDOW_MARGIN: f32 = PANE_MARGIN;
+pub const POPOVER_WINDOW_MARGIN: f32 = SPACE_8;
 /// The room between a popover's edge and its rows: the rows' radius is one step below the popover's.
 pub const POPOVER_PADDING: f32 = SPACE_4;
 /// The pane's find bar, a popover over the pane's top right corner: as wide as the find bar it replaces (calm
 /// `scene.rs` `find_bar`, 360), with a field (`FIELD_HEIGHT`) and bar icon buttons (`ICON_BUTTON_HEIGHT_BAR`).
 pub const FIND_BAR_WIDTH: f32 = 360.0;
-/// How far the find bar sits in from the pane's top and right edges: the pane margin.
-pub const FIND_BAR_INSET: f32 = PANE_MARGIN;
+/// How far the find bar sits in from the pane's top and right edges, as today's bar sits in from the right.
+pub const FIND_BAR_INSET: f32 = SPACE_8;
 /// Between the find bar's field and its buttons, and between the buttons.
 pub const FIND_BAR_GAP: f32 = SPACE_4;
 /// A field's caret: one device pixel wide, as tall as `text_ui` with a pixel of room above and below.

@@ -305,7 +305,7 @@ impl Popover {
             .shadow(vec![gpui::BoxShadow {
                 color: paint(shadow.color(), 1.0).into(),
                 offset: point(px(0.0), px(shadow.offset_y)),
-                blur_radius: px(shadow.blur),
+                blur_radius: px(shadow.sigma()),
                 spread_radius: px(0.0),
                 inset: false,
             }])
