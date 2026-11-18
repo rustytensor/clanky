@@ -1,0 +1,13 @@
+[package]
+name = "clanky-gate-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Programs the gate scripts run against Clanky's server, API and theme store; they are not part of a release"
+
+[dependencies]
+clanky-core = { path = "../clanky-core" }
+clanky-state = { path = "../clanky-state" }
+clanky-api = { path = "../clanky-api" }
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }

@@ -233,10 +233,10 @@ fn main() {
     fs::create_dir(&folder).unwrap();
     let source = include_str!("../../../../assets/themes/stone-dark.json");
     fs::write(folder.join("custom.json"), source).unwrap();
-    let store = clanky::theme_store::ThemeStore::open(&folder).unwrap();
-    let mut runtime = clanky::theme_runtime::ThemeRuntime::from_store(store).unwrap();
+    let store = clanky_state::theme_store::ThemeStore::open(&folder).unwrap();
+    let mut runtime = clanky_state::theme_runtime::ThemeRuntime::from_store(store).unwrap();
     let config =
-        clanky::config::Config::from_json(r#"{"theme":"dark","theme_dark":"user:custom"}"#)
+        clanky_state::config::Config::from_json(r#"{"theme":"dark","theme_dark":"user:custom"}"#)
             .unwrap();
     assert!(runtime.poll(&config, false));
     assert!(!runtime.poll(&config, false));

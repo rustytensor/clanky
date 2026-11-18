@@ -1,5 +1,5 @@
 //! Real theme inputs for the contrast script and the storage round-trip gate.
-use clanky::{theme_store::ThemeStore, themes};
+use clanky_state::{theme_store::ThemeStore, themes};
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 

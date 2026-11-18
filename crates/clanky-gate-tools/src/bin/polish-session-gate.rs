@@ -1,5 +1,5 @@
 //! Real-server probes used by the fixed session-polish gate.
-use clanky::notifications::NotificationTracker;
+use clanky_state::notifications::NotificationTracker;
 use clanky_api::Client;
 use clanky_core::layout::Layout;
 use serde_json::{json, Value};

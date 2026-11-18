@@ -1,0 +1,13 @@
+# Old build against new build of the three moved gate helpers (scripts/parity/compare_helpers.sh OLD NEW).
+# OLD: built from 6c04463 (helpers in crates/clanky/src/bin). NEW: the same tree with the helpers in crates/clanky-gate-tools.
+# Same clanky server binary in both folders. A one-letter change in one helper's output makes the line say DIFFERENT.
+
+identical: theme-palettes (12972 bytes out, 0 bytes err, exit 0)
+identical: theme-storage (88 bytes out, 0 bytes err, exit 0)
+identical: theme-storage-fault (0 bytes out, 54 bytes err, exit 1)
+identical: theme-no-arguments (0 bytes out, 46 bytes err, exit 1)
+identical: theme-bad-argument (0 bytes out, 46 bytes err, exit 1)
+identical: postai (129 bytes out, 0 bytes err, exit 0)
+identical: polish-session (0 bytes out, 0 bytes err, exit 0)
+identical: polish-bad-arguments (0 bytes out, 29 bytes err, exit 1)
+PASS: every helper prints the same bytes and exits the same in the old and the new build

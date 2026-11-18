@@ -999,6 +999,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "clanky-gate-tools"
+version = "1.7.0"
+dependencies = [
+ "clanky-api",
+ "clanky-core",
+ "clanky-state",
+ "serde_json",
+]
+
+[[package]]
 name = "clanky-gpui"
 version = "1.7.0"
 dependencies = [
