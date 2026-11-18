@@ -100,13 +100,22 @@ impl Policy {
         self.terminal_lines_mode(terminal, false)
     }
     /// Owner live display only; history/search/copy/agent projections stay strict.
+    #[cfg(test)]
     pub fn display_lines(&self, terminal: &crate::terminal::Terminal) -> Result<Vec<String>, CoreError> {
         self.terminal_lines_mode(terminal, true)
     }
     fn terminal_lines_mode(&self, terminal: &crate::terminal::Terminal, display: bool) -> Result<Vec<String>, CoreError> {
-        let (_, _, mut lines, wraps, truncated) = terminal.text_context();
-        if display { self.mask_display_lines(&mut lines, &wraps, terminal.text_cursor())?; }
-        else { self.mask_lines(&mut lines, &wraps, terminal.text_cursor())?; }
+        let (_, _, lines, wraps, truncated) = terminal.text_context();
+        self.mask_text(crate::terminal::TextCopy { lines, wraps, truncated, cursor: terminal.text_cursor() }, display)
+    }
+    /// The owner's live display of a copy taken with `Terminal::display_copy`, masked without the terminal's lock.
+    pub(crate) fn display_text(&self, text: crate::terminal::TextCopy) -> Result<Vec<String>, CoreError> {
+        self.mask_text(text, true)
+    }
+    fn mask_text(&self, text: crate::terminal::TextCopy, display: bool) -> Result<Vec<String>, CoreError> {
+        let crate::terminal::TextCopy { mut lines, wraps, truncated, cursor } = text;
+        if display { self.mask_display_lines(&mut lines, &wraps, cursor)?; }
+        else { self.mask_lines(&mut lines, &wraps, cursor)?; }
         if truncated {
             for (line, wrapped) in lines.iter_mut().zip(&wraps) {
                 *line = "*".repeat(line.len());
@@ -197,6 +206,47 @@ mod tests {
         known.feed("bash", generated.as_bytes());
         assert!(policy.display_lines(&known).unwrap()[0].trim_end() == "*".repeat(64));
         assert!(policy.terminal_lines(&known).unwrap()[0].trim_end() == "*".repeat(64));
+    }
+
+    #[test]
+    fn secret_in_a_flood_never_reaches_a_read() {
+        // A synthetic literal, never a machine credential. One thread floods the terminal with filler and the
+        // secret on its own line every 37 lines; the other reads the screen the way the window's snapshot does
+        // (copy under the lock, mask after it). No read may show the whole secret.
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+        let secret = format!("de{}", "7".repeat(62));
+        let policy = Policy { environment: Vec::new(), invalid_environment: false, extra: Mutex::new(Vec::new()) };
+        policy.add_literal("CLANKY_OWNER_TOKEN", &secret).unwrap();
+        let terminal = Arc::new(Mutex::new(crate::terminal::Terminal::new(24, 80)));
+        let done = Arc::new(AtomicBool::new(false));
+        let feeder = {
+            let (terminal, done, secret) = (terminal.clone(), done.clone(), secret.clone());
+            std::thread::spawn(move || {
+                for line in 0..3000 {
+                    let text = if line % 37 == 18 { format!("{secret}\r\n") } else { format!("{line:05} {}\r\n", "x".repeat(60)) };
+                    terminal.lock().unwrap().feed("bash", text.as_bytes());
+                }
+                done.store(true, Ordering::Release);
+            })
+        };
+        let screen_text = |snapshot: &crate::TerminalSnapshot| -> Vec<String> {
+            snapshot.cells.chunks(snapshot.cols).map(|row| row.iter().map(|cell| cell.ch).collect()).collect()
+        };
+        let mut reads = 0;
+        let mut masked_seen = 0;
+        loop {
+            let finished = done.load(Ordering::Acquire);
+            let (text, screen) = terminal.lock().unwrap().display_copy();
+            let rows = screen_text(&screen.masked(&policy.display_text(text).unwrap()));
+            assert!(rows.iter().all(|row| !row.contains(&secret)), "read {reads} shows the secret unmasked");
+            masked_seen += rows.iter().filter(|row| row.starts_with(&"*".repeat(64))).count();
+            reads += 1;
+            if finished { break; }
+        }
+        feeder.join().unwrap();
+        // The reads overlapped the flood, and the secret was on screen, masked, in at least the last one.
+        assert!(reads > 1, "only {reads} read during the flood");
+        assert!(masked_seen > 0, "no read showed the secret's line masked");
     }
 }
 

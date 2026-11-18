@@ -68,12 +68,20 @@ FAULT = arg("--fault")
 FAULTS = {
     "tab-too-tall": "tab-height",
     "loose-literal": "loose-numbers",
+    "pane-rounded": "pane-radius",  # the panes drawn with the old 14 px corners
     "palette-row-short": "palette-row-height",  # G3: a palette row 2 px short (--floating)
     "palette-text-big": "palette-row-cap-height",  # G3: palette row text 2 px too large (--floating)
     "find-field-short": "find-bar-field-height",  # G3: the find bar's field 2 px short (--floating)
     "card-padding": "settings-card-padding-x",  # G4: every card's text 2 px too far right (--settings)
 }
 SIMULATE = "--simulate" in ARGS
+if (
+    SIMULATE
+):  # a simulated window answers at once: pauses move a clock, they do not wait
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import virtual_clock
+
+    virtual_clock.install()
 FLOATING = "--floating" in ARGS  # G3: also measure the floating screens
 SETTINGS = "--settings" in ARGS  # G4: also measure the Settings window
 KEEP = "--keep" in ARGS
@@ -574,19 +582,21 @@ def window_checks(win, e):
             chrome["pane_gap"]["device"],
             between,
         )
-        y_mid = pane[1] + pane[3] // 2
-        left = pane[0]
-        edge = tuple(int(v) for v in a[y_mid, left])
+        # Flush panes have no border of their own: the divider under the title bar is one device pixel of the
+        # border colour over the frame, with the title bar's frame colour above it and the pane's fill below.
+        x_mid = pane[0] + pane[2] // 2
+        divider = tuple(int(v) for v in a[pane[1] - 1, x_mid])
         want = tuple(
-            int(e["colours"]["border_over_background"]["hex"][i : i + 2], 16)
+            int(e["colours"]["border_over_frame"]["hex"][i : i + 2], 16)
             for i in (1, 3, 5)
         )
         tolerance = chrome["pane_border_alpha"]["tolerance_levels"]
+        one_row = pixels.cdist(a[pane[1] - 2, x_mid], frame) <= 2 and pixels.cdist(a[pane[1], x_mid], a[pane[1] - 1, x_mid]) > 2
         record(
             "pane-border-alpha",
-            all(abs(p - q) <= tolerance for p, q in zip(edge, want)),
-            f"{chrome['pane_border_alpha']['value']:.3f} (rgb {want})",
-            f"rgb {edge}",
+            one_row and all(abs(p - q) <= tolerance for p, q in zip(divider, want)),
+            f"{chrome['pane_border_alpha']['value']:.3f} (rgb {want}), one row",
+            f"rgb {divider}, {'one row' if one_row else 'not one row'}",
         )
         radius = pane_radius(a, pane, frame, e)
         record(
@@ -613,13 +623,20 @@ def e_grey(e, role):
 
 
 def pane_radius(a, pane, frame, e):
-    """A circle fitted to the pane's top-left corner. The border sits inside the pane's box over the fill, so the fill
-    is fitted (the border row and column count as outside it) and the border's width is added back."""
+    """The pane's corner radius. A square corner (the flush panes) is read at the corner pixel itself: 0 when it has
+    the pane's fill, else the fill's distance along the top edge from the corner. A rounded one is a circle fitted to
+    the top-left corner; the border sits inside the pane's box over the fill, so the fill is fitted (the border row
+    and column count as outside it) and the border's width is added back."""
     import numpy as np
 
     x, y, w, h = pane
     y_mid = y + h // 2
     fill = tuple(int(v) for v in a[y_mid, x + 20])
+    if e["chrome"]["pane_radius"]["device"] == 0:
+        inset = 0
+        while inset < w // 2 and pixels.cdist(a[y, x + inset], fill) > 2:
+            inset += 1
+        return float(inset)
     k = int(np.argmax([abs(s - o) for s, o in zip(fill, frame)]))
     cov = np.clip((a[..., k] - frame[k]) / (fill[k] - frame[k]), 0, 1)
     radius = e["chrome"]["pane_radius"]["device"]
@@ -1265,7 +1282,7 @@ def make_window(scale):
 
         return SimFloatingWindow(scale, THEME, FAULT)
     if SIMULATE:
-        return SimWindow(scale, THEME, FAULT if FAULT in ("tab-too-tall",) else None)
+        return SimWindow(scale, THEME, FAULT if FAULT in ("tab-too-tall", "pane-rounded") else None)
     return RealWindow(scale, WORK, APP, CONFIG, FAULT, KEEP)
 
 
