@@ -54,6 +54,8 @@ class SimFloatingWindow(chrome_sim.SimWindow):
         self.float_fault = fault if fault in FLOATING_FAULTS else None
         self.expected = expected_floating.build(scale, theme)
         self.return_focus = None
+        # True after the esc-loses-focus fault closed a popover: the keyboard went nowhere, so typing reaches no pane.
+        self.pane_deaf = False
         self.find_index = 0
         self.frames = 0
         self.frames_started = time.monotonic()
@@ -107,6 +109,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
             self.return_focus = self.focus_id
         popover["opener"] = popover.get("opener", [self.pw // 2, 0, 0, 0])
         self.popover = popover
+        self.pane_deaf = False
         self.focus_id = None
         self.keyboard = False
 
@@ -303,6 +306,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
             None if self.float_fault == "esc-loses-focus" else self.return_focus
         )
         self.keyboard = self.focus_id is not None
+        self.pane_deaf = self.float_fault == "esc-loses-focus"
 
     # -- input -------------------------------------------------------------------------------------------------
 
@@ -371,7 +375,7 @@ class SimFloatingWindow(chrome_sim.SimWindow):
             popover["query"] += text
             popover["items"][0]["label"] = popover["query"]
             self.find_index = 0
-        else:
+        elif not (popover is None and self.pane_deaf):
             super().type(text)
         self._record()
 
