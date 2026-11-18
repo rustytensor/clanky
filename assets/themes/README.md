@@ -33,7 +33,7 @@ all 7 own themes with 0 failing pairs; the 6 approved exemptions remain explicit
 Stable IDs: `paper-dark`, `paper-light`, `graphite-dark`, `graphite-light`, `ink`,
 `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`,
 `ai-bedazzled`, `unicorn-tears`, `unicorn-vomit`. Stone remains the default.
-Paper uses warm parchment colours. Graphite uses shadcn's neutral grey scale;
+Paper uses warm parchment colours. Graphite uses a neutral grey scale;
 secondary text uses neutral 400 dark / 600 light to remain readable on pressed surfaces.
 The three joke themes alone enable gradients and glow. Their descriptions and gradient
 stops are the design's literals; Unicorn Tears uses deep-plum text and pastel surfaces.
