@@ -7,19 +7,19 @@
       "median": 0
     },
     "key_p50_ms": {
-      "median": 16.699
+      "median": 26.145
     },
     "key_p99_ms": {
-      "median": 20.142
+      "median": 47.031
     },
     "memory_mib": {
-      "median": 259.059
+      "median": 258.957
     },
     "popover_ms": {
       "median": 12.0
     },
     "start_ms": {
-      "median": 400.442
+      "median": 426.84
     }
   }
 }
