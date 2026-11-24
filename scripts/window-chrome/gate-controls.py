@@ -57,6 +57,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -114,7 +115,8 @@ APP = Path(
     arg("--app", os.environ.get("CLANKY_GPUI_BIN", REPO / "target/release/clanky-gpui"))
 )
 WORK = Path(
-    os.environ.get("CLANKY_CONTROLS_WORK", "/srv/devops/build/clanky-controls-gate-run")
+    os.environ.get("CLANKY_CONTROLS_WORK")
+    or Path(os.environ.get("CLANKY_GATE_TMP") or tempfile.gettempdir()) / "clanky-controls-gate-run"
 )
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "floating"))
