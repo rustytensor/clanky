@@ -1,0 +1,73 @@
+# Maintainer: Marc Mironescu
+#
+# Builds Clanky from this git checkout instead of a release tarball, for installing a branch before it is
+# released. The version comes from `git describe`, so pacman upgrades cleanly to the next tagged release.
+#
+#   cd packaging/arch-git && makepkg -si
+#
+# CARGO_TARGET_DIR is honoured when set, so a local build can reuse the project's one build cache.
+pkgname=clanky-git
+_branch=gpui-g3
+pkgver=1.7.0.r0.g0000000
+pkgrel=1
+pkgdesc='GPU-rendered terminal for coding agents (git checkout)'
+arch=('x86_64')
+url='https://github.com/rustytensor/clanky'
+# Clanky is MIT OR Apache-2.0; its bundled fonts are OFL-1.1 (Geist, JetBrains Mono, Inter) and Bitstream-Vera (DejaVu).
+license=('MIT OR Apache-2.0' 'OFL-1.1' 'Bitstream-Vera')
+# The windows open libxkbcommon, Vulkan or EGL, and Wayland or X11 at run time.
+depends=('glibc' 'libgcc' 'sqlite' 'hicolor-icon-theme' 'libxkbcommon' 'vulkan-icd-loader' 'wayland'
+         'fontconfig' 'freetype2')
+makedepends=('cargo' 'git')
+optdepends=('libx11: X11 sessions'
+            'libxkbcommon-x11: keyboard input on X11'
+            'libxcursor: mouse cursors on X11'
+            'libglvnd: EGL when Vulkan is not available')
+provides=('clanky')
+conflicts=('clanky')
+# Release builds carry no debug information, so there is nothing for a split debug package.
+options=('!debug')
+# The checkout this file lives in, two folders up.
+source=("clanky::git+file://$startdir/../..#branch=$_branch")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd clanky
+    git describe --long --tags --abbrev=7 | sed 's/^v//; s/\([^-]*-g\)/r\1/; s/-/./g'
+}
+
+prepare() {
+    cd clanky
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+    cd clanky
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
+    cargo build --frozen --release -j 8 -p clanky --bin clanky -p clanky-gpui --bin clanky-gpui
+}
+
+check() {
+    cd clanky
+    "${CARGO_TARGET_DIR:-target}/release/clanky" --help > /dev/null
+}
+
+package() {
+    cd clanky
+    local out="${CARGO_TARGET_DIR:-target}/release"
+    install -Dm755 "$out/clanky" "$pkgdir/usr/bin/clanky"
+    install -Dm755 "$out/clanky-gpui" "$pkgdir/usr/bin/clanky-gpui"
+    # The launcher opens the gpui-ce window.
+    install -Dm644 packaging/linux/clanky.desktop "$pkgdir/usr/share/applications/clanky.desktop"
+    sed -i 's/^Exec=clanky$/Exec=clanky-gpui/' "$pkgdir/usr/share/applications/clanky.desktop"
+    install -Dm644 packaging/linux/io.github.rustytensor.Clanky.metainfo.xml \
+        "$pkgdir/usr/share/metainfo/io.github.rustytensor.Clanky.metainfo.xml"
+    install -Dm644 packaging/linux/io.github.rustytensor.Clanky.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.rustytensor.Clanky.svg"
+    install -Dm644 packaging/linux/clanky.1 "$pkgdir/usr/share/man/man1/clanky.1"
+    install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE-MIT LICENSE-APACHE NOTICE \
+        assets/fonts/OFL-Geist.txt assets/fonts/OFL-JetBrainsMono.txt assets/fonts/OFL-Inter.txt \
+        assets/fonts/LICENSE-DejaVu.txt assets/themes/upstream/LICENSE-Catppuccin
+}

@@ -7,3 +7,17 @@ version = "1.7.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
+
+# No debug information in any build; release binaries are stripped.
+[profile.dev]
+debug = false
+
+[profile.test]
+debug = false
+
+[profile.release]
+debug = false
+strip = true
+
+[profile.bench]
+debug = false
