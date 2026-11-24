@@ -8,7 +8,7 @@
 # CARGO_TARGET_DIR is honoured when set, so a local build can reuse the project's one build cache.
 pkgname=clanky-git
 _branch=gpui-g3
-pkgver=1.7.0.r0.g0000000
+pkgver=1.7.0.r158.g133a1d1
 pkgrel=1
 pkgdesc='GPU-rendered terminal for coding agents (git checkout)'
 arch=('x86_64')
@@ -25,8 +25,9 @@ optdepends=('libx11: X11 sessions'
             'libglvnd: EGL when Vulkan is not available')
 provides=('clanky')
 conflicts=('clanky')
-# Release builds carry no debug information, so there is nothing for a split debug package.
-options=('!debug')
+# Release builds carry no debug information, so there is nothing for a split debug package. makepkg's LTO
+# turns the C code the crates build (tree-sitter, wayland glue) into GCC bitcode Rust's linker cannot read.
+options=('!debug' '!lto')
 # The checkout this file lives in, two folders up.
 source=("clanky::git+file://$startdir/../..#branch=$_branch")
 sha256sums=('SKIP')
