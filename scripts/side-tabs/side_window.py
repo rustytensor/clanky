@@ -92,8 +92,21 @@ def make_fixtures(home):
 class SideWindow(RealWindow):
     """One clanky-gpui window at scale 1 with the fixtures; `extra_env` is added to the window's environment."""
 
-    def __init__(self, work, app, config, fault=None, extra_env=None, keep=False):
+    def __init__(
+        self,
+        work,
+        app,
+        config,
+        fault=None,
+        extra_env=None,
+        keep=False,
+        config_file=None,
+    ):
+        """config_file, when given, makes the window's settings file instead of the JSON one: a function that takes
+        the work folder and returns the path to pass to --config, or None to pass no --config, so the window uses
+        its default settings file ($XDG_CONFIG_HOME/clanky/config.xml, under the work folder)."""
         self.extra_env = dict(extra_env or {})
+        self.config_file = config_file
         super().__init__(1, work, app, config, fault, keep)
 
     def _start(self):
@@ -139,8 +152,11 @@ class SideWindow(RealWindow):
         env.update(self.extra_env)
         if self.fault:
             env["CLANKY_CONTROL_FAULT"] = self.fault
-        config = self.work / "config.json"
-        config.write_text(json.dumps(self.config), encoding="utf-8")
+        if self.config_file:
+            config = self.config_file(self.work)
+        else:
+            config = self.work / "config.json"
+            config.write_text(json.dumps(self.config), encoding="utf-8")
         self.config_path = config
         read_end, write_end = os.pipe()
         xvfb = subprocess.Popen(
@@ -171,8 +187,7 @@ class SideWindow(RealWindow):
                 str(self.app),
                 "--socket",
                 str(sock),
-                "--config",
-                str(config),
+                *(["--config", str(config)] if config else []),
                 "--size",
                 f"{chrome_harness.LOGICAL_W}x{chrome_harness.LOGICAL_H}",
             ],

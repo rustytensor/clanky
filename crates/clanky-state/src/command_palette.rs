@@ -20,6 +20,8 @@ pub enum Command {
     SplitDown,
     ClosePane,
     ToggleToolsPanel,
+    /// Switch between top tabs and side tabs, and save the choice (`tab_style`).
+    ToggleSideTabs,
     /// Show the tab at this place in the tab list.
     GoToTab(usize),
     /// Type this text and Enter into the pane the palette opened over.
@@ -42,6 +44,8 @@ pub struct Context {
     pub tabs: Vec<(String, bool)>,
     /// The name of the pane that had the keyboard when the palette opened, if a pane had it.
     pub pane: Option<String>,
+    /// Whether the window shows side tabs now, which names the switch's direction.
+    pub side_tabs: bool,
 }
 
 /// The longest query the palette takes, in bytes; more typing is dropped.
@@ -65,6 +69,11 @@ fn commands(context: &Context) -> Vec<Entry> {
             Action::ToggleToolsPanel,
             Command::ToggleToolsPanel,
         ),
+        Entry {
+            label: if context.side_tabs { "Switch to top tabs" } else { "Switch to side tabs" }.to_owned(),
+            keys: None,
+            command: Command::ToggleSideTabs,
+        },
     ];
     for (index, (title, active)) in context.tabs.iter().enumerate() {
         if !active {
@@ -181,6 +190,7 @@ mod tests {
         Context {
             tabs: vec![("clanky".into(), true), ("larra".into(), false)],
             pane: Some("clanky \u{b7} pane 1".into()),
+            side_tabs: false,
         }
     }
 
@@ -196,6 +206,7 @@ mod tests {
                 "Split down",
                 "Close pane",
                 "Show or hide the tools panel",
+                "Switch to side tabs",
                 "Go to larra"
             ]
         );
@@ -228,12 +239,13 @@ mod tests {
 
     #[test]
     fn word_starts_come_before_letters_inside_and_ties_keep_the_list_order() {
-        // "t": no label starts with it; "tab", "the"/"tools" and "to" start words; "split" only holds one.
+        // "t": no label starts with it; "tab", "the"/"tools", "to"/"tabs" and "to" start words; "split" only holds one.
         assert_eq!(
             labels(&two_tabs(), "t"),
             [
                 "New tab",
                 "Show or hide the tools panel",
+                "Switch to side tabs",
                 "Go to larra",
                 "Split right",
                 "Split down",
@@ -253,12 +265,28 @@ mod tests {
     }
 
     #[test]
+    fn the_tab_switch_names_the_layout_it_switches_to() {
+        // Without a pane, so no "Run" entry follows.
+        let top = Context {
+            pane: None,
+            ..two_tabs()
+        };
+        assert_eq!(labels(&top, "side"), ["Switch to side tabs"]);
+        let side = Context {
+            side_tabs: true,
+            ..top
+        };
+        assert_eq!(labels(&side, "switch"), ["Switch to top tabs"]);
+        assert_eq!(labels(&side, "side"), Vec::<String>::new());
+    }
+
+    #[test]
     fn without_a_pane_nothing_is_offered_to_run() {
         let context = Context {
             pane: None,
             ..two_tabs()
         };
-        assert_eq!(labels(&context, "tab"), ["New tab"]);
+        assert_eq!(labels(&context, "tab"), ["New tab", "Switch to side tabs"]);
         assert_eq!(labels(&context, "agent"), Vec::<String>::new());
     }
 
@@ -274,6 +302,7 @@ mod tests {
                 Some("Ctrl+Shift+E"),
                 Some("Ctrl+Shift+W"),
                 Some("Ctrl+Shift+B"),
+                None,
                 None
             ]
         );

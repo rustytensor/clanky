@@ -53,7 +53,7 @@ fn icon_of(command: &Command) -> Icon {
         Command::SplitRight => Icon::SplitRight,
         Command::SplitDown => Icon::SplitDown,
         Command::ClosePane => Icon::Close,
-        Command::ToggleToolsPanel => Icon::Sidebar,
+        Command::ToggleToolsPanel | Command::ToggleSideTabs => Icon::Sidebar,
         Command::GoToTab(_) | Command::Run(_) => Icon::Terminal,
     }
 }
@@ -143,6 +143,7 @@ impl MainWindow {
                 .pane
                 .as_ref()
                 .map(|_| PANE_NAME.to_owned()),
+            side_tabs: self.vertical(),
         };
         let mut found = entries(&context, self.palette_state.query.text());
         if self.kit.record().faults().palette_no_run() {
@@ -213,6 +214,7 @@ impl MainWindow {
             }),
             Command::ClosePane => self.act(window, cx, Self::close_pane),
             Command::ToggleToolsPanel => self.toggle_tools(cx),
+            Command::ToggleSideTabs => self.toggle_side_tabs(cx),
             Command::GoToTab(tab) => self.act(window, cx, move |this, _, _| this.select_tab(tab)),
             Command::Run(text) => self.act(window, cx, move |this, _, _| {
                 let pane = pane.ok_or("no pane had the keyboard to run the command in")?;

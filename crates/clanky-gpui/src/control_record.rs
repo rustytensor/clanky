@@ -86,6 +86,7 @@ pub enum Faults {
     SyntaxOffByOne,
     CloseDropsPending,
     SideWidth,
+    TabSwitchUnsaved,
 }
 
 impl Faults {
@@ -104,6 +105,7 @@ impl Faults {
             "syntax-off-by-one" => Self::SyntaxOffByOne,
             "close-drops-pending" => Self::CloseDropsPending,
             "side-width" => Self::SideWidth,
+            "tab-switch-unsaved" => Self::TabSwitchUnsaved,
             _ => Self::None,
         }
     }
@@ -177,6 +179,11 @@ impl Faults {
     /// The side column drawn `SIDE_COLUMN_FAULT_EXTRA` wider than its token.
     pub fn side_width(self) -> bool {
         self == Self::SideWidth
+    }
+
+    /// The palette's tab switch that switches the window but writes nothing to the settings file.
+    pub fn tab_switch_unsaved(self) -> bool {
+        self == Self::TabSwitchUnsaved
     }
 
     fn hit(self, painted: DeviceBox) -> DeviceBox {

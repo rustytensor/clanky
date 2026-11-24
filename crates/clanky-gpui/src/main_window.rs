@@ -122,6 +122,8 @@ pub struct WindowSetup {
     /// Tabs across the title bar or down the side column, and how the side column groups them.
     pub tab_style: TabStyle,
     pub tab_groups: TabGroups,
+    /// The settings file the window was started with, where the palette's tab switch saves `tab_style`.
+    pub config_file: Option<PathBuf>,
 }
 
 pub struct MainWindow {
@@ -162,6 +164,7 @@ pub struct MainWindow {
     editors: Editors,
     tab_style: TabStyle,
     tab_groups: TabGroups,
+    config_file: Option<PathBuf>,
     side: SideTabs,
     _status: Task<()>,
     /// Draws a frame when the window gains or loses focus, which starts or stops the badges' animation.
@@ -248,6 +251,7 @@ impl MainWindow {
             editors: Editors::new(setup.syntax),
             tab_style: setup.tab_style,
             tab_groups: setup.tab_groups,
+            config_file: setup.config_file,
             side: SideTabs::new(cx.focus_handle()),
             _status: status,
             _activation: cx.observe_window_activation(window, |_, _, cx| cx.notify()),
@@ -850,16 +854,25 @@ impl MainWindow {
                     .child(if tabs == 1 { "tab" } else { "tabs" }),
             )
             .child(word(self.status.uptime.clone()));
+        // The record's `notice` landmark carries the words, so a gate can read what the line says.
         if let Some(notice) = &self.notice {
             left = left.child(
                 div()
+                    .relative()
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .text_color(paint(colors.err, 1.0))
-                    .child(notice.clone()),
+                    .child(notice.clone())
+                    .child(
+                        self.kit
+                            .record()
+                            .landmark_with_text("notice", 0, notice.clone()),
+                    ),
             );
+        } else {
+            self.kit.record().landmark_absent("notice", 0);
         }
         let mut right = div().flex().flex_none().gap(px(t::SPACE_16)).child(word(
             if self.status.masking_ready {

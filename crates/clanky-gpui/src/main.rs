@@ -334,6 +334,10 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         syntax: editor_pane::syntax_colors(&theme),
         tab_style: config.tab_style,
         tab_groups: config.tab_groups,
+        config_file: args
+            .config
+            .clone()
+            .or_else(clanky_state::platform::settings_path),
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

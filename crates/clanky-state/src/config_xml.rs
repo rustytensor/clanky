@@ -307,6 +307,45 @@ pub fn migrate(xml_path: &Path) -> Result<bool, String> {
     Ok(migrated)
 }
 
+/// Sets one scalar setting in the config.xml at `path` and keeps every other setting as it was. A
+/// missing file is created holding only that setting. Nothing is written when the value is not valid
+/// for its setting, the file does not parse, or the path is not a plain file (a link is never
+/// replaced by a file). The new file is written beside the old one, private to the user, and renamed
+/// over it, so a reader sees the old file or the new one, never half of one.
+pub fn set_scalar(path: &Path, key: &str, text: &str) -> Result<(), String> {
+    let value = scalar(key, text);
+    let single = Value::Object(std::iter::once((key.to_owned(), value.clone())).collect());
+    crate::config::Config::from_json(&single.to_string())?;
+    let mut doc = match fs::symlink_metadata(path) {
+        Ok(meta) if !meta.file_type().is_file() => return Err(format!("{} is not a plain file", path.display())),
+        Ok(_) => {
+            let old = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            document(&parse(&old).map_err(|e| format!("{}: {e}", path.display()))?)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if let Value::Object(map) = &mut doc {
+        map.insert(key.to_owned(), value);
+    }
+    let parent = path.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let temp = parent.join(format!(".clanky-config-{}.tmp", std::process::id()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    crate::platform::private_file(&mut options);
+    let result = (|| {
+        let mut file = options.open(&temp)?;
+        file.write_all(write(&doc).as_bytes())?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result.map_err(|e| format!("{}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,5 +387,62 @@ mod tests {
         let (config, soft) = crate::config::Config::window_from_json_soft(json).expect("the old JSON format falls back too");
         assert_eq!(soft.as_deref(), Some("tab_groups must be \"project\" or \"none\""));
         assert_eq!((config.tab_style, config.tab_groups), (TabStyle::Vertical, TabGroups::Project));
+    }
+
+    /// A scratch folder for one test, removed first if an earlier run left it.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("clanky-config-xml-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn setting_one_value_keeps_every_other_setting() {
+        let root = scratch("keep");
+        let path = root.join("config.xml");
+        fs::write(&path, "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <font_size>18</font_size>\n  <tab_groups>none</tab_groups>\n  <agents>\n    <agent><name>Pi</name><command>pi</command></agent>\n  </agents>\n</clanky>\n").unwrap();
+        set_scalar(&path, "tab_style", "vertical").unwrap();
+        let (config, doc) = load(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(config.tab_style, crate::config::TabStyle::Vertical);
+        assert_eq!(doc["font_size"], 18);
+        assert_eq!(doc["tab_groups"], "none");
+        assert_eq!(doc["agents"][0]["command"], "pi");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        set_scalar(&path, "tab_style", "horizontal").unwrap();
+        assert_eq!(load(&fs::read_to_string(&path).unwrap()).unwrap().0.tab_style, crate::config::TabStyle::Horizontal);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1, "no temporary file is left behind");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_missing_file_is_created_with_the_one_setting() {
+        let root = scratch("missing");
+        let path = root.join("clanky").join("config.xml");
+        set_scalar(&path, "tab_style", "vertical").unwrap();
+        let (_, doc) = load(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(doc, serde_json::json!({"tab_style": "vertical"}));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_bad_value_a_broken_file_or_a_link_is_never_written() {
+        let root = scratch("refuse");
+        let path = root.join("config.xml");
+        let good = "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <font_size>18</font_size>\n</clanky>\n";
+        fs::write(&path, good).unwrap();
+        assert!(set_scalar(&path, "tab_style", "sideways").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), good);
+        let broken = "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <font_size>18</font_sizee>\n</clanky>\n";
+        fs::write(&path, broken).unwrap();
+        assert!(set_scalar(&path, "tab_style", "vertical").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), broken);
+        let link = root.join("link.xml");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(set_scalar(&link, "tab_style", "vertical").is_err());
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&path).unwrap(), broken);
+        let _ = fs::remove_dir_all(&root);
     }
 }

@@ -353,6 +353,32 @@ impl MainWindow {
         }
     }
 
+    /// The palette's tab switch: top tabs become side tabs or the other way round at once, and `tab_style` is saved
+    /// to the settings file. A file that cannot take it (the old JSON format, one that does not parse, a link) is left
+    /// as it is, and the status line says the choice was not saved.
+    pub(super) fn toggle_side_tabs(&mut self, cx: &mut Context<Self>) {
+        use clanky::config::TabStyle;
+        let (style, value) = if self.vertical() {
+            (TabStyle::Horizontal, "horizontal")
+        } else {
+            (TabStyle::Vertical, "vertical")
+        };
+        self.tab_style = style;
+        self.side.folded = false;
+        self.notice = match self.config_file.as_deref() {
+            Some(path) if clanky_state::config::is_json_path(path) => Some(format!(
+                "Tabs switched, not saved: {} is the old JSON settings file",
+                path.display()
+            )),
+            Some(_) if self.kit.record().faults().tab_switch_unsaved() => None,
+            Some(path) => clanky_state::config_xml::set_scalar(path, "tab_style", value)
+                .err()
+                .map(|error| format!("Tabs switched, not saved: {error}")),
+            None => Some("Tabs switched, not saved: there is no settings file".to_owned()),
+        };
+        cx.notify();
+    }
+
     pub(super) fn toggle_side_fold(&mut self, cx: &mut Context<Self>) {
         self.side.folded = !self.side.folded;
         cx.notify();
