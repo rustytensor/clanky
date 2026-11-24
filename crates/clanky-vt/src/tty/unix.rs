@@ -1,3 +1,4 @@
+// Modified by the Clanky project; see FORK.md in this crate.
 //! TTY related functionality.
 
 use std::ffi::{CStr, CString};
@@ -126,6 +127,9 @@ struct ShellUser {
 impl ShellUser {
     /// look for shell, username, longname, and home dir in the respective environment variables
     /// before falling back on looking into `passwd`.
+    // `?` on `pw` would move it on every path, but the next two fields may still need it; the
+    // matches move the error out only on the path that returns.
+    #[allow(clippy::question_mark)]
     fn from_env() -> Result<Self> {
         let mut buf = [0; 1024];
         let pw = get_pw_entry(&mut buf);

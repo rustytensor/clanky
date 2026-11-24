@@ -305,10 +305,9 @@ impl Masker {
                 if let Some(literal) = literals
                     .iter_mut()
                     .find(|literal| literal.value.bytes() == value.as_bytes())
+                    && literal.marker.is_empty()
                 {
-                    if literal.marker.is_empty() {
-                        literal.marker = marker.bytes().to_vec();
-                    }
+                    literal.marker = marker.bytes().to_vec();
                 }
             }
             for builtin in BUILTINS {

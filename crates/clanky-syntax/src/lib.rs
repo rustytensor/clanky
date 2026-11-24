@@ -250,12 +250,12 @@ impl Syntax {
                     let _ = p.set_language(&inline_grammar.language);
                     p
                 });
-                if parser.set_included_ranges(&ranges).is_ok() {
-                    if let Some(inline_tree) = parse(parser, text, None) {
-                        // Inline captures sit inside block ones: they paint after all of them.
-                        layer.extend(collect(inline_grammar, &inline_tree, text, range.clone()).into_iter()
-                            .map(|mut p| { p.order.0 = 1; p }));
-                    }
+                if parser.set_included_ranges(&ranges).is_ok()
+                    && let Some(inline_tree) = parse(parser, text, None)
+                {
+                    // Inline captures sit inside block ones: they paint after all of them.
+                    layer.extend(collect(inline_grammar, &inline_tree, text, range.clone()).into_iter()
+                        .map(|mut p| { p.order.0 = 1; p }));
                 }
             }
         }

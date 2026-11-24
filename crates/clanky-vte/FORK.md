@@ -12,5 +12,7 @@ Wilm, Christian Duerr and the vte contributors. Licensed under Apache-2.0 or MIT
 
 - `src/lib.rs`: APC strings are handed to the new `Perform::apc_dispatch` callback (default no-op) instead of being
   discarded, so the Kitty graphics protocol works. Details in CLANKY-PATCH.md. Written so it can be offered upstream.
+- `src/ansi.rs`: the unhandled-OSC debug log passes its buffer by value, not by reference, which newer clippy
+  rejects (`useless_borrows_in_formatting`). Behaviour is unchanged.
 - Renamed the package to `clanky-vte` and the library to `clanky_vte`; `publish = false`.
 - `examples/parselog.rs` and one doc example: `vte::` renamed to `clanky_vte::`.

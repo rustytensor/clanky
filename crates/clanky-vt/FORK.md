@@ -13,6 +13,8 @@ Licensed under Apache-2.0 (LICENSE-APACHE). Upstream's CHANGELOG.md is kept as i
 
 - `src/term/mod.rs`: bound OSC 52 stores to 1 MiB decoded (including a pre-decode encoded bound); ignore non-clipboard selections for stores and loads.
 - `src/event.rs`: redact clipboard store values from Debug output.
+- `src/tty/unix.rs`: `ShellUser::from_env` allows `clippy::question_mark`; the suggested `?` would move the passwd
+  entry that the later fields still read. Behaviour is unchanged.
 - `FORK.md`: record these local modifications and retain the fork notice.
 
 - `src/grid/mod.rs`: added non-serialized history-eviction and anchor-revision counters.
