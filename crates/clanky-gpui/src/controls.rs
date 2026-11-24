@@ -33,7 +33,7 @@ use gpui::{
 
 pub use crate::control_look::Kind;
 use crate::{
-    control_look::{Pointer, State, border, fill, hover_progress, paint, ring_width},
+    control_look::{Pointer, State, border, fill, hover_progress, paint, ring_width, with_alpha},
     control_record::{ControlRecord, ControlSpec, Part, Via},
     icons::Icon,
     tokens as t,
@@ -123,6 +123,15 @@ pub struct Control {
     /// holds it (the tab's press would start a drag), and the value says whether Tab reaches it (not while it is
     /// kept hidden with its room reserved, as on an inactive tab).
     inside: Option<bool>,
+    /// A height other than the kind's: the side column's filter field and tab rows.
+    height: Option<f32>,
+    /// A list row that stands for a tab (the side column's): its active state is the active tab's pill, and its
+    /// trailing close button shows over its right end only under the pointer or the keyboard.
+    tab_row: bool,
+    /// Something before the label, inside the control: a top tab's state dot.
+    leading: Option<AnyElement>,
+    /// A field's text as typed, for the record.
+    field_text: Option<String>,
 }
 
 impl Control {
@@ -148,7 +157,43 @@ impl Control {
             focus: None,
             action: None,
             inside: None,
+            height: None,
+            tab_row: false,
+            leading: None,
+            field_text: None,
         }
+    }
+
+    #[must_use]
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    /// The row stands for a tab: it is drawn active as the active tab is, and its close button shows only under the
+    /// pointer or the keyboard.
+    #[must_use]
+    pub fn tab_row(mut self) -> Self {
+        self.tab_row = true;
+        self
+    }
+
+    #[must_use]
+    pub fn leading(mut self, element: impl IntoElement) -> Self {
+        self.leading = Some(element.into_any_element());
+        self
+    }
+
+    /// A field's text as typed now, written to the record as `field_text`.
+    #[must_use]
+    pub fn field_text(mut self, text: impl Into<String>) -> Self {
+        self.field_text = Some(text.into());
+        self
+    }
+
+    /// The control's height: its own where it sets one, else its kind's.
+    fn own_height(&self) -> f32 {
+        self.height.unwrap_or_else(|| self.kind.height())
     }
 
     /// The control sits inside another control; `reachable`: whether Tab reaches it now.
@@ -232,6 +277,14 @@ impl Control {
     }
 }
 
+/// The elements a screen hands a control to hold, taken out of the [`Control`] so its description can be borrowed
+/// while they are placed.
+struct Inside {
+    content: Option<AnyElement>,
+    trailing: Option<AnyElement>,
+    leading: Option<AnyElement>,
+}
+
 /// What a control keeps from frame to frame.
 struct Kept {
     focus: FocusHandle,
@@ -284,6 +337,11 @@ impl Kit {
 
     pub fn record(&self) -> &ControlRecord {
         &self.record
+    }
+
+    /// Whether animations are on (the config's `animations`); off is reduced motion.
+    pub fn motion(&self) -> bool {
+        self.motion
     }
 
     pub fn set_colors(&mut self, colors: Colors) {
@@ -462,15 +520,24 @@ impl Kit {
             checked: control.checked,
             primary: control.primary,
             focus: Some(focus.clone()),
+            field_text: control.field_text.clone(),
         };
         let mut control = control;
-        let field_content = (control.content.take(), control.trailing.take());
+        let field_content = Inside {
+            content: control.content.take(),
+            trailing: control.trailing.take(),
+            leading: control.leading.take(),
+        };
         // A tab shows its trailing close button while it is active, under the pointer, or holding the keyboard
-        // (itself or the button); elsewhere the button's room stays, so no tab moves when another changes state.
-        let show_trailing = control.kind != Kind::Tab
-            || control.checked == Some(true)
-            || matches!(state, State::Hover | State::Pressed | State::Focus)
+        // (itself or the button); elsewhere the button's room stays, so no tab moves when another changes state. A
+        // tab row shows it only under the pointer or the keyboard, over its right end.
+        let attended = matches!(state, State::Hover | State::Pressed | State::Focus)
             || focus.contains_focused(window, cx);
+        let show_trailing = if control.tab_row {
+            attended
+        } else {
+            control.kind != Kind::Tab || control.checked == Some(true) || attended
+        };
         let body = self.body(
             screen,
             &control,
@@ -490,13 +557,13 @@ impl Kit {
         &self,
         screen: &'static str,
         control: &Control,
-        field_content: (Option<AnyElement>, Option<AnyElement>),
+        field_content: Inside,
         appearance: (State, f32, f32, bool),
     ) -> gpui::Stateful<gpui::Div> {
         let (state, hover, scale, show_trailing) = appearance;
         let colors = &self.colors;
         let kind = control.kind;
-        let height = kind.height();
+        let height = control.own_height();
         let hair = t::hairline(scale);
         let mut body = div()
             .id(ElementId::NamedInteger(
@@ -519,8 +586,16 @@ impl Kit {
             }
             _ => body,
         };
-        if let Some(fill) = fill(kind, state, control.primary, control.checked, colors) {
-            let strength = if state == State::Hover && !control.primary {
+        // The active tab row is the active tab's pill, under the pointer too, so which tab is active never hides.
+        let active_tab_row = control.tab_row && control.checked == Some(true);
+        let pill = active_tab_row && matches!(state, State::Rest | State::Hover);
+        let own_fill = if pill {
+            Some(with_alpha(colors.foreground, t::ACTIVE_TAB_FILL))
+        } else {
+            fill(kind, state, control.primary, control.checked, colors)
+        };
+        if let Some(fill) = own_fill {
+            let strength = if state == State::Hover && !control.primary && !pill {
                 hover
             } else {
                 1.0
@@ -529,7 +604,12 @@ impl Kit {
         }
         // Every control has its one-pixel edge in every state, see-through where the state draws none: an edge
         // adds to a box's size, so a control that gained one on focus or when active would grow.
-        let edge = border(kind, state, control.checked, colors).unwrap_or(t::TRANSPARENT);
+        let edge = if active_tab_row && state != State::Focus {
+            Some(with_alpha(colors.foreground, t::ACTIVE_TAB_RING))
+        } else {
+            border(kind, state, control.checked, colors)
+        }
+        .unwrap_or(t::TRANSPARENT);
         let width = if state == State::Focus && self.record.faults().border_two_pixels() {
             2.0 * hair
         } else {
@@ -682,7 +762,7 @@ impl Kit {
             // not; the label is centred in that room. Its line fills the tab, so the line's top falls on
             // a whole device pixel at every scale and only the baseline's rounding is left: the tab's height inside
             // its two one-device-pixel edges.
-            let line = kind.height() - 2.0 * t::hairline(scale);
+            let line = control.own_height() - 2.0 * t::hairline(scale);
             let text = |weight: u16| text(weight).line_height(px(line));
             div()
                 .relative()
@@ -710,14 +790,14 @@ impl Kit {
             // control's top is a whole device pixel, and a shorter centred line would put its top, and so the
             // baseline, off by part of a pixel.
             text(weight)
-                .line_height(px(kind.height()))
+                .line_height(px(control.own_height()))
                 .relative()
                 .child(self.record.part(screen, control.id, Part::Label))
         } else if kind == Kind::Field {
             // A field's line fills the field inside its two one-device-pixel edges, as a tab's does, so the line's
             // top, and so the baseline, is not left half a device pixel off at 1.5.
             text(weight)
-                .line_height(px(kind.height() - 2.0 * t::hairline(scale)))
+                .line_height(px(control.own_height() - 2.0 * t::hairline(scale)))
                 .relative()
                 .child(self.record.part(screen, control.id, Part::Label))
         } else {
@@ -733,12 +813,13 @@ impl Kit {
         &self,
         screen: &'static str,
         control: &Control,
-        field_content: (Option<AnyElement>, Option<AnyElement>),
+        inside: Inside,
         place: (f32, bool, bool),
     ) -> AnyElement {
         let (scale, show_trailing, lit) = place;
         let colors = &self.colors;
         let kind = control.kind;
+        let height = control.own_height();
         if kind == Kind::Switch {
             return switch_knob(control.checked == Some(true), scale, colors);
         }
@@ -758,7 +839,12 @@ impl Kit {
             .h_full()
             .items_center()
             .gap(px(if row_like { t::ROW_GAP } else { t::SPACE_6 }))
-            .px(px(if kind.is_icon_only() { 0.0 } else { t::SPACE_8 }));
+            // A tab row's own lines carry their padding: folded, its icon is centred in a rail narrower than that.
+            .px(px(if kind.is_icon_only() || control.tab_row {
+                0.0
+            } else {
+                t::SPACE_8
+            }));
         if !row_like {
             inner = inner.justify_center();
         }
@@ -786,13 +872,13 @@ impl Kit {
             // In a field whose inside is an odd number of device pixels taller than its icon (32 and 14 at 1.5), the
             // icon can only sit half a pixel off centre, and gpui rounds it up, where the ink's soft lower edge adds
             // to the offset. A one-device-pixel top margin puts it the half pixel low instead.
-            let inside = (kind.height() - 2.0 * t::hairline(scale)) * scale;
-            let field_nudge = kind == Kind::Field && (inside - size * scale).round() % 2.0 != 0.0;
+            let room = (height - 2.0 * t::hairline(scale)) * scale;
+            let field_nudge = kind == Kind::Field && (room - size * scale).round() % 2.0 != 0.0;
             // An icon-only control whose spare room is an odd count of device pixels (a 14 px icon in 28 at 1.5) cannot
             // centre its icon on whole pixels. Layout rounds the half pixel toward the top left, where the icon's
             // antialiased edges already lean, which tips it past half a pixel off; one device pixel of margin before
             // the icon puts the spare pixel there instead, half a pixel the other way.
-            let spare = ((kind.height() - size) * scale).round();
+            let spare = ((height - size) * scale).round();
             let button_nudge = kind.is_icon_only() && spare.rem_euclid(2.0) > 0.5;
             let top = if field_nudge || button_nudge {
                 t::hairline(scale)
@@ -822,15 +908,34 @@ impl Kit {
                     .child(self.record.part(screen, control.id, Part::Icon)),
             );
         }
-        let (field_content, trailing) = field_content;
-        if let Some(content) = field_content {
-            // The owner's text and caret; the field only frames them.
-            return inner
-                .child(div().flex_1().min_w_0().child(content))
-                .into_any_element();
+        let Inside {
+            content,
+            trailing,
+            leading,
+        } = inside;
+        if let Some(leading) = leading {
+            inner = inner.child(div().flex_none().child(leading));
         }
-        if !kind.is_icon_only() && !control.label.is_empty() {
+        if let Some(content) = content {
+            // The owner's text and caret (a field's), or a row's own lines; the control only frames them.
+            inner = inner.child(div().flex_1().min_w_0().child(content));
+        } else if !kind.is_icon_only() && !control.label.is_empty() {
             inner = inner.child(self.label(screen, control, ink, scale));
+        }
+        if control.tab_row {
+            // A tab row's close button lies over its right end, on the card colour, and only while it shows.
+            if let Some(trailing) = trailing.filter(|_| show_trailing) {
+                inner = inner.child(
+                    div()
+                        .absolute()
+                        .right(px(t::SPACE_4))
+                        .top(px((height - t::ICON_BUTTON_INLINE_SIZE) / 2.0))
+                        .rounded(px(t::RADIUS_SMALL))
+                        .bg(paint(colors.card, 1.0))
+                        .child(trailing),
+                );
+            }
+            return inner.into_any_element();
         }
         if let Some(keys) = &control.keys {
             inner = inner.child(
@@ -850,7 +955,7 @@ impl Kit {
                 room = room.invisible();
             }
             inner = inner
-                .pr(px((kind.height() - t::ICON_BUTTON_INLINE_SIZE) / 2.0))
+                .pr(px((height - t::ICON_BUTTON_INLINE_SIZE) / 2.0))
                 .child(room);
         }
         inner.into_any_element()

@@ -131,23 +131,27 @@ pub fn load(text: &str) -> Result<(crate::config::Config, Value), String> {
 }
 
 /// Settings whose bad value falls back to its default on its own, the other settings kept.
-const SOFT: [&str; 1] = ["new_window_panes"];
+pub(crate) const SOFT: [&str; 2] = ["new_window_panes", "tab_groups"];
 
 /// As `load`, except that a bad value of a SOFT setting (and only that) is left out: the Config and
-/// document hold the other settings, and the third item is that value's error ("line 3: ...").
+/// document hold the other settings, and the third item is the bad values' errors ("line 3: ...",
+/// joined with "; " when there are several).
 pub fn load_soft(text: &str) -> Result<(crate::config::Config, Value, Option<String>), String> {
     let entries = parse(text)?;
     let error = match load_entries(&entries) { Ok((config, doc)) => return Ok((config, doc, None)), Err(error) => error };
-    let bad = entries.iter().find(|entry| SOFT.contains(&entry.key.as_str()) && {
+    let own_error = |entry: &Entry| {
         let single = Value::Object(std::iter::once((entry.key.clone(), entry.value.clone())).collect());
-        crate::config::Config::from_json(&single.to_string()).is_err()
-    });
-    let Some(bad) = bad else { return Err(error) };
-    let rest: Vec<Entry> = entries.iter().filter(|entry| entry.key != bad.key).cloned().collect();
+        crate::config::Config::from_json(&single.to_string()).err()
+    };
+    let bad: Vec<(&Entry, String)> = entries.iter()
+        .filter(|entry| SOFT.contains(&entry.key.as_str()))
+        .filter_map(|entry| own_error(entry).map(|own| (entry, own)))
+        .collect();
+    if bad.is_empty() { return Err(error); }
+    let rest: Vec<Entry> = entries.iter().filter(|entry| !bad.iter().any(|(b, _)| b.key == entry.key)).cloned().collect();
     let soft = load_entries(&rest).map_err(|_| error.clone())?;
-    let single = Value::Object(std::iter::once((bad.key.clone(), bad.value.clone())).collect());
-    let own = crate::config::Config::from_json(&single.to_string()).err().unwrap_or_default();
-    Ok((soft.0, soft.1, Some(format!("line {}: {own}", bad.line))))
+    let message = bad.iter().map(|(entry, own)| format!("line {}: {own}", entry.line)).collect::<Vec<_>>().join("; ");
+    Ok((soft.0, soft.1, Some(message)))
 }
 
 fn load_entries(entries: &[Entry]) -> Result<(crate::config::Config, Value), String> {
@@ -325,5 +329,24 @@ mod tests {
         assert_eq!(write(&back), text);
         let old = modernize(&serde_json::json!({"font_size_pt":12,"rails":false,"columns":90}));
         assert_eq!(old, serde_json::json!({"font_size":16.0,"tools_panel":"off","columns":90}));
+    }
+
+    #[test]
+    fn a_bad_tab_groups_value_is_reported_and_groups_by_project() {
+        use crate::config::{TabGroups, TabStyle};
+        let text = "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <tab_style>vertical</tab_style>\n  <tab_groups>maybe</tab_groups>\n</clanky>\n";
+        let (config, doc, soft) = load_soft(text).expect("a bad tab_groups never stops the window");
+        assert_eq!(soft.as_deref(), Some("line 4: tab_groups must be \"project\" or \"none\""));
+        assert_eq!((config.tab_style, config.tab_groups), (TabStyle::Vertical, TabGroups::Project));
+        assert!(doc.get("tab_groups").is_none(), "{doc}");
+        let none = "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <tab_groups>none</tab_groups>\n</clanky>\n";
+        assert_eq!(load(none).expect("none is valid").0.tab_groups, TabGroups::Flat);
+        let both = "<?xml version=\"1.0\"?>\n<clanky version=\"1\">\n  <new_window_panes>7</new_window_panes>\n  <tab_groups>x</tab_groups>\n</clanky>\n";
+        let (_, _, soft) = load_soft(both).expect("two soft values fall back together");
+        assert_eq!(soft.as_deref(), Some("line 3: new_window_panes must be 1 or 2; line 4: tab_groups must be \"project\" or \"none\""));
+        let json = r#"{"tab_style":"vertical","tab_groups":"maybe"}"#;
+        let (config, soft) = crate::config::Config::window_from_json_soft(json).expect("the old JSON format falls back too");
+        assert_eq!(soft.as_deref(), Some("tab_groups must be \"project\" or \"none\""));
+        assert_eq!((config.tab_style, config.tab_groups), (TabStyle::Vertical, TabGroups::Project));
     }
 }

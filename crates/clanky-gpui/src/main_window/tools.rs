@@ -1,4 +1,4 @@
-//! The tools panel at the window's left: Files (the focused pane's folder as a tree), Recent (what ran lately) and
+//! The tools panel at the window's left (at its right while the side tabs hold the left): Files (the focused pane's folder as a tree), Recent (what ran lately) and
 //! Agents (agent activity, the connected agents, and each pane's agent access), with a switcher between them at its
 //! foot. What it shows is read with the window's once-a-second look at the server and drawn only when it changed.
 
@@ -19,7 +19,7 @@ use crate::{
     control_look::paint,
     controls::{Control, Group, Kind, Switcher},
     icons::Icon,
-    tokens as t,
+    request_log, tokens as t,
 };
 
 /// Control ids: the switcher's segments, the tree's rows, the agents' rows, the access switches.
@@ -112,9 +112,13 @@ pub(super) fn read_tools(client: &Client, look: &Value, query: &ToolsQuery) -> T
                 .focused
                 .as_deref()
                 .and_then(|id| {
-                    client
-                        .exchange(3, "terminal_cwd", &serde_json::json!({"tab_id": id}))
-                        .ok()
+                    request_log::exchange(
+                        client,
+                        3,
+                        "terminal_cwd",
+                        &serde_json::json!({"tab_id": id}),
+                    )
+                    .ok()
                 })
                 .and_then(|reply| reply["cwd"].as_str().map(str::to_owned))
             {
@@ -148,6 +152,7 @@ pub(super) fn read_tools(client: &Client, look: &Value, query: &ToolsQuery) -> T
                     .labels
                     .iter()
                     .map(|(id, label)| {
+                        request_log::note("permission_get");
                         (
                             id.clone(),
                             label.clone(),
@@ -262,9 +267,7 @@ impl MainWindow {
             .get(self.workspace.active)
             .map(|group| group.focus.clone());
         let query = self.tools_query(focused);
-        let look = self
-            .client
-            .exchange(3, "look_state", &serde_json::json!({}))
+        let look = request_log::exchange(&self.client, 3, "look_state", &serde_json::json!({}))
             .unwrap_or(Value::Null);
         self.status.tools = read_tools(&self.client, &look, &query);
         cx.notify();

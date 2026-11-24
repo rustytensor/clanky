@@ -51,7 +51,9 @@ impl TerminalPane {
                 i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
             });
         let mut shown = blocks_view::shown(&snapshot, &self.blocks, now_ms, self.home.as_deref());
-        if shown.counting && self.tick.is_none() {
+        // A running time counts on only while the window has the focus, as every animation does: an unfocused window
+        // draws no frames, and the count is right again on the frame the focus brings back.
+        if shown.counting && self.window_active && self.tick.is_none() {
             let wait =
                 std::time::Duration::from_millis(1000 - now_ms.rem_euclid(1000).unsigned_abs() + 5);
             self.tick = Some(cx.spawn(async move |pane, cx| {

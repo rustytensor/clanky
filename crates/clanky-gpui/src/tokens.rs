@@ -128,8 +128,43 @@ pub const SWITCH_CONTROL_WIDTH: f32 = 40.0;
 
 // Widths and the parts of a list row.
 
-/// The side column (tools panel, vertical tab list), kept until the side column itself is redone.
+/// The side column (tools panel, side tabs).
 pub const SIDE_COLUMN_WIDTH: f32 = 236.0;
+/// The side column folded into a rail of icons: a row's icon with the column's padding and some room around it
+/// (the side tabs mockup, `.side.rail`).
+pub const SIDE_COLUMN_FOLDED_WIDTH: f32 = 52.0;
+/// The `side-width` planted fault draws the side column this much wider than `SIDE_COLUMN_WIDTH`.
+pub const SIDE_COLUMN_FAULT_EXTRA: f32 = 4.0;
+/// A side tab row: two lines of text beside the session icon (the mockup's `.row`, `min-height: 48px`).
+pub const SIDE_TAB_ROW_HEIGHT: f32 = 48.0;
+/// The side column's filter field, as tall as a tab (the mockup's `.filter`).
+pub const SIDE_FILTER_HEIGHT: f32 = TAB_HEIGHT;
+/// The session icon of a side tab row: a rounded square holding the program's mark (the mockup's `.ico`).
+pub const SESSION_ICON_SIZE: f32 = 28.0;
+/// The mark's text inside the session icon, in the terminal font.
+pub const SESSION_MARK_TEXT: f32 = TEXT_UI;
+/// An agent's session icon is filled with the agent colour at this opacity (the mockup's `.ico.agent`).
+pub const SESSION_AGENT_FILL: f32 = 0.14;
+/// The state badge on the session icon's bottom-right corner: a circle this wide, its edge `BADGE_EDGE` of the
+/// frame colour, standing out of the icon by `BADGE_OUTSET` (the mockup's `.badge`).
+pub const BADGE_SIZE: f32 = 12.0;
+pub const BADGE_EDGE: f32 = SPACE_2;
+pub const BADGE_OUTSET: f32 = 3.0;
+/// The notch that steps round a working badge: a square of the frame colour this wide.
+pub const SPINNER_NOTCH_SIZE: f32 = SPACE_2;
+/// How far a waiting badge's dot shrinks at the low point of its pulse, from each side.
+pub const PULSE_SHRINK: f32 = 1.5;
+/// A waiting badge pulses once in this many milliseconds (the mockup's `pulse 1.6s`).
+pub const PULSE_PERIOD_MS: f32 = 1600.0;
+/// The state dot before a top tab's title (the mockup's top-tab `.badge`, 8 px).
+pub const TAB_DOT_SIZE: f32 = SPACE_8;
+/// A side tab row's sub line (branch or folder) in the terminal font, and its icon.
+pub const SIDE_SUB_TEXT: f32 = TEXT_DESCRIPTION;
+pub const SIDE_SUB_ICON_SIZE: f32 = 11.0;
+/// The state words at the sub line's right end.
+pub const SIDE_STATE_TEXT: f32 = TEXT_META;
+/// A group's name over its rows (the mockup's `.groupname`).
+pub const SIDE_GROUP_TEXT: f32 = TEXT_DESCRIPTION;
 /// The command palette.
 pub const PALETTE_WIDTH: f32 = 560.0;
 /// The palette's top edge: today's palette sits 24 px below the title bar.

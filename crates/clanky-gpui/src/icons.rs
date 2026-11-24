@@ -57,6 +57,8 @@ pub enum Icon {
     Reset,
     /// Reset and clear the terminal.
     Eraser,
+    /// A git branch, in a side tab's sub line.
+    Branch,
 }
 
 impl Icon {
@@ -89,6 +91,7 @@ impl Icon {
             Icon::Shield => SHIELD,
             Icon::Reset => RESET,
             Icon::Eraser => ERASER,
+            Icon::Branch => BRANCH,
         }
     }
 }
@@ -145,3 +148,5 @@ const SHIELD: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 const RESET: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>"##;
 /// Lucide `eraser`.
 const ERASER: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" /><path d="m5.082 11.09 8.828 8.828" /></svg>"##;
+/// Lucide `git-branch`.
+const BRANCH: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>"##;

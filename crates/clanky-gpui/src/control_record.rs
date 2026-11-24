@@ -85,6 +85,7 @@ pub enum Faults {
     MarkerStays,
     SyntaxOffByOne,
     CloseDropsPending,
+    SideWidth,
 }
 
 impl Faults {
@@ -102,6 +103,7 @@ impl Faults {
             "marker-stays" => Self::MarkerStays,
             "syntax-off-by-one" => Self::SyntaxOffByOne,
             "close-drops-pending" => Self::CloseDropsPending,
+            "side-width" => Self::SideWidth,
             _ => Self::None,
         }
     }
@@ -172,6 +174,11 @@ impl Faults {
         self == Self::CloseDropsPending
     }
 
+    /// The side column drawn `SIDE_COLUMN_FAULT_EXTRA` wider than its token.
+    pub fn side_width(self) -> bool {
+        self == Self::SideWidth
+    }
+
     fn hit(self, painted: DeviceBox) -> DeviceBox {
         if self.hit_larger() {
             let grow = HIT_LARGER_DEVICE_PX;
@@ -230,6 +237,8 @@ pub struct ControlSpec {
     pub checked: Option<bool>,
     pub primary: bool,
     pub focus: Option<FocusHandle>,
+    /// A field's text as typed now; written as `field_text` for fields only.
+    pub field_text: Option<String>,
 }
 
 /// One control as measured in the frame being drawn.
@@ -250,6 +259,8 @@ struct Frame {
     landmarks: BTreeMap<(&'static str, u32), DeviceBox>,
     /// The words a landmark shows, for the landmarks that carry text.
     landmark_texts: BTreeMap<(&'static str, u32), String>,
+    /// Further fields a landmark's line carries (the side tabs' rows: tab, sub, mark, state and the rest).
+    landmark_fields: BTreeMap<(&'static str, u32), serde_json::Map<String, Value>>,
     /// Each open popover's `popover` object, by the screen it belongs to.
     popovers: BTreeMap<&'static str, Value>,
     keyboard: bool,
@@ -426,6 +437,33 @@ impl ControlRecord {
                 .insert((name, index), text);
         }
         self.landmark(name, index)
+    }
+
+    /// A landmark whose line also carries `fields` (each written next to `box`).
+    pub fn landmark_with_fields(
+        &self,
+        name: &'static str,
+        index: u32,
+        fields: serde_json::Map<String, Value>,
+    ) -> AnyElement {
+        self.set_landmark_fields(name, index, fields);
+        self.landmark(name, index)
+    }
+
+    /// Fields for a landmark's line, whether it is measured on screen or written absent.
+    pub fn set_landmark_fields(
+        &self,
+        name: &'static str,
+        index: u32,
+        fields: serde_json::Map<String, Value>,
+    ) {
+        if let Some(writer) = &self.0 {
+            writer
+                .borrow_mut()
+                .frame
+                .landmark_fields
+                .insert((name, index), fields);
+        }
     }
 
     /// A landmark not on screen in this frame: written as an empty box at the window's corner, unless something drawn
@@ -616,6 +654,11 @@ impl Writer {
                 if let Some(text) = self.frame.landmark_texts.get(&(*name, *index)) {
                     line["text"] = json!(text);
                 }
+                if let Some(fields) = self.frame.landmark_fields.get(&(*name, *index)) {
+                    for (key, value) in fields {
+                        line[key.as_str()] = value.clone();
+                    }
+                }
                 (format!("landmark {name} {index}"), line)
             })
             .collect();
@@ -644,13 +687,17 @@ impl Writer {
             .filter(|entry| entry.spec.screen == screen)
             .map(|entry| {
                 let spec = &entry.spec;
-                json!({
+                let mut line = json!({
                     "id": spec.id, "kind": spec.kind, "label": spec.label, "box": entry.painted,
                     "hit": entry.hit, "state": entry.state, "enabled": spec.enabled, "tab": spec.enabled,
                     "group": spec.group, "axis": spec.axis, "checked": spec.checked, "primary": spec.primary,
                     "label_box": opt_box(frame.parts.get(&(screen, spec.id, Part::Label))),
                     "icon": opt_box(frame.parts.get(&(screen, spec.id, Part::Icon))),
-                })
+                });
+                if let Some(text) = &spec.field_text {
+                    line["field_text"] = json!(text);
+                }
+                line
             })
             .collect();
         let focus = frame
@@ -779,6 +826,7 @@ mod tests {
             checked: None,
             primary: false,
             focus: None,
+            field_text: None,
         }
     }
 

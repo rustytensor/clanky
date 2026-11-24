@@ -46,6 +46,7 @@ settings plus the change.
   <theme_dark>graphite-dark</theme_dark>
   <theme_light>graphite-light</theme_light>
   <tab_style>horizontal</tab_style>
+  <tab_groups>project</tab_groups>
   <tools_panel>on</tools_panel>
   <tools><tool>files</tool><tool>recent</tool><tool>agents</tool></tools>
   <command_input>editor</command_input>
@@ -126,9 +127,10 @@ settings plus the change.
 | `opacity` | number | 1.0 | Finite, 0.5–1.0; window background alpha |
 | `animations` | boolean | true | Enable M11 cursor, panel and scroll motion |
 | `rails` | boolean | true | Legacy: read as `tools_panel` (`true` on, `false` off) when `tools_panel` is absent; Settings removes it the first time it writes `tools_panel` |
-| `tools_panel` | string | `on` | `on` or `off`: the tools panel on the left at start; Ctrl+Shift+B shows or hides it for the session |
+| `tools_panel` | string | `on` | `on` or `off`: the tools panel at start, on the left (on the right with vertical tabs); Ctrl+Shift+B shows or hides it for the session |
 | `tools` | list | files, recent, agents | Distinct ids from `files`, `recent`, `agents`: the tools the panel offers, written in that order |
-| `tab_style` | string | `horizontal` | `horizontal`: tabs in the title bar; `vertical`: a tab list down the left with folder, branch and last command |
+| `tab_style` | string | `horizontal` | `horizontal`: tabs in the title bar, with a dot before the title while a command runs, waits for you or has failed; `vertical`: side tabs down the left, one row per tab with its program (an agent's letter, or the shell), its state (working, needs you, done, exit code, new output), its title and its branch or folder, a filter field and a button that folds the column to icons |
+| `tab_groups` | string | `project` | With vertical tabs: `project` groups the rows under the name of each tab's git repository, with folders outside any repository under Other; `none` keeps one list in tab order |
 | `command_input` | string | `editor` | `editor`: a command input at the bottom of each terminal pane, and the shell prints no prompt of its own; `classic`: keys go straight to the shell and it shows its own prompt. Applies at once; the shell changes at its next prompt. See [the terminal](terminal.md#command-input) |
 | `block_style` | string | `quiet` | `quiet`: space and a hairline between commands, a meta row above each bold command (with the command input on), one hover bar; `cards`: a card around each command |
 | `status_line` | string | `show` | `show` or `hide`: the status line along the bottom of the window |

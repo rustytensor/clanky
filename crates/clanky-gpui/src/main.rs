@@ -40,6 +40,7 @@ mod pane;
 // The floating screens use the rest of the popover; until each is in, the test popover uses some of it.
 #[allow(dead_code)]
 mod popover;
+mod request_log;
 // The controls and the window chrome use the rest of the table.
 #[allow(dead_code)]
 mod tokens;
@@ -212,7 +213,8 @@ fn open_tab(
 
 /// The settings the settings file sets itself, by name, so a value it leaves out takes clanky-gpui's own default
 /// rather than the old window's. An unreadable or broken file sets nothing: `Config::load` has already reported it
-/// and used the defaults.
+/// and used the defaults. A bad value of a setting that falls back on its own (`tab_groups`, `new_window_panes`)
+/// leaves the others set, as `Config::load` does.
 fn settings_names(explicit: Option<&Path>) -> Vec<String> {
     let Some(path) = explicit
         .map(Path::to_owned)
@@ -226,9 +228,9 @@ fn settings_names(explicit: Option<&Path>) -> Vec<String> {
     let document = if clanky_state::config::is_json_path(&path) {
         serde_json::from_str::<serde_json::Value>(&text).ok()
     } else {
-        clanky_state::config_xml::load(&text)
+        clanky_state::config_xml::load_soft(&text)
             .ok()
-            .map(|(_, document)| document)
+            .map(|(_, document, _)| document)
     };
     document
         .and_then(|document| {
@@ -330,6 +332,8 @@ fn start_window(args: Arguments, cx: &mut App) -> Result<(), String> {
         opens_with: if opened { config.new_window_panes } else { 1 },
         layout_file: layout_file.map(|file| (file, socket.clone())),
         syntax: editor_pane::syntax_colors(&theme),
+        tab_style: config.tab_style,
+        tab_groups: config.tab_groups,
     };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(

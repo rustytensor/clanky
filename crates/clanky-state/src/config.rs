@@ -30,6 +30,8 @@ pub struct Config {
     pub tools_panel: bool,
     /// Tabs across the title bar, or a list down the left.
     pub tab_style: TabStyle,
+    /// Side tabs under the name of their repository, or in tab order with no groups.
+    pub tab_groups: TabGroups,
     /// The tools the panel offers, in Clanky's order.
     pub tools: Vec<Tool>,
     /// An editor at the bottom of each pane, or the shell's own prompt.
@@ -79,6 +81,11 @@ pub struct TerminalColors {
 pub enum CursorBlink { #[default] System, On, Off }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TabStyle { #[default] Horizontal, Vertical }
+/// How the side tabs are grouped: under the repository each tab's folder is in (`project`), or not at all (`none`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TabGroups { #[default] Project, Flat }
+/// The message for a `tab_groups` value other than the two it takes.
+pub const TAB_GROUPS_ERROR: &str = "tab_groups must be \"project\" or \"none\"";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CommandInput { #[default] Editor, Classic }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -184,6 +191,7 @@ impl Default for Config {
             startup_animation: true,
             tools_panel: true,
             tab_style: TabStyle::Horizontal,
+            tab_groups: TabGroups::Project,
             tools: TOOLS.iter().map(|t| t.0).collect(),
             command_input: CommandInput::Editor,
             block_style: BlockStyle::Quiet,
@@ -303,9 +311,33 @@ impl Config {
         Self::from_json(&value.to_string())
     }
 
+    /// As `window_from_json`, except that a bad value of a setting that falls back on its own (config_xml's SOFT
+    /// list, as in config.xml) is left out with the other settings kept; the second item is its error.
+    pub fn window_from_json_soft(json: &str) -> Result<(Self, Option<String>), String> {
+        let error = match Self::window_from_json(json) { Ok(config) => return Ok((config, None)), Err(error) => error };
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) else { return Err(error) };
+        let Some(object) = value.as_object_mut() else { return Err(error) };
+        let mut messages = Vec::new();
+        for key in crate::config_xml::SOFT {
+            let Some(setting) = object.get(key) else { continue };
+            let single = serde_json::Value::Object(std::iter::once((key.to_owned(), setting.clone())).collect());
+            if let Err(own) = Self::from_json(&single.to_string()) {
+                object.remove(key);
+                messages.push(own);
+            }
+        }
+        if messages.is_empty() { return Err(error); }
+        let config = Self::window_from_json(&value.to_string()).map_err(|_| error)?;
+        Ok((config, Some(messages.join("; "))))
+    }
+
     /// The settings in a file's text: XML, or the old JSON format for a path ending in .json.
     pub fn from_file(path: &Path, text: &str) -> Result<Self, String> {
-        if is_json_path(path) { return Self::window_from_json(text); }
+        if is_json_path(path) {
+            let (config, soft) = Self::window_from_json_soft(text)?;
+            if let Some(error) = soft { eprintln!("clanky: config {}: {error}", path.display()); }
+            return Ok(config);
+        }
         let (config, _, soft) = crate::config_xml::load_soft(text)?;
         if let Some(error) = soft { eprintln!("clanky: config {}: {error}", path.display()); }
         Ok(config)
@@ -457,6 +489,13 @@ impl Config {
                         Some("horizontal") => TabStyle::Horizontal,
                         Some("vertical") => TabStyle::Vertical,
                         _ => return Err("tab_style must be \"horizontal\" or \"vertical\"".into()),
+                    };
+                }
+                "tab_groups" => {
+                    config.tab_groups = match value.as_str() {
+                        Some("project") => TabGroups::Project,
+                        Some("none") => TabGroups::Flat,
+                        _ => return Err(TAB_GROUPS_ERROR.into()),
                     };
                 }
                 "tools_panel" => {

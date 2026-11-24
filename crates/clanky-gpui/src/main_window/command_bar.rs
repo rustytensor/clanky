@@ -16,7 +16,7 @@ use gpui::{
     IntoElement, MouseButton, ParentElement, Pixels, Styled, StyledText, Window, canvas, div, px,
     svg,
 };
-use serde_json::json;
+use serde_json::Value;
 
 use super::{MainWindow, SCREEN};
 use crate::{
@@ -48,14 +48,17 @@ impl Chips {
     }
 }
 
-/// Each pane's chips: its shell's folder and git branch, the shell's name and the pane's agent access.
-pub(super) fn read_chips(client: &Client, ids: &[String]) -> BTreeMap<String, Chips> {
+/// Each pane's chips: its shell's folder and git branch, the shell's name and the pane's agent access. `infos` holds
+/// each pane's `terminal_info` reply from this look, shared with the side tabs so a pane is asked once.
+pub(super) fn read_chips(
+    client: &Client,
+    ids: &[String],
+    infos: &BTreeMap<String, Value>,
+) -> BTreeMap<String, Chips> {
     let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));
     ids.iter()
         .map(|id| {
-            let info = client
-                .exchange(3, "terminal_info", &json!({"tab_id": id}))
-                .unwrap_or_default();
+            let info = infos.get(id).cloned().unwrap_or_default();
             let cwd = info["cwd"].as_str().unwrap_or_default();
             let chips = Chips {
                 folder: if cwd.is_empty() {
@@ -71,7 +74,10 @@ pub(super) fn read_chips(client: &Client, ids: &[String]) -> BTreeMap<String, Ch
                     .and_then(|exe| Path::new(exe).file_name())
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                access: client.agent_permission(id).unwrap_or(false),
+                access: {
+                    crate::request_log::note("permission_get");
+                    client.agent_permission(id).unwrap_or(false)
+                },
             };
             (id.clone(), chips)
         })

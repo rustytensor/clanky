@@ -18,6 +18,8 @@ use clanky_api::Client;
 use clanky_core::TerminalSnapshot;
 use serde_json::{Value, json};
 
+use crate::request_log;
+
 const GATHER: Duration = Duration::from_millis(4);
 const GATHER_NOTICES: usize = 100;
 /// How long the server holds a change request open before answering "nothing new".
@@ -97,7 +99,7 @@ fn watch(
     let mut quiet_since = Instant::now();
     let send = |update: Update| sender.send_blocking(update).is_ok();
     // The first screen, before any change.
-    match fetch.snapshot_with_blocks(tab) {
+    match fetch_snapshot(fetch, tab) {
         Ok((snapshot, blocks)) => {
             if !send(Update::Snapshot(Arc::new(snapshot), Arc::new(blocks))) {
                 return;
@@ -142,7 +144,7 @@ fn watch(
         // The change notice is the whole session's: when this pane's screen is the one already held (the server
         // answers "unchanged" for its generation), there is nothing to draw.
         let held = fetch.cached_generation(tab);
-        match fetch.snapshot_with_blocks(tab) {
+        match fetch_snapshot(fetch, tab) {
             Ok(_) if held.is_some() && fetch.cached_generation(tab) == held => {}
             Ok((snapshot, blocks)) => {
                 if !send(Update::Snapshot(Arc::new(snapshot), Arc::new(blocks))) {
@@ -157,25 +159,32 @@ fn watch(
     }
 }
 
+/// The pane's snapshot and blocks, the request noted in the request log.
+fn fetch_snapshot(
+    fetch: &Client,
+    tab: &str,
+) -> Result<(TerminalSnapshot, Value), clanky_core::CoreError> {
+    request_log::note("snapshot");
+    fetch.snapshot_with_blocks(tab)
+}
+
 fn shell_finished(client: &Client, tab: &str) -> bool {
     // A failed check is not an exit: the next change notice reports a lost server.
-    client
-        .exchange(3, "finished_shells", &json!({}))
-        .is_ok_and(|finished| {
-            finished["tab_ids"]
-                .as_array()
-                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(tab)))
-        })
+    request_log::exchange(client, 3, "finished_shells", &json!({})).is_ok_and(|finished| {
+        finished["tab_ids"]
+            .as_array()
+            .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(tab)))
+    })
 }
 
 fn wait_change(lane: &Client, after: u64, timeout_ms: u64) -> Result<u64, String> {
-    let result = lane
-        .exchange(
-            3,
-            "window_changes",
-            &json!({"after": after, "timeout_ms": timeout_ms}),
-        )
-        .map_err(|error| format!("waiting for pane changes: {}", error.message))?;
+    let result = request_log::exchange(
+        lane,
+        3,
+        "window_changes",
+        &json!({"after": after, "timeout_ms": timeout_ms}),
+    )
+    .map_err(|error| format!("waiting for pane changes: {}", error.message))?;
     result["revision"]
         .as_u64()
         .ok_or_else(|| "the server sent an invalid change notice".to_owned())

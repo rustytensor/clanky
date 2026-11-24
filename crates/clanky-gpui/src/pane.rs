@@ -63,6 +63,8 @@ pub struct TerminalPane {
     client: Client,
     tab: String,
     snapshot: Option<Arc<TerminalSnapshot>>,
+    /// How many screens with new output have arrived since the first, for the side tabs' unread mark.
+    outputs: u64,
     /// The server's command blocks for `snapshot`, from the same reply.
     blocks: Arc<Value>,
     palette: Palette,
@@ -151,6 +153,10 @@ impl TerminalPane {
                 let applied = pane.update(cx, |pane, cx| {
                     match update {
                         Update::Snapshot(snapshot, blocks) => {
+                            // The first screen is what the pane already held; every later one is new output.
+                            if pane.snapshot.is_some() {
+                                pane.outputs += 1;
+                            }
                             pane.snapshot = Some(snapshot);
                             pane.blocks = blocks;
                             pane.learn_commands();
@@ -170,6 +176,7 @@ impl TerminalPane {
             client: setup.client,
             tab: setup.tab,
             snapshot: None,
+            outputs: 0,
             blocks: Arc::new(Value::Null),
             palette: setup.palette,
             colors: setup.colors,
@@ -248,6 +255,30 @@ impl TerminalPane {
             })
             .and_then(|block| block["exit_code"].as_i64())
             .and_then(|code| i32::try_from(code).ok())
+    }
+
+    /// How many screens of new output have arrived since the pane's first.
+    pub fn outputs(&self) -> u64 {
+        self.outputs
+    }
+
+    /// The newest finished block's command and exit code, if any block on the screen has finished.
+    pub fn last_finished(&self) -> Option<(String, i64)> {
+        self.blocks["blocks"]
+            .as_array()?
+            .iter()
+            .rev()
+            .find(|block| block["complete"] == true)
+            .map(|block| {
+                (
+                    block["command"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned(),
+                    block["exit_code"].as_i64().unwrap_or(0),
+                )
+            })
     }
 
     /// Called while laying out: tells the server the grid's size when it changed.

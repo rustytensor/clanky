@@ -175,11 +175,14 @@ impl TerminalPane {
 
     /// Tab: completes against the shell's own folder, read from the server now.
     fn complete_input(&mut self) {
-        let cwd = self
-            .client
-            .exchange(3, "terminal_info", &json!({"tab_id": self.tab}))
-            .ok()
-            .and_then(|info| info["cwd"].as_str().map(PathBuf::from));
+        let cwd = crate::request_log::exchange(
+            &self.client,
+            3,
+            "terminal_info",
+            &json!({"tab_id": self.tab}),
+        )
+        .ok()
+        .and_then(|info| info["cwd"].as_str().map(PathBuf::from));
         let (Some(cwd), Some(input)) = (cwd, self.input.as_mut()) else {
             return;
         };

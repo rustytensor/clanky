@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use clanky::config::{Config, ThemePreference};
+use clanky::config::{Config, TabGroups, TabStyle, ThemePreference};
 use clanky_api::Client;
 use clanky_core::{
     Workspace,
@@ -39,6 +39,7 @@ mod drag;
 mod editors;
 mod find_bar;
 mod floating;
+mod side_tabs;
 #[cfg(feature = "test-popover")]
 mod test_popover;
 mod tools;
@@ -52,12 +53,13 @@ use crate::{
     palette::Palette,
     pane::{PaneEvent, PaneSetup, SharedInput, SharedTrace, TerminalPane},
     popover::Popover,
-    tokens as t,
+    request_log, tokens as t,
 };
 use agent_picker::AgentTools;
 use command_bar::{Chips, read_chips};
 use drag::{Drag, Places};
 use editors::Editors;
+use side_tabs::{PaneLook, SideTabs, escape, read_pane_look};
 use tools::{Tools, ToolsData, ToolsQuery, read_tools};
 
 /// The main window's name in the control record.
@@ -86,6 +88,8 @@ struct Status {
     tools: ToolsData,
     /// Each pane's command input chips.
     chips: BTreeMap<String, Chips>,
+    /// What the side tabs and the top tabs' dots show of each tab's focused pane, by pane id.
+    side: BTreeMap<String, PaneLook>,
 }
 
 pub struct WindowSetup {
@@ -115,6 +119,9 @@ pub struct WindowSetup {
     pub layout_file: Option<(PathBuf, PathBuf)>,
     /// The editor panes' token colours, from the interface theme.
     pub syntax: clanky::editor::SyntaxColors,
+    /// Tabs across the title bar or down the side column, and how the side column groups them.
+    pub tab_style: TabStyle,
+    pub tab_groups: TabGroups,
 }
 
 pub struct MainWindow {
@@ -150,8 +157,15 @@ pub struct MainWindow {
     pane_menu: context_menu::PaneMenu,
     /// The agent tools the picker offers, and the one being started.
     agent_tools: AgentTools,
+    /// The config's agent tools, which name a pane's program as an agent in the side tabs.
+    agent_programs: Vec<clanky::config::AgentTool>,
     editors: Editors,
+    tab_style: TabStyle,
+    tab_groups: TabGroups,
+    side: SideTabs,
     _status: Task<()>,
+    /// Draws a frame when the window gains or loses focus, which starts or stops the badges' animation.
+    _activation: Subscription,
 }
 
 impl MainWindow {
@@ -184,6 +198,10 @@ impl MainWindow {
                     let moved = status.revision != this.workspace.revision;
                     if status != this.status {
                         this.status = status;
+                        cx.notify();
+                    }
+                    // New output in a tab not on screen draws the frame that marks it unread.
+                    if this.unread_tabs(cx) != this.side.unread_shown {
                         cx.notify();
                     }
                     if moved {
@@ -220,6 +238,7 @@ impl MainWindow {
             controls_from: None,
             places: Places::default(),
             agent_tools: AgentTools::new(setup.agent_programs.clone(), setup.agent_pane_access),
+            agent_programs: setup.agent_programs.clone(),
             tools: Tools::new(setup.tools_open, setup.tools, setup.agent_programs),
             inputs: setup.command_input.then(SharedInput::new),
             popover: Popover::default(),
@@ -227,7 +246,11 @@ impl MainWindow {
             palette_state: command_palette::PaletteState::default(),
             pane_menu: context_menu::PaneMenu::default(),
             editors: Editors::new(setup.syntax),
+            tab_style: setup.tab_style,
+            tab_groups: setup.tab_groups,
+            side: SideTabs::new(cx.focus_handle()),
             _status: status,
+            _activation: cx.observe_window_activation(window, |_, _, cx| cx.notify()),
         };
         this.after_change(window, cx);
         if setup.opens_with >= 2 {
@@ -488,15 +511,16 @@ impl MainWindow {
             .and_then(|pane| pane.0.read(cx).cell_size())
             .unwrap_or(FALLBACK_CELL);
         let viewport = window.viewport_size();
-        let panel = if self.tools.open {
-            t::SIDE_COLUMN_WIDTH
-        } else {
-            0.0
-        };
-        // The hairlines under the title bar and beside an open side column take their own device pixel.
+        // The hairlines under the title bar and beside the tools panel and the side tabs take their own device pixel.
         let hairline = t::hairline(window.scale_factor());
-        let panel = if panel > 0.0 { panel + hairline } else { 0.0 };
-        let width = f32::from(viewport.width) - panel - 2.0 * PANE_PADDING;
+        let mut beside = 0.0;
+        if self.tools.open {
+            beside += t::SIDE_COLUMN_WIDTH + hairline;
+        }
+        if self.vertical() {
+            beside += self.side_width() + hairline;
+        }
+        let width = f32::from(viewport.width) - beside - 2.0 * PANE_PADDING;
         let height = f32::from(viewport.height)
             - t::TITLE_BAR_HEIGHT
             - hairline
@@ -543,6 +567,11 @@ impl MainWindow {
 
     /// A window-wide shortcut from clanky-state's table, if this window handles it; the rest go to the pane.
     fn shortcut(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // Typing in the side tabs' filter, before the keys the table names (Space has no chord of its own).
+        if self.side_filter_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let Some(chord) = chord_of(&event.keystroke) else {
             return;
         };
@@ -582,14 +611,14 @@ impl MainWindow {
         cx.stop_propagation();
     }
 
-    /// A tab's title: its focused pane's folder, else its place.
+    /// A tab's title: its focused pane's folder, else its place. A folder's name may hold anything, so it is
+    /// escaped before it is drawn or recorded.
     fn tab_title(&self, index: usize) -> String {
         self.workspace
             .groups
             .get(index)
             .and_then(|group| self.status.folders.get(&group.focus))
-            .cloned()
-            .unwrap_or_else(|| format!("Session {}", index + 1))
+            .map_or_else(|| format!("Session {}", index + 1), |folder| escape(folder))
     }
 
     /// Shows a pane: its tab becomes the active one and the pane its focused pane.
@@ -617,11 +646,34 @@ impl MainWindow {
             .overflow_hidden();
         let this = cx.entity();
         let toggler = this.clone();
-        let toggle = Control::new(Kind::IconButton, TOOLS_TOGGLE_ID, "Tools panel")
-            .icon(Icon::Sidebar)
-            .checked(self.tools.open)
-            .on_click(move |_, cx| toggler.update(cx, Self::toggle_tools));
+        // With side tabs the first button folds and unfolds their column; the tools panel keeps its shortcut and
+        // its palette command.
+        let toggle = if self.vertical() {
+            Control::new(Kind::IconButton, TOOLS_TOGGLE_ID, "Side tabs")
+                .icon(Icon::Sidebar)
+                .checked(!self.side.folded)
+                .on_click(move |_, cx| toggler.update(cx, Self::toggle_side_fold))
+        } else {
+            Control::new(Kind::IconButton, TOOLS_TOGGLE_ID, "Tools panel")
+                .icon(Icon::Sidebar)
+                .checked(self.tools.open)
+                .on_click(move |_, cx| toggler.update(cx, Self::toggle_tools))
+        };
         bar = bar.child(self.kit.build(SCREEN, toggle, window, cx));
+        if self.vertical() {
+            for index in 0..self.workspace.groups.len() {
+                let record = self.kit.record();
+                record.landmark_absent("tab-dot", index as u32);
+                let mut fields = serde_json::Map::new();
+                fields.insert("state".into(), json!(""));
+                record.set_landmark_fields("tab-dot", index as u32, fields);
+            }
+            return bar
+                .child(div().flex_1())
+                .child(self.search_box(window, cx))
+                .child(self.kit.record().landmark("title-bar", 0))
+                .into_any_element();
+        }
         for (index, group) in self.workspace.groups.iter().enumerate() {
             let label = self.tab_title(index);
             let id = FIRST_TAB_ID + 2 * index as u32;
@@ -640,14 +692,17 @@ impl MainWindow {
                     });
                 });
             let selecter = this.clone();
-            let tab = Control::new(Kind::Tab, id, label)
+            let mut tab = Control::new(Kind::Tab, id, label)
                 .checked(index == self.workspace.active)
-                .trailing(self.kit.build(SCREEN, close, window, cx))
-                .on_click(move |window, cx| {
-                    selecter.update(cx, |this, cx| {
-                        this.act(window, cx, move |this, _, _| this.select_tab(index));
-                    });
+                .trailing(self.kit.build(SCREEN, close, window, cx));
+            if let Some(dot) = self.tab_dot(index, cx) {
+                tab = tab.leading(dot);
+            }
+            let tab = tab.on_click(move |window, cx| {
+                selecter.update(cx, |this, cx| {
+                    this.act(window, cx, move |this, _, _| this.select_tab(index));
                 });
+            });
             // The tab inside a box of its own that starts a drag and measures where the tab is.
             bar = bar.child(
                 div()
@@ -870,8 +925,46 @@ impl Render for MainWindow {
         }
         self.kit.begin_frame();
         self.places.clear();
+        self.side_tabs_frame(cx);
         let scale = window.scale_factor();
         let title_bar = self.title_bar(window, cx);
+        let record = self.kit.record().clone();
+        let vertical = self.vertical();
+        let mut body = div().flex().flex_1().min_h_0();
+        let mut animate = false;
+        if vertical {
+            let (column, moving) = self.side_column(window, cx);
+            animate = moving;
+            body = body
+                .child(column)
+                .child(self.hairline(Axis::Columns, scale));
+        } else {
+            record.landmark_absent("side-tabs", 0);
+        }
+        // The tools panel: on the left with top tabs, on the right while the side tabs hold the left.
+        let tools = self.tools_panel(window, cx).map(|panel| {
+            div()
+                .relative()
+                .flex()
+                .flex_none()
+                .child(panel)
+                .child(record.landmark("tools-panel", 0))
+        });
+        if tools.is_none() {
+            record.landmark_absent("tools-panel", 0);
+        }
+        body = match tools {
+            Some(tools) if vertical => body
+                .child(self.panes_area(scale, window, cx))
+                .child(self.hairline(Axis::Columns, scale))
+                .child(tools),
+            Some(tools) => body
+                .child(tools)
+                .child(self.hairline(Axis::Columns, scale))
+                .child(self.panes_area(scale, window, cx)),
+            None => body.child(self.panes_area(scale, window, cx)),
+        };
+        self.side_schedule(animate, window, cx);
         div()
             .size_full()
             .flex()
@@ -882,20 +975,7 @@ impl Render for MainWindow {
             .capture_key_down(cx.listener(Self::shortcut))
             .child(title_bar)
             .child(self.hairline(Axis::Rows, scale))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_h_0()
-                    .children(self.tools_panel(window, cx).map(|panel| {
-                        div()
-                            .flex()
-                            .flex_none()
-                            .child(panel)
-                            .child(self.hairline(Axis::Columns, scale))
-                    }))
-                    .child(self.panes_area(scale, window, cx)),
-            )
+            .child(body)
             .child(self.status_line(scale))
             .children(self.floating_layer(window, cx))
             .child(crate::popover::shadow_warmup())
@@ -967,15 +1047,40 @@ fn read_status(
     inputs: &[String],
     query: &ToolsQuery,
 ) -> Status {
-    let look = client
-        .exchange(3, "look_state", &json!({}))
-        .unwrap_or(Value::Null);
+    let look = request_log::exchange(client, 3, "look_state", &json!({})).unwrap_or(Value::Null);
+    request_log::note("workspace_get");
     let revision = client
         .workspace_get()
         .map_or(0, |workspace| workspace.revision);
+    // One terminal_info per pane, shared by the tab titles, the chips and the side tabs.
+    let mut infos: BTreeMap<String, Value> = BTreeMap::new();
+    for id in focuses.iter().chain(inputs) {
+        if !infos.contains_key(id)
+            && let Ok(info) =
+                request_log::exchange(client, 3, "terminal_info", &json!({"tab_id": id}))
+        {
+            infos.insert(id.clone(), info);
+        }
+    }
     let folders = focuses
         .iter()
-        .filter_map(|id| Some((id.clone(), folder_of(client, id)?)))
+        .filter_map(|id| {
+            let folder = match infos.get(id) {
+                Some(info) => folder_name(info["cwd"].as_str()?),
+                None => folder_of(client, id),
+            };
+            Some((id.clone(), folder?))
+        })
+        .collect();
+    let home = clanky_core::platform::home_dir().and_then(|home| home.to_str().map(str::to_owned));
+    let side = focuses
+        .iter()
+        .map(|id| {
+            (
+                id.clone(),
+                read_pane_look(client, id, infos.get(id), home.as_deref()),
+            )
+        })
         .collect();
     Status {
         revision,
@@ -984,20 +1089,24 @@ fn read_status(
         masking_ready: look["masking_ready"].as_bool().unwrap_or(false),
         agents: look["agents"].as_array().map_or(0, Vec::len),
         tools: read_tools(client, &look, query),
-        chips: read_chips(client, inputs),
+        chips: read_chips(client, inputs, &infos),
+        side,
     }
 }
 
-/// The name of the folder a pane's shell is in, or None when the server cannot say.
-fn folder_of(client: &Client, id: &str) -> Option<String> {
-    let reply = client
-        .exchange(3, "terminal_cwd", &json!({"tab_id": id}))
-        .ok()?;
-    let name = std::path::Path::new(reply["cwd"].as_str()?)
+/// The last name of a folder's path.
+fn folder_name(cwd: &str) -> Option<String> {
+    let name = std::path::Path::new(cwd)
         .file_name()?
         .to_string_lossy()
         .into_owned();
     Some(name)
+}
+
+/// The name of the folder a pane's shell is in, or None when the server cannot say.
+fn folder_of(client: &Client, id: &str) -> Option<String> {
+    let reply = request_log::exchange(client, 3, "terminal_cwd", &json!({"tab_id": id})).ok()?;
+    folder_name(reply["cwd"].as_str()?)
 }
 
 /// The window's frame trace, shared with its panes.
