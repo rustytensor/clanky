@@ -24,7 +24,9 @@ source scripts/parallel-jobs.sh
 
 CHROME=scripts/window-chrome
 FLOATING=scripts/floating
-GATE_LOCK=${CLANKY_GATE_LOCK:-/srv/devops/build/clanky/.gate.lock}
+# Scratch folders and the lock go in the system temp folder unless CLANKY_GATE_TMP names another.
+GATE_TMP=${CLANKY_GATE_TMP:-${TMPDIR:-/tmp}}
+GATE_LOCK=${CLANKY_GATE_LOCK:-$GATE_TMP/clanky-gate.lock}
 SCALES=1,1.5
 THEMES=(graphite-dark graphite-light)
 SCREENS=main-window,context-menu,palette,agent-picker,completion-list,find-bar
@@ -46,7 +48,7 @@ SPEED_RUNS=3
 ENGINE_CHECK=scripts/terminal-pane/check_engine_free.sh
 BASELINE=scripts/terminal-pane/baseline.json
 failed=0
-scratch=$(mktemp -d /srv/devops/build/floating-gate.XXXXXX)
+scratch=$(mktemp -d "$GATE_TMP/floating-gate.XXXXXX")
 trap 'rm -rf -- "${scratch:?}"' EXIT
 
 ok() { echo "ok: $*"; }

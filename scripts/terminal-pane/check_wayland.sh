@@ -37,7 +37,7 @@ STAGE_MS=6000         # the default window: the typed line waits this long in th
 SETGID_FOLDER_MODE=2700
 RUNTIME_PARENT=/run/user/$(id -u)
 
-scratch=$(mktemp -d /srv/devops/build/wayland-check.XXXXXX)
+scratch=$(mktemp -d "${CLANKY_GATE_TMP:-${TMPDIR:-/tmp}}/wayland-check.XXXXXX")
 unset WAYLAND_DISPLAY DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_SESSION_TYPE SWAYSOCK I3SOCK
 pids=()
 failed=0

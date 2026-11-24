@@ -44,7 +44,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import clanky_config_xml as config_xml  # noqa: E402
 import xprobe  # noqa: E402
 
-DATA_DIR = Path('/srv/devops/build/clanky-g1-speed')
+# The 100 MB sample text is kept between runs in the gates' temp folder.
+DATA_DIR = Path(os.environ.get('CLANKY_GATE_TMP') or tempfile.gettempdir()) / 'clanky-g1-speed'
 TEXT_FILE = DATA_DIR / 'mixed-100mb.txt'
 TEXT_BYTES = 100_000_000
 TEXT_SEED = 20261117

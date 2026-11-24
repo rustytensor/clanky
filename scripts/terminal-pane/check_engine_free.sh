@@ -11,7 +11,8 @@ ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api clanky-edit clanky-st
 # The pin and package name are the copy check's own (scripts/copy-check/Cargo.toml in servorra/gpui-ce, branch clanky).
 GPUI_DEPENDENCY='gpui_ce = { git = "https://git.servorra.com/servorra/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui-ce" }'
 
-export CARGO_HOME=/srv/devops/cache/clanky-cargo
+# Scratch copies go in the system temp folder unless CLANKY_GATE_TMP names another; cargo uses its usual home.
+GATE_TMP=${CLANKY_GATE_TMP:-${TMPDIR:-/tmp}}
 
 check_workspace() {
   local workspace=$1 offline=$2 crate line name
@@ -47,7 +48,7 @@ workspace_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 if [[ ${1:-} == --fault ]]; then
   fault_crate=${2:-clanky-core}
   [[ " ${ENGINE_CRATES[*]} " == *" $fault_crate "* ]] || { echo "FAIL: engine-free --fault: $fault_crate is not a checked crate" >&2; exit 1; }
-  scratch=$(mktemp -d /srv/devops/build/engine-free-fault.XXXXXX)
+  scratch=$(mktemp -d "$GATE_TMP/engine-free-fault.XXXXXX")
   trap 'rm -rf "$scratch"' EXIT
   tar -C "$workspace_root" --exclude=.git --exclude=target -cf - . | tar -C "$scratch" -xf -
   sed -i "/^\[dependencies\]/a $GPUI_DEPENDENCY" "$scratch/crates/$fault_crate/Cargo.toml"

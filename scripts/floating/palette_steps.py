@@ -189,7 +189,7 @@ def go_to_step(win):
 
 
 def main():
-    work = Path(tempfile.mkdtemp(prefix="palette-steps.", dir="/srv/devops/build"))
+    work = Path(tempfile.mkdtemp(prefix="palette-steps.", dir=os.environ.get("CLANKY_GATE_TMP")))
     win = None
     try:
         win = RealWindow(1.0, work, APP, CONFIG, FAULT)
