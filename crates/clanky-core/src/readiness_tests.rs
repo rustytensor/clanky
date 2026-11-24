@@ -28,6 +28,20 @@ fn readiness_event_wake() {
 }
 
 #[test]
+fn cat_waiting_in_splice_counts_as_waiting() {
+    struct Session(Engine);
+    impl Drop for Session{fn drop(&mut self){self.0.shutdown();}}
+    let session=Session(Engine::new());let engine=&session.0;
+    let tab=engine.request("open_tab",&json!({"rows":8,"cols":80,"allow_agent":true}),true).unwrap()["tab_id"].as_str().unwrap().to_owned();
+    // Worked out before execution: coreutils cat copies stdin with splice, so it sleeps in splice on the slave,
+    // never in read; that is still a program waiting for the terminal's input.
+    engine.request("run",&json!({"tab_id":tab,"argv":["cat"],"cwd":"/"}),true).unwrap();
+    let waiting=engine.agent_request("wait_input",&json!({"tab_id":tab,"timeout_ms":2000}),true).unwrap();
+    assert_eq!(waiting["waiting"],true);
+    assert_eq!(waiting["evidence"],"pty_read");
+}
+
+#[test]
 fn a_window_shell_that_exits_is_listed_for_closing() {
     struct Session(Engine);
     impl Drop for Session{fn drop(&mut self){self.0.shutdown();}}

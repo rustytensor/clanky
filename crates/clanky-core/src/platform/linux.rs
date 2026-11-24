@@ -811,6 +811,8 @@ pub(crate) fn spawn(
 
 /// Require a kernel sleeping state and a read syscall on the actual slave
 /// device. In particular, nanosleep, poll, pipe reads and silence do not count.
+/// `splice` with the slave as its input counts as a read: coreutils `cat` (9.x)
+/// waits for terminal input in `splice`, never in `read`.
 fn blocked_slave_read(task: &Path, device: u64) -> bool {
     let Ok(stat) = fs::read_to_string(task.join("stat")) else {
         return false;
@@ -827,9 +829,13 @@ fn blocked_slave_read(task: &Path, device: u64) -> bool {
     };
     let fields: Vec<_> = syscall.split_whitespace().collect();
     let number = fields.first().and_then(|s| s.parse::<libc::c_long>().ok());
-    if number != Some(libc::SYS_read) && number != Some(libc::SYS_readv) {
-        return false;
-    }
+    // The field holding the byte (or iovec) count: the third argument of read
+    // and readv, the fifth of splice(fd_in, off_in, fd_out, off_out, len, flags).
+    let count_field = match number {
+        Some(n) if n == libc::SYS_read || n == libc::SYS_readv => 3,
+        Some(n) if n == libc::SYS_splice => 5,
+        _ => return false,
+    };
     let hex = |index: usize| {
         fields
             .get(index)
@@ -838,7 +844,7 @@ fn blocked_slave_read(task: &Path, device: u64) -> bool {
     let Some(fd) = hex(1).filter(|fd| *fd <= i32::MAX as u64) else {
         return false;
     };
-    if hex(3).is_none_or(|count| count == 0) {
+    if hex(count_field).is_none_or(|count| count == 0) {
         return false;
     }
     use std::os::unix::fs::FileTypeExt;
