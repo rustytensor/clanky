@@ -1,7 +1,9 @@
 # Maintainer: Marc Mironescu
 #
 # Builds Clanky from this git checkout instead of a release tarball, for installing a branch before it is
-# released. The version comes from `git describe`, so pacman upgrades cleanly to the next tagged release.
+# released. Every commit carries a version tag (v1.8.0-dev.3, then v1.8.0 at the release), and pkgver comes from
+# it: 1.8.0dev.3.r0.gHASH, with no separator before "dev", since vercmp then sorts it before 1.8.0 so pacman
+# upgrades to the release. The r and g parts count and name commits after the tag, should one be untagged.
 #
 #   cd packaging/arch-git && makepkg -si
 #
@@ -33,7 +35,7 @@ sha256sums=('SKIP')
 
 pkgver() {
     cd clanky
-    git describe --long --tags --abbrev=7 | sed 's/^v//; s/\([^-]*-g\)/r\1/; s/-/./g'
+    git describe --long --tags --abbrev=7 --match 'v[0-9]*' | sed -E 's/^v//; s/-([0-9]+)-g([0-9a-f]+)$/.r\1.g\2/; s/-//'
 }
 
 prepare() {

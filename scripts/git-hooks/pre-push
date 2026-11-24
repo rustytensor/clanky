@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Refuses a push that would put a commit without its own version tag on the server.
+#
+# Every Clanky commit carries an annotated tag vX.Y.Z or vX.Y.Z-dev.N, made by scripts/bump-version.py --tag in the
+# same step as the commit. This hook checks each commit a pushed branch adds (commits the remote already has are
+# left alone) and names the ones without a tag. Push with --follow-tags so the tags travel with their commits.
+#
+# Enable it once per clone: git config core.hooksPath scripts/git-hooks
+set -euo pipefail
+
+remote=$1
+zero=0000000000000000000000000000000000000000
+missing=()
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  # A deleted ref, or a tag being pushed, adds no commits to check. The remote ref decides, since the local side
+  # may be HEAD or a bare commit.
+  [[ $local_sha == "$zero" || $remote_ref != refs/heads/* ]] && continue
+  if [[ $remote_sha == "$zero" ]]; then
+    range=("$local_sha" --not --remotes="$remote")
+  else
+    range=("$remote_sha..$local_sha")
+  fi
+  while read -r commit; do
+    [[ -z $commit ]] && continue
+    if [[ -z $(git tag --points-at "$commit" --list 'v[0-9]*') ]]; then
+      missing+=("$(git log -1 --format='%h %s' "$commit")")
+    fi
+  done < <(git rev-list "${range[@]}")
+done
+
+if ((${#missing[@]})); then
+  echo "pre-push: these commits have no version tag (scripts/bump-version.py VERSION --tag):" >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  exit 1
+fi
