@@ -14,6 +14,11 @@ pub(super) fn optional_number(
         Ok(default)
     }
 }
+/// How long a program in an event-loop wait (InputWait::Poll) must have been
+/// quiet, and left without typed input, before it counts as waiting: longer
+/// than the gap between a working agent's spinner frames.
+pub(super) const POLL_QUIET: Duration = Duration::from_millis(1000);
+
 impl Tab {
     fn input_state(&self) -> Value {
         let command = {
@@ -39,12 +44,26 @@ impl Tab {
             && input_time.is_none_or(|time| *self.last_output.lock().unwrap() > time);
         // An explicit quiet shell prompt is already sufficient evidence; do not
         // scan every process on the desktop ten times a second to confirm it.
-        let blocked = !prompt && !exited && quiet && after_input
-            && self.process.lock().unwrap().as_ref().is_some_and(Process::waiting_for_input);
-        let waiting = blocked || prompt;
+        let wait = (!prompt && !exited && quiet && after_input)
+            .then(|| self.process.lock().unwrap().as_ref().and_then(Process::waiting_for_input))
+            .flatten();
+        // An event loop sits in the same wait between the frames of a working
+        // agent's spinner, so it counts only after a longer quiet spell.
+        let settled = |time: Instant| time.elapsed() >= POLL_QUIET;
+        let wait = wait.filter(|wait| {
+            *wait == InputWait::Read
+                || (settled(*self.last_output.lock().unwrap()) && input_time.is_none_or(settled))
+        });
+        let waiting = wait.is_some() || prompt;
         let bracketed_paste = self.terminal.lock().unwrap().bracketed_paste();
+        let evidence = match wait {
+            Some(InputWait::Read) => "pty_read",
+            Some(InputWait::Poll) => "pty_poll",
+            None if prompt => "prompt",
+            None => "none",
+        };
         json!({"state":if exited {"exited"} else if waiting {"waiting"} else {"running"},
-            "waiting":waiting,"bracketed_paste":bracketed_paste,"evidence":if blocked {"pty_read"} else if prompt {"prompt"} else {"none"},
+            "waiting":waiting,"bracketed_paste":bracketed_paste,"evidence":evidence,
             "command_id":command.as_ref().map(|c| c.id.clone())})
     }
     pub(super) fn observe_input(&self) -> Value {

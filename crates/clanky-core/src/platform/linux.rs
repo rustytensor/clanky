@@ -416,38 +416,33 @@ impl Process {
     }
 
     /// Evidence only: the caller also applies its output-quiet interval.
-    /// A sleeping read must target this PTY's slave, in its foreground group
-    /// and original session. Missing procfs access is not input evidence.
-    pub(crate) fn waiting_for_input(&self) -> bool {
-        let Some(root) = self.identity else {
-            return false;
-        };
-        let Some(device) = self.slave_device else {
-            return false;
-        };
+    /// A sleeping read, or an event-loop wait watching for input, must target
+    /// this PTY's slave, in its foreground group and original session.
+    /// Missing procfs access is not input evidence.
+    pub(crate) fn waiting_for_input(&self) -> Option<InputWait> {
+        let root = self.identity?;
+        let device = self.slave_device?;
         if self.stop.load(Ordering::Acquire) {
-            return false;
+            return None;
         }
         let foreground = unsafe { libc::tcgetpgrp(self.master.as_raw_fd()) };
         if foreground < 1 {
-            return false;
+            return None;
         }
         let blocked = |identity:ProcessIdentity| {
-            if identity.session!=root.pid || identity.group!=foreground {return false;}
-            let Ok(tasks)=fs::read_dir(format!("/proc/{}/task",identity.pid)) else{return false;};
+            if identity.session!=root.pid || identity.group!=foreground {return None;}
+            let Ok(tasks)=fs::read_dir(format!("/proc/{}/task",identity.pid)) else{return None;};
             for task in tasks.take(4096).flatten(){
-                if blocked_slave_read(&task.path(),device)
+                if let Some(wait)=blocked_on_slave(&task.path(),device)
                     && process_identity(identity.pid).ok()==Some(identity)
-                    && unsafe{libc::tcgetpgrp(self.master.as_raw_fd())}==foreground {return true;}
+                    && unsafe{libc::tcgetpgrp(self.master.as_raw_fd())}==foreground {return Some(wait);}
             }
-            false
+            None
         };
         // The foreground group leader is the common shell/read case. Validate
         // the same identity, slave and foreground evidence as the full scan.
-        if process_identity(foreground).ok().is_some_and(&blocked){return true;}
-        let Ok(entries) = fs::read_dir("/proc") else {
-            return false;
-        };
+        if let Some(wait)=process_identity(foreground).ok().and_then(&blocked){return Some(wait);}
+        let entries = fs::read_dir("/proc").ok()?;
         for entry in entries.take(65_536).flatten() {
             let Some(pid) = entry
                 .file_name()
@@ -459,9 +454,9 @@ impl Process {
             let Ok(identity) = process_identity(pid) else {
                 continue;
             };
-            if blocked(identity){return true;}
+            if let Some(wait)=blocked(identity){return Some(wait);}
         }
-        false
+        None
     }
 
     /// Read live kernel state, never the directory supplied at spawn time.
@@ -809,54 +804,92 @@ pub(crate) fn spawn(
     })
 }
 
+/// How a program sleeps while it waits for the terminal's input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InputWait {
+    /// A read (or splice) of the slave itself: certain evidence.
+    Read,
+    /// An event-loop wait (epoll) whose set watches the slave for input. Node
+    /// programs and Python asyncio wait like this both when idle and between
+    /// spinner frames, so the caller asks for a longer quiet interval.
+    Poll,
+}
+
 /// Require a kernel sleeping state and a read syscall on the actual slave
 /// device. In particular, nanosleep, poll, pipe reads and silence do not count.
 /// `splice` with the slave as its input counts as a read: coreutils `cat` (9.x)
-/// waits for terminal input in `splice`, never in `read`.
-fn blocked_slave_read(task: &Path, device: u64) -> bool {
-    let Ok(stat) = fs::read_to_string(task.join("stat")) else {
-        return false;
-    };
+/// waits for terminal input in `splice`, never in `read`. An epoll wait counts
+/// as `InputWait::Poll` when the epoll set watches the slave for input.
+fn blocked_on_slave(task: &Path, device: u64) -> Option<InputWait> {
+    let stat = fs::read_to_string(task.join("stat")).ok()?;
     if stat
         .rsplit_once(')')
         .and_then(|(_, tail)| tail.split_whitespace().next())
         != Some("S")
     {
-        return false;
+        return None;
     }
-    let Ok(syscall) = fs::read_to_string(task.join("syscall")) else {
-        return false;
-    };
+    let syscall = fs::read_to_string(task.join("syscall")).ok()?;
     let fields: Vec<_> = syscall.split_whitespace().collect();
-    let number = fields.first().and_then(|s| s.parse::<libc::c_long>().ok());
-    // The field holding the byte (or iovec) count: the third argument of read
-    // and readv, the fifth of splice(fd_in, off_in, fd_out, off_out, len, flags).
-    let count_field = match number {
-        Some(n) if n == libc::SYS_read || n == libc::SYS_readv => 3,
-        Some(n) if n == libc::SYS_splice => 5,
-        _ => return false,
-    };
+    let number = fields.first().and_then(|s| s.parse::<libc::c_long>().ok())?;
     let hex = |index: usize| {
         fields
             .get(index)
             .and_then(|s| u64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16).ok())
     };
-    let Some(fd) = hex(1).filter(|fd| *fd <= i32::MAX as u64) else {
-        return false;
+    // The first argument is the descriptor in every call counted here.
+    let fd = hex(1).filter(|fd| *fd <= i32::MAX as u64)?;
+    let wait = if [libc::SYS_epoll_wait, libc::SYS_epoll_pwait, libc::SYS_epoll_pwait2].contains(&number) {
+        if !epoll_watches_slave(task, fd, device) {
+            return None;
+        }
+        InputWait::Poll
+    } else {
+        // The field holding the byte (or iovec) count: the third argument of read
+        // and readv, the fifth of splice(fd_in, off_in, fd_out, off_out, len, flags).
+        let count_field = match number {
+            n if n == libc::SYS_read || n == libc::SYS_readv => 3,
+            n if n == libc::SYS_splice => 5,
+            _ => return None,
+        };
+        if hex(count_field).is_none_or(|count| count == 0) || !is_slave(task, fd, device) {
+            return None;
+        }
+        InputWait::Read
     };
-    if hex(count_field).is_none_or(|count| count == 0) {
-        return false;
-    }
-    use std::os::unix::fs::FileTypeExt;
-    let Ok(metadata) = fs::metadata(task.join(format!("fd/{fd}"))) else {
-        return false;
-    };
-    if !metadata.file_type().is_char_device() || metadata.rdev() != device {
-        return false;
-    }
     // Recheck the syscall after resolving its descriptor to reject moving
     // observations (e.g. a task waking and replacing the descriptor).
-    fs::read_to_string(task.join("syscall")).ok().as_deref() == Some(syscall.as_str())
+    (fs::read_to_string(task.join("syscall")).ok().as_deref() == Some(syscall.as_str())).then_some(wait)
+}
+
+/// Whether descriptor `fd` of the task is the terminal's slave device.
+fn is_slave(task: &Path, fd: u64, device: u64) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    fs::metadata(task.join(format!("fd/{fd}")))
+        .is_ok_and(|metadata| metadata.file_type().is_char_device() && metadata.rdev() == device)
+}
+
+/// Whether the epoll set behind descriptor `epfd` watches the slave for input.
+/// The kernel lists each watched descriptor in the set's fdinfo as
+/// `tfd: N events: HEX ...`; EPOLLIN is bit 0x1 of the events.
+fn epoll_watches_slave(task: &Path, epfd: u64, device: u64) -> bool {
+    let Ok(info) = fs::read_to_string(task.join(format!("fdinfo/{epfd}"))) else {
+        return false;
+    };
+    info.lines().take(4096).any(|line| {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("tfd:") {
+            return false;
+        }
+        let Some(target) = words.next().and_then(|n| n.parse::<u64>().ok()) else {
+            return false;
+        };
+        let events = words
+            .skip_while(|word| *word != "events:")
+            .nth(1)
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok());
+        events.is_some_and(|events| events & libc::EPOLLIN as u32 != 0) && is_slave(task, target, device)
+    })
 }
 
 const MAX_PTY_ROOTS: usize = 65_536;

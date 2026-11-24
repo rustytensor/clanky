@@ -41,6 +41,42 @@ fn cat_waiting_in_splice_counts_as_waiting() {
     assert_eq!(waiting["evidence"],"pty_read");
 }
 
+/// Runs `script` with python3 in a new tab and waits up to `timeout_ms` for it to wait for input.
+fn wait_after_python(script: &str, timeout_ms: u64) -> Value {
+    struct Session(Engine);
+    impl Drop for Session{fn drop(&mut self){self.0.shutdown();}}
+    let session=Session(Engine::new());let engine=&session.0;
+    let tab=engine.request("open_tab",&json!({"rows":8,"cols":80,"allow_agent":true}),true).unwrap()["tab_id"].as_str().unwrap().to_owned();
+    engine.request("run",&json!({"tab_id":tab,"argv":["python3","-c",script],"cwd":"/"}),true).unwrap();
+    engine.agent_request("wait_input",&json!({"tab_id":tab,"timeout_ms":timeout_ms}),true).unwrap()
+}
+
+#[test]
+fn an_event_loop_watching_the_terminal_waits_for_input() {
+    // Worked out before execution: Node agents (Claude Code, Pi) and Python asyncio wait in epoll_wait with the
+    // terminal registered for input. With 1 s of quiet output that counts as waiting, evidence pty_poll.
+    let state=wait_after_python("import select\ne=select.epoll()\ne.register(0,select.EPOLLIN)\ne.poll()",4000);
+    assert_eq!(state["waiting"],true);
+    assert_eq!(state["evidence"],"pty_poll");
+}
+
+#[test]
+fn an_event_loop_drawing_a_spinner_is_not_waiting() {
+    // Worked out before execution: a working agent sits in the same epoll_wait between spinner frames, but its
+    // output is never quiet for 1 s, so it is running for the whole 3 s.
+    let state=wait_after_python("import select,sys\ne=select.epoll()\ne.register(0,select.EPOLLIN)\nwhile True:\n    e.poll(0.3)\n    sys.stdout.write('.')\n    sys.stdout.flush()",3000);
+    assert_eq!(state["waiting"],false);
+    assert_eq!(state["timed_out"],true);
+}
+
+#[test]
+fn an_event_loop_watching_only_a_pipe_is_not_waiting() {
+    // Worked out before execution: epoll_wait on a pipe is not waiting for the terminal.
+    let state=wait_after_python("import os,select\nr,w=os.pipe()\ne=select.epoll()\ne.register(r,select.EPOLLIN)\ne.poll()",3000);
+    assert_eq!(state["waiting"],false);
+    assert_eq!(state["timed_out"],true);
+}
+
 #[test]
 fn a_window_shell_that_exits_is_listed_for_closing() {
     struct Session(Engine);

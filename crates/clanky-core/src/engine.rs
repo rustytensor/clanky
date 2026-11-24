@@ -23,7 +23,7 @@ mod readiness_tests;
 
 use crate::{
     TerminalSnapshot, Workspace,
-    platform::{self, Control, Process},
+    platform::{self, Control, InputWait, Process},
     terminal::Terminal,
 };
 use base64::Engine as _;

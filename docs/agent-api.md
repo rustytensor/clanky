@@ -143,7 +143,7 @@ limits include 128 tasks and 64 KiB per selected payload. See [block actions](de
 hello is public; auth attempts owner authentication. **Every other v3 operation
 below is owner-only**, including focus, metadata, search and clipboard operations.
 
-Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"1.8.0-dev.2","executable":"64768:1234567"},"row_delta":true}}`
+Request: `{"v":3,"id":"1","op":"hello"}` Response: `{"id":"1","ok":true,"result":{"version":3,"server_pid":1234,"capabilities":["sessions","owner"],"build":{"version":"1.8.0-dev.3","executable":"64768:1234567"},"row_delta":true}}`
 Request: `{"v":3,"id":"1","op":"auth","token":"invalid"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication denied"}}`
 Request: `{"v":3,"id":"1","op":"look_state"}` Response: `{"id":"1","ok":false,"error":{"code":"permission_denied","message":"Owner authentication required"}}`
 
@@ -284,7 +284,7 @@ Request: `{"v":4,"id":"1","op":"post_ai","enabled":true}` Response: `{"id":"1","
 
 | Operation | Successful use / result |
 | --- | --- |
-| input_state | state running/waiting/exited, waiting boolean, evidence pty_read/prompt/none, command_id and bracketed_paste |
+| input_state | state running/waiting/exited, waiting boolean, evidence pty_read/pty_poll/prompt/none, command_id and bracketed_paste |
 | wait_input | Same state plus timed_out; timeout_ms 0–30,000; revocation cancels the wait |
 | screen | lines, cursor, rows, cols and history {total,offset,next_offset,lines}; optional history_offset and history_limit 1–64 |
 | send_key | key: Enter, Ctrl-C, Up, Down, Left, Right, Escape, Tab, Backspace, Home, End, Delete, PageUp or PageDown; returns sent byte count |
@@ -303,7 +303,12 @@ Turning ordinary Post-AI off does not restore permissions or clear the revoke la
 call `resume_agents`, then explicitly grant the needed tab permissions. See [Post-AI mode](post-ai.md).
 
 Waiting is observed after a quiet period (200 ms), using a blocked foreground
-PTY read or OSC prompt evidence; silence/sleep alone is not proof of readiness.
+PTY read (`pty_read`, which includes `splice` from the terminal) or OSC prompt
+evidence; silence/sleep alone is not proof of readiness. A foreground program
+asleep in an event-loop wait (epoll) whose set watches the terminal for input,
+as Node and Python asyncio programs do, counts as `pty_poll` once its output has
+been quiet, and nothing typed, for 1 s: a working agent waits the same way
+between spinner frames, and its frames come more often than that.
 The background observer checks on command/input/output activity and one quiet-period
 deadline, then parks. input_state and bounded wait_input calls refresh the evidence.
 An events request probes at entry and timeout; a silent readiness transition without

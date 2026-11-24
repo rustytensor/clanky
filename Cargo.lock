@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "clanky"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-api"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "base64 0.23.1",
  "clanky-core",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-core"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "base64 0.23.1",
  "clanky-mask",
@@ -993,14 +993,14 @@ dependencies = [
 
 [[package]]
 name = "clanky-edit"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "clanky-gpui"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "async-channel",
  "clanky",
@@ -1016,11 +1016,11 @@ dependencies = [
 
 [[package]]
 name = "clanky-mask"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 
 [[package]]
 name = "clanky-render"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "clanky-core",
  "cosmic-text",
@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-state"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "base64 0.23.1",
  "clanky-api",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "clanky-syntax"
-version = "1.8.0-dev.2"
+version = "1.8.0-dev.3"
 dependencies = [
  "clanky-edit",
  "tree-sitter",
