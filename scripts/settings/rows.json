@@ -1,5 +1,5 @@
 {
- "about": "Settings pages and rows from the answers file (2026-11-17-g4-g5-answers.md), config.xml keys as the C1 gate fixes them. initial is the config value before the run, set is what the control is given, expect is the config value after. The Keys page has no control.",
+ "about": "Settings pages and rows from the answers file (2026-11-17-g4-g5-answers.md), config.xml keys as the C1 gate fixes them. initial is the config value before the run, set is what the control is given, expect is the config value after. values, where a segmented row has it, is the config value each option stores, in the order of options. The Keys page has no control.",
  "pages": [
   "General",
   "Appearance",
@@ -103,30 +103,56 @@
   },
   {
    "page": "Appearance",
-   "label": "Tab style",
-   "description": "Tabs across the top, or a list down the left with folder, branch and last command.",
+   "label": "Tabs",
+   "description": "Along the top of the window, or stacked in a column on the left with each session's program, state and branch.",
    "key": "tab_style",
    "control": "segments",
    "initial": "horizontal",
-   "set": "Vertical",
+   "set": "Side",
    "expect": "vertical",
    "options": [
-    "Horizontal",
-    "Vertical"
+    "Top",
+    "Side"
+   ],
+   "values": [
+    "horizontal",
+    "vertical"
+   ]
+  },
+  {
+   "page": "Appearance",
+   "label": "Group side tabs by project",
+   "description": "Sessions in the same repository sit together under its name.",
+   "key": "tab_groups",
+   "control": "segments",
+   "initial": "project",
+   "set": "Off",
+   "expect": "none",
+   "options": [
+    "On",
+    "Off"
+   ],
+   "values": [
+    "project",
+    "none"
    ]
   },
   {
    "page": "Appearance",
    "label": "Tools panel",
-   "description": "A panel on the left. Ctrl+Shift+B shows it or puts it away.",
+   "description": "A panel beside the panes. Ctrl+Shift+B shows it or puts it away.",
    "key": "tools_panel",
    "control": "segments",
-   "initial": true,
+   "initial": "on",
    "set": "Off",
-   "expect": false,
+   "expect": "off",
    "options": [
     "On",
     "Off"
+   ],
+   "values": [
+    "on",
+    "off"
    ]
   },
   {
@@ -163,12 +189,16 @@
    "description": "Session, server and masking, in one row at the bottom.",
    "key": "status_line",
    "control": "segments",
-   "initial": true,
+   "initial": "show",
    "set": "Hide",
-   "expect": false,
+   "expect": "hide",
    "options": [
     "Show",
     "Hide"
+   ],
+   "values": [
+    "show",
+    "hide"
    ]
   },
   {
@@ -349,12 +379,16 @@
    "description": "What an agent started in a new pane may do.",
    "key": "agent_pane_access",
    "control": "segments",
-   "initial": true,
+   "initial": "read+run",
    "set": "Off",
-   "expect": false,
+   "expect": "off",
    "options": [
     "Read + run",
     "Off"
+   ],
+   "values": [
+    "read+run",
+    "off"
    ]
   },
   {

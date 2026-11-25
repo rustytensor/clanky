@@ -20,8 +20,8 @@ from fontTools.ttLib import TTFont
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "window-chrome"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "floating"))
-import expected as chrome  # noqa: E402
-import expected_floating  # noqa: E402
+import expected as chrome
+import expected_floating
 
 BORDER_WIDTH_DEVICE_PX = 1  # a border is one whole device pixel (rulebook amendments)
 

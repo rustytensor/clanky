@@ -21,11 +21,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "floating"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "window-chrome"))
-import config_model  # noqa: E402
-import draw_settings  # noqa: E402
-import expected_settings  # noqa: E402
-from simulated_floating import SimFloatingWindow  # noqa: E402
-from chrome_harness import latest_landmarks  # noqa: E402
+import config_model
+import draw_settings
+import expected_settings
+from chrome_harness import latest_landmarks
+from simulated_floating import SimFloatingWindow
 
 SETTINGS_FAULTS = (
     "card-padding",

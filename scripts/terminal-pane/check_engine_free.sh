@@ -4,7 +4,8 @@
 # Prints "ok: engine-free <crate count> crates, no gpui" or "FAIL: engine-free <crate> depends on <gpui crate>"; exit 1 on failure.
 # --fault [CRATE] plants the failure: it copies the workspace to a scratch folder, adds gpui-ce to CRATE (default
 # clanky-core; the window chrome gate plants it in clanky-state), and runs the same check there.
-# Only dependency resolution runs, no build. The fault needs one git fetch (over ssh, as the copy check does).
+# Only dependency resolution runs, no build. The fault resolves offline: the window crate pins the same gpui-ce
+# commit, so cargo's git cache already holds it. A fetch, if one is ever needed, never waits for a prompt.
 set -euo pipefail
 
 ENGINE_CRATES=(clanky-core clanky-vt clanky-vte clanky-api clanky-edit clanky-state)
@@ -53,7 +54,8 @@ if [[ ${1:-} == --fault ]]; then
   tar -C "$workspace_root" --exclude=.git --exclude=target -cf - . | tar -C "$scratch" -xf -
   sed -i "/^\[dependencies\]/a $GPUI_DEPENDENCY" "$scratch/crates/$fault_crate/Cargo.toml"
   export CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.git@git.servorra.com:.insteadOf GIT_CONFIG_VALUE_0=https://git.servorra.com/
-  if check_workspace "$scratch" ""; then
+  export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+  if check_workspace "$scratch" --offline </dev/null; then
     echo "FAIL: engine-free planted fault was not caught" >&2
     exit 1
   fi

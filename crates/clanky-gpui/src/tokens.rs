@@ -230,6 +230,31 @@ pub const SETTINGS_CONTROL_GAP: f32 = SPACE_16;
 /// The section switcher and segmented controls: a pill of the muted colour at this opacity, holding
 /// small buttons inset by `SPACE_2`.
 pub const SWITCHER_FILL_OPACITY: f32 = 0.4;
+/// The dialog's corner: the window's own radius, as the dialog is a window of its own over the main one.
+pub const SETTINGS_PANEL_RADIUS: f32 = RADIUS_WINDOW;
+/// The header holding the section switcher, its bottom divider included.
+pub const SETTINGS_HEADER_HEIGHT: f32 = DIALOG_HEADER_HEIGHT;
+/// The section switcher's pill and a row's segment tray: tab high, the button radius, in the card colour.
+pub const SETTINGS_TAB_PILL_HEIGHT: f32 = TAB_HEIGHT;
+pub const SETTINGS_PILL_RADIUS: f32 = RADIUS_BUTTON;
+/// A setting card's corner.
+pub const SETTINGS_CARD_RADIUS: f32 = RADIUS_LARGE;
+/// A row's field and slider, at the card's right end.
+pub const SETTINGS_FIELD_WIDTH: f32 = 120.0;
+pub const SETTINGS_SLIDER_WIDTH: f32 = 160.0;
+/// One wheel line over the page body; a notch of the wheel is three lines on X11, so a notch scrolls 48.
+pub const SETTINGS_SCROLL_LINE: f32 = 16.0;
+/// The error banner at the dialog's bottom, as tall as the status line.
+pub const SETTINGS_BANNER_HEIGHT: f32 = STATUS_HEIGHT;
+/// How often the window looks at the settings file for a change made outside it (live reload).
+pub const SETTINGS_POLL_MS: u64 = 500;
+/// Inter's own line box, ascender plus descender (1984 + 494 units of its 2048 an em): Settings sets its titles,
+/// descriptions and group labels in it, so a line's top is its ascender and no half leading moves the text down.
+pub const INTER_LINE_SPAN: f32 = 2478.0 / 2048.0;
+
+/// A slider (Opacity): as tall as a switch, a full pill, `SETTINGS_SLIDER_WIDTH` wide in a settings row.
+pub const SLIDER_HEIGHT: f32 = MIN_HIT_SIZE;
+pub const RADIUS_SLIDER: f32 = SLIDER_HEIGHT / 2.0;
 
 // Colour rules that are not theme data. Colour carries meaning only (failure, agent, success);
 // hierarchy comes from foreground against muted foreground and from opacity, never from a new grey.

@@ -1,6 +1,7 @@
 # Settings
 
-Open Settings from the gear at the right of the title bar or **Ctrl+,**. It opens on General. Escape closes it;
+Open Settings from the gear at the right of the title bar, **Ctrl+,**, or "Settings" in the command palette
+(Ctrl+Shift+P). It opens on General. Escape closes it;
 inside a field or a colour dialog, Escape cancels that edit first. Every setting of the
 [config file](config.md) has a row here, and each change is saved to `config.xml` at once, so the file
 never needs editing by hand. Rows say so when a change applies later ("Applies to new windows").
@@ -29,7 +30,8 @@ view below the title bar. A thin thumb at the right of a long page shows how far
   new window.
 - **Appearance:** the groups **Layout**, **Theme**, **Text**, **Window** and last **Window colours** (the
   longest group).
-  - Layout: **Tab style** Horizontal | Vertical (`tab_style`), **Tools panel** On | Off with the tool chips
+  - Layout: **Tabs** Top | Side (`tab_style` `horizontal` or `vertical`), **Group side tabs by project** On | Off
+    (`tab_groups` `project` or `none`), **Tools panel** On | Off with the tool chips
     Files, Recent and Agents (`tools_panel`, `tools`), **Command input** Editor | Classic (`command_input`; Classic gives the pane its rows back and the shell its own prompt at its next prompt),
     **Blocks** Quiet | Cards (`block_style`) and **Status line** Show | Hide (`status_line`). A click saves at
     once and the window changes at once, without a restart. A default value is removed from the file.

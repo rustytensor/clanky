@@ -1,13 +1,14 @@
 """What Settings stores for each control, and how the gates read the config file back.
 
 The stored value of a row comes from rows.json (the answers file's key list). `value_for` and `option_for` are the
-two directions of a segmented row; `coerce` turns the text of a field into the stored value; `read_config` reads the
-config file the window writes, JSON or the XML of today's config.xml (one element per setting), with a parser of its own.
+two directions of a segmented row (a row's `values` list, where it has one, names what each option stores);
+`coerce` turns the text of a field into the stored value; `read_config` reads the config file the window writes,
+JSON or the XML of today's config.xml (one element per setting), with a parser of its own.
 """
 
 import json
-import xml.etree.ElementTree as ElementTree
 from pathlib import Path
+from xml.etree import ElementTree
 
 ROWS = json.loads(
     (Path(__file__).resolve().parent / "rows.json").read_text(encoding="utf-8")
@@ -21,6 +22,8 @@ def row_for(label):
 def value_for(row, option):
     """The value a chosen segment option stores."""
     options = row["options"]
+    if "values" in row:
+        return row["values"][options.index(option)]
     if row["key"] == "theme":
         return "system" if option == "On" else "dark"
     if row["key"] == "new_window_panes":
@@ -33,6 +36,8 @@ def value_for(row, option):
 def option_for(row, value):
     """The segment option a stored value stands for."""
     options = row["options"]
+    if "values" in row:
+        return options[row["values"].index(value)]
     if row["key"] == "theme":
         return "On" if value == "system" else "Off"
     if row["key"] == "new_window_panes":

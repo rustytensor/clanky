@@ -22,6 +22,8 @@ pub enum Command {
     ToggleToolsPanel,
     /// Switch between top tabs and side tabs, and save the choice (`tab_style`).
     ToggleSideTabs,
+    /// Open the Settings window.
+    OpenSettings,
     /// Show the tab at this place in the tab list.
     GoToTab(usize),
     /// Type this text and Enter into the pane the palette opened over.
@@ -74,6 +76,7 @@ fn commands(context: &Context) -> Vec<Entry> {
             keys: None,
             command: Command::ToggleSideTabs,
         },
+        entry("Settings", Action::ToggleSettings, Command::OpenSettings),
     ];
     for (index, (title, active)) in context.tabs.iter().enumerate() {
         if !active {
@@ -207,6 +210,7 @@ mod tests {
                 "Close pane",
                 "Show or hide the tools panel",
                 "Switch to side tabs",
+                "Settings",
                 "Go to larra"
             ]
         );
@@ -239,7 +243,8 @@ mod tests {
 
     #[test]
     fn word_starts_come_before_letters_inside_and_ties_keep_the_list_order() {
-        // "t": no label starts with it; "tab", "the"/"tools", "to"/"tabs" and "to" start words; "split" only holds one.
+        // "t": no label starts with it; "tab", "the"/"tools", "to"/"tabs" and "to" start words; "split" and
+        // "settings" only hold one.
         assert_eq!(
             labels(&two_tabs(), "t"),
             [
@@ -249,6 +254,7 @@ mod tests {
                 "Go to larra",
                 "Split right",
                 "Split down",
+                "Settings",
                 "Run \u{201c}t\u{201d} in clanky \u{b7} pane 1"
             ]
         );
@@ -281,6 +287,14 @@ mod tests {
     }
 
     #[test]
+    fn settings_is_found_first_by_its_name() {
+        let found = entries(&two_tabs(), "settings");
+        assert_eq!(found[0].label, "Settings");
+        assert_eq!(found[0].command, Command::OpenSettings);
+        assert_eq!(found[0].keys.as_deref(), Some("Ctrl+,"));
+    }
+
+    #[test]
     fn without_a_pane_nothing_is_offered_to_run() {
         let context = Context {
             pane: None,
@@ -303,6 +317,7 @@ mod tests {
                 Some("Ctrl+Shift+W"),
                 Some("Ctrl+Shift+B"),
                 None,
+                Some("Ctrl+,"),
                 None
             ]
         );

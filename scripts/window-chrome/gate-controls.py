@@ -2353,19 +2353,31 @@ class Screen:
             f"config holds {row['expect']!r}",
             f"{got!r}",
         )
-        shown = self.control(control["id"]) or {}
-        shown_value = {
-            "switch": shown.get("checked"),
-            "segment": shown.get("checked"),
-            "field": shown.get("field_text"),
-            "slider": shown.get("value"),
-        }[kind]
         want = {
             "switch": row["expect"],
             "segment": True,
             "field": str(row["set"]),
             "slider": row["expect"],
         }[kind]
+
+        def shown_now():
+            shown = self.control(control["id"]) or {}
+            return {
+                "switch": shown.get("checked"),
+                "segment": shown.get("checked"),
+                "field": shown.get("field_text"),
+                "slider": shown.get("value"),
+            }[kind]
+
+        # The file is written in the click's handler; the record shows the change only once the next frame is
+        # drawn, so the window gets the same 2.5 s the file got.
+        try:
+            until(
+                lambda: values_match(shown_now(), want, tolerance) or None, "", 2.5
+            )
+        except Fail:
+            pass
+        shown_value = shown_now()
         self.ok(
             "config-live",
             values_match(shown_value, want, tolerance),

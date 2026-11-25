@@ -16,9 +16,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "window-chrome"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "floating"))
-import draw_chrome_reference as chrome_draw  # noqa: E402
-import config_model  # noqa: E402
-import draw_floating  # noqa: E402
+import config_model
+import draw_chrome_reference as chrome_draw
+import draw_floating
 
 round_half_up = chrome_draw.round_half_up
 ROWS = json.loads((SCRIPT_DIR / "rows.json").read_text(encoding="utf-8"))
@@ -33,7 +33,7 @@ FIELD_WIDTH, SLIDER_WIDTH, SWITCH_WIDTH = 120, 160, 40
 SEGMENT_PAD, TRAY_PAD, SEGMENT_GAP = 12, 2, 2
 GROUPS = {  # the group label above a row, where one starts a group
     "Post-AI mode": "Startup",
-    "Tab style": "Layout",
+    "Tabs": "Layout",
     "Follow the system": "Theme",
     "Font size": "Text",
     "Opacity": "Window",
@@ -197,8 +197,10 @@ class Settings:
                 )
                 y += round_half_up(LABEL_LINE * s) + gap
             first = False
-            self._card(index, row, y, card_h)
-            y += card_h + gap
+            lines = self._description_lines(row)
+            height = card_h + (len(lines) - 1) * round_half_up(DESCRIPTION_LINE * s)
+            self._card(index, row, y, height, lines)
+            y += height + gap
         if self.page == "Keys":
             self.keys_rows = True
         return y - gap + device(e, "padding_bottom") - self.body[1]
@@ -213,7 +215,36 @@ class Settings:
         )
         return 2 * (1 + pad) + lines
 
-    def _card(self, index, row, y, height):
+    def _control_width(self, row):
+        """The device px the row's control takes at the card's right, a segmented row's tray included."""
+        s, e = self.s, self.e
+        fixed = {"switch": SWITCH_WIDTH, "field": FIELD_WIDTH, "slider": SLIDER_WIDTH}
+        if row["control"] in fixed:
+            return round_half_up(fixed[row["control"]] * s)
+        px = e["controls"]["segment"]["text_px"] * s
+        widths = [option_width(name, px) for name in row["options"]]
+        gap, pad = round_half_up(SEGMENT_GAP * s), round_half_up(TRAY_PAD * s)
+        return sum(widths) + (len(widths) - 1) * gap + 2 * pad
+
+    def _description_lines(self, row):
+        """The description broken into lines at spaces, each fitting between the card's text edge and the gap
+        before its control: a description too long for one line wraps and makes its card taller, never runs
+        under the control."""
+        s, e = self.s, self.e
+        pad_x = device(e, "card_padding_x")
+        left = self.column[0] + 1 + pad_x
+        right = self.column[0] + self.column[2] - 1 - pad_x
+        room = right - self._control_width(row) - device(e, "control_gap") - left
+        px = e["cap_heights"]["text_desc"]["size_px"] * s
+        lines = []
+        for word in row["description"].split():
+            if lines and chrome_draw.text_width(f"{lines[-1]} {word}", 400, px) <= room:
+                lines[-1] = f"{lines[-1]} {word}"
+            else:
+                lines.append(word)
+        return lines or [""]
+
+    def _card(self, index, row, y, height, lines):
         s, e = self.s, self.e
         box = [self.column[0], y, self.column[2], height]
         pad_x = device(e, "card_padding_x")
@@ -222,6 +253,7 @@ class Settings:
                 "row": row,
                 "index": index,
                 "box": box,
+                "lines": lines,
                 "text_left": box[0]
                 + 1
                 + pad_x
@@ -330,7 +362,7 @@ class Settings:
                 label["box"][3],
             ]
         for control in self.controls:
-            x, y, w, h = control["box"]
+            _, y, _, h = control["box"]
             control["visible"] = control["header"] or (
                 y >= self.body[1] and y + h <= self.body[1] + self.body[3]
             )
@@ -366,7 +398,12 @@ class Settings:
             marks.append(
                 (
                     "settings-card-description",
-                    [left, top + title_h + device(e, "title_gap"), width, desc_h],
+                    [
+                        left,
+                        top + title_h + device(e, "title_gap"),
+                        width,
+                        desc_h * len(card["lines"]),
+                    ],
                 )
             )
         return marks
@@ -457,16 +494,17 @@ def draw_page(canvas, theme, expected, settings, states, keyboard):
             500,
         )
         desc_top = title_top + round_half_up(TITLE_LINE * s) + device(e, "title_gap")
-        draw_text(
-            canvas,
-            theme.rgb["muted_foreground"],
-            card["text_left"],
-            desc_top,
-            card["row"]["description"],
-            "text_desc",
-            e,
-            400,
-        )
+        for number, line in enumerate(card["lines"]):
+            draw_text(
+                canvas,
+                theme.rgb["muted_foreground"],
+                card["text_left"],
+                desc_top + number * round_half_up(DESCRIPTION_LINE * s),
+                line,
+                "text_desc",
+                e,
+                400,
+            )
         if "tray" in card:
             canvas.rounded(card["tray"], pill_radius, theme.rgb["card"])
     draw_controls(canvas, theme, e, settings, states, keyboard, header=False)

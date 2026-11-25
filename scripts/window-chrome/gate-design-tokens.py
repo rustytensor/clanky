@@ -1093,6 +1093,22 @@ def glyph_extent(a, box, bg):
     return top, bottom - top
 
 
+def first_line(a, region, bg):
+    """The region cut down to its first line of ink: the rows from the first inked row to the first blank row
+    after it, one row of margin each way (a wrapped description has a second line under the first)."""
+    import numpy as np
+
+    x0, y0, x1, y1 = region
+    inked = np.abs(a[y0:y1, x0:x1] - np.array(bg)).max(axis=2).max(axis=1) >= 12
+    rows = np.where(inked)[0]
+    if rows.size == 0:
+        return region
+    start = int(rows[0])
+    gaps = np.where(~inked[start:])[0]
+    end = start + int(gaps[0]) if gaps.size else y1 - y0
+    return (x0, y0 + max(start - 1, 0), x1, min(y0 + end + 1, y1))
+
+
 def card_corner_radius(a, card, inside, body, reach):
     """The radius of the first card's top-left corner: a circle fitted to the coverage of the card's edge colour
     over the page, the card's inside counted whole. The border is brighter than the fill, so an area measure would
@@ -1100,7 +1116,7 @@ def card_corner_radius(a, card, inside, body, reach):
     import numpy as np
 
     mid, y_mid = card[0] + card[2] // 2, card[1] + card[3] // 2
-    left, _ = pixels.walk(a, mid, y_mid, -1, 0, inside)
+    left, _ = pixels.walk(a, card[0] + 4, y_mid, -1, 0, inside)
     _, top = pixels.walk(a, mid, card[1] + 4, 0, -1, inside)
     edge = tuple(int(v) for v in a[y_mid, left])
     k = int(np.argmax([abs(p - q) for p, q in zip(edge, body)]))
@@ -1296,7 +1312,7 @@ def settings_checks(win, e):
         )
         description_glyph = first_glyph(
             a,
-            region(description),
+            first_line(a, region(description), interior),
             interior,
             e["cap_heights"]["text_desc"]["size_px"] * e["scale"],
         )

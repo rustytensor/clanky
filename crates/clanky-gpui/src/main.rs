@@ -41,6 +41,7 @@ mod pane;
 #[allow(dead_code)]
 mod popover;
 mod request_log;
+mod settings;
 // The controls and the window chrome use the rest of the table.
 #[allow(dead_code)]
 mod tokens;

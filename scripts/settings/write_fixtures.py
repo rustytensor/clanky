@@ -15,7 +15,7 @@ from PIL import Image
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from simulated_settings import SimSettingsWindow  # noqa: E402
+from simulated_settings import SimSettingsWindow
 
 SCALES = (1, 1.5)
 PAGES = ("General", "Appearance", "Terminal", "Editor", "Agents", "History", "Keys")

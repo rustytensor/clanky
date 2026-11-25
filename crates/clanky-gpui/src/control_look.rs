@@ -26,6 +26,8 @@ pub enum Kind {
     /// A search-and-pick list's row: the palette's results, the agent picker's tools.
     PaletteRow,
     Segment,
+    /// A value along a track (Settings' Opacity): a knob on a track of one look in every state.
+    Slider,
 }
 
 /// How a kind looks at rest: no fill or border of its own, an outline, a text field, or a switch.
@@ -35,6 +37,7 @@ enum Look {
     Outlined,
     Field,
     Switch,
+    Slider,
 }
 
 impl Kind {
@@ -55,6 +58,7 @@ impl Kind {
             Kind::ListRow => "list-row",
             Kind::PaletteRow => "palette-row",
             Kind::Segment => "segment",
+            Kind::Slider => "slider",
         }
     }
 
@@ -74,6 +78,7 @@ impl Kind {
             Kind::ListRow => t::ROW_HEIGHT,
             Kind::PaletteRow => t::PALETTE_ROW_HEIGHT,
             Kind::Segment => t::SEGMENT_HEIGHT,
+            Kind::Slider => t::SLIDER_HEIGHT,
         }
     }
 
@@ -90,6 +95,7 @@ impl Kind {
             Kind::Chip | Kind::MenuItem | Kind::IconButtonInline => t::RADIUS_SMALL,
             Kind::Segment => t::RADIUS_SEGMENT,
             Kind::Switch => t::RADIUS_SWITCH,
+            Kind::Slider => t::RADIUS_SLIDER,
         }
     }
 
@@ -135,6 +141,7 @@ impl Kind {
             Kind::ButtonSmall | Kind::Button | Kind::ButtonLarge | Kind::Chip => Look::Outlined,
             Kind::Field => Look::Field,
             Kind::Switch => Look::Switch,
+            Kind::Slider => Look::Slider,
             _ => Look::Ghost,
         }
     }
@@ -198,6 +205,8 @@ pub fn fill(
         } else {
             colors.accent
         }),
+        // The track keeps one look in every state, as the switch does.
+        (Look::Slider, _) => Some(colors.accent),
         (Look::Field, _) => None,
         // A button inside another control tints whatever lies under it.
         (_, State::Pressed) if kind == Kind::IconButtonInline => {
@@ -228,7 +237,10 @@ pub fn border(kind: Kind, state: State, checked: Option<bool>, colors: &Colors) 
         Some(colors.ring)
     } else if kind == Kind::Tab && checked == Some(true) {
         Some(with_alpha(colors.foreground, t::ACTIVE_TAB_RING))
-    } else if matches!(kind.look(), Look::Outlined | Look::Field | Look::Switch) {
+    } else if matches!(
+        kind.look(),
+        Look::Outlined | Look::Field | Look::Switch | Look::Slider
+    ) {
         Some(colors.input)
     } else {
         None
@@ -321,6 +333,7 @@ mod tests {
             (Kind::ListRow, "list-row", 24.0, 8.0),
             (Kind::PaletteRow, "palette-row", 36.0, 8.0),
             (Kind::Segment, "segment", 24.0, 6.0),
+            (Kind::Slider, "slider", 24.0, 12.0),
         ];
         for (kind, name, height, radius) in expected {
             assert_eq!(
@@ -393,6 +406,10 @@ mod tests {
                 fill(Kind::Switch, state, false, Some(false), &colors),
                 Some(accent)
             );
+            assert_eq!(
+                fill(Kind::Slider, state, false, None, &colors),
+                Some(accent)
+            );
         }
         // The active tab: the foreground at 7 % (0.07 x 255 = 17.85, so 18), with a 5 % ring (12.75, so 13).
         assert_eq!(
@@ -452,6 +469,7 @@ mod tests {
             Kind::ListRow,
             Kind::PaletteRow,
             Kind::Segment,
+            Kind::Slider,
         ];
         let taking: Vec<Kind> = all
             .into_iter()

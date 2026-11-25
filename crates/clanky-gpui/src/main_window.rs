@@ -39,6 +39,7 @@ mod drag;
 mod editors;
 mod find_bar;
 mod floating;
+mod settings_window;
 mod side_tabs;
 #[cfg(feature = "test-popover")]
 mod test_popover;
@@ -53,7 +54,9 @@ use crate::{
     palette::Palette,
     pane::{PaneEvent, PaneSetup, SharedInput, SharedTrace, TerminalPane},
     popover::Popover,
-    request_log, tokens as t,
+    request_log,
+    settings::{self, SettingsWindow},
+    tokens as t,
 };
 use agent_picker::AgentTools;
 use command_bar::{Chips, read_chips};
@@ -166,7 +169,11 @@ pub struct MainWindow {
     tab_groups: TabGroups,
     config_file: Option<PathBuf>,
     side: SideTabs,
+    /// The Settings window over this one, open or closed, with the settings file's store.
+    settings: SettingsWindow,
     _status: Task<()>,
+    /// Looks at the settings file for changes made outside the window.
+    _settings_poll: Task<()>,
     /// Draws a frame when the window gains or loses focus, which starts or stops the badges' animation.
     _activation: Subscription,
 }
@@ -217,6 +224,21 @@ impl MainWindow {
                 cx.background_executor().timer(STATUS_INTERVAL).await;
             }
         });
+        let settings_poll = cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(t::SETTINGS_POLL_MS))
+                    .await;
+                if this
+                    .update_in(cx, |this, _, cx| this.settings_poll(cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        setup.kit.record().declare_screen(settings::SCREEN);
+        let settings = SettingsWindow::new(setup.config_file.clone(), cx);
         let mut this = Self {
             client: setup.client,
             palette: setup.palette,
@@ -253,7 +275,9 @@ impl MainWindow {
             tab_groups: setup.tab_groups,
             config_file: setup.config_file,
             side: SideTabs::new(cx.focus_handle()),
+            settings,
             _status: status,
+            _settings_poll: settings_poll,
             _activation: cx.observe_window_activation(window, |_, _, cx| cx.notify()),
         };
         this.after_change(window, cx);
@@ -355,6 +379,11 @@ impl MainWindow {
             {
                 self.status.folders.insert(id, folder);
             }
+        }
+        // While Settings is open it keeps the keyboard; it gives it back to the pane when it closes.
+        if self.settings.is_open() {
+            cx.notify();
+            return;
         }
         if let Some(focus) = self
             .workspace
@@ -571,6 +600,11 @@ impl MainWindow {
 
     /// A window-wide shortcut from clanky-state's table, if this window handles it; the rest go to the pane.
     fn shortcut(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // Settings' keys first while it is open: it is a window of its own over this one.
+        if self.settings_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         // Typing in the side tabs' filter, before the keys the table names (Space has no chord of its own).
         if self.side_filter_key(event, window, cx) {
             cx.stop_propagation();
@@ -586,6 +620,11 @@ impl MainWindow {
         let Some(action) = action_for(chord) else {
             return;
         };
+        // The window's own commands wait while Settings is open over it, but Ctrl+F6 still reaches its controls;
+        // its other keys go to its controls.
+        if self.settings.is_open() && !self.popover.is_open() && action != Action::EnterControls {
+            return;
+        }
         match action {
             Action::EnterControls => {
                 let from = self.focused_pane(window, cx);
@@ -610,6 +649,7 @@ impl MainWindow {
                 }
             }
             Action::ToggleToolsPanel => self.toggle_tools(cx),
+            Action::ToggleSettings => self.toggle_settings(window, cx),
             _ => return,
         }
         cx.stop_propagation();
@@ -675,6 +715,7 @@ impl MainWindow {
             return bar
                 .child(div().flex_1())
                 .child(self.search_box(window, cx))
+                .child(self.settings_button(window, cx))
                 .child(self.kit.record().landmark("title-bar", 0))
                 .into_any_element();
         }
@@ -731,6 +772,7 @@ impl MainWindow {
         bar.child(self.kit.build(SCREEN, new_tab, window, cx))
             .child(div().flex_1())
             .child(self.search_box(window, cx))
+            .child(self.settings_button(window, cx))
             .child(self.kit.record().landmark("title-bar", 0))
             .into_any_element()
     }
@@ -990,6 +1032,7 @@ impl Render for MainWindow {
             .child(self.hairline(Axis::Rows, scale))
             .child(body)
             .child(self.status_line(scale))
+            .children(self.settings_layer(window, cx))
             .children(self.floating_layer(window, cx))
             .child(crate::popover::shadow_warmup())
             .child(Self::drag_listener(cx))

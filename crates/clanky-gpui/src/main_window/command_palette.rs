@@ -26,8 +26,8 @@ use crate::{
 
 /// The palette's name in the control record.
 const SCREEN: &str = "palette";
-/// The title bar's search box, a control of the main window.
-pub(super) const SEARCH_BOX_ID: u32 = 3;
+/// The title bar's search box, a control of the main window (3 is the Settings button beside it).
+pub(super) const SEARCH_BOX_ID: u32 = 4;
 /// The rows' control ids: this plus the row's place in the list.
 const FIRST_ROW_ID: u32 = 100;
 const ROWS: Group = Group::vertical("palette-rows");
@@ -54,6 +54,7 @@ fn icon_of(command: &Command) -> Icon {
         Command::SplitDown => Icon::SplitDown,
         Command::ClosePane => Icon::Close,
         Command::ToggleToolsPanel | Command::ToggleSideTabs => Icon::Sidebar,
+        Command::OpenSettings => Icon::Settings,
         Command::GoToTab(_) | Command::Run(_) => Icon::Terminal,
     }
 }
@@ -215,6 +216,7 @@ impl MainWindow {
             Command::ClosePane => self.act(window, cx, Self::close_pane),
             Command::ToggleToolsPanel => self.toggle_tools(cx),
             Command::ToggleSideTabs => self.toggle_side_tabs(cx),
+            Command::OpenSettings => self.open_settings(window, cx),
             Command::GoToTab(tab) => self.act(window, cx, move |this, _, _| this.select_tab(tab)),
             Command::Run(text) => self.act(window, cx, move |this, _, _| {
                 let pane = pane.ok_or("no pane had the keyboard to run the command in")?;

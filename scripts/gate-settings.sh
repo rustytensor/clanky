@@ -124,13 +124,19 @@ if ! grep -rqs '"error-banner"' crates/clanky-gpui/src; then
   exit 1
 fi
 binary=${CLANKY_GPUI_BIN:-target/release/clanky-gpui}
-for gate in gate-controls.py gate-design-tokens.py; do
-  status=0
-  args=(--settings --app "$binary")
-  [[ $gate != gate-controls.py ]] || args+=(--screens "$SCREENS")
-  output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/$gate" "${args[@]}" 2>&1) || status=$?
-  if ((status == 0)); then ok "$gate: $(tail -n 1 <<<"$output")"; else fail "$gate: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+# The controls gate runs one page at one scale per window: one window driven through every page slows down
+# until a run takes hours.
+IFS=, read -r -a screens <<<"$SCREENS"
+for scale in 1 1.5; do
+  for screen in "${screens[@]}"; do
+    status=0
+    output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/gate-controls.py" --settings --app "$binary" --scales "$scale" --screens "$screen" 2>&1) || status=$?
+    if ((status == 0)); then ok "gate-controls.py $screen @$scale: $(tail -n 1 <<<"$output")"; else fail "gate-controls.py $screen @$scale: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
+  done
 done
+status=0
+output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS flock "$GATE_LOCK" python3 "$CHROME/gate-design-tokens.py" --settings --app "$binary" 2>&1) || status=$?
+if ((status == 0)); then ok "gate-design-tokens.py: $(tail -n 1 <<<"$output")"; else fail "gate-design-tokens.py: $(grep '^FAIL' <<<"$output" | head -n 3 | tr '\n' ';')"; fi
 # Speed with two tabs, four panes and Settings open (the old window's numbers are in baseline.json).
 if bash scripts/terminal-pane/speed.sh "$binary" --scene settings --runs "$SPEED_RUNS" --out "$scratch/speed.json" >"$scratch/speed.log" 2>&1; then
   if verdict=$(python3 "$FLOATING/speed_verdict.py" "$scratch/speed.json" "$BASELINE"); then ok "speed: $verdict"; else fail "speed: $verdict"; fi

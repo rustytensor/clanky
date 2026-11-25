@@ -132,6 +132,10 @@ pub struct Control {
     leading: Option<AnyElement>,
     /// A field's text as typed, for the record.
     field_text: Option<String>,
+    /// A slider's value and range: `[value, min, max]`.
+    slider: Option<[f64; 3]>,
+    /// The control sits in a body that scrolls (a Settings page): the record says whether it is in view.
+    scrolls: bool,
 }
 
 impl Control {
@@ -161,7 +165,23 @@ impl Control {
             tab_row: false,
             leading: None,
             field_text: None,
+            slider: None,
+            scrolls: false,
         }
+    }
+
+    /// A slider's value within `min..=max`: the knob's place along the track, written to the record.
+    #[must_use]
+    pub fn slider(mut self, value: f64, min: f64, max: f64) -> Self {
+        self.slider = Some([value, min, max]);
+        self
+    }
+
+    /// The control lies in a body that scrolls, so the record writes whether its whole box is in view.
+    #[must_use]
+    pub fn scrolls(mut self) -> Self {
+        self.scrolls = true;
+        self
     }
 
     #[must_use]
@@ -320,6 +340,9 @@ pub struct Kit {
     /// The screen of the open popover, set while it is drawn: Tab, Shift+Tab and Ctrl+F6 then stay among its
     /// controls.
     trap: Rc<Cell<Option<&'static str>>>,
+    /// The trapped screen scrolls: Tab walks its controls in the order they were built, since their drawn boxes
+    /// move with the scroll and a control scrolled out above would sort before the screen's fixed header.
+    build_order: Rc<Cell<bool>>,
 }
 
 impl Kit {
@@ -332,6 +355,7 @@ impl Kit {
             tab_stops: Rc::default(),
             stops: Rc::default(),
             trap: Rc::default(),
+            build_order: Rc::default(),
         }
     }
 
@@ -348,6 +372,11 @@ impl Kit {
         self.colors = colors;
     }
 
+    /// Animations on or off, as the config's `animations` changes while the window is open.
+    pub fn set_motion(&mut self, motion: bool) {
+        self.motion = motion;
+    }
+
     /// Called at the start of every frame the window draws, before any control is built.
     pub fn begin_frame(&self) {
         self.record.begin_frame();
@@ -355,11 +384,20 @@ impl Kit {
         self.tab_stops.set(0);
         self.stops.borrow_mut().clear();
         self.trap.set(None);
+        self.build_order.set(false);
     }
 
     /// Keeps the keyboard's walk among one screen's controls for this frame: the open popover's.
     pub fn trap(&self, screen: &'static str) {
         self.trap.set(Some(screen));
+        self.build_order.set(false);
+    }
+
+    /// Keeps the keyboard's walk among the controls of a screen whose body scrolls, in the order they were built
+    /// (which is the screen's reading order however far it is scrolled).
+    pub fn trap_in_build_order(&self, screen: &'static str) {
+        self.trap.set(Some(screen));
+        self.build_order.set(true);
     }
 
     /// The box a control of the window was last drawn in, if Tab reaches it.
@@ -412,7 +450,9 @@ impl Kit {
                 (at.0, at.1, &stop.focus)
             })
             .collect();
-        placed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        if !self.build_order.get() {
+            placed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        }
         placed
             .into_iter()
             .map(|(_, _, focus)| focus.clone())
@@ -521,6 +561,8 @@ impl Kit {
             primary: control.primary,
             focus: Some(focus.clone()),
             field_text: control.field_text.clone(),
+            slider: control.slider,
+            scrolls: control.scrolls,
         };
         let mut control = control;
         let field_content = Inside {
@@ -580,6 +622,7 @@ impl Kit {
         body = match (kind, control.width) {
             (_, Some(width)) => body.w(px(width)),
             (Kind::Switch, None) => body.w(px(t::SWITCH_CONTROL_WIDTH)),
+            (Kind::Slider, None) => body.w(px(t::SETTINGS_SLIDER_WIDTH)),
             (Kind::IconButton | Kind::IconButtonInline, None) => body.w(px(height)),
             (Kind::MenuItem | Kind::ListRow | Kind::PaletteRow | Kind::Field, None) => {
                 body.w_full()
@@ -793,9 +836,9 @@ impl Kit {
                 .line_height(px(control.own_height()))
                 .relative()
                 .child(self.record.part(screen, control.id, Part::Label))
-        } else if kind == Kind::Field {
-            // A field's line fills the field inside its two one-device-pixel edges, as a tab's does, so the line's
-            // top, and so the baseline, is not left half a device pixel off at 1.5.
+        } else if matches!(kind, Kind::Field | Kind::Segment) {
+            // A field's or segment's line fills the control inside its two one-device-pixel edges, as a tab's does,
+            // so the line's top, and so the baseline, is not left off centre by the line height it would inherit.
             text(weight)
                 .line_height(px(control.own_height() - 2.0 * t::hairline(scale)))
                 .relative()
@@ -822,6 +865,9 @@ impl Kit {
         let height = control.own_height();
         if kind == Kind::Switch {
             return switch_knob(control.checked == Some(true), scale, colors);
+        }
+        if kind == Kind::Slider {
+            return slider_knob(control.slider, scale, colors);
         }
         let ink = if control.primary {
             colors.primary_foreground
@@ -1058,6 +1104,35 @@ fn switch_knob(on: bool, scale: f32, colors: &Colors) -> AnyElement {
                 .size(px(knob))
                 .rounded(px(knob / 2.0))
                 .bg(paint(ink, 1.0)),
+        )
+        .into_any_element()
+}
+
+/// A slider's knob: a circle `SPACE_2` in from the track's edge, at the value's place along the track, in the
+/// foreground.
+fn slider_knob(value: Option<[f64; 3]>, scale: f32, colors: &Colors) -> AnyElement {
+    let knob = t::SLIDER_HEIGHT - 2.0 * t::SPACE_2;
+    let share = value.map_or(0.0, |[value, min, max]| {
+        if max > min {
+            ((value - min) / (max - min)).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        }
+    });
+    let travel = t::SETTINGS_SLIDER_WIDTH - 2.0 * t::SPACE_2 - knob;
+    // The knob's left edge on a whole device pixel, as every edge is.
+    let left = ((t::SPACE_2 - t::hairline(scale) + share * travel) * scale).round() / scale;
+    div()
+        .relative()
+        .size_full()
+        .child(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(t::SPACE_2 - t::hairline(scale)))
+                .size(px(knob))
+                .rounded(px(knob / 2.0))
+                .bg(paint(colors.foreground, 1.0)),
         )
         .into_any_element()
 }

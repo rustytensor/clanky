@@ -87,6 +87,7 @@ pub enum Faults {
     CloseDropsPending,
     SideWidth,
     TabSwitchUnsaved,
+    SettingsButtonDead,
 }
 
 impl Faults {
@@ -106,6 +107,7 @@ impl Faults {
             "close-drops-pending" => Self::CloseDropsPending,
             "side-width" => Self::SideWidth,
             "tab-switch-unsaved" => Self::TabSwitchUnsaved,
+            "settings-button-dead" => Self::SettingsButtonDead,
             _ => Self::None,
         }
     }
@@ -186,6 +188,11 @@ impl Faults {
         self == Self::TabSwitchUnsaved
     }
 
+    /// The title bar's Settings button that draws as always but does nothing when clicked.
+    pub fn settings_button_dead(self) -> bool {
+        self == Self::SettingsButtonDead
+    }
+
     fn hit(self, painted: DeviceBox) -> DeviceBox {
         if self.hit_larger() {
             let grow = HIT_LARGER_DEVICE_PX;
@@ -246,6 +253,10 @@ pub struct ControlSpec {
     pub focus: Option<FocusHandle>,
     /// A field's text as typed now; written as `field_text` for fields only.
     pub field_text: Option<String>,
+    /// A slider's `[value, min, max]`, written as `value`, `min` and `max`.
+    pub slider: Option<[f64; 3]>,
+    /// The control lies in its screen's scrolling body (see [`ControlRecord::screen_body`]).
+    pub scrolls: bool,
 }
 
 /// One control as measured in the frame being drawn.
@@ -270,6 +281,10 @@ struct Frame {
     landmark_fields: BTreeMap<(&'static str, u32), serde_json::Map<String, Value>>,
     /// Each open popover's `popover` object, by the screen it belongs to.
     popovers: BTreeMap<&'static str, Value>,
+    /// The box of a screen's scrolling body: its controls that scroll are `visible` only inside it.
+    bodies: BTreeMap<&'static str, DeviceBox>,
+    /// Further fields of a screen's line (Settings' `page` and `scroll`).
+    screen_fields: BTreeMap<&'static str, serde_json::Map<String, Value>>,
     keyboard: bool,
     scale: f32,
 }
@@ -471,6 +486,60 @@ impl ControlRecord {
                 .landmark_fields
                 .insert((name, index), fields);
         }
+    }
+
+    /// The words a landmark's line carries (`text`), whether it is measured on screen or written absent.
+    pub fn set_landmark_text(&self, name: &'static str, index: u32, text: String) {
+        if let Some(writer) = &self.0 {
+            writer
+                .borrow_mut()
+                .frame
+                .landmark_texts
+                .insert((name, index), text);
+        }
+    }
+
+    /// Writes a screen's line from the first frame on, with no controls until the screen draws some, so a gate sees
+    /// the screen closed before it ever opens.
+    pub fn declare_screen(&self, screen: &'static str) {
+        if let Some(writer) = &self.0 {
+            writer.borrow_mut().screens.insert(screen);
+        }
+    }
+
+    /// Fields a screen's line carries in this frame, next to its controls.
+    pub fn set_screen_fields(&self, screen: &'static str, fields: serde_json::Map<String, Value>) {
+        if let Some(writer) = &self.0 {
+            writer
+                .borrow_mut()
+                .frame
+                .screen_fields
+                .insert(screen, fields);
+        }
+    }
+
+    /// A measuring child for a screen's scrolling body: place it, absolute and full size, inside the element that
+    /// clips the body. Every control of the screen is then written with `visible`: true for a control that does not
+    /// scroll, and for one that does only while its whole box lies inside the body.
+    pub fn screen_body(&self, screen: &'static str) -> AnyElement {
+        let Some(writer) = self.0.clone() else {
+            return div().into_any_element();
+        };
+        let overlay = canvas(
+            |_, _, _| (),
+            move |bounds, (), window, _| {
+                let measured = device_box(logical_of(bounds), window.scale_factor());
+                writer.borrow_mut().frame.bodies.insert(screen, measured);
+            },
+        )
+        .size_full();
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(overlay)
+            .into_any_element()
     }
 
     /// A landmark not on screen in this frame: written as an empty box at the window's corner, unless something drawn
@@ -704,6 +773,14 @@ impl Writer {
                 if let Some(text) = &spec.field_text {
                     line["field_text"] = json!(text);
                 }
+                if let Some([value, min, max]) = spec.slider {
+                    line["value"] = json!(value);
+                    line["min"] = json!(min);
+                    line["max"] = json!(max);
+                }
+                if let Some(body) = frame.bodies.get(screen) {
+                    line["visible"] = json!(!spec.scrolls || inside(entry.painted, *body));
+                }
                 line
             })
             .collect();
@@ -712,12 +789,26 @@ impl Writer {
             .iter()
             .find(|entry| entry.spec.screen == screen && entry.focused)
             .map(|entry| entry.spec.id);
-        json!({
+        let mut line = json!({
             "record": "screen", "screen": screen, "scale": frame.scale, "focus": focus,
             "keyboard": frame.keyboard, "popover": frame.popovers.get(screen).cloned().unwrap_or(Value::Null),
             "controls": controls,
-        })
+        });
+        if let Some(fields) = frame.screen_fields.get(screen) {
+            for (key, value) in fields {
+                line[key.as_str()] = value.clone();
+            }
+        }
+        line
     }
+}
+
+/// Whether a box lies wholly inside another.
+fn inside(inner: DeviceBox, outer: DeviceBox) -> bool {
+    inner[0] >= outer[0]
+        && inner[1] >= outer[1]
+        && inner[0] + inner[2] <= outer[0] + outer[2]
+        && inner[1] + inner[3] <= outer[1] + outer[3]
 }
 
 #[cfg(test)]
@@ -834,6 +925,8 @@ mod tests {
             primary: false,
             focus: None,
             field_text: None,
+            slider: None,
+            scrolls: false,
         }
     }
 
@@ -902,6 +995,69 @@ mod tests {
             .write_changes()
             .expect("writing to memory");
         assert_eq!(sink.lines().len(), 3, "a changed hit box is written again");
+    }
+
+    #[test]
+    fn a_settings_line_carries_its_page_scroll_slider_and_what_is_in_view() {
+        let sink = Sink::default();
+        let record = record_into(&sink);
+        let writer = record.0.as_ref().expect("the record is on");
+        {
+            let mut writer = writer.borrow_mut();
+            writer.frame.scale = 1.0;
+            writer.screens.insert("settings");
+            // The body from y 44 to 600; a header control above it, a slider inside it, a switch below it.
+            writer.frame.bodies.insert("settings", [0, 44, 704, 556]);
+            let mut fields = serde_json::Map::new();
+            fields.insert("page".into(), json!("Appearance"));
+            writer.frame.screen_fields.insert("settings", fields);
+            for (id, kind, painted, scrolls, slider) in [
+                (10, "segment", [32, 10, 66, 24], false, None),
+                (
+                    205,
+                    "slider",
+                    [500, 300, 160, 24],
+                    true,
+                    Some([0.8, 0.5, 1.0]),
+                ),
+                (206, "switch", [620, 590, 40, 24], true, None),
+            ] {
+                let mut line = spec(id, "Row");
+                line.screen = "settings";
+                line.kind = kind;
+                line.scrolls = scrolls;
+                line.slider = slider;
+                writer.frame.controls.push(Entry {
+                    spec: line,
+                    painted,
+                    hit: painted,
+                    state: "rest",
+                    focused: false,
+                });
+            }
+        }
+        writer
+            .borrow_mut()
+            .write_changes()
+            .expect("writing to memory");
+        let lines = sink.lines();
+        let line = lines
+            .iter()
+            .find(|line| line["screen"] == "settings")
+            .expect("a settings line");
+        assert_eq!(line["page"], "Appearance");
+        let controls = line["controls"].as_array().expect("a list of controls");
+        let visible: Vec<&Value> = controls.iter().map(|c| &c["visible"]).collect();
+        assert_eq!(visible, [&json!(true), &json!(true), &json!(false)]);
+        assert_eq!(
+            (
+                &controls[1]["value"],
+                &controls[1]["min"],
+                &controls[1]["max"]
+            ),
+            (&json!(0.8), &json!(0.5), &json!(1.0))
+        );
+        assert_eq!(controls[0].get("value"), None);
     }
 
     #[test]

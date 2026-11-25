@@ -69,7 +69,7 @@ Pick one for dark and one for light, and Clanky follows your system. Save, impor
 - **Tabs and splits.** Ctrl+Shift+T opens a tab; Ctrl+Shift+D and Ctrl+Shift+E split right and down.
 - **Side tabs.** Tabs along the top, or stacked down the left (`tab_style` vertical): each row shows which agent or
   program runs there, whether it is working, needs you, finished or failed, and its branch, grouped by project.
-  Ctrl+Shift+P, "Switch to side tabs" switches and remembers it. [More](docs/config.md).
+  Ctrl+Shift+P, "Switch to side tabs", or Settings, Appearance, Tabs switches and remembers it. [More](docs/config.md).
 - **Sessions that survive.** A background server keeps your shells running when you close the window. Reopen it to reattach, or attach over SSH with `clanky attach HOST`.
 - **A command palette.** Ctrl+Shift+P runs any action, or types a command into the focused pane.
 - **Start an agent in a pane.** The Agent button or Ctrl+Shift+G opens Claude Code, Codex, Pi or any tool you configure in a split beside you, with agent access for that pane only; also `clanky agent NAME`. [More](docs/agent-pane.md).
